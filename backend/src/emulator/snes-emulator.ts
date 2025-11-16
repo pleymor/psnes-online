@@ -1,25 +1,18 @@
 import { EventEmitter } from 'events';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
+
+// @ts-ignore - snes9x-next and adm-zip don't have ES module exports
+const require = createRequire(import.meta.url);
+const AdmZip = require('adm-zip');
+const snes9xCore = require('snes9x-next');
 
 /**
- * SNES Emulator Wrapper
+ * SNES Emulator Wrapper using snes9x-next (libretro core compiled to WASM)
  *
- * This is a Node.js wrapper for SNES9x emulation.
- *
- * IMPLEMENTATION OPTIONS:
- *
- * 1. WebAssembly + VM Context (Current - Lightweight)
- *    - Use WASM in Node.js VM
- *    - Requires some browser API polyfills
- *
- * 2. Native Binary (Recommended for Production)
- *    - Use snes9x native binary via child_process
- *    - Best performance, lowest latency
- *
- * 3. Headless Browser (Heavy but works)
- *    - Use Puppeteer to run emulator in Chrome
- *    - High resource usage
+ * This implementation uses the snes9x-next npm package, which is a
+ * libretro emulator core compiled into JavaScript/WebAssembly.
  */
 
 export interface EmulatorConfig {
@@ -55,21 +48,6 @@ export interface ControllerState {
   select: boolean;
 }
 
-const SNES_BUTTON_MAP = {
-  up: 0x0001,
-  down: 0x0002,
-  left: 0x0004,
-  right: 0x0008,
-  a: 0x0080,
-  b: 0x0100,
-  x: 0x0040,
-  y: 0x0200,
-  l: 0x0020,
-  r: 0x0010,
-  start: 0x1000,
-  select: 0x2000
-};
-
 export class SNESEmulator extends EventEmitter {
   private romPath: string;
   private running: boolean = false;
@@ -81,9 +59,13 @@ export class SNESEmulator extends EventEmitter {
   // Controller states for port 1 and 2
   private controllerStates: Map<number, ControllerState> = new Map();
 
-  // Emulator state (placeholder for actual emulator instance)
+  // Emulator state (libretro core instance)
   private emulatorCore: any = null;
   private romData: Uint8Array | null = null;
+
+  // Video and audio buffers
+  private currentVideoFrame: VideoFrame | null = null;
+  private audioBuffer: Float32Array[] = [];
 
   constructor(config: EmulatorConfig) {
     super();
@@ -99,26 +81,203 @@ export class SNESEmulator extends EventEmitter {
   async initialize(): Promise<void> {
     try {
       // Load ROM file
-      this.romData = await fs.readFile(this.romPath);
-      console.log(`Loaded ROM: ${path.basename(this.romPath)} (${this.romData.length} bytes)`);
+      let rawData = await fs.readFile(this.romPath);
+      console.log(`Loaded file: ${path.basename(this.romPath)} (${rawData.length} bytes)`);
 
-      // TODO: Initialize actual emulator core here
-      // For now, we'll use a mock implementation that generates test patterns
+      // Check if it's a ZIP file and extract if needed
+      const ext = path.extname(this.romPath).toLowerCase();
+      if (ext === '.zip') {
+        console.log('Extracting ROM from ZIP archive...');
+        const zip = new AdmZip(rawData);
+        const zipEntries = zip.getEntries();
 
-      this.emulatorCore = {
-        loaded: true,
-        frame: 0
-      };
+        // Find first ROM file in ZIP
+        const romEntry = zipEntries.find(entry => {
+          const entryExt = path.extname(entry.entryName).toLowerCase();
+          return ['.smc', '.sfc', '.fig', '.swc', '.mgd'].includes(entryExt);
+        });
 
-      console.log('SNES Emulator initialized (MOCK MODE)');
-      console.log('⚠️  To use real emulation, implement one of:');
-      console.log('   1. Native snes9x binary integration');
-      console.log('   2. WebAssembly core with proper VM context');
-      console.log('   3. Headless browser approach');
+        if (!romEntry) {
+          throw new Error('No ROM file found in ZIP archive');
+        }
+
+        const extractedData = zip.readFile(romEntry);
+        if (!extractedData) {
+          throw new Error('Failed to extract ROM from ZIP');
+        }
+        this.romData = extractedData;
+        console.log(`Extracted ROM: ${romEntry.entryName} (${this.romData.length} bytes)`);
+      } else {
+        this.romData = rawData;
+        console.log(`Using ROM file directly (${this.romData.length} bytes)`);
+      }
+
+      // Use the libretro core directly
+      this.emulatorCore = snes9xCore;
+
+      // Set up ALL callbacks BEFORE calling init()
+
+      // Set up environment callback
+      try {
+        const environmentCallback = (cmd: number, data: any) => {
+          // Command 10: SET_PIXEL_FORMAT
+          if (cmd === 10) {
+            return true;
+          }
+
+          // Command 27: GET_LOG_INTERFACE - provide a logging function
+          if (cmd === 27) {
+            return (level: number, ...args: any[]) => {
+              const levelNames = ['DEBUG', 'INFO', 'WARN', 'ERROR'];
+              const levelName = levelNames[level] || 'LOG';
+              if (level >= 2) { // Only log warnings and errors
+                console.log(`[SNES9x ${levelName}]`, ...args);
+              }
+            };
+          }
+
+          return false;
+        };
+
+        this.emulatorCore.set_environment(environmentCallback);
+      } catch (e) {
+        console.error('Error setting environment callback:', e);
+        throw e;
+      }
+
+      // Set up video callback BEFORE init
+      try {
+        this.emulatorCore.set_video_refresh((data: Uint16Array, width: number, height: number, pitch: number) => {
+          if (!data || data.length === 0) {
+            console.log('Video callback received null or empty data');
+            return;
+          }
+
+          // data is Uint16Array in RGB565 format
+          // Convert to RGBA for the frontend
+          const pixelCount = width * height;
+          const rgbaData = new Uint8Array(pixelCount * 4);
+
+          for (let i = 0; i < pixelCount; i++) {
+            const pixel = data[i];
+
+            // RGB565 format: RRRR RGGG GGGB BBBB
+            const r = ((pixel >> 11) & 0x1F) << 3; // 5 bits red
+            const g = ((pixel >> 5) & 0x3F) << 2;   // 6 bits green
+            const b = (pixel & 0x1F) << 3;          // 5 bits blue
+
+            rgbaData[i * 4 + 0] = r | (r >> 5);     // Red with bit replication
+            rgbaData[i * 4 + 1] = g | (g >> 6);     // Green with bit replication
+            rgbaData[i * 4 + 2] = b | (b >> 5);     // Blue with bit replication
+            rgbaData[i * 4 + 3] = 255;              // Alpha
+          }
+
+          this.currentVideoFrame = {
+            width: width,
+            height: height,
+            data: rgbaData
+          };
+        });
+      } catch (e) {
+        console.error('Error setting video callback:', e);
+        throw e;
+      }
+
+      // Set up audio callbacks BEFORE init
+      try {
+        this.emulatorCore.set_audio_sample((left: number, right: number) => {
+          // Single sample - convert to normalized float
+          this.audioBuffer.push(new Float32Array([left / 32768.0, right / 32768.0]));
+        });
+      } catch (e) {
+        console.error('Error setting audio sample callback:', e);
+        throw e;
+      }
+
+      try {
+        this.emulatorCore.set_audio_sample_batch((left: Float32Array, right: Float32Array, frames: number) => {
+          if (!left || !right || frames <= 0) return;
+
+          // Interleave left and right channels
+          const interleavedSamples = new Float32Array(frames * 2);
+          for (let i = 0; i < frames; i++) {
+            interleavedSamples[i * 2] = left[i];
+            interleavedSamples[i * 2 + 1] = right[i];
+          }
+
+          this.audioBuffer.push(interleavedSamples);
+        });
+      } catch (e) {
+        console.error('Error setting audio batch callback:', e);
+        throw e;
+      }
+
+      // Set up input callbacks BEFORE init
+      try {
+        this.emulatorCore.set_input_poll(() => {
+          // Poll input
+        });
+      } catch (e) {
+        console.error('Error setting input poll callback:', e);
+        throw e;
+      }
+
+      try {
+        this.emulatorCore.set_input_state((port: number, _device: number, _index: number, id: number) => {
+          const state = this.controllerStates.get(port + 1);
+          if (!state) return 0;
+          return this.getButtonState(state, id) ? 1 : 0;
+        });
+      } catch (e) {
+        console.error('Error setting input state callback:', e);
+        throw e;
+      }
+
+      // NOW initialize the core (after all callbacks are set)
+      try {
+        this.emulatorCore.init();
+      } catch (e) {
+        console.error('Error initializing core:', e);
+        throw e;
+      }
+
+      // Load the ROM
+      try {
+        const loaded = this.emulatorCore.load_game(this.romData);
+        if (!loaded) {
+          throw new Error('Failed to load ROM into emulator core');
+        }
+      } catch (e) {
+        console.error('Error loading ROM:', e);
+        throw e;
+      }
+
+      console.log('✅ SNES Emulator initialized with real snes9x-next core');
 
     } catch (error) {
       throw new Error(`Failed to initialize emulator: ${error}`);
     }
+  }
+
+  private getButtonState(state: ControllerState, buttonId: number): boolean {
+    // Map libretro button IDs to our controller state
+    const buttonMap: { [key: number]: keyof ControllerState } = {
+      0: 'b',      // RETRO_DEVICE_ID_JOYPAD_B
+      1: 'y',      // RETRO_DEVICE_ID_JOYPAD_Y
+      2: 'select', // RETRO_DEVICE_ID_JOYPAD_SELECT
+      3: 'start',  // RETRO_DEVICE_ID_JOYPAD_START
+      4: 'up',     // RETRO_DEVICE_ID_JOYPAD_UP
+      5: 'down',   // RETRO_DEVICE_ID_JOYPAD_DOWN
+      6: 'left',   // RETRO_DEVICE_ID_JOYPAD_LEFT
+      7: 'right',  // RETRO_DEVICE_ID_JOYPAD_RIGHT
+      8: 'a',      // RETRO_DEVICE_ID_JOYPAD_A
+      9: 'x',      // RETRO_DEVICE_ID_JOYPAD_X
+      10: 'l',     // RETRO_DEVICE_ID_JOYPAD_L
+      11: 'r'      // RETRO_DEVICE_ID_JOYPAD_R
+    };
+
+    const button = buttonMap[buttonId];
+    return button ? state[button] : false;
   }
 
   async start(): Promise<void> {
@@ -149,91 +308,38 @@ export class SNESEmulator extends EventEmitter {
   private runFrame(): void {
     if (!this.emulatorCore) return;
 
-    // Encode controller inputs
-    const input1 = this.encodeControllerState(1);
-    const input2 = this.encodeControllerState(2);
+    // Clear buffers
+    this.currentVideoFrame = null;
+    this.audioBuffer = [];
 
-    // TODO: Pass inputs to actual emulator
-    // emulatorCore.setInput(1, input1);
-    // emulatorCore.setInput(2, input2);
+    // Run one frame of emulation
+    // This will trigger the video_refresh and audio callbacks
+    this.emulatorCore.run();
 
-    // TODO: Run emulator for one frame
-    // const result = emulatorCore.runFrame();
+    // Emit video frame if we got one
+    if (this.currentVideoFrame) {
+      this.emit('video', this.currentVideoFrame);
+    }
 
-    // For now, generate mock video and audio data
-    this.emulatorCore.frame++;
-
-    const videoFrame = this.generateMockVideoFrame();
-    const audioSamples = this.generateMockAudioSamples();
-
-    // Emit to listeners
-    this.emit('video', videoFrame);
-    this.emit('audio', audioSamples);
-  }
-
-  private generateMockVideoFrame(): VideoFrame {
-    // SNES native resolution
-    const width = 256;
-    const height = 224;
-
-    // Create a test pattern (color bars)
-    const data = new Uint8Array(width * height * 4);
-    const frame = this.emulatorCore.frame;
-
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const i = (y * width + x) * 4;
-
-        // Animated color bars
-        const barWidth = width / 8;
-        const bar = Math.floor(x / barWidth);
-        const colors = [
-          [255, 255, 255], // White
-          [255, 255, 0],   // Yellow
-          [0, 255, 255],   // Cyan
-          [0, 255, 0],     // Green
-          [255, 0, 255],   // Magenta
-          [255, 0, 0],     // Red
-          [0, 0, 255],     // Blue
-          [0, 0, 0]        // Black
-        ];
-
-        const color = colors[bar] || [128, 128, 128];
-        const brightness = 0.8 + 0.2 * Math.sin(frame / 30 + bar);
-
-        data[i] = color[0] * brightness;     // R
-        data[i + 1] = color[1] * brightness; // G
-        data[i + 2] = color[2] * brightness; // B
-        data[i + 3] = 255;                   // A
+    // Emit audio samples if we got any
+    if (this.audioBuffer.length > 0) {
+      // Combine all audio buffers
+      const totalSamples = this.audioBuffer.reduce((sum, buf) => sum + buf.length, 0);
+      const combinedAudio = new Float32Array(totalSamples);
+      let offset = 0;
+      for (const buf of this.audioBuffer) {
+        combinedAudio.set(buf, offset);
+        offset += buf.length;
       }
+
+      const audioSamples: AudioSamples = {
+        sampleRate: this.audioSampleRate,
+        channels: 2,
+        data: combinedAudio
+      };
+
+      this.emit('audio', audioSamples);
     }
-
-    return { width, height, data };
-  }
-
-  private generateMockAudioSamples(): AudioSamples {
-    // Generate ~735 samples per frame at 44.1kHz
-    // Or ~533 samples at 32kHz
-    const samplesPerFrame = Math.floor(this.audioSampleRate / 60);
-    const data = new Float32Array(samplesPerFrame * 2); // Stereo
-
-    // Generate a simple tone (440 Hz A note) for testing
-    const frequency = 440;
-    const frame = this.emulatorCore.frame;
-
-    for (let i = 0; i < samplesPerFrame; i++) {
-      const t = (frame * samplesPerFrame + i) / this.audioSampleRate;
-      const sample = Math.sin(2 * Math.PI * frequency * t) * 0.1; // Low volume
-
-      data[i * 2] = sample;     // Left
-      data[i * 2 + 1] = sample; // Right
-    }
-
-    return {
-      sampleRate: this.audioSampleRate,
-      channels: 2,
-      data
-    };
   }
 
   setInput(port: number, state: ControllerState): void {
@@ -242,21 +348,6 @@ export class SNESEmulator extends EventEmitter {
     }
 
     this.controllerStates.set(port, { ...state });
-  }
-
-  private encodeControllerState(port: number): number {
-    const state = this.controllerStates.get(port);
-    if (!state) return 0;
-
-    let encoded = 0;
-
-    for (const [button, value] of Object.entries(state)) {
-      if (value && button in SNES_BUTTON_MAP) {
-        encoded |= SNES_BUTTON_MAP[button as keyof typeof SNES_BUTTON_MAP];
-      }
-    }
-
-    return encoded;
   }
 
   pause(): void {
@@ -277,7 +368,15 @@ export class SNESEmulator extends EventEmitter {
       this.frameInterval = undefined;
     }
 
-    // TODO: Cleanup emulator core
+    // Cleanup emulator core
+    if (this.emulatorCore) {
+      try {
+        this.emulatorCore.unload_game();
+        this.emulatorCore.deinit();
+      } catch (error) {
+        console.error('Error cleaning up emulator core:', error);
+      }
+    }
 
     this.emit('stopped');
     console.log('Emulator stopped');
@@ -288,11 +387,15 @@ export class SNESEmulator extends EventEmitter {
       throw new Error('Cannot save state: emulator not running');
     }
 
-    // TODO: Get save state from actual emulator
-    // return emulatorCore.saveState();
+    try {
+      // Serialize the current state
+      const stateData = this.emulatorCore.serialize();
 
-    // Mock save state
-    return new Uint8Array([0x53, 0x4E, 0x45, 0x53]); // "SNES" magic bytes
+      console.log(`Saved state (${stateData.length} bytes)`);
+      return new Uint8Array(stateData);
+    } catch (error) {
+      throw new Error(`Failed to save state: ${error}`);
+    }
   }
 
   async loadState(stateData: Uint8Array): Promise<void> {
@@ -300,11 +403,19 @@ export class SNESEmulator extends EventEmitter {
       throw new Error('Cannot load state: emulator not running');
     }
 
-    // TODO: Load save state into actual emulator
-    // emulatorCore.loadState(stateData);
+    try {
+      // Load the save state
+      const result = this.emulatorCore.unserialize(stateData);
 
-    console.log(`Loaded save state (${stateData.length} bytes)`);
-    this.emit('stateLoaded');
+      if (!result) {
+        throw new Error('Failed to load state data');
+      }
+
+      console.log(`Loaded save state (${stateData.length} bytes)`);
+      this.emit('stateLoaded');
+    } catch (error) {
+      throw new Error(`Failed to load state: ${error}`);
+    }
   }
 
   isRunning(): boolean {

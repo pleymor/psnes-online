@@ -83,9 +83,32 @@
   function playAudio(audio: any) {
     if (!audioContext) return;
 
+    // Convert audio data to Float32Array if needed
+    let audioData: Float32Array;
+    if (audio.data instanceof Float32Array) {
+      audioData = audio.data;
+    } else if (audio.data instanceof ArrayBuffer) {
+      audioData = new Float32Array(audio.data);
+    } else if (Array.isArray(audio.data)) {
+      audioData = new Float32Array(audio.data);
+    } else if (audio.data.data) {
+      // Socket.IO might wrap it in an object
+      audioData = new Float32Array(audio.data.data);
+    } else {
+      console.warn('Unknown audio data format:', typeof audio.data);
+      return;
+    }
+
+    // Check if we have valid audio data
+    const numFrames = audioData.length / audio.channels;
+    if (numFrames <= 0 || !isFinite(numFrames)) {
+      console.warn('Invalid audio frame count:', numFrames);
+      return;
+    }
+
     const audioBuffer = audioContext.createBuffer(
       audio.channels,
-      audio.data.length / audio.channels,
+      numFrames,
       audio.sampleRate
     );
 
@@ -93,7 +116,7 @@
     for (let channel = 0; channel < audio.channels; channel++) {
       const channelData = audioBuffer.getChannelData(channel);
       for (let i = 0; i < channelData.length; i++) {
-        channelData[i] = audio.data[i * audio.channels + channel];
+        channelData[i] = audioData[i * audio.channels + channel];
       }
     }
 

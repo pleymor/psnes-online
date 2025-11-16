@@ -62,7 +62,7 @@ export class EmulatorManager extends EventEmitter {
       const audio: AudioFrame = {
         sampleRate: audioSamples.sampleRate,
         channels: audioSamples.channels,
-        data: audioSamples.data
+        data: audioSamples.data.buffer
       };
       this.emit(`audio:${roomId}`, audio);
     });

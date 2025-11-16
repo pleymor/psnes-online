@@ -63,7 +63,7 @@ export interface VideoFrame {
 export interface AudioFrame {
   sampleRate: number;
   channels: number;
-  data: Float32Array;
+  data: ArrayBuffer;
 }
 
 declare module 'express-session' {
