@@ -1,0 +1,68 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  googleId      String   @unique
+  email         String   @unique
+  displayName   String
+  avatar        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  games         Game[]
+  friendshipsInitiated Friendship[] @relation("FriendshipInitiator")
+  friendshipsReceived  Friendship[] @relation("FriendshipReceiver")
+}
+
+model Friendship {
+  id         String   @id @default(uuid())
+  status     String   // 'pending', 'accepted', 'rejected'
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  initiatorId String
+  receiverId  String
+
+  initiator User @relation("FriendshipInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
+  receiver  User @relation("FriendshipReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([initiatorId, receiverId])
+}
+
+model Game {
+  id          String   @id @default(uuid())
+  title       String
+  filename    String
+  romPath     String
+  coverUrl    String?
+  uploadedAt  DateTime @default(now())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  saves       Save[]
+}
+
+model Save {
+  id          String   @id @default(uuid())
+  name        String
+  slotNumber  Int
+  data        Bytes
+  screenshot  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  gameId      String
+  game        Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, slotNumber])
+}

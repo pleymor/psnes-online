@@ -1,0 +1,15 @@
+{
+  "name": "psnes",
+  "version": "1.0.0",
+  "description": "Multiplayer SNES emulator webapp",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "docker-compose up",
+    "build": "npm run build --workspaces",
+    "clean": "npm run clean --workspaces"
+  }
+}
