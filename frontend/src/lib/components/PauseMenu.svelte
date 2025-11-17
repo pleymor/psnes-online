@@ -224,7 +224,7 @@
     background: #2a2a2a;
     border-radius: 12px;
     padding: 2rem;
-    max-width: 400px;
+    max-width: 900px;
     width: 90%;
   }
 

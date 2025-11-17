@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { page } from '$app/stores';
   import { browser } from '$app/environment';
   import { socket } from '$lib/api/socket';
   import { goto } from '$app/navigation';
@@ -10,9 +9,10 @@
   import PauseMenu from '$lib/components/PauseMenu.svelte';
   import type { Room, KeyConfig } from '$lib/types';
 
+  export let data;
+
   let room: Room | null = null;
   let gameStarted = false;
-  let isPaused = false;
   let showPauseMenu = false;
   let userKeyConfig: KeyConfig = {
     up: 'ArrowUp',
@@ -29,7 +29,7 @@
     select: 'ShiftRight'
   };
 
-  $: roomId = $page.params.id as string;
+  $: roomId = data.roomId;
 
   // Get current user's key configuration - prefer user's personal config, then room config, then defaults
   $: currentPlayer = room?.players.find(p => p.userId === $user?.id);
@@ -73,18 +73,12 @@
       }
     });
 
-    $socket.on('game:paused', () => {
-      isPaused = true;
-    });
-
     $socket.on('game:resumed', () => {
-      isPaused = false;
       showPauseMenu = false;
     });
 
     $socket.on('game:stopped', () => {
       gameStarted = false;
-      isPaused = false;
       showPauseMenu = false;
       // Restore scrolling
       if (browser) {
@@ -103,7 +97,6 @@
       $socket.emit('room:leave', { roomId });
       $socket.off('room:updated');
       $socket.off('game:started');
-      $socket.off('game:paused');
       $socket.off('game:resumed');
       $socket.off('game:stopped');
     }

@@ -361,13 +361,14 @@
 
   .controls-grid {
     display: grid;
-    gap: 0.75rem;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem 2rem;
   }
 
   .control-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
+    grid-template-columns: 120px 1fr;
+    gap: 0.75rem;
     align-items: flex-start;
   }
 
@@ -508,5 +509,11 @@
   .actions button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  @media (max-width: 768px) {
+    .controls-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
