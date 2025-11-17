@@ -13,6 +13,7 @@
   let isLoading = false;
   let isSaving = false;
   let errorMessage = '';
+  let gamepadPollInterval: number | null = null;
 
   // Create a working copy of the config
   let workingConfig: KeyConfig = { ...currentConfig };
@@ -35,6 +36,20 @@
 
   // Format key code for display
   function formatKeyDisplay(keyCode: string): string {
+    // Gamepad button
+    if (keyCode.startsWith('Gamepad')) {
+      const match = keyCode.match(/Gamepad(\d+)Button(\d+)/);
+      if (match) {
+        return `🎮 Controller ${parseInt(match[1]) + 1} Button ${match[2]}`;
+      }
+      const axisMatch = keyCode.match(/Gamepad(\d+)Axis(\d+)(Plus|Minus)/);
+      if (axisMatch) {
+        return `🎮 Controller ${parseInt(axisMatch[1]) + 1} Axis ${axisMatch[2]} ${axisMatch[3]}`;
+      }
+      return keyCode;
+    }
+
+    // Keyboard keys
     if (keyCode.startsWith('Key')) {
       return keyCode.replace('Key', '');
     }
@@ -58,12 +73,62 @@
     currentButton = button;
     isListening = true;
     errorMessage = '';
+
+    // Start polling gamepads
+    startGamepadPolling();
   }
 
   // Cancel rebinding
   function cancelRebind() {
     currentButton = null;
     isListening = false;
+    stopGamepadPolling();
+  }
+
+  // Poll gamepad state
+  function startGamepadPolling() {
+    stopGamepadPolling(); // Clear any existing interval
+
+    gamepadPollInterval = window.setInterval(() => {
+      const gamepads = navigator.getGamepads();
+
+      for (let i = 0; i < gamepads.length; i++) {
+        const gamepad = gamepads[i];
+        if (!gamepad) continue;
+
+        // Check buttons
+        for (let j = 0; j < gamepad.buttons.length; j++) {
+          if (gamepad.buttons[j].pressed) {
+            handleGamepadInput(`Gamepad${i}Button${j}`);
+            return;
+          }
+        }
+
+        // Check axes (for d-pad on some controllers)
+        for (let j = 0; j < gamepad.axes.length; j++) {
+          const axisValue = gamepad.axes[j];
+          if (Math.abs(axisValue) > 0.5) {
+            const direction = axisValue > 0 ? 'Plus' : 'Minus';
+            handleGamepadInput(`Gamepad${i}Axis${j}${direction}`);
+            return;
+          }
+        }
+      }
+    }, 50); // Poll every 50ms
+  }
+
+  function stopGamepadPolling() {
+    if (gamepadPollInterval !== null) {
+      clearInterval(gamepadPollInterval);
+      gamepadPollInterval = null;
+    }
+  }
+
+  function handleGamepadInput(inputCode: string) {
+    if (!isListening || !currentButton) return;
+
+    workingConfig[currentButton] = inputCode;
+    cancelRebind();
   }
 
   // Handle key press

@@ -14,12 +14,7 @@
   let gameStarted = false;
   let isPaused = false;
   let showPauseMenu = false;
-
-  $: roomId = $page.params.id as string;
-
-  // Get current user's key configuration from room data
-  $: currentPlayer = room?.players.find(p => p.userId === $user?.id);
-  $: keyConfig = currentPlayer?.keyConfig || {
+  let userKeyConfig: KeyConfig = {
     up: 'ArrowUp',
     down: 'ArrowDown',
     left: 'ArrowLeft',
@@ -34,10 +29,27 @@
     select: 'ShiftRight'
   };
 
-  onMount(() => {
+  $: roomId = $page.params.id as string;
+
+  // Get current user's key configuration - prefer user's personal config, then room config, then defaults
+  $: currentPlayer = room?.players.find(p => p.userId === $user?.id);
+  $: keyConfig = currentPlayer?.keyConfig || userKeyConfig;
+
+  onMount(async () => {
     if (!$socket) {
       goto('/library');
       return;
+    }
+
+    // Load user's personal control configuration
+    try {
+      const res = await fetch('/api/user/controls', { credentials: 'include' });
+      if (res.ok) {
+        const config = await res.json();
+        userKeyConfig = config;
+      }
+    } catch (error) {
+      console.error('Failed to load user controls:', error);
     }
 
     // Join room

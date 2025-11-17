@@ -16,6 +16,7 @@
   let speedIndicatorTimeout: NodeJS.Timeout;
   let isFullscreen = false;
   let canvasContainer: HTMLDivElement;
+  let gamepadPollInterval: number | null = null;
 
   // Reusable ImageData for better performance
   let imageData: ImageData | null = null;
@@ -92,6 +93,9 @@
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
+    // Start gamepad polling
+    startGamepadPolling();
+
     // Listen for fullscreen changes
     document.addEventListener('fullscreenchange', handleFullscreenChange);
   });
@@ -104,6 +108,7 @@
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
     document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    stopGamepadPolling();
     audioContext?.close();
     if (speedIndicatorTimeout) clearTimeout(speedIndicatorTimeout);
   });
@@ -373,6 +378,77 @@
         buttons: currentInput
       }
     });
+  }
+
+  // Poll gamepad state for gameplay
+  function startGamepadPolling() {
+    if (gamepadPollInterval !== null) return;
+
+    gamepadPollInterval = window.setInterval(() => {
+      const gamepads = navigator.getGamepads();
+      let inputChanged = false;
+
+      for (let i = 0; i < gamepads.length; i++) {
+        const gamepad = gamepads[i];
+        if (!gamepad) continue;
+
+        // Check buttons
+        for (let j = 0; j < gamepad.buttons.length; j++) {
+          const inputCode = `Gamepad${i}Button${j}`;
+          const button = keyCodeToButton[inputCode];
+
+          if (button) {
+            const isPressed = gamepad.buttons[j].pressed;
+            if (currentInput[button] !== isPressed) {
+              currentInput[button] = isPressed;
+              inputChanged = true;
+            }
+          }
+        }
+
+        // Check axes (for d-pad on some controllers)
+        for (let j = 0; j < gamepad.axes.length; j++) {
+          const axisValue = gamepad.axes[j];
+
+          if (Math.abs(axisValue) > 0.5) {
+            const direction = axisValue > 0 ? 'Plus' : 'Minus';
+            const inputCode = `Gamepad${i}Axis${j}${direction}`;
+            const button = keyCodeToButton[inputCode];
+
+            if (button && !currentInput[button]) {
+              currentInput[button] = true;
+              inputChanged = true;
+            }
+          } else {
+            // Release both directions when axis is centered
+            const inputCodePlus = `Gamepad${i}Axis${j}Plus`;
+            const inputCodeMinus = `Gamepad${i}Axis${j}Minus`;
+            const buttonPlus = keyCodeToButton[inputCodePlus];
+            const buttonMinus = keyCodeToButton[inputCodeMinus];
+
+            if (buttonPlus && currentInput[buttonPlus]) {
+              currentInput[buttonPlus] = false;
+              inputChanged = true;
+            }
+            if (buttonMinus && currentInput[buttonMinus]) {
+              currentInput[buttonMinus] = false;
+              inputChanged = true;
+            }
+          }
+        }
+      }
+
+      if (inputChanged) {
+        sendInput();
+      }
+    }, 16); // Poll every 16ms (~60Hz)
+  }
+
+  function stopGamepadPolling() {
+    if (gamepadPollInterval !== null) {
+      clearInterval(gamepadPollInterval);
+      gamepadPollInterval = null;
+    }
   }
 </script>
 
