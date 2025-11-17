@@ -14,6 +14,7 @@ import { authRouter } from './api/auth.js';
 import { gamesRouter } from './api/games.js';
 import { friendsRouter } from './api/friends.js';
 import { roomsRouter } from './api/rooms.js';
+import { userRouter } from './api/user.js';
 import { initializeWebSocket } from './websocket/index.js';
 import { loadGameMetadata } from './services/metadata-loader.js';
 
@@ -99,6 +100,7 @@ app.use('/auth', authRouter);
 app.use('/api/games', gamesRouter);
 app.use('/api/friends', friendsRouter);
 app.use('/api/rooms', roomsRouter);
+app.use('/api/user', userRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });

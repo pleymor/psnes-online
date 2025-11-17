@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { socket } from '$lib/api/socket';
+  import type { KeyConfig } from '$lib/types';
 
   export let roomId: string;
+  export let keyConfig: KeyConfig;
 
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D;
@@ -36,20 +38,14 @@
     3: '3x'
   };
 
-  const keyConfig = {
-    ArrowUp: 'up',
-    ArrowDown: 'down',
-    ArrowLeft: 'left',
-    ArrowRight: 'right',
-    KeyX: 'a',
-    KeyZ: 'b',
-    KeyS: 'x',
-    KeyA: 'y',
-    KeyQ: 'l',
-    KeyW: 'r',
-    Enter: 'start',
-    ShiftRight: 'select'
-  };
+  // Create a reverse mapping from key codes to button names
+  let keyCodeToButton: Record<string, keyof typeof currentInput> = {};
+  $: {
+    keyCodeToButton = {};
+    for (const [button, keyCode] of Object.entries(keyConfig)) {
+      keyCodeToButton[keyCode] = button as keyof typeof currentInput;
+    }
+  }
 
   let currentInput = {
     up: false,
@@ -300,9 +296,9 @@
       return;
     }
 
-    const button = keyConfig[e.code as keyof typeof keyConfig];
-    if (button && !currentInput[button as keyof typeof currentInput]) {
-      currentInput[button as keyof typeof currentInput] = true;
+    const button = keyCodeToButton[e.code];
+    if (button && !currentInput[button]) {
+      currentInput[button] = true;
       sendInput();
       e.preventDefault();
     }
@@ -361,9 +357,9 @@
   }
 
   function handleKeyUp(e: KeyboardEvent) {
-    const button = keyConfig[e.code as keyof typeof keyConfig];
+    const button = keyCodeToButton[e.code];
     if (button) {
-      currentInput[button as keyof typeof currentInput] = false;
+      currentInput[button] = false;
       sendInput();
       e.preventDefault();
     }

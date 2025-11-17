@@ -1,12 +1,21 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import ControlsSettings from './ControlsSettings.svelte';
+  import type { KeyConfig } from '$lib/types';
 
-  export let roomId: string; // Used for save/load functionality (coming soon)
+  export let roomId: string;
+  export let keyConfig: KeyConfig;
 
   const dispatch = createEventDispatcher();
 
   let showKeyConfig = false;
   let showSaveLoad = false;
+
+  function handleSaved(event: CustomEvent<{ config: KeyConfig }>) {
+    // Forward the saved config to parent
+    dispatch('saved', event.detail);
+    showKeyConfig = false;
+  }
 </script>
 
 <div class="pause-overlay">
@@ -34,8 +43,8 @@
     {#if showKeyConfig}
       <div class="submenu">
         <h3>Key Configuration</h3>
-        <p>Key configuration UI coming soon...</p>
-        <button on:click={() => showKeyConfig = false}>Back</button>
+        <ControlsSettings {roomId} currentConfig={keyConfig} on:saved={handleSaved} />
+        <button on:click={() => showKeyConfig = false} class="back-button">Back</button>
       </div>
     {/if}
 
@@ -113,5 +122,21 @@
 
   h3 {
     margin-top: 0;
+  }
+
+  .back-button {
+    margin-top: 1rem;
+    background: #444;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    width: 100%;
+  }
+
+  .back-button:hover {
+    background: #555;
   }
 </style>

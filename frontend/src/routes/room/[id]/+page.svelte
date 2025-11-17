@@ -4,16 +4,35 @@
   import { browser } from '$app/environment';
   import { socket } from '$lib/api/socket';
   import { goto } from '$app/navigation';
+  import { user } from '$lib/stores/user';
   import GameCanvas from '$lib/components/GameCanvas.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
   import PauseMenu from '$lib/components/PauseMenu.svelte';
+  import type { Room, KeyConfig } from '$lib/types';
 
-  let room: any = null;
+  let room: Room | null = null;
   let gameStarted = false;
   let isPaused = false;
   let showPauseMenu = false;
 
   $: roomId = $page.params.id as string;
+
+  // Get current user's key configuration from room data
+  $: currentPlayer = room?.players.find(p => p.userId === $user?.id);
+  $: keyConfig = currentPlayer?.keyConfig || {
+    up: 'ArrowUp',
+    down: 'ArrowDown',
+    left: 'ArrowLeft',
+    right: 'ArrowRight',
+    a: 'KeyX',
+    b: 'KeyZ',
+    x: 'KeyS',
+    y: 'KeyA',
+    l: 'KeyQ',
+    r: 'KeyW',
+    start: 'Enter',
+    select: 'ShiftRight'
+  };
 
   onMount(() => {
     if (!$socket) {
@@ -25,7 +44,7 @@
     $socket.emit('room:join', { roomId });
 
     // Listen for room updates
-    $socket.on('room:updated', (updatedRoom: any) => {
+    $socket.on('room:updated', (updatedRoom: Room) => {
       if (updatedRoom.id === roomId) {
         room = updatedRoom;
       }
@@ -98,6 +117,15 @@
   function leaveRoom() {
     goto('/library');
   }
+
+  function handleControlsSaved(event: CustomEvent<{ config: KeyConfig }>) {
+    // Update the room state locally so controls apply immediately
+    if (room && currentPlayer) {
+      currentPlayer.keyConfig = { ...event.detail.config };
+      // Trigger reactivity by reassigning room
+      room = { ...room };
+    }
+  }
 </script>
 
 <div class="room-container">
@@ -117,13 +145,15 @@
       </div>
     </div>
   {:else}
-    <GameCanvas {roomId} />
+    <GameCanvas {roomId} {keyConfig} />
 
     {#if showPauseMenu}
       <PauseMenu
         {roomId}
+        {keyConfig}
         on:resume={() => $socket?.emit('game:resume', { roomId })}
         on:quit={() => $socket?.emit('game:stop', { roomId })}
+        on:saved={handleControlsSaved}
       />
     {/if}
   {/if}

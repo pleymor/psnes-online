@@ -9,6 +9,8 @@
   import GameDetailsModal from '$lib/components/GameDetailsModal.svelte';
   import UploadGame from '$lib/components/UploadGame.svelte';
   import FriendsList from '$lib/components/FriendsList.svelte';
+  import ControlsModal from '$lib/components/ControlsModal.svelte';
+  import type { KeyConfig } from '$lib/types';
 
   let showUpload = false;
   let selectedGame: Game | null = null;
@@ -18,12 +20,39 @@
   let toastType: 'success' | 'error' = 'success';
   let showDeleteConfirm = false;
   let gameToDelete: Game | null = null;
+  let showControls = false;
+  let userKeyConfig: KeyConfig = {
+    up: 'ArrowUp',
+    down: 'ArrowDown',
+    left: 'ArrowLeft',
+    right: 'ArrowRight',
+    a: 'KeyX',
+    b: 'KeyZ',
+    x: 'KeyS',
+    y: 'KeyA',
+    l: 'KeyQ',
+    r: 'KeyW',
+    start: 'Enter',
+    select: 'ShiftRight'
+  };
 
   async function loadGames() {
     const res = await fetch('/api/games', { credentials: 'include' });
     if (res.ok) {
       const gamesData = await res.json();
       games.set(gamesData);
+    }
+  }
+
+  async function loadUserControls() {
+    try {
+      const res = await fetch('/api/user/controls', { credentials: 'include' });
+      if (res.ok) {
+        const config = await res.json();
+        userKeyConfig = config;
+      }
+    } catch (error) {
+      console.error('Failed to load user controls:', error);
     }
   }
 
@@ -105,7 +134,7 @@
           goto('/');
           return;
         }
-        await loadGames();
+        await Promise.all([loadGames(), loadUserControls()]);
         unsubscribe();
       }
     });
@@ -130,12 +159,19 @@
     user.set(null);
     goto('/');
   }
+
+  function handleControlsSaved(event: CustomEvent<{ config: any }>) {
+    userKeyConfig = { ...event.detail.config };
+  }
 </script>
 
 <nav class="menu">
   <div class="menu-content">
     <a href="/" class="logo">🎮 PSNES Online</a>
     <div class="menu-actions">
+      <button on:click={() => showControls = true} class="btn-controls">
+        🎮 Controls
+      </button>
       <button on:click={refreshMetadata} class="btn-refresh" disabled={isRefreshingMetadata}>
         {isRefreshingMetadata ? '⏳ Updating...' : '🔄 Update Metadata'}
       </button>
@@ -216,6 +252,13 @@
   </div>
 {/if}
 
+<ControlsModal
+  bind:show={showControls}
+  currentConfig={userKeyConfig}
+  on:close={() => showControls = false}
+  on:saved={handleControlsSaved}
+/>
+
 {#if showToast}
   <div class="toast toast-{toastType}">
     <div class="toast-content">
@@ -285,6 +328,23 @@
   .btn-refresh:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  .btn-controls {
+    background: rgba(68, 68, 68, 0.8);
+    color: white;
+    border: 1px solid rgba(76, 175, 80, 0.3);
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.2s;
+  }
+
+  .btn-controls:hover {
+    background: rgba(76, 175, 80, 0.2);
+    border-color: rgba(76, 175, 80, 0.5);
+    transform: translateY(-2px);
   }
 
   .btn-upload {

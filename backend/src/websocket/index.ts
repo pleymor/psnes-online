@@ -1,12 +1,14 @@
 import { Server, Socket } from 'socket.io';
 import { RedisClientType } from 'redis';
-import { Room, RoomPlayer, User, GameInput } from '../types/index.js';
+import { Room, RoomPlayer, User, GameInput, KeyConfig } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { EmulatorManager } from '../emulator/manager.js';
+import { PrismaClient } from '@prisma/client';
 
 const rooms = new Map<string, Room>();
 const userSockets = new Map<string, string>(); // userId -> socketId
 const socketUsers = new Map<string, User>(); // socketId -> User
+const prisma = new PrismaClient();
 
 export function initializeWebSocket(io: Server) {
   const emulatorManager = new EmulatorManager();
@@ -33,6 +35,7 @@ export function initializeWebSocket(io: Server) {
     // Create room
     socket.on('room:create', async (data: { gameId: string; gameTitle: string }) => {
       const roomId = uuidv4();
+      const userKeyConfig = await getUserKeyConfig(user.id);
 
       const room: Room = {
         id: roomId,
@@ -45,7 +48,7 @@ export function initializeWebSocket(io: Server) {
           avatar: user.avatar,
           port: null,
           isReady: false,
-          keyConfig: getDefaultKeyConfig()
+          keyConfig: userKeyConfig
         }],
         status: 'waiting',
         createdAt: new Date()
@@ -60,7 +63,7 @@ export function initializeWebSocket(io: Server) {
     });
 
     // Join room
-    socket.on('room:join', (data: { roomId: string }) => {
+    socket.on('room:join', async (data: { roomId: string }) => {
       const room = rooms.get(data.roomId);
 
       if (!room) {
@@ -87,13 +90,15 @@ export function initializeWebSocket(io: Server) {
         return;
       }
 
+      const userKeyConfig = await getUserKeyConfig(user.id);
+
       const player: RoomPlayer = {
         userId: user.id,
         displayName: user.displayName,
         avatar: user.avatar,
         port: null,
         isReady: false,
-        keyConfig: getDefaultKeyConfig()
+        keyConfig: userKeyConfig
       };
 
       room.players.push(player);
@@ -379,7 +384,7 @@ async function getOnlineFriends(userId: string): Promise<any[]> {
   return [];
 }
 
-function getDefaultKeyConfig() {
+function getDefaultKeyConfig(): KeyConfig {
   return {
     up: 'ArrowUp',
     down: 'ArrowDown',
@@ -394,4 +399,21 @@ function getDefaultKeyConfig() {
     start: 'Enter',
     select: 'ShiftRight'
   };
+}
+
+async function getUserKeyConfig(userId: string): Promise<KeyConfig> {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { controlsConfig: true }
+    });
+
+    if (user?.controlsConfig) {
+      return JSON.parse(user.controlsConfig);
+    }
+  } catch (error) {
+    console.error('Error loading user controls config:', error);
+  }
+
+  return getDefaultKeyConfig();
 }
