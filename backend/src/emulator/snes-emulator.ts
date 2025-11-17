@@ -65,6 +65,14 @@ export class SNESEmulator extends EventEmitter {
   private unlimitedSpeedActive: boolean = false;
   private refreshRate: number = SNESEmulator.SNES_NTSC_FPS; // Detected from ROM
 
+  // Precise timing for frame pacing
+  private nextFrameTime: number = 0;
+  private frameTimeout?: NodeJS.Timeout;
+
+  // FPS measurement
+  private fpsStartTime: number = 0;
+  private fpsFrameCount: number = 0;
+
   // Controller states for port 1 and 2
   private controllerStates: Map<number, ControllerState> = new Map();
 
@@ -93,30 +101,49 @@ export class SNESEmulator extends EventEmitter {
     const hasHeader = (romData.length % 1024) === 512;
     const offset = hasHeader ? 512 : 0;
 
+    console.log(`ROM size: ${romData.length} bytes, has header: ${hasHeader}, offset: ${offset}`);
+
     // Try to read region code from ROM header
     // LoROM: header at 0x7FC0, HiROM: header at 0xFFC0
     const loromRegionOffset = offset + 0x7FD9;
     const hiromRegionOffset = offset + 0xFFD9;
 
+    // Determine if ROM is LoROM or HiROM by checking checksum complement
+    let isHiROM = false;
+
+    if (offset + 0x7FDC + 1 < romData.length && offset + 0x7FDE + 1 < romData.length) {
+      const loromChecksum = (romData[offset + 0x7FDF] << 8) | romData[offset + 0x7FDE];
+      const loromComplement = (romData[offset + 0x7FDD] << 8) | romData[offset + 0x7FDC];
+      const loromValid = (loromChecksum ^ loromComplement) === 0xFFFF;
+
+      const hiromChecksum = (romData[offset + 0xFFDF] << 8) | romData[offset + 0xFFDE];
+      const hiromComplement = (romData[offset + 0xFFDD] << 8) | romData[offset + 0xFFDC];
+      const hiromValid = (hiromChecksum ^ hiromComplement) === 0xFFFF;
+
+      isHiROM = hiromValid && !loromValid;
+      console.log(`Checksum validation - LoROM valid: ${loromValid}, HiROM valid: ${hiromValid}`);
+    }
+
     let regionCode = 0;
+    let usedOffset = 'none';
 
-    // Check if LoROM offset is valid
-    if (loromRegionOffset < romData.length) {
-      regionCode = romData[loromRegionOffset];
+    // Read from the correct offset based on ROM type
+    const regionOffset = isHiROM ? hiromRegionOffset : loromRegionOffset;
+
+    if (regionOffset < romData.length) {
+      regionCode = romData[regionOffset];
+      usedOffset = `${isHiROM ? 'HiROM' : 'LoROM'} (0x${regionOffset.toString(16)})`;
     }
 
-    // If LoROM gave us 0xFF or invalid, try HiROM
-    if (regionCode === 0xFF || regionCode === 0) {
-      if (hiromRegionOffset < romData.length) {
-        regionCode = romData[hiromRegionOffset];
-      }
-    }
+    console.log(`Region code: 0x${regionCode.toString(16).padStart(2, '0')} from ${usedOffset}`);
 
     // Map region codes to NTSC/PAL
     // 0x00 = Japan (NTSC), 0x01 = USA (NTSC), 0x0D = Korea (NTSC)
     // 0x02-0x0C = Europe and other PAL regions, 0x11 = Australia (PAL)
     const palRegions = [0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x11];
     const isPAL = palRegions.includes(regionCode);
+
+    console.log(`PAL regions check: ${regionCode} in [${palRegions.join(', ')}] = ${isPAL}`);
 
     return isPAL ? 'PAL' : 'NTSC';
   }
@@ -351,6 +378,7 @@ export class SNESEmulator extends EventEmitter {
 
     this.running = true;
     this.paused = false;
+    this.nextFrameTime = Date.now();
 
     // Start emulation loop
     if (this.speed === 0) {
@@ -366,22 +394,57 @@ export class SNESEmulator extends EventEmitter {
       setImmediate(runUnlimited);
       console.log('Emulator started at UNLIMITED speed');
     } else {
-      // Fixed speed based on multiplier
+      // Fixed speed with drift compensation
       this.unlimitedSpeedActive = false;
-      const frameTime = (1000 / this.refreshRate) / this.speed;
-      this.frameInterval = setInterval(() => {
-        if (!this.paused) {
-          this.runFrame();
-        }
-      }, frameTime);
+      this.scheduleNextFrame();
       console.log(`Emulator started at ${this.speed}x speed (${(this.refreshRate * this.speed).toFixed(2)} FPS)`);
     }
 
     this.emit('started');
   }
 
+  private scheduleNextFrame(): void {
+    if (!this.running || this.unlimitedSpeedActive || this.paused) return;
+
+    const frameTime = (1000 / this.refreshRate) / this.speed; // milliseconds per frame
+    const now = Date.now();
+
+    // Calculate when next frame should run
+    this.nextFrameTime += frameTime;
+
+    // If we're too far behind, reset to current time
+    if (this.nextFrameTime < now - 100) {
+      this.nextFrameTime = now;
+    }
+
+    // Calculate delay until next frame
+    const delay = Math.max(0, this.nextFrameTime - now);
+
+    this.frameTimeout = setTimeout(() => {
+      if (!this.paused && this.running) {
+        this.runFrame();
+      }
+      this.scheduleNextFrame();
+    }, delay);
+  }
+
   private runFrame(): void {
     if (!this.emulatorCore) return;
+
+    // FPS measurement
+    this.fpsFrameCount++;
+    const now = Date.now();
+    if (this.fpsStartTime === 0) {
+      this.fpsStartTime = now;
+    } else if (now - this.fpsStartTime >= 5000) {
+      // Log FPS every 5 seconds
+      const actualFPS = (this.fpsFrameCount / (now - this.fpsStartTime)) * 1000;
+      const targetFPS = this.refreshRate * this.speed;
+      const error = ((actualFPS - targetFPS) / targetFPS) * 100;
+      console.log(`Actual FPS: ${actualFPS.toFixed(2)} | Target: ${targetFPS.toFixed(2)} | Error: ${error.toFixed(1)}%`);
+      this.fpsStartTime = now;
+      this.fpsFrameCount = 0;
+    }
 
     // Clear buffers
     this.currentVideoFrame = null;
@@ -430,8 +493,11 @@ export class SNESEmulator extends EventEmitter {
 
     this.paused = true;
 
-    // If in unlimited speed mode, we need to stop the setImmediate loop
-    // The loop checks this.paused, so it will naturally stop
+    // Clear frame timeout to stop scheduling
+    if (this.frameTimeout) {
+      clearTimeout(this.frameTimeout);
+      this.frameTimeout = undefined;
+    }
 
     this.emit('paused');
   }
@@ -441,7 +507,10 @@ export class SNESEmulator extends EventEmitter {
 
     this.paused = false;
 
-    // If in unlimited speed mode and there's no interval, restart the unlimited loop
+    // Reset timing to avoid frame burst
+    this.nextFrameTime = Date.now();
+
+    // Restart scheduling based on speed mode
     if (this.running && this.speed === 0 && !this.unlimitedSpeedActive) {
       this.unlimitedSpeedActive = true;
       const runUnlimited = () => {
@@ -452,6 +521,8 @@ export class SNESEmulator extends EventEmitter {
         setImmediate(runUnlimited);
       };
       setImmediate(runUnlimited);
+    } else if (this.running && this.speed > 0) {
+      this.scheduleNextFrame();
     }
 
     this.emit('resumed');
@@ -462,7 +533,13 @@ export class SNESEmulator extends EventEmitter {
     this.running = false;
     this.unlimitedSpeedActive = false;
 
-    // Clear interval if using fixed speed
+    // Clear timeout if using fixed speed
+    if (this.frameTimeout) {
+      clearTimeout(this.frameTimeout);
+      this.frameTimeout = undefined;
+    }
+
+    // Clear interval if exists (legacy)
     if (this.frameInterval) {
       clearInterval(this.frameInterval);
       this.frameInterval = undefined;
@@ -534,16 +611,23 @@ export class SNESEmulator extends EventEmitter {
 
     this.speed = speed;
 
-    // Restart timing loop with new speed if running
+    // Restart timing loop with new speed if running and not paused
     if (this.running && !this.paused) {
-      // Stop unlimited speed loop if active
+      // Stop current timing
       this.unlimitedSpeedActive = false;
 
-      // Clear existing interval
+      if (this.frameTimeout) {
+        clearTimeout(this.frameTimeout);
+        this.frameTimeout = undefined;
+      }
+
       if (this.frameInterval) {
         clearInterval(this.frameInterval);
         this.frameInterval = undefined;
       }
+
+      // Reset timing
+      this.nextFrameTime = Date.now();
 
       // Start new timing loop with updated speed
       if (speed === 0) {
@@ -559,13 +643,8 @@ export class SNESEmulator extends EventEmitter {
         setImmediate(runUnlimited);
         console.log('Switched to UNLIMITED speed');
       } else {
-        // Fixed speed based on multiplier
-        const frameTime = (1000 / this.refreshRate) / speed;
-        this.frameInterval = setInterval(() => {
-          if (!this.paused) {
-            this.runFrame();
-          }
-        }, frameTime);
+        // Fixed speed with drift compensation
+        this.scheduleNextFrame();
         console.log(`Switched to ${speed}x speed (${(this.refreshRate * speed).toFixed(2)} FPS)`);
       }
     }
