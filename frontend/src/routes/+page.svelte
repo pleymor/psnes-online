@@ -50,6 +50,8 @@
     const res = await fetch('/api/games', { credentials: 'include' });
     if (res.ok) {
       const gamesData = await res.json();
+      // Sort games alphabetically by title
+      gamesData.sort((a: Game, b: Game) => a.title.localeCompare(b.title));
       games.set(gamesData);
     }
   }
@@ -181,6 +183,7 @@
       method: 'POST',
       credentials: 'include'
     });
+    // Setting user to null will trigger socket cleanup in layout
     user.set(null);
     goto('/');
   }
