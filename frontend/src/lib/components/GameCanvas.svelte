@@ -71,7 +71,7 @@
     })!;
     audioContext = new AudioContext({
       latencyHint: 'interactive',
-      sampleRate: 32000
+      sampleRate: 48000
     });
 
     // Start render loop
@@ -252,7 +252,9 @@
 
     // Schedule audio playback with improved buffering
     const currentTime = audioContext.currentTime;
-    const targetLatency = 0.08; // 80ms target buffer
+    const targetLatency = 0.1; // 100ms target buffer (increased for stability)
+    const minLatency = 0.05; // 50ms minimum
+    const maxLatency = 0.2; // 200ms maximum
 
     // Initialize on first audio packet
     if (nextAudioTime === 0) {
@@ -272,20 +274,18 @@
     // Update next audio time
     nextAudioTime += audioBuffer.duration;
 
-    // Smooth drift correction instead of hard jumps
+    // Gentle drift correction to prevent audio artifacts
     const latency = nextAudioTime - currentTime;
 
-    // If buffer is growing, slow down slightly by reducing next schedule time
-    if (latency > targetLatency * 1.5) {
-      // Reduce by 10% of the excess
+    // Only apply correction if latency is outside acceptable range
+    if (latency > maxLatency) {
+      // Buffer growing too large - reduce gradually (5% correction)
       const excess = latency - targetLatency;
-      nextAudioTime -= excess * 0.1;
-    }
-    // If buffer is shrinking, speed up slightly
-    else if (latency < targetLatency * 0.5 && latency > 0) {
-      // Add 10% of the deficit
+      nextAudioTime -= excess * 0.05;
+    } else if (latency < minLatency && latency > 0) {
+      // Buffer shrinking - add gradually (5% correction)
       const deficit = targetLatency - latency;
-      nextAudioTime += deficit * 0.1;
+      nextAudioTime += deficit * 0.05;
     }
   }
 

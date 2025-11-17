@@ -101,7 +101,7 @@ export class SNESEmulator extends EventEmitter {
   constructor(config: EmulatorConfig) {
     super();
     this.romPath = config.romPath;
-    this.audioSampleRate = config.audioSampleRate || 32000;
+    this.audioSampleRate = config.audioSampleRate || 48000;
     this.videoScale = config.videoScale || 1;
     this.speed = config.speed !== undefined ? config.speed : 1.0;
 
@@ -304,6 +304,7 @@ export class SNESEmulator extends EventEmitter {
           }
 
           // Add sample to buffer
+          // Note: set_audio_sample receives raw int16 values, needs normalization
           this.audioSamples[this.audioSampleCount++] = left / 32768.0;
           this.audioSamples[this.audioSampleCount++] = right / 32768.0;
         });
@@ -330,6 +331,7 @@ export class SNESEmulator extends EventEmitter {
           }
 
           // Interleave left and right channels directly into buffer
+          // Note: set_audio_sample_batch receives already normalized floats from retro.js
           for (let i = 0; i < frames; i++) {
             this.audioSamples[this.audioSampleCount++] = left[i];
             this.audioSamples[this.audioSampleCount++] = right[i];
