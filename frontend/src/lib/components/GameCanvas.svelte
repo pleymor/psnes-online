@@ -250,12 +250,18 @@
       }
     }
 
-    // Schedule audio playback
+    // Schedule audio playback with improved buffering
     const currentTime = audioContext.currentTime;
+    const targetLatency = 0.08; // 80ms target buffer
 
-    // Initialize or reset if we're too far off
-    if (nextAudioTime === 0 || nextAudioTime < currentTime) {
-      nextAudioTime = currentTime + 0.12; // 120ms buffer to prevent underruns
+    // Initialize on first audio packet
+    if (nextAudioTime === 0) {
+      nextAudioTime = currentTime + targetLatency;
+    }
+
+    // If we're behind current time, catch up smoothly
+    if (nextAudioTime < currentTime) {
+      nextAudioTime = currentTime + targetLatency;
     }
 
     const source = audioContext.createBufferSource();
@@ -266,12 +272,20 @@
     // Update next audio time
     nextAudioTime += audioBuffer.duration;
 
-    // Only correct if buffer is way too large (>500ms) or too small (<50ms)
+    // Smooth drift correction instead of hard jumps
     const latency = nextAudioTime - currentTime;
-    if (latency > 0.5) {
-      nextAudioTime = currentTime + 0.2; // Reduce to 200ms
-    } else if (latency < 0.05) {
-      nextAudioTime = currentTime + 0.1; // Add buffer to prevent underruns
+
+    // If buffer is growing, slow down slightly by reducing next schedule time
+    if (latency > targetLatency * 1.5) {
+      // Reduce by 10% of the excess
+      const excess = latency - targetLatency;
+      nextAudioTime -= excess * 0.1;
+    }
+    // If buffer is shrinking, speed up slightly
+    else if (latency < targetLatency * 0.5 && latency > 0) {
+      // Add 10% of the deficit
+      const deficit = targetLatency - latency;
+      nextAudioTime += deficit * 0.1;
     }
   }
 

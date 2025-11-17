@@ -94,7 +94,9 @@ export class SNESEmulator extends EventEmitter {
 
   // Video and audio buffers
   private currentVideoFrame: VideoFrame | null = null;
-  private audioBuffer: Float32Array[] = [];
+  private videoFrameBuffer: Uint8Array = new Uint8Array(512 * 448 * 4); // Pre-allocated for max SNES resolution
+  private audioSamples: Float32Array = new Float32Array(2048); // Pre-allocated buffer
+  private audioSampleCount: number = 0;
 
   constructor(config: EmulatorConfig) {
     super();
@@ -248,11 +250,16 @@ export class SNESEmulator extends EventEmitter {
           // pitch is the number of pixels per line in the source buffer (may include padding)
           // width is the actual display width
           const pixelCount = width * height;
-          const rgbaData = new Uint8Array(pixelCount * 4);
+
+          // Ensure our buffer is large enough (shouldn't need to grow for standard SNES resolutions)
+          if (pixelCount * 4 > this.videoFrameBuffer.length) {
+            this.videoFrameBuffer = new Uint8Array(pixelCount * 4);
+          }
 
           // Use pitch to correctly read each scanline
           const pitchInPixels = pitch / 2; // pitch is in bytes, convert to pixels (16-bit)
 
+          // Convert RGB565 to RGBA directly into pre-allocated buffer
           for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
               const srcIndex = y * pitchInPixels + x;
@@ -264,17 +271,21 @@ export class SNESEmulator extends EventEmitter {
               const g = ((pixel >> 5) & 0x3F) << 2;   // 6 bits green
               const b = (pixel & 0x1F) << 3;          // 5 bits blue
 
-              rgbaData[dstIndex + 0] = r | (r >> 5);     // Red with bit replication
-              rgbaData[dstIndex + 1] = g | (g >> 6);     // Green with bit replication
-              rgbaData[dstIndex + 2] = b | (b >> 5);     // Blue with bit replication
-              rgbaData[dstIndex + 3] = 255;              // Alpha
+              this.videoFrameBuffer[dstIndex + 0] = r | (r >> 5);     // Red with bit replication
+              this.videoFrameBuffer[dstIndex + 1] = g | (g >> 6);     // Green with bit replication
+              this.videoFrameBuffer[dstIndex + 2] = b | (b >> 5);     // Blue with bit replication
+              this.videoFrameBuffer[dstIndex + 3] = 255;              // Alpha
             }
           }
+
+          // Create a copy for emission to avoid buffer reuse issues
+          const frameData = new Uint8Array(pixelCount * 4);
+          frameData.set(this.videoFrameBuffer.subarray(0, pixelCount * 4));
 
           this.currentVideoFrame = {
             width: width,
             height: height,
-            data: rgbaData
+            data: frameData
           };
         });
       } catch (e) {
@@ -285,8 +296,16 @@ export class SNESEmulator extends EventEmitter {
       // Set up audio callbacks BEFORE init
       try {
         this.emulatorCore.set_audio_sample((left: number, right: number) => {
-          // Single sample - convert to normalized float
-          this.audioBuffer.push(new Float32Array([left / 32768.0, right / 32768.0]));
+          // Grow buffer if needed
+          if (this.audioSampleCount + 2 > this.audioSamples.length) {
+            const newBuffer = new Float32Array(this.audioSamples.length * 2);
+            newBuffer.set(this.audioSamples);
+            this.audioSamples = newBuffer;
+          }
+
+          // Add sample to buffer
+          this.audioSamples[this.audioSampleCount++] = left / 32768.0;
+          this.audioSamples[this.audioSampleCount++] = right / 32768.0;
         });
       } catch (e) {
         console.error('Error setting audio sample callback:', e);
@@ -297,14 +316,24 @@ export class SNESEmulator extends EventEmitter {
         this.emulatorCore.set_audio_sample_batch((left: Float32Array, right: Float32Array, frames: number) => {
           if (!left || !right || frames <= 0) return;
 
-          // Interleave left and right channels
-          const interleavedSamples = new Float32Array(frames * 2);
-          for (let i = 0; i < frames; i++) {
-            interleavedSamples[i * 2] = left[i];
-            interleavedSamples[i * 2 + 1] = right[i];
+          const samplesNeeded = frames * 2;
+
+          // Grow buffer if needed
+          if (this.audioSampleCount + samplesNeeded > this.audioSamples.length) {
+            let newSize = this.audioSamples.length * 2;
+            while (newSize < this.audioSampleCount + samplesNeeded) {
+              newSize *= 2;
+            }
+            const newBuffer = new Float32Array(newSize);
+            newBuffer.set(this.audioSamples);
+            this.audioSamples = newBuffer;
           }
 
-          this.audioBuffer.push(interleavedSamples);
+          // Interleave left and right channels directly into buffer
+          for (let i = 0; i < frames; i++) {
+            this.audioSamples[this.audioSampleCount++] = left[i];
+            this.audioSamples[this.audioSampleCount++] = right[i];
+          }
         });
       } catch (e) {
         console.error('Error setting audio batch callback:', e);
@@ -392,9 +421,6 @@ export class SNESEmulator extends EventEmitter {
     this.paused = false;
     this.nextFrameTime = performance.now();
 
-    // Start event loop monitoring
-    this.startEventLoopMonitoring();
-
     // Start emulation loop
     if (this.speed === 0) {
       // Unlimited speed - run as fast as possible
@@ -457,35 +483,12 @@ export class SNESEmulator extends EventEmitter {
   private runFrame(): void {
     if (!this.emulatorCore) return;
 
-    // FPS measurement (reduced logging)
-    this.fpsFrameCount++;
-    const now = Date.now();
-    if (this.fpsStartTime === 0) {
-      this.fpsStartTime = now;
-      this.lastMemoryCheck = now;
-    } else if (now - this.fpsStartTime >= 10000) {
-      // Log FPS every 10 seconds only
-      const actualFPS = (this.fpsFrameCount / (now - this.fpsStartTime)) * 1000;
-      const targetFPS = this.refreshRate * this.speed;
-      console.log(`📊 FPS: ${actualFPS.toFixed(2)} / ${targetFPS.toFixed(2)}`);
-      this.fpsStartTime = now;
-      this.fpsFrameCount = 0;
-    }
-
-    // Disable manual GC - let V8 handle it automatically
-    // Manual GC was causing event loop lag
-
     // Clear buffers
     this.currentVideoFrame = null;
-    this.audioBuffer = [];
+    this.audioSampleCount = 0;
 
     // Run one frame of emulation
-    try {
-      this.emulatorCore.run();
-    } catch (error) {
-      console.error('⚠️  EMULATOR CORE ERROR:', error);
-      return;
-    }
+    this.emulatorCore.run();
 
     // Emit video frame if we got one
     if (this.currentVideoFrame) {
@@ -493,23 +496,16 @@ export class SNESEmulator extends EventEmitter {
     }
 
     // Emit audio samples if we got any
-    if (this.audioBuffer.length > 0) {
-      // Combine all audio buffers
-      const totalSamples = this.audioBuffer.reduce((sum, buf) => sum + buf.length, 0);
-      const combinedAudio = new Float32Array(totalSamples);
-      let offset = 0;
-      for (const buf of this.audioBuffer) {
-        combinedAudio.set(buf, offset);
-        offset += buf.length;
-      }
+    if (this.audioSampleCount > 0) {
+      // Copy data to a new buffer to avoid keeping the large buffer referenced
+      const audioData = new Float32Array(this.audioSampleCount);
+      audioData.set(this.audioSamples.subarray(0, this.audioSampleCount));
 
-      const audioSamples: AudioSamples = {
+      this.emit('audio', {
         sampleRate: this.audioSampleRate,
         channels: 2,
-        data: combinedAudio
-      };
-
-      this.emit('audio', audioSamples);
+        data: audioData
+      });
     }
   }
 
@@ -565,9 +561,6 @@ export class SNESEmulator extends EventEmitter {
     // Stop both timing mechanisms
     this.running = false;
     this.unlimitedSpeedActive = false;
-
-    // Stop event loop monitoring
-    this.stopEventLoopMonitoring();
 
     // Clear timeout if using fixed speed
     if (this.frameTimeout) {

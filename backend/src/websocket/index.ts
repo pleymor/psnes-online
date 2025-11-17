@@ -238,38 +238,12 @@ export function initializeWebSocket(io: Server) {
         emulatorManager.removeAllListeners(`audio:${room.id}`);
 
         // Start streaming - use named functions for easier cleanup
-        let frameEmitCount = 0;
-        let lastFrameEmitLog = Date.now();
-
         const frameHandler = (frameData: any) => {
-          const emitStart = performance.now();
           io.to(room.id).emit('game:frame', frameData);
-          const emitTime = performance.now() - emitStart;
-
-          frameEmitCount++;
-
-          // Log Socket.IO emit stats every 5 seconds
-          const now = Date.now();
-          if (now - lastFrameEmitLog >= 5000) {
-            const avgEmitTime = emitTime;
-            console.log(`🌐 Socket.IO: ${frameEmitCount} frames in 5s, last emit: ${avgEmitTime.toFixed(2)}ms`);
-            frameEmitCount = 0;
-            lastFrameEmitLog = now;
-          }
-
-          if (emitTime > 10) {
-            console.log(`⚠️  SOCKET.IO SLOW: Frame emit took ${emitTime.toFixed(2)}ms`);
-          }
         };
 
         const audioHandler = (audioData: any) => {
-          const emitStart = performance.now();
           io.to(room.id).emit('game:audio', audioData);
-          const emitTime = performance.now() - emitStart;
-
-          if (emitTime > 10) {
-            console.log(`⚠️  SOCKET.IO AUDIO SLOW: Emit took ${emitTime.toFixed(2)}ms`);
-          }
         };
 
         emulatorManager.on(`frame:${room.id}`, frameHandler);

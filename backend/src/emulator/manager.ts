@@ -58,48 +58,25 @@ export class EmulatorManager extends EventEmitter {
 
     // Set up event handlers - use arrow functions to avoid re-binding
     const videoHandler = (videoFrame: any) => {
-      const handlerStart = performance.now();
-      instance.frameCount++;
-
-      // Send every frame for smooth playback
-      // Socket.IO can handle Uint8Array directly
-      const frame: VideoFrame = {
+      this.emit(`frame:${roomId}`, {
         width: videoFrame.width,
         height: videoFrame.height,
         data: videoFrame.data.buffer.slice(
           videoFrame.data.byteOffset,
           videoFrame.data.byteOffset + videoFrame.data.byteLength
         )
-      };
-
-      const prepTime = performance.now() - handlerStart;
-      if (prepTime > 5) {
-        console.log(`⚠️  VIDEO HANDLER: Frame prep took ${prepTime.toFixed(2)}ms`);
-      }
-
-      // Use setImmediate to avoid blocking the event loop
-      setImmediate(() => {
-        const emitStart = performance.now();
-        this.emit(`frame:${roomId}`, frame);
-        const emitTime = performance.now() - emitStart;
-        if (emitTime > 5) {
-          console.log(`⚠️  VIDEO EMIT: Took ${emitTime.toFixed(2)}ms`);
-        }
       });
     };
 
     const audioHandler = (audioSamples: any) => {
-      // Send audio immediately for every frame
-      const audio: AudioFrame = {
+      this.emit(`audio:${roomId}`, {
         sampleRate: audioSamples.sampleRate,
         channels: audioSamples.channels,
         data: audioSamples.data.buffer.slice(
           audioSamples.data.byteOffset,
           audioSamples.data.byteOffset + audioSamples.data.byteLength
         )
-      };
-
-      this.emit(`audio:${roomId}`, audio);
+      });
     };
 
     emulator.on('video', videoHandler);
