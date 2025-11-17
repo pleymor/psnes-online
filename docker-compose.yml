@@ -18,7 +18,6 @@ services:
       - DATABASE_URL=file:/app/data/dev.db
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - NODE_OPTIONS=--trace-gc --expose-gc
     env_file:
       - ./backend/.env
     volumes:

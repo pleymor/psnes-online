@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { user } from '$lib/stores/user';
+  import { user, userLoading } from '$lib/stores/user';
   import { initializeSocket } from '$lib/api/socket';
 
   onMount(async () => {
@@ -16,6 +16,8 @@
       }
     } catch (error) {
       console.error('Auth check failed:', error);
+    } finally {
+      userLoading.set(false);
     }
   });
 </script>

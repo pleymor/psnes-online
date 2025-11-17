@@ -9,3 +9,4 @@ export interface User {
 }
 
 export const user = writable<User | null>(null);
+export const userLoading = writable<boolean>(true);

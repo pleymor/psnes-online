@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { user } from '$lib/stores/user';
+  import { user, userLoading } from '$lib/stores/user';
   import { games } from '$lib/stores/games';
   import { socket } from '$lib/api/socket';
   import { goto } from '$app/navigation';
@@ -19,12 +19,17 @@
   }
 
   onMount(async () => {
-    if (!$user) {
-      goto('/');
-      return;
-    }
-
-    await loadGames();
+    // Wait for auth check to complete
+    const unsubscribe = userLoading.subscribe(async (loading) => {
+      if (!loading) {
+        if (!$user) {
+          goto('/');
+          return;
+        }
+        await loadGames();
+        unsubscribe();
+      }
+    });
   });
 
   async function createRoom(gameId: string, gameTitle: string) {
