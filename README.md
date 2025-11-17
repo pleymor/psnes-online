@@ -13,6 +13,7 @@ Plateforme de jeu rétro SNES multijoueur en ligne avec émulation côté serveu
 - **Sauvegardes individuelles** - Save states liés au joueur et au jeu
 - **Menu pause** - Réassignation touches, save/load, arrêt
 - **Streaming temps réel** - Vidéo et audio synchronisés
+- **Contrôle vitesse émulation** - Ralenti, accéléré, vitesse illimitée (voir [docs/SPEED_CONTROLS.md](docs/SPEED_CONTROLS.md))
 
 ## 🏗️ Architecture
 
@@ -31,9 +32,10 @@ Plateforme de jeu rétro SNES multijoueur en ligne avec émulation côté serveu
 - **Socket.io-client** pour WebSocket
 
 ### Émulation
-- Architecture prête pour intégration **libretro/snes9x**
+- **snes9x-next** (libretro core) - Émulation SNES réelle
 - Streaming vidéo (256x224 @ 60 FPS)
 - Audio PCM temps réel
+- Contrôle vitesse dynamique (0.5x à illimité)
 
 ## 📋 Prérequis
 
@@ -115,7 +117,8 @@ L'application sera disponible sur:
 5. **Sélection ports** - Choisir manette 1 ou 2
 6. **Lancer jeu** - N'importe quel joueur peut démarrer
 7. **Jouer** - Le jeu tourne sur le serveur, streaming vers les clients
-8. **Menu pause** - Appuyer sur Échap pour options
+8. **Contrôle vitesse** - Tab pour vitesse illimitée, +/- pour ajuster
+9. **Menu pause** - Appuyer sur Échap pour options
 
 ## 📁 Structure du projet
 
@@ -180,9 +183,30 @@ npm install
 npm run dev
 ```
 
-## 🎮 Intégration de l'émulateur SNES
+## 🎮 Émulation SNES
 
-**⚠️ Important**: L'émulateur actuel est un placeholder. Pour l'émulation réelle:
+Le projet utilise **snes9x-next**, un core libretro compilé en WebAssembly pour une émulation SNES réelle côté serveur.
+
+### Contrôles vitesse
+
+| Touche | Action |
+|--------|--------|
+| `Tab` | Basculer entre vitesse normale (1x) et illimitée (MAX) |
+| `+` / `=` | Augmenter la vitesse (0.5x → 1x → 2x → 3x → MAX) |
+| `-` | Diminuer la vitesse |
+
+**Vitesses disponibles:**
+- **0.5x** - Ralenti (30 FPS)
+- **1x** - Normal (60 FPS)
+- **2x** - Double vitesse (120 FPS)
+- **3x** - Triple vitesse (180 FPS)
+- **MAX** - Vitesse illimitée (CPU max)
+
+📖 **Documentation complète**: [docs/SPEED_CONTROLS.md](docs/SPEED_CONTROLS.md)
+
+### Configuration avancée (Legacy)
+
+**⚠️ Note**: Les instructions ci-dessous sont pour référence historique. L'émulateur est déjà intégré.
 
 ### Option 1: snes9x-emscripten (Recommandé)
 
@@ -307,6 +331,7 @@ services:
 - `game:stop` - Arrêter
 - `game:save` - Sauvegarder
 - `game:load` - Charger
+- `game:setSpeed` - Changer vitesse émulation
 
 #### Server → Client
 - `room:created` - Room créée
@@ -318,6 +343,7 @@ services:
 - `game:paused` - Jeu en pause
 - `game:resumed` - Jeu repris
 - `game:stopped` - Jeu arrêté
+- `game:speedChanged` - Vitesse émulation changée
 - `friends:online` - Amis en ligne
 
 ## 🐛 Troubleshooting
@@ -375,7 +401,8 @@ Projet privé - Tous droits réservés
 - [x] Rooms multijoueur
 - [x] Configuration manettes
 - [x] Architecture streaming
-- [ ] Intégration émulateur réel
+- [x] Intégration émulateur réel (snes9x-next)
+- [x] Contrôle vitesse émulation dynamique
 
 ### v1.1 (Futur)
 - [ ] Filtres vidéo (CRT, scanlines)

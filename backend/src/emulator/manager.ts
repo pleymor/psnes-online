@@ -50,19 +50,25 @@ export class EmulatorManager extends EventEmitter {
 
     // Set up event handlers
     emulator.on('video', (videoFrame) => {
+      // Convert Uint8Array to Buffer for Socket.IO transmission
+      const buffer = Buffer.from(videoFrame.data.buffer, videoFrame.data.byteOffset, videoFrame.data.byteLength);
+
       const frame: VideoFrame = {
         width: videoFrame.width,
         height: videoFrame.height,
-        data: videoFrame.data.buffer
+        data: buffer as unknown as ArrayBuffer
       };
       this.emit(`frame:${roomId}`, frame);
     });
 
     emulator.on('audio', (audioSamples) => {
+      // Convert Float32Array to Buffer for Socket.IO transmission
+      const buffer = Buffer.from(audioSamples.data.buffer, audioSamples.data.byteOffset, audioSamples.data.byteLength);
+
       const audio: AudioFrame = {
         sampleRate: audioSamples.sampleRate,
         channels: audioSamples.channels,
-        data: audioSamples.data.buffer
+        data: buffer as unknown as ArrayBuffer
       };
       this.emit(`audio:${roomId}`, audio);
     });
@@ -112,6 +118,19 @@ export class EmulatorManager extends EventEmitter {
     if (instance) {
       instance.emulator.resume();
     }
+  }
+
+  setEmulatorSpeed(roomId: string, speed: number) {
+    const instance = this.instances.get(roomId);
+    if (instance) {
+      instance.emulator.setSpeed(speed);
+      console.log(`Emulator speed set to ${speed}x for room ${roomId}`);
+    }
+  }
+
+  getEmulatorSpeed(roomId: string): number | null {
+    const instance = this.instances.get(roomId);
+    return instance ? instance.emulator.getSpeed() : null;
   }
 
   async stopEmulator(roomId: string) {

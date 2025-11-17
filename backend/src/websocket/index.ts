@@ -252,6 +252,15 @@ export function initializeWebSocket(io: Server) {
       }
     });
 
+    // Set emulation speed
+    socket.on('game:setSpeed', (data: { roomId: string; speed: number }) => {
+      const room = rooms.get(data.roomId);
+      if (!room) return;
+
+      emulatorManager.setEmulatorSpeed(room.id, data.speed);
+      io.to(data.roomId).emit('game:speedChanged', { speed: data.speed });
+    });
+
     // Disconnect
     socket.on('disconnect', () => {
       console.log('Client disconnected:', socket.id);

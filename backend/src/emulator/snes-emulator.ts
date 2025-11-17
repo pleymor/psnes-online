@@ -19,6 +19,7 @@ export interface EmulatorConfig {
   romPath: string;
   audioSampleRate?: number;
   videoScale?: number;
+  speed?: number; // Speed multiplier (1.0 = normal, 2.0 = 2x speed, 0 = unlimited)
 }
 
 export interface VideoFrame {
@@ -55,6 +56,8 @@ export class SNESEmulator extends EventEmitter {
   private frameInterval?: NodeJS.Timeout;
   private audioSampleRate: number;
   private videoScale: number;
+  private speed: number;
+  private unlimitedSpeedActive: boolean = false;
 
   // Controller states for port 1 and 2
   private controllerStates: Map<number, ControllerState> = new Map();
@@ -72,6 +75,7 @@ export class SNESEmulator extends EventEmitter {
     this.romPath = config.romPath;
     this.audioSampleRate = config.audioSampleRate || 32000;
     this.videoScale = config.videoScale || 1;
+    this.speed = config.speed !== undefined ? config.speed : 1.0;
 
     // Initialize default controller states
     this.controllerStates.set(1, this.getEmptyControllerState());
@@ -292,17 +296,32 @@ export class SNESEmulator extends EventEmitter {
     this.running = true;
     this.paused = false;
 
-    // Start emulation loop at 60 FPS
-    const frameTime = 1000 / 60.0;
-
-    this.frameInterval = setInterval(() => {
-      if (!this.paused) {
-        this.runFrame();
-      }
-    }, frameTime);
+    // Start emulation loop
+    if (this.speed === 0) {
+      // Unlimited speed - run as fast as possible
+      this.unlimitedSpeedActive = true;
+      const runUnlimited = () => {
+        if (!this.running || !this.unlimitedSpeedActive) return;
+        if (!this.paused) {
+          this.runFrame();
+        }
+        setImmediate(runUnlimited);
+      };
+      setImmediate(runUnlimited);
+      console.log('Emulator started at UNLIMITED speed');
+    } else {
+      // Fixed speed based on multiplier
+      this.unlimitedSpeedActive = false;
+      const frameTime = (1000 / 60.0) / this.speed;
+      this.frameInterval = setInterval(() => {
+        if (!this.paused) {
+          this.runFrame();
+        }
+      }, frameTime);
+      console.log(`Emulator started at ${this.speed}x speed (${60 * this.speed} FPS)`);
+    }
 
     this.emit('started');
-    console.log('Emulator started at 60 FPS');
   }
 
   private runFrame(): void {
@@ -351,22 +370,50 @@ export class SNESEmulator extends EventEmitter {
   }
 
   pause(): void {
+    if (this.paused) return;
+
     this.paused = true;
+
+    // If in unlimited speed mode, we need to stop the setImmediate loop
+    // The loop checks this.paused, so it will naturally stop
+
     this.emit('paused');
   }
 
   resume(): void {
+    if (!this.paused) return;
+
     this.paused = false;
+
+    // If in unlimited speed mode and there's no interval, restart the unlimited loop
+    if (this.running && this.speed === 0 && !this.unlimitedSpeedActive) {
+      this.unlimitedSpeedActive = true;
+      const runUnlimited = () => {
+        if (!this.running || !this.unlimitedSpeedActive) return;
+        if (!this.paused) {
+          this.runFrame();
+        }
+        setImmediate(runUnlimited);
+      };
+      setImmediate(runUnlimited);
+    }
+
     this.emit('resumed');
   }
 
   async stop(): Promise<void> {
+    // Stop both timing mechanisms
     this.running = false;
+    this.unlimitedSpeedActive = false;
 
+    // Clear interval if using fixed speed
     if (this.frameInterval) {
       clearInterval(this.frameInterval);
       this.frameInterval = undefined;
     }
+
+    // Give unlimited speed loop time to check flags
+    await new Promise(resolve => setTimeout(resolve, 10));
 
     // Cleanup emulator core
     if (this.emulatorCore) {
@@ -424,6 +471,52 @@ export class SNESEmulator extends EventEmitter {
 
   isPaused(): boolean {
     return this.paused;
+  }
+
+  setSpeed(speed: number): void {
+    if (this.speed === speed) return; // No change needed
+
+    this.speed = speed;
+
+    // Restart timing loop with new speed if running
+    if (this.running && !this.paused) {
+      // Stop unlimited speed loop if active
+      this.unlimitedSpeedActive = false;
+
+      // Clear existing interval
+      if (this.frameInterval) {
+        clearInterval(this.frameInterval);
+        this.frameInterval = undefined;
+      }
+
+      // Start new timing loop with updated speed
+      if (speed === 0) {
+        // Unlimited speed - run as fast as possible
+        this.unlimitedSpeedActive = true;
+        const runUnlimited = () => {
+          if (!this.running || !this.unlimitedSpeedActive) return;
+          if (!this.paused) {
+            this.runFrame();
+          }
+          setImmediate(runUnlimited);
+        };
+        setImmediate(runUnlimited);
+        console.log('Switched to UNLIMITED speed');
+      } else {
+        // Fixed speed based on multiplier
+        const frameTime = (1000 / 60.0) / speed;
+        this.frameInterval = setInterval(() => {
+          if (!this.paused) {
+            this.runFrame();
+          }
+        }, frameTime);
+        console.log(`Switched to ${speed}x speed (${60 * speed} FPS)`);
+      }
+    }
+  }
+
+  getSpeed(): number {
+    return this.speed;
   }
 
   private getEmptyControllerState(): ControllerState {
