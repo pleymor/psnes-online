@@ -92,8 +92,11 @@ function normalizeTitle(title: string): string {
   // Remove file extensions
   normalized = normalized.replace(/\.(smc|sfc|fig|swc|mgd|zip)$/i, '');
 
-  // Remove region tags
-  normalized = normalized.replace(/\s*\((usa|europe|japan|france|germany|spain|italy|uk|world|ntsc|pal|ntsc-j|eur|jpn|usa, europe)\)/gi, '');
+  // Remove common suffixes like "# SNES", "# NES", etc.
+  normalized = normalized.replace(/\s*#\s*(snes|nes|n64|sfc|gb|gba|gbc|genesis|sega|md)$/gi, '');
+
+  // Remove region tags including language tags
+  normalized = normalized.replace(/\s*\((usa|europe|japan|france|germany|spain|italy|uk|world|ntsc|pal|ntsc-j|eur|jpn|usa, europe|eng|fr|de|es|it|pt|beta|proto|unl)\)/gi, '');
 
   // Remove version/revision tags
   normalized = normalized.replace(/\s*\((rev\s*\d+|v\d+\.\d+|version\s*\d+)\)/gi, '');
@@ -109,6 +112,10 @@ function normalizeTitle(title: string): string {
 
   // Remove other punctuation
   normalized = normalized.replace(/[.,!?;()]/g, '');
+
+  // Fix common spelling variations
+  normalized = normalized.replace(/butouden/g, 'butoden');
+  normalized = normalized.replace(/street fighter ii'/g, 'street fighter ii');
 
   // Remove extra spaces and trim
   normalized = normalized.replace(/\s+/g, ' ').trim();
