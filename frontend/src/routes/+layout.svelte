@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { user, userLoading } from '$lib/stores/user';
-  import { initializeSocket } from '$lib/api/socket';
+  import { socket, initializeSocket } from '$lib/api/socket';
+
+  let socketInitialized = false;
 
   onMount(async () => {
     // Check authentication
@@ -10,9 +12,6 @@
       if (res.ok) {
         const userData = await res.json();
         user.set(userData);
-
-        // Initialize WebSocket connection
-        initializeSocket();
       }
     } catch (error) {
       console.error('Auth check failed:', error);
@@ -20,6 +19,22 @@
       userLoading.set(false);
     }
   });
+
+  // Initialize socket when user logs in, disconnect when user logs out
+  $: {
+    if ($user && !socketInitialized && !$userLoading) {
+      // User is logged in and socket not initialized
+      initializeSocket();
+      socketInitialized = true;
+    } else if (!$user && socketInitialized) {
+      // User logged out, clean up socket
+      if ($socket) {
+        $socket.disconnect();
+        socket.set(null);
+      }
+      socketInitialized = false;
+    }
+  }
 </script>
 
 <div class="app">

@@ -367,8 +367,11 @@ export function initializeWebSocket(io: Server) {
     });
 
     // Disconnect
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       console.log('Client disconnected:', socket.id);
+
+      // Notify friends that this user is now offline (BEFORE cleanup)
+      await notifyFriendsStatusChanged(io, user.id, false);
 
       // Find and leave all rooms
       rooms.forEach((room, roomId) => {
@@ -377,11 +380,9 @@ export function initializeWebSocket(io: Server) {
         }
       });
 
+      // Clean up user mappings
       socketUsers.delete(socket.id);
       userSockets.delete(user.id);
-
-      // Notify friends that this user is now offline
-      notifyFriendsStatusChanged(io, user.id, false);
     });
   });
 

@@ -13,6 +13,8 @@ interface EmulatorInstance {
   lastInputs: Map<number, GameInput>;
   frameCount: number;
   lastFrameTime: number;
+  audioBuffer: Float32Array[];
+  audioFrameCount: number;
 }
 
 export class EmulatorManager extends EventEmitter {
@@ -47,7 +49,9 @@ export class EmulatorManager extends EventEmitter {
       emulator,
       lastInputs: new Map(),
       frameCount: 0,
-      lastFrameTime: Date.now()
+      lastFrameTime: Date.now(),
+      audioBuffer: [],
+      audioFrameCount: 0
     };
 
     this.instances.set(roomId, instance);
@@ -85,9 +89,7 @@ export class EmulatorManager extends EventEmitter {
     };
 
     const audioHandler = (audioSamples: any) => {
-      const handlerStart = performance.now();
-
-      // Send data directly without extra conversion
+      // Send audio immediately for every frame
       const audio: AudioFrame = {
         sampleRate: audioSamples.sampleRate,
         channels: audioSamples.channels,
@@ -97,20 +99,7 @@ export class EmulatorManager extends EventEmitter {
         )
       };
 
-      const prepTime = performance.now() - handlerStart;
-      if (prepTime > 5) {
-        console.log(`⚠️  AUDIO HANDLER: Prep took ${prepTime.toFixed(2)}ms`);
-      }
-
-      // Use setImmediate to avoid blocking the event loop
-      setImmediate(() => {
-        const emitStart = performance.now();
-        this.emit(`audio:${roomId}`, audio);
-        const emitTime = performance.now() - emitStart;
-        if (emitTime > 5) {
-          console.log(`⚠️  AUDIO EMIT: Took ${emitTime.toFixed(2)}ms`);
-        }
-      });
+      this.emit(`audio:${roomId}`, audio);
     };
 
     emulator.on('video', videoHandler);

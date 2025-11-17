@@ -69,7 +69,10 @@
       alpha: false,
       desynchronized: true  // Better performance for animations
     })!;
-    audioContext = new AudioContext({ latencyHint: 'interactive' });
+    audioContext = new AudioContext({
+      latencyHint: 'interactive',
+      sampleRate: 32000
+    });
 
     // Start render loop
     startRenderLoop();
@@ -250,10 +253,9 @@
     // Schedule audio playback
     const currentTime = audioContext.currentTime;
 
-    // Initialize nextAudioTime if needed or if we're too far behind/ahead
-    if (nextAudioTime === 0 || nextAudioTime < currentTime || nextAudioTime > currentTime + 0.5) {
-      // Start with a small buffer (50ms) for smooth playback
-      nextAudioTime = currentTime + 0.05;
+    // Initialize or reset if we're too far off
+    if (nextAudioTime === 0 || nextAudioTime < currentTime) {
+      nextAudioTime = currentTime + 0.12; // 120ms buffer to prevent underruns
     }
 
     const source = audioContext.createBufferSource();
@@ -264,14 +266,12 @@
     // Update next audio time
     nextAudioTime += audioBuffer.duration;
 
-    // Keep audio latency in check (between 30ms and 150ms)
+    // Only correct if buffer is way too large (>500ms) or too small (<50ms)
     const latency = nextAudioTime - currentTime;
-    if (latency > 0.15) {
-      // Too much latency, speed up by reducing buffer
-      nextAudioTime = currentTime + 0.15;
-    } else if (latency < 0.03) {
-      // Too little buffer, add a small gap to prevent underruns
-      nextAudioTime = currentTime + 0.03;
+    if (latency > 0.5) {
+      nextAudioTime = currentTime + 0.2; // Reduce to 200ms
+    } else if (latency < 0.05) {
+      nextAudioTime = currentTime + 0.1; // Add buffer to prevent underruns
     }
   }
 
