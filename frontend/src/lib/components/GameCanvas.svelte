@@ -8,6 +8,7 @@
   let ctx: CanvasRenderingContext2D;
   let audioContext: AudioContext;
   let audioQueue: AudioBufferSourceNode[] = [];
+  let nextAudioTime = 0; // For audio scheduling
   let currentSpeed = 1.0;
   let showSpeedIndicator = false;
   let speedIndicatorTimeout: NodeJS.Timeout;
@@ -53,7 +54,7 @@
 
   onMount(() => {
     ctx = canvas.getContext('2d')!;
-    audioContext = new AudioContext();
+    audioContext = new AudioContext({ latencyHint: 'interactive' });
 
     // Listen for video frames
     $socket?.on('game:frame', (frame: any) => {
@@ -87,7 +88,13 @@
   });
 
   function renderFrame(frame: any) {
-    if (!ctx) return;
+    if (!ctx || !canvas) return;
+
+    // Resize canvas if frame dimensions changed
+    if (canvas.width !== frame.width || canvas.height !== frame.height) {
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+    }
 
     // Create ImageData from frame
     const imageData = new ImageData(
@@ -96,7 +103,10 @@
       frame.height
     );
 
-    // Scale to canvas size
+    // Disable image smoothing for sharp pixels
+    ctx.imageSmoothingEnabled = false;
+
+    // Draw directly to canvas at native resolution
     ctx.putImageData(imageData, 0, 0);
   }
 
@@ -163,7 +173,7 @@
       audio.sampleRate
     );
 
-    // Fill buffer with audio data
+    // Fill buffer with audio data (interleaved to separate channels)
     for (let channel = 0; channel < audio.channels; channel++) {
       const channelData = audioBuffer.getChannelData(channel);
       for (let i = 0; i < channelData.length; i++) {
@@ -171,10 +181,32 @@
       }
     }
 
+    // Schedule audio playback
+    const currentTime = audioContext.currentTime;
+
+    // Initialize nextAudioTime if needed or if we're too far behind/ahead
+    if (nextAudioTime === 0 || nextAudioTime < currentTime || nextAudioTime > currentTime + 0.5) {
+      // Start with a small buffer (50ms) for smooth playback
+      nextAudioTime = currentTime + 0.05;
+    }
+
     const source = audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(audioContext.destination);
-    source.start();
+    source.start(nextAudioTime);
+
+    // Update next audio time
+    nextAudioTime += audioBuffer.duration;
+
+    // Keep audio latency in check (between 30ms and 150ms)
+    const latency = nextAudioTime - currentTime;
+    if (latency > 0.15) {
+      // Too much latency, speed up by reducing buffer
+      nextAudioTime = currentTime + 0.15;
+    } else if (latency < 0.03) {
+      // Too little buffer, add a small gap to prevent underruns
+      nextAudioTime = currentTime + 0.03;
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -262,8 +294,8 @@
 <div class="canvas-container">
   <canvas
     bind:this={canvas}
-    width="512"
-    height="448"
+    width="256"
+    height="224"
   />
 
   {#if showSpeedIndicator}
@@ -293,8 +325,13 @@
   canvas {
     image-rendering: pixelated;
     image-rendering: crisp-edges;
+    image-rendering: -moz-crisp-edges;
+    /* Force 4:3 aspect ratio like a CRT TV */
+    aspect-ratio: 4 / 3;
+    width: auto;
+    height: 90vh;
     max-width: 100%;
-    max-height: 100%;
+    max-height: 90vh;
     border: 2px solid #333;
   }
 

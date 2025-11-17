@@ -50,6 +50,11 @@ export interface ControllerState {
 }
 
 export class SNESEmulator extends EventEmitter {
+  // SNES NTSC runs at ~60.0988 Hz (21477272.727272 / 357366)
+  private static readonly SNES_NTSC_FPS = 60.0988138974;
+  // SNES PAL runs at ~50.0070 Hz (21281370 / 425568)
+  private static readonly SNES_PAL_FPS = 50.0069789082;
+
   private romPath: string;
   private running: boolean = false;
   private paused: boolean = false;
@@ -58,6 +63,7 @@ export class SNESEmulator extends EventEmitter {
   private videoScale: number;
   private speed: number;
   private unlimitedSpeedActive: boolean = false;
+  private refreshRate: number = SNESEmulator.SNES_NTSC_FPS; // Detected from ROM
 
   // Controller states for port 1 and 2
   private controllerStates: Map<number, ControllerState> = new Map();
@@ -82,6 +88,39 @@ export class SNESEmulator extends EventEmitter {
     this.controllerStates.set(2, this.getEmptyControllerState());
   }
 
+  private detectROMRegion(romData: Uint8Array): 'NTSC' | 'PAL' {
+    // Skip 512-byte copier header if present
+    const hasHeader = (romData.length % 1024) === 512;
+    const offset = hasHeader ? 512 : 0;
+
+    // Try to read region code from ROM header
+    // LoROM: header at 0x7FC0, HiROM: header at 0xFFC0
+    const loromRegionOffset = offset + 0x7FD9;
+    const hiromRegionOffset = offset + 0xFFD9;
+
+    let regionCode = 0;
+
+    // Check if LoROM offset is valid
+    if (loromRegionOffset < romData.length) {
+      regionCode = romData[loromRegionOffset];
+    }
+
+    // If LoROM gave us 0xFF or invalid, try HiROM
+    if (regionCode === 0xFF || regionCode === 0) {
+      if (hiromRegionOffset < romData.length) {
+        regionCode = romData[hiromRegionOffset];
+      }
+    }
+
+    // Map region codes to NTSC/PAL
+    // 0x00 = Japan (NTSC), 0x01 = USA (NTSC), 0x0D = Korea (NTSC)
+    // 0x02-0x0C = Europe and other PAL regions, 0x11 = Australia (PAL)
+    const palRegions = [0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x11];
+    const isPAL = palRegions.includes(regionCode);
+
+    return isPAL ? 'PAL' : 'NTSC';
+  }
+
   async initialize(): Promise<void> {
     try {
       // Load ROM file
@@ -96,7 +135,7 @@ export class SNESEmulator extends EventEmitter {
         const zipEntries = zip.getEntries();
 
         // Find first ROM file in ZIP
-        const romEntry = zipEntries.find(entry => {
+        const romEntry = zipEntries.find((entry: any) => {
           const entryExt = path.extname(entry.entryName).toLowerCase();
           return ['.smc', '.sfc', '.fig', '.swc', '.mgd'].includes(entryExt);
         });
@@ -109,12 +148,21 @@ export class SNESEmulator extends EventEmitter {
         if (!extractedData) {
           throw new Error('Failed to extract ROM from ZIP');
         }
-        this.romData = extractedData;
+        this.romData = new Uint8Array(extractedData);
         console.log(`Extracted ROM: ${romEntry.entryName} (${this.romData.length} bytes)`);
       } else {
         this.romData = rawData;
         console.log(`Using ROM file directly (${this.romData.length} bytes)`);
       }
+
+      // Detect ROM region and set appropriate refresh rate
+      if (!this.romData) {
+        throw new Error('ROM data is not loaded');
+      }
+      const region = this.detectROMRegion(this.romData);
+      this.refreshRate = region === 'PAL' ? SNESEmulator.SNES_PAL_FPS : SNESEmulator.SNES_NTSC_FPS;
+      const videoSpec = region === 'PAL' ? '576i/50Hz (625 lines)' : '480i/60Hz (525 lines)';
+      console.log(`✓ ROM Region: ${region} - ${videoSpec} - Actual refresh: ${this.refreshRate.toFixed(4)} Hz`)
 
       // Use the libretro core directly
       this.emulatorCore = snes9xCore;
@@ -158,22 +206,30 @@ export class SNESEmulator extends EventEmitter {
           }
 
           // data is Uint16Array in RGB565 format
-          // Convert to RGBA for the frontend
+          // pitch is the number of pixels per line in the source buffer (may include padding)
+          // width is the actual display width
           const pixelCount = width * height;
           const rgbaData = new Uint8Array(pixelCount * 4);
 
-          for (let i = 0; i < pixelCount; i++) {
-            const pixel = data[i];
+          // Use pitch to correctly read each scanline
+          const pitchInPixels = pitch / 2; // pitch is in bytes, convert to pixels (16-bit)
 
-            // RGB565 format: RRRR RGGG GGGB BBBB
-            const r = ((pixel >> 11) & 0x1F) << 3; // 5 bits red
-            const g = ((pixel >> 5) & 0x3F) << 2;   // 6 bits green
-            const b = (pixel & 0x1F) << 3;          // 5 bits blue
+          for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+              const srcIndex = y * pitchInPixels + x;
+              const dstIndex = (y * width + x) * 4;
+              const pixel = data[srcIndex];
 
-            rgbaData[i * 4 + 0] = r | (r >> 5);     // Red with bit replication
-            rgbaData[i * 4 + 1] = g | (g >> 6);     // Green with bit replication
-            rgbaData[i * 4 + 2] = b | (b >> 5);     // Blue with bit replication
-            rgbaData[i * 4 + 3] = 255;              // Alpha
+              // RGB565 format: RRRR RGGG GGGB BBBB
+              const r = ((pixel >> 11) & 0x1F) << 3; // 5 bits red
+              const g = ((pixel >> 5) & 0x3F) << 2;   // 6 bits green
+              const b = (pixel & 0x1F) << 3;          // 5 bits blue
+
+              rgbaData[dstIndex + 0] = r | (r >> 5);     // Red with bit replication
+              rgbaData[dstIndex + 1] = g | (g >> 6);     // Green with bit replication
+              rgbaData[dstIndex + 2] = b | (b >> 5);     // Blue with bit replication
+              rgbaData[dstIndex + 3] = 255;              // Alpha
+            }
           }
 
           this.currentVideoFrame = {
@@ -312,13 +368,13 @@ export class SNESEmulator extends EventEmitter {
     } else {
       // Fixed speed based on multiplier
       this.unlimitedSpeedActive = false;
-      const frameTime = (1000 / 60.0) / this.speed;
+      const frameTime = (1000 / this.refreshRate) / this.speed;
       this.frameInterval = setInterval(() => {
         if (!this.paused) {
           this.runFrame();
         }
       }, frameTime);
-      console.log(`Emulator started at ${this.speed}x speed (${60 * this.speed} FPS)`);
+      console.log(`Emulator started at ${this.speed}x speed (${(this.refreshRate * this.speed).toFixed(2)} FPS)`);
     }
 
     this.emit('started');
@@ -504,13 +560,13 @@ export class SNESEmulator extends EventEmitter {
         console.log('Switched to UNLIMITED speed');
       } else {
         // Fixed speed based on multiplier
-        const frameTime = (1000 / 60.0) / speed;
+        const frameTime = (1000 / this.refreshRate) / speed;
         this.frameInterval = setInterval(() => {
           if (!this.paused) {
             this.runFrame();
           }
         }, frameTime);
-        console.log(`Switched to ${speed}x speed (${60 * speed} FPS)`);
+        console.log(`Switched to ${speed}x speed (${(this.refreshRate * speed).toFixed(2)} FPS)`);
       }
     }
   }
