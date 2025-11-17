@@ -15,6 +15,7 @@ import { gamesRouter } from './api/games.js';
 import { friendsRouter } from './api/friends.js';
 import { roomsRouter } from './api/rooms.js';
 import { initializeWebSocket } from './websocket/index.js';
+import { loadGameMetadata } from './services/metadata-loader.js';
 
 dotenv.config();
 
@@ -112,7 +113,14 @@ initializeWebSocket(io);
 
 const PORT = process.env.PORT || 3000;
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, async () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`🎮 WebSocket ready for connections`);
+
+  // Load game metadata at startup
+  try {
+    await loadGameMetadata();
+  } catch (error) {
+    console.error('⚠️  Failed to load game metadata, but server is still running');
+  }
 });

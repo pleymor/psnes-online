@@ -2,19 +2,98 @@
   import { onMount } from 'svelte';
   import { user, userLoading } from '$lib/stores/user';
   import { games } from '$lib/stores/games';
+  import type { Game } from '$lib/stores/games';
   import { socket } from '$lib/api/socket';
   import { goto } from '$app/navigation';
   import GameCard from '$lib/components/GameCard.svelte';
+  import GameDetailsModal from '$lib/components/GameDetailsModal.svelte';
   import UploadGame from '$lib/components/UploadGame.svelte';
   import FriendsList from '$lib/components/FriendsList.svelte';
 
   let showUpload = false;
+  let selectedGame: Game | null = null;
+  let isRefreshingMetadata = false;
+  let showToast = false;
+  let toastMessage = '';
+  let toastType: 'success' | 'error' = 'success';
+  let showDeleteConfirm = false;
+  let gameToDelete: Game | null = null;
 
   async function loadGames() {
     const res = await fetch('/api/games', { credentials: 'include' });
     if (res.ok) {
       const gamesData = await res.json();
       games.set(gamesData);
+    }
+  }
+
+  function handleDeleteRequest(game: Game) {
+    gameToDelete = game;
+    showDeleteConfirm = true;
+  }
+
+  async function confirmDelete() {
+    if (!gameToDelete) return;
+
+    try {
+      const res = await fetch(`/api/games/${gameToDelete.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+
+      if (res.ok) {
+        showNotification(`"${gameToDelete.title}" deleted successfully`, 'success');
+        await loadGames();
+      } else {
+        showNotification('Failed to delete game', 'error');
+      }
+    } catch (error) {
+      console.error('Error deleting game:', error);
+      showNotification('Error deleting game', 'error');
+    } finally {
+      showDeleteConfirm = false;
+      gameToDelete = null;
+    }
+  }
+
+  function cancelDelete() {
+    showDeleteConfirm = false;
+    gameToDelete = null;
+  }
+
+  function showNotification(message: string, type: 'success' | 'error' = 'success') {
+    toastMessage = message;
+    toastType = type;
+    showToast = true;
+    setTimeout(() => {
+      showToast = false;
+    }, 4000);
+  }
+
+  async function refreshMetadata() {
+    isRefreshingMetadata = true;
+
+    try {
+      const res = await fetch('/api/games/refresh-metadata', {
+        method: 'POST',
+        credentials: 'include'
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        await loadGames();
+        showNotification(
+          `Metadata updated! ${result.updated} game${result.updated !== 1 ? 's' : ''} matched, ${result.skipped} skipped.`,
+          'success'
+        );
+      } else {
+        showNotification('Failed to refresh metadata', 'error');
+      }
+    } catch (error) {
+      console.error('Error refreshing metadata:', error);
+      showNotification('Error refreshing metadata', 'error');
+    } finally {
+      isRefreshingMetadata = false;
     }
   }
 
@@ -57,6 +136,9 @@
   <div class="menu-content">
     <a href="/" class="logo">🎮 PSNES Online</a>
     <div class="menu-actions">
+      <button on:click={refreshMetadata} class="btn-refresh" disabled={isRefreshingMetadata}>
+        {isRefreshingMetadata ? '⏳ Updating...' : '🔄 Update Metadata'}
+      </button>
       <button on:click={() => showUpload = true} class="btn-upload">
         + Upload ROM
       </button>
@@ -89,7 +171,12 @@
       {:else}
         <div class="games-grid">
           {#each $games as game}
-            <GameCard {game} on:play={() => createRoom(game.id, game.title)} />
+            <GameCard
+              {game}
+              on:play={() => createRoom(game.id, game.title)}
+              on:details={() => selectedGame = game}
+              on:delete={() => handleDeleteRequest(game)}
+            />
           {/each}
         </div>
       {/if}
@@ -106,6 +193,36 @@
     on:close={() => showUpload = false}
     on:uploaded={() => { showUpload = false; loadGames(); }}
   />
+{/if}
+
+{#if selectedGame}
+  <GameDetailsModal
+    game={selectedGame}
+    on:close={() => selectedGame = null}
+  />
+{/if}
+
+{#if showDeleteConfirm && gameToDelete}
+  <div class="modal-overlay" on:click={cancelDelete}>
+    <div class="confirm-modal" on:click|stopPropagation>
+      <h3>Delete Game?</h3>
+      <p>Are you sure you want to delete "{gameToDelete.title}"?</p>
+      <p class="warning">This action cannot be undone.</p>
+      <div class="modal-actions">
+        <button on:click={cancelDelete} class="btn-cancel">Cancel</button>
+        <button on:click={confirmDelete} class="btn-confirm-delete">Delete</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showToast}
+  <div class="toast toast-{toastType}">
+    <div class="toast-content">
+      <span class="toast-icon">{toastType === 'success' ? '✅' : '❌'}</span>
+      <span class="toast-message">{toastMessage}</span>
+    </div>
+  </div>
 {/if}
 
 <style>
@@ -146,6 +263,28 @@
   .menu-actions {
     display: flex;
     gap: 1rem;
+  }
+
+  .btn-refresh {
+    background: rgba(68, 68, 68, 0.8);
+    color: white;
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.2s;
+  }
+
+  .btn-refresh:hover:not(:disabled) {
+    background: rgba(102, 126, 234, 0.2);
+    border-color: rgba(102, 126, 234, 0.5);
+    transform: translateY(-2px);
+  }
+
+  .btn-refresh:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
   .btn-upload {
@@ -256,6 +395,137 @@
     transform: translateY(-2px);
   }
 
+  .toast {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    background: rgba(42, 42, 42, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1rem 1.5rem;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 3000;
+    backdrop-filter: blur(10px);
+    animation: slideInUp 0.3s ease-out;
+  }
+
+  @keyframes slideInUp {
+    from {
+      transform: translateY(100px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  .toast-success {
+    border-left: 4px solid #4caf50;
+  }
+
+  .toast-error {
+    border-left: 4px solid #f44336;
+  }
+
+  .toast-content {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .toast-icon {
+    font-size: 1.5rem;
+  }
+
+  .toast-message {
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 500;
+  }
+
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .confirm-modal {
+    background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
+    border-radius: 16px;
+    padding: 2rem;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .confirm-modal h3 {
+    margin: 0 0 1rem 0;
+    font-size: 1.5rem;
+    color: #fff;
+  }
+
+  .confirm-modal p {
+    margin: 0 0 0.5rem 0;
+    color: #ccc;
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  .confirm-modal .warning {
+    color: #f44336;
+    font-size: 0.875rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+  }
+
+  .btn-cancel {
+    background: rgba(68, 68, 68, 0.8);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.2s;
+  }
+
+  .btn-cancel:hover {
+    background: rgba(88, 88, 88, 0.8);
+  }
+
+  .btn-confirm-delete {
+    background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.2s;
+  }
+
+  .btn-confirm-delete:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
+  }
+
   @media (max-width: 1024px) {
     .content {
       grid-template-columns: 1fr;
@@ -272,6 +542,16 @@
     .games-grid {
       grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
       gap: 1.5rem;
+    }
+
+    .toast {
+      left: 1rem;
+      right: 1rem;
+      bottom: 1rem;
+    }
+
+    .menu-actions {
+      flex-wrap: wrap;
     }
   }
 </style>

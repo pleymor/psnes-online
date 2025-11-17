@@ -38,6 +38,28 @@ model Friendship {
   @@unique([initiatorId, receiverId])
 }
 
+model GameMetadata {
+  id           String   @id @default(uuid())
+  title        String
+  altTitle     String?  // Alternative title (e.g., Japanese title)
+  genre        String?
+  publisher    String?
+  developer    String?
+  releaseDate  String?  // YYYY-MM-DD format
+  players      String?  // e.g., "1-2", "1-4"
+  region       String?  // NTSC, PAL, NTSC-J
+  description  String?
+  coverUrl     String?
+  crc32        String?  // CRC32 checksum for ROM matching
+  md5          String?  // MD5 checksum for ROM matching
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([title])
+  @@index([crc32])
+}
+
 model Game {
   id          String   @id @default(uuid())
   title       String
@@ -45,6 +67,16 @@ model Game {
   romPath     String
   coverUrl    String?
   uploadedAt  DateTime @default(now())
+
+  // Metadata fields
+  genre       String?
+  publisher   String?
+  developer   String?
+  releaseDate String?
+  players     String?
+  region      String?
+  description String?
+  crc32       String?  // Calculated on upload for matching
 
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)

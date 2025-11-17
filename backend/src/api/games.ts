@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { User } from '../types/index.js';
+import { findGameMetadata, refreshGameMetadata } from '../services/metadata-loader.js';
 
 const prisma = new PrismaClient();
 export const gamesRouter = Router();
@@ -82,13 +83,37 @@ gamesRouter.post('/upload', upload.single('rom'), async (req, res) => {
 
   const { title } = req.body;
 
+  // Extract title from filename if not provided
+  const detectedTitle = title || path.basename(req.file.originalname, path.extname(req.file.originalname));
+
+  // Try to find metadata for this game
+  const metadata = await findGameMetadata(detectedTitle);
+
+  // Create game with metadata if found
+  const gameData: any = {
+    title: metadata?.title || detectedTitle,
+    filename: req.file.originalname,
+    romPath: req.file.path,
+    userId: user.id
+  };
+
+  // Add metadata fields if available
+  if (metadata) {
+    console.log(`✅ Found metadata for "${metadata.title}"`);
+    gameData.genre = metadata.genre;
+    gameData.publisher = metadata.publisher;
+    gameData.developer = metadata.developer;
+    gameData.releaseDate = metadata.releaseDate;
+    gameData.players = metadata.players;
+    gameData.region = metadata.region;
+    gameData.description = metadata.description;
+    gameData.coverUrl = metadata.coverUrl;
+  } else {
+    console.log(`ℹ️  No metadata found for "${detectedTitle}"`);
+  }
+
   const game = await prisma.game.create({
-    data: {
-      title: title || path.basename(req.file.originalname, path.extname(req.file.originalname)),
-      filename: req.file.originalname,
-      romPath: req.file.path,
-      userId: user.id
-    }
+    data: gameData
   });
 
   res.json(game);
@@ -145,4 +170,57 @@ gamesRouter.get('/:gameId/saves', async (req, res) => {
   }
 
   res.json(game.saves);
+});
+
+// Refresh metadata for all user's games
+gamesRouter.post('/refresh-metadata', async (req, res) => {
+  const user = req.user as User;
+
+  try {
+    // Get all user's games
+    const games = await prisma.game.findMany({
+      where: { userId: user.id }
+    });
+
+    let updatedCount = 0;
+    let skippedCount = 0;
+
+    for (const game of games) {
+      // Try to find metadata for this game
+      const metadata = await findGameMetadata(game.title);
+
+      if (metadata) {
+        // Update game with metadata
+        await prisma.game.update({
+          where: { id: game.id },
+          data: {
+            title: metadata.title,
+            genre: metadata.genre,
+            publisher: metadata.publisher,
+            developer: metadata.developer,
+            releaseDate: metadata.releaseDate,
+            players: metadata.players,
+            region: metadata.region,
+            description: metadata.description,
+            coverUrl: metadata.coverUrl
+          }
+        });
+        updatedCount++;
+        console.log(`✅ Updated metadata for "${game.title}" -> "${metadata.title}"`);
+      } else {
+        skippedCount++;
+        console.log(`ℹ️  No metadata found for "${game.title}"`);
+      }
+    }
+
+    res.json({
+      success: true,
+      total: games.length,
+      updated: updatedCount,
+      skipped: skippedCount
+    });
+  } catch (error) {
+    console.error('Error refreshing metadata:', error);
+    res.status(500).json({ error: 'Failed to refresh metadata' });
+  }
 });

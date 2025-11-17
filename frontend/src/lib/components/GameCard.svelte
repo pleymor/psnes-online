@@ -6,33 +6,57 @@
 
   const dispatch = createEventDispatcher();
 
-  async function deleteGame() {
-    if (confirm(`Delete "${game.title}"?`)) {
-      await fetch(`/api/games/${game.id}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
-      location.reload();
+  async function deleteGame(event: Event) {
+    event.stopPropagation();
+    dispatch('delete');
+  }
+
+  function handleCardClick() {
+    dispatch('details');
+  }
+
+  function handlePlayClick(event: Event) {
+    event.stopPropagation();
+    dispatch('play');
+  }
+
+  function handleKeyPress(event: KeyboardEvent) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleCardClick();
     }
   }
 </script>
 
-<div class="game-card">
+<div
+  class="game-card"
+  role="button"
+  tabindex="0"
+  on:click={handleCardClick}
+  on:keypress={handleKeyPress}
+>
   <div class="cover">
     {#if game.coverUrl}
       <img src={game.coverUrl} alt={game.title} />
     {:else}
       <div class="placeholder">🎮</div>
     {/if}
+    <div class="hover-overlay">
+      <div class="info-icon">ℹ️</div>
+      <div class="info-text">Click for details</div>
+    </div>
   </div>
 
   <div class="info">
     <h3>{game.title}</h3>
+    {#if game.genre}
+      <p class="genre">{game.genre}</p>
+    {/if}
     <p class="saves">{game.saves?.length || 0} save states</p>
   </div>
 
   <div class="actions">
-    <button on:click={() => dispatch('play')} class="btn-play">
+    <button on:click={handlePlayClick} class="btn-play">
       Play
     </button>
     <button on:click={deleteGame} class="btn-delete">
@@ -49,6 +73,7 @@
     overflow: hidden;
     transition: all 0.3s ease;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
   }
 
   .game-card:hover {
@@ -80,6 +105,33 @@
     opacity: 1;
   }
 
+  .hover-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s;
+    gap: 0.5rem;
+  }
+
+  .game-card:hover .hover-overlay {
+    opacity: 1;
+  }
+
+  .info-icon {
+    font-size: 2.5rem;
+  }
+
+  .info-text {
+    font-size: 0.875rem;
+    color: #fff;
+    font-weight: 500;
+  }
+
   .placeholder {
     font-size: 3rem;
     opacity: 0.4;
@@ -100,6 +152,13 @@
     font-size: 1.125rem;
     font-weight: 600;
     color: #fff;
+  }
+
+  .genre {
+    margin: 0 0 0.25rem 0;
+    color: #667eea;
+    font-size: 0.875rem;
+    font-weight: 500;
   }
 
   .saves {
