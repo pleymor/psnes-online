@@ -12,6 +12,8 @@
   let currentSpeed = 1.0;
   let showSpeedIndicator = false;
   let speedIndicatorTimeout: NodeJS.Timeout;
+  let isFullscreen = false;
+  let canvasContainer: HTMLDivElement;
 
   // Reusable ImageData for better performance
   let imageData: ImageData | null = null;
@@ -86,6 +88,9 @@
     // Input handling
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+
+    // Listen for fullscreen changes
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
   });
 
   onDestroy(() => {
@@ -95,6 +100,7 @@
     $socket?.off('game:speedChanged');
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
+    document.removeEventListener('fullscreenchange', handleFullscreenChange);
     audioContext?.close();
     if (speedIndicatorTimeout) clearTimeout(speedIndicatorTimeout);
   });
@@ -245,6 +251,13 @@
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') return; // Let parent handle pause
 
+    // Fullscreen toggle with Alt+Enter
+    if (e.altKey && e.key === 'Enter') {
+      e.preventDefault();
+      toggleFullscreen();
+      return;
+    }
+
     // Speed controls
     if (e.key === 'Tab') {
       e.preventDefault();
@@ -270,6 +283,26 @@
       sendInput();
       e.preventDefault();
     }
+  }
+
+  async function toggleFullscreen() {
+    try {
+      if (!document.fullscreenElement) {
+        // Enter fullscreen
+        await canvasContainer.requestFullscreen();
+        isFullscreen = true;
+      } else {
+        // Exit fullscreen
+        await document.exitFullscreen();
+        isFullscreen = false;
+      }
+    } catch (error) {
+      console.error('Erreur lors du changement de mode plein écran:', error);
+    }
+  }
+
+  function handleFullscreenChange() {
+    isFullscreen = !!document.fullscreenElement;
   }
 
   function toggleSpeed() {
@@ -324,7 +357,7 @@
   }
 </script>
 
-<div class="canvas-container">
+<div class="canvas-container" bind:this={canvasContainer}>
   <canvas
     bind:this={canvas}
     width="256"
@@ -366,6 +399,16 @@
     max-width: 100%;
     max-height: 90vh;
     border: 2px solid #333;
+  }
+
+  .canvas-container:fullscreen {
+    background: #000;
+  }
+
+  .canvas-container:fullscreen canvas {
+    height: 100vh;
+    max-height: 100vh;
+    border: none;
   }
 
   .speed-indicator {
