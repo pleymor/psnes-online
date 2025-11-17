@@ -140,9 +140,11 @@
       imageData = null;
     }
 
-    // Resize display canvas to scaled resolution
-    const scaledWidth = frame.width * SCALE_FACTOR;
+    // Calculate display dimensions to preserve 4:3 aspect ratio
+    // SNES outputs 256×224 (or similar), but should be displayed as 4:3
     const scaledHeight = frame.height * SCALE_FACTOR;
+    const scaledWidth = Math.round((scaledHeight * 4) / 3); // Force 4:3 ratio
+
     if (canvas.width !== scaledWidth || canvas.height !== scaledHeight) {
       canvas.width = scaledWidth;
       canvas.height = scaledHeight;
@@ -161,7 +163,7 @@
     // Disable image smoothing for sharp, pixelated upscaling
     ctx.imageSmoothingEnabled = false;
 
-    // Scale up from offscreen canvas to display canvas
+    // Scale up from offscreen canvas to display canvas with 4:3 ratio
     ctx.drawImage(
       offscreenCanvas,
       0, 0, frame.width, frame.height,
@@ -489,12 +491,11 @@
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     image-rendering: -moz-crisp-edges;
-    /* Force 4:3 aspect ratio like a CRT TV */
-    aspect-ratio: 4 / 3;
-    width: auto;
+    /* Canvas already has 4:3 ratio from JS, scale to fill viewport height */
+    object-fit: contain;
     height: 100vh;
+    width: auto;
     max-width: 100%;
-    max-height: 100vh;
     border: none;
   }
 
@@ -503,8 +504,10 @@
   }
 
   .canvas-container:fullscreen canvas {
+    object-fit: contain;
     height: 100vh;
-    max-height: 100vh;
+    width: auto;
+    max-width: 100vw;
     border: none;
   }
 

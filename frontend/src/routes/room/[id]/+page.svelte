@@ -14,6 +14,9 @@
   let room: Room | null = null;
   let gameStarted = false;
   let showPauseMenu = false;
+  let showToast = false;
+  let toastMessage = '';
+  let toastType: 'success' | 'error' = 'success';
   let userKeyConfig: KeyConfig = {
     up: 'ArrowUp',
     down: 'ArrowDown',
@@ -41,7 +44,7 @@
 
   onMount(async () => {
     if (!$socket) {
-      goto('/library');
+      goto('/');
       return;
     }
 
@@ -132,7 +135,7 @@
   }
 
   function leaveRoom() {
-    goto('/library');
+    goto('/');
   }
 
   function handleControlsSaved(event: CustomEvent<{ config: KeyConfig }>) {
@@ -142,6 +145,15 @@
       // Trigger reactivity by reassigning room
       room = { ...room };
     }
+  }
+
+  function handleNotification(event: CustomEvent<{ message: string; type: 'success' | 'error' }>) {
+    toastMessage = event.detail.message;
+    toastType = event.detail.type;
+    showToast = true;
+    setTimeout(() => {
+      showToast = false;
+    }, 3000);
   }
 </script>
 
@@ -171,12 +183,21 @@
     {#if showPauseMenu}
       <PauseMenu
         {roomId}
+        gameId={room?.gameId || ''}
         {keyConfig}
         on:resume={() => $socket?.emit('game:resume', { roomId })}
         on:quit={() => $socket?.emit('game:stop', { roomId })}
         on:saved={handleControlsSaved}
+        on:notification={handleNotification}
       />
     {/if}
+  {/if}
+
+  {#if showToast}
+    <div class="toast toast-{toastType}">
+      <span class="toast-icon">{toastType === 'success' ? '✅' : '❌'}</span>
+      <span>{toastMessage}</span>
+    </div>
   {/if}
 </div>
 
@@ -250,5 +271,44 @@
     color: #888;
     font-size: 1.125rem;
     margin: 2rem 0;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    background: rgba(42, 42, 42, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    z-index: 2000;
+    animation: slideIn 0.3s ease-out;
+    backdrop-filter: blur(10px);
+  }
+
+  .toast-success {
+    border-left: 4px solid #4caf50;
+  }
+
+  .toast-error {
+    border-left: 4px solid #f44336;
+  }
+
+  .toast-icon {
+    font-size: 1.25rem;
+  }
+
+  @keyframes slideIn {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
   }
 </style>

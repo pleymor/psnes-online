@@ -13,6 +13,7 @@
   let friendEmail = '';
   let selectedFriend: any = null;
   let friendRooms = new Map<string, any>(); // userId -> room
+  let onlineFriends = new Map<string, boolean>(); // userId -> online status
 
   onMount(async () => {
     // Load friends
@@ -27,9 +28,16 @@
       friendRequests = await reqRes.json();
     }
 
-    // Listen for online status updates
-    $socket?.on('friends:online', (onlineFriends: any[]) => {
-      // Update online status
+    // Listen for initial online status
+    $socket?.on('friends:online', (friendsWithStatus: any[]) => {
+      // Initialize online status map
+      onlineFriends = new Map(friendsWithStatus.map(f => [f.id, f.online]));
+    });
+
+    // Listen for friend status changes (online/offline)
+    $socket?.on('friend:statusChanged', ({ userId, online }: any) => {
+      onlineFriends.set(userId, online);
+      onlineFriends = onlineFriends; // Trigger reactivity
     });
 
     $socket?.on('friend:roomCreated', ({ userId, room }: any) => {
@@ -95,6 +103,8 @@
 
   onDestroy(() => {
     // Clean up event listeners
+    $socket?.off('friends:online');
+    $socket?.off('friend:statusChanged');
     $socket?.off('friend:requestReceived');
     $socket?.off('friend:requestAccepted');
     $socket?.off('friend:requestRejected');
@@ -238,8 +248,10 @@
               <strong>{friendData.friend.displayName}</strong>
               {#if room && room.status !== 'playing'}
                 <small class="room-status">{t($language, 'inRoom', { gameTitle: room.gameTitle })}</small>
+              {:else if onlineFriends.get(friendData.friend.id)}
+                <small class="online-status">{t($language, 'online')}</small>
               {:else}
-                <small>{t($language, 'offline')}</small>
+                <small class="offline-status">{t($language, 'offline')}</small>
               {/if}
             </div>
           </div>
@@ -418,6 +430,15 @@
   .info .room-status {
     color: #667eea;
     font-weight: 500;
+  }
+
+  .info .online-status {
+    color: #4caf50;
+    font-weight: 500;
+  }
+
+  .info .offline-status {
+    color: #888;
   }
 
   .btn-join {

@@ -1,9 +1,13 @@
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import ControlsSettings from './ControlsSettings.svelte';
+  import SavesManager from './SavesManager.svelte';
+  import { language } from '$lib/stores/language';
+  import { t } from '$lib/i18n/translations';
   import type { KeyConfig } from '$lib/types';
 
   export let roomId: string;
+  export let gameId: string;
   export let keyConfig: KeyConfig;
 
   const dispatch = createEventDispatcher();
@@ -24,11 +28,11 @@
     }
   }
 
-  const menuItems = [
-    { label: 'Resume Game', action: () => dispatch('resume') },
-    { label: 'Key Configuration', action: () => showKeyConfig = true },
-    { label: 'Save / Load', action: () => showSaveLoad = true },
-    { label: 'Stop Game', action: () => dispatch('quit'), danger: true }
+  $: menuItems = [
+    { label: t($language, 'resume'), action: () => dispatch('resume') },
+    { label: t($language, 'controls'), action: () => showKeyConfig = true },
+    { label: t($language, 'saves'), action: () => showSaveLoad = true },
+    { label: t($language, 'quit'), action: () => dispatch('quit'), danger: true }
   ];
 
   function handleSaved(event: CustomEvent<{ config: KeyConfig }>) {
@@ -72,6 +76,15 @@
     selectedIndex = 0;
     // Refocus the menu after a short delay to ensure DOM is updated
     setTimeout(() => menuButtons[selectedIndex]?.focus(), 50);
+  }
+
+  function handleNotification(event: CustomEvent<{ message: string; type: 'success' | 'error' }>) {
+    // Forward notification to parent (room component)
+    dispatch('notification', event.detail);
+  }
+
+  function handleSaveClose() {
+    handleBackFromSubmenu();
   }
 
   // Poll gamepad state for menu navigation
@@ -171,7 +184,7 @@
 <div class="pause-overlay">
   <div class="pause-menu">
     {#if !showKeyConfig && !showSaveLoad}
-      <h2>Paused</h2>
+      <h2>{t($language, 'pauseMenu')}</h2>
       <p class="hint">Use D-Pad + A to select, B to resume</p>
 
       <div class="menu-items">
@@ -190,17 +203,25 @@
 
     {#if showKeyConfig}
       <div class="submenu">
-        <h3>Key Configuration</h3>
+        <h3>{t($language, 'controls')}</h3>
         <ControlsSettings {roomId} currentConfig={keyConfig} on:saved={handleSaved} />
-        <button on:click={handleBackFromSubmenu} class="back-button">Back</button>
+        <button on:click={handleBackFromSubmenu} class="back-button">
+          {t($language, 'close')}
+        </button>
       </div>
     {/if}
 
     {#if showSaveLoad}
       <div class="submenu">
-        <h3>Save / Load</h3>
-        <p>Save state management coming soon...</p>
-        <button on:click={handleBackFromSubmenu} class="back-button">Back</button>
+        <SavesManager
+          {roomId}
+          {gameId}
+          on:notification={handleNotification}
+          on:close={handleSaveClose}
+        />
+        <button on:click={handleBackFromSubmenu} class="back-button">
+          {t($language, 'close')}
+        </button>
       </div>
     {/if}
   </div>

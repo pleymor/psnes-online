@@ -64,6 +64,9 @@ export function initializeWebSocket(io: Server) {
     const onlineFriends = await getOnlineFriends(user.id);
     socket.emit('friends:online', onlineFriends);
 
+    // Notify friends that this user is now online
+    await notifyFriendsStatusChanged(io, user.id, true);
+
     // Create room
     socket.on('room:create', async (data: { gameId: string; gameTitle: string }) => {
       const roomId = uuidv4();
@@ -375,8 +378,8 @@ export function initializeWebSocket(io: Server) {
       socketUsers.delete(socket.id);
       userSockets.delete(user.id);
 
-      // Notify friends
-      broadcastOnlineStatus(io, user.id);
+      // Notify friends that this user is now offline
+      notifyFriendsStatusChanged(io, user.id, false);
     });
   });
 
@@ -478,16 +481,70 @@ async function notifyFriendsRoomStatusChanged(io: Server, userId: string, roomId
   });
 }
 
-function broadcastOnlineStatus(io: Server, userId: string) {
-  io.emit('friend:statusChanged', {
-    userId,
-    online: userSockets.has(userId)
+async function notifyFriendsStatusChanged(io: Server, userId: string, online: boolean) {
+  // Get user's friends
+  const friendships = await prisma.friendship.findMany({
+    where: {
+      OR: [
+        { initiatorId: userId },
+        { receiverId: userId }
+      ],
+      status: 'accepted'
+    }
+  });
+
+  // Notify each online friend about status change
+  friendships.forEach(friendship => {
+    const friendId = friendship.initiatorId === userId ? friendship.receiverId : friendship.initiatorId;
+    const friendSocketId = getUserSocket(friendId);
+
+    if (friendSocketId) {
+      io.to(friendSocketId).emit('friend:statusChanged', {
+        userId,
+        online
+      });
+    }
   });
 }
 
-async function getOnlineFriends(_userId: string): Promise<any[]> {
-  // TODO: Implement actual friends query
-  return [];
+async function getOnlineFriends(userId: string): Promise<any[]> {
+  // Get user's accepted friendships
+  const friendships = await prisma.friendship.findMany({
+    where: {
+      OR: [
+        { initiatorId: userId },
+        { receiverId: userId }
+      ],
+      status: 'accepted'
+    },
+    include: {
+      initiator: {
+        select: {
+          id: true,
+          displayName: true,
+          avatar: true,
+          email: true
+        }
+      },
+      receiver: {
+        select: {
+          id: true,
+          displayName: true,
+          avatar: true,
+          email: true
+        }
+      }
+    }
+  });
+
+  // Map to friend user objects with online status
+  return friendships.map(friendship => {
+    const friend = friendship.initiatorId === userId ? friendship.receiver : friendship.initiator;
+    return {
+      ...friend,
+      online: userSockets.has(friend.id)
+    };
+  });
 }
 
 function getDefaultKeyConfig(): KeyConfig {
