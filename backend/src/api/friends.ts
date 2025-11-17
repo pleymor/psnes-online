@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { User } from '../types/index.js';
+import { getIO, getUserSocket } from '../websocket/index.js';
 
 const prisma = new PrismaClient();
 export const friendsRouter = Router();
@@ -33,11 +34,15 @@ friendsRouter.get('/', async (req, res) => {
     }
   });
 
-  const friends = friendships.map(f =>
-    f.initiatorId === user.id ? f.receiver : f.initiator
-  );
+  // Return friendship data with friend info and dates
+  const friendsData = friendships.map(f => ({
+    friendshipId: f.id,
+    friend: f.initiatorId === user.id ? f.receiver : f.initiator,
+    friendsSince: f.updatedAt, // When the friendship was accepted
+    createdAt: f.createdAt
+  }));
 
-  res.json(friends);
+  res.json(friendsData);
 });
 
 // Get pending friend requests
@@ -95,9 +100,17 @@ friendsRouter.post('/request', async (req, res) => {
       status: 'pending'
     },
     include: {
+      initiator: true,
       receiver: true
     }
   });
+
+  // Notify receiver via WebSocket
+  const io = getIO();
+  const receiverSocketId = getUserSocket(friend.id);
+  if (io && receiverSocketId) {
+    io.to(receiverSocketId).emit('friend:requestReceived', friendship);
+  }
 
   res.json(friendship);
 });
@@ -124,6 +137,20 @@ friendsRouter.post('/accept/:friendshipId', async (req, res) => {
     }
   });
 
+  // Notify both users via WebSocket
+  const io = getIO();
+  const initiatorSocketId = getUserSocket(updated.initiatorId);
+  const receiverSocketId = getUserSocket(updated.receiverId);
+
+  if (io) {
+    if (initiatorSocketId) {
+      io.to(initiatorSocketId).emit('friend:requestAccepted', updated);
+    }
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit('friend:requestAccepted', updated);
+    }
+  }
+
   res.json(updated);
 });
 
@@ -147,6 +174,20 @@ friendsRouter.delete('/:friendshipId', async (req, res) => {
   await prisma.friendship.delete({
     where: { id: friendshipId }
   });
+
+  // Notify the other user via WebSocket
+  const io = getIO();
+  const otherUserId = friendship.initiatorId === user.id ? friendship.receiverId : friendship.initiatorId;
+  const otherUserSocketId = getUserSocket(otherUserId);
+
+  if (io && otherUserSocketId) {
+    // If friendship was pending, use requestRejected, otherwise use removed
+    if (friendship.status === 'pending') {
+      io.to(otherUserSocketId).emit('friend:requestRejected', { friendshipId });
+    } else {
+      io.to(otherUserSocketId).emit('friend:removed', { friendshipId });
+    }
+  }
 
   res.json({ message: 'Friendship deleted' });
 });

@@ -1,6 +1,9 @@
 <script lang="ts">
   import { user } from '$lib/stores/user';
+  import { language } from '$lib/stores/language';
   import { goto } from '$app/navigation';
+  import { t } from '$lib/i18n/translations';
+  import LanguageSelector from '$lib/components/LanguageSelector.svelte';
 
   // Accept params prop from SvelteKit (unused but prevents warnings)
   export let params = {};
@@ -24,11 +27,12 @@
     <div class="menu-content">
       <h2>🎮 PSNES Online</h2>
       <div class="menu-actions">
+        <LanguageSelector />
         <a href="/library" class="btn-library">
-          Bibliothèque
+          {t($language, 'library')}
         </a>
         <button on:click={logout} class="btn-logout">
-          Déconnexion
+          {t($language, 'logout')}
         </button>
       </div>
     </div>
@@ -38,22 +42,24 @@
 <div class="container">
   <div class="hero">
     <h1>🎮 PSNES Online</h1>
-    <p>Play classic SNES games with your friends</p>
+    <p>{t($language, 'playWithFriends')}</p>
 
     <div class="legal-disclaimer">
-      <p><strong>⚠️ Legal Warning / Avertissement Légal</strong></p>
-      <p><strong>🇬🇧</strong> This platform is provided for educational and preservation purposes. You must legally own the games for which you use ROMs. Using ROMs without owning the original games is illegal. By using this service, you agree to be solely responsible for complying with intellectual property laws.</p>
-      <p><strong>🇫🇷</strong> Cette plateforme est fournie à des fins éducatives et de préservation. Vous devez posséder légalement les jeux dont vous utilisez les ROMs. L'utilisation de ROMs sans posséder les jeux originaux est illégale. En utilisant ce service, vous acceptez d'être seul responsable du respect des lois sur la propriété intellectuelle.</p>
+      <p><strong>⚠️ {t($language, 'legalWarning')}</strong></p>
+      <p>{t($language, 'legalText')}</p>
     </div>
 
     {#if !$user}
-      <button on:click={login} class="login-btn">
-        Sign in with Google
-      </button>
+      <div class="login-section">
+        <LanguageSelector />
+        <button on:click={login} class="login-btn">
+          {t($language, 'signInWithGoogle')}
+        </button>
+      </div>
     {:else}
-      <p class="welcome">Bienvenue {$user.displayName}!</p>
+      <p class="welcome">{t($language, 'welcome')} {$user.displayName}!</p>
       <a href="/library" class="library-link">
-        Accéder à ma bibliothèque →
+        {t($language, 'goToLibrary')} →
       </a>
     {/if}
   </div>
@@ -165,7 +171,6 @@
     color: #ddd;
     margin-bottom: 0.75rem;
     line-height: 1.6;
-    text-align: left;
   }
 
   .legal-disclaimer p:first-child {
@@ -180,6 +185,13 @@
   .legal-disclaimer strong {
     color: #ff9800;
     font-size: 1rem;
+  }
+
+  .login-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
   }
 
   .login-btn {

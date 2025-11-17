@@ -10,7 +10,19 @@ const userSockets = new Map<string, string>(); // userId -> socketId
 const socketUsers = new Map<string, User>(); // socketId -> User
 const prisma = new PrismaClient();
 
+// Export io instance for use in other modules
+let ioInstance: Server | null = null;
+
+export function getIO(): Server | null {
+  return ioInstance;
+}
+
+export function getUserSocket(userId: string): string | undefined {
+  return userSockets.get(userId);
+}
+
 export function initializeWebSocket(io: Server) {
+  ioInstance = io;
   const emulatorManager = new EmulatorManager();
 
   io.on('connection', async (socket: Socket) => {
@@ -209,6 +221,9 @@ export function initializeWebSocket(io: Server) {
       room.status = 'playing';
       io.to(data.roomId).emit('room:updated', room);
 
+      // Notify friends that the game started
+      await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'playing');
+
       // Start emulator
       try {
         await emulatorManager.startEmulator(room.id, room.gameId);
@@ -389,6 +404,10 @@ async function handleLeaveRoom(
     emulatorManager.removeAllListeners(`frame:${roomId}`);
     emulatorManager.removeAllListeners(`audio:${roomId}`);
     await emulatorManager.stopEmulator(roomId);
+
+    // Notify friends before deleting the room
+    await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'destroyed');
+
     rooms.delete(roomId);
     io.emit('room:destroyed', { roomId });
   } else {
@@ -406,12 +425,56 @@ function broadcastRoomUpdate(io: Server, room: Room) {
   io.emit('room:update', room);
 }
 
-function notifyFriendsAboutRoom(io: Server, userId: string, room: Room) {
-  // TODO: Get friends list and notify them
-  // For now, broadcast to all
-  io.emit('friend:roomCreated', {
-    userId,
-    room
+async function notifyFriendsAboutRoom(io: Server, userId: string, room: Room) {
+  // Get user's friends
+  const friendships = await prisma.friendship.findMany({
+    where: {
+      OR: [
+        { initiatorId: userId },
+        { receiverId: userId }
+      ],
+      status: 'accepted'
+    }
+  });
+
+  // Notify each online friend
+  friendships.forEach(friendship => {
+    const friendId = friendship.initiatorId === userId ? friendship.receiverId : friendship.initiatorId;
+    const friendSocketId = getUserSocket(friendId);
+
+    if (friendSocketId) {
+      io.to(friendSocketId).emit('friend:roomCreated', {
+        userId,
+        room
+      });
+    }
+  });
+}
+
+async function notifyFriendsRoomStatusChanged(io: Server, userId: string, roomId: string, status: 'playing' | 'destroyed') {
+  // Get user's friends
+  const friendships = await prisma.friendship.findMany({
+    where: {
+      OR: [
+        { initiatorId: userId },
+        { receiverId: userId }
+      ],
+      status: 'accepted'
+    }
+  });
+
+  // Notify each online friend
+  friendships.forEach(friendship => {
+    const friendId = friendship.initiatorId === userId ? friendship.receiverId : friendship.initiatorId;
+    const friendSocketId = getUserSocket(friendId);
+
+    if (friendSocketId) {
+      io.to(friendSocketId).emit('friend:roomStatusChanged', {
+        userId,
+        roomId,
+        status
+      });
+    }
   });
 }
 
@@ -422,7 +485,7 @@ function broadcastOnlineStatus(io: Server, userId: string) {
   });
 }
 
-async function getOnlineFriends(userId: string): Promise<any[]> {
+async function getOnlineFriends(_userId: string): Promise<any[]> {
   // TODO: Implement actual friends query
   return [];
 }

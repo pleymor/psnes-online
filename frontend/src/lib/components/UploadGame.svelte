@@ -1,5 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { language } from '$lib/stores/language';
+  import { t } from '$lib/i18n/translations';
 
   const dispatch = createEventDispatcher();
 
@@ -49,17 +51,16 @@
 
 <div class="modal-backdrop" on:click={() => dispatch('close')}>
   <div class="modal" on:click|stopPropagation>
-    <h2>Upload ROM</h2>
+    <h2>{t($language, 'uploadROM')}</h2>
 
     <div class="legal-notice">
-      <strong>⚠️ Legal Warning / Avertissement Légal</strong>
-      <p><strong>🇬🇧</strong> You must own an original physical copy of the game. Uploading and using ROMs without owning the original game is illegal. You are solely responsible for complying with intellectual property laws.</p>
-      <p><strong>🇫🇷</strong> Vous devez posséder une copie physique originale du jeu. L'upload et l'utilisation de ROMs sans posséder le jeu original sont illégaux. Vous êtes seul responsable du respect des lois sur la propriété intellectuelle.</p>
+      <strong>⚠️ {t($language, 'legalWarning')}</strong>
+      <p>{t($language, 'legalUploadWarning')}</p>
     </div>
 
     <form on:submit|preventDefault={handleSubmit}>
       <div class="field">
-        <label for="title">Game Title</label>
+        <label for="title">{t($language, 'gameTitle')}</label>
         <input
           id="title"
           type="text"
@@ -70,7 +71,7 @@
       </div>
 
       <div class="field">
-        <label for="rom">ROM File</label>
+        <label for="rom">{t($language, 'romFile')}</label>
         <input
           id="rom"
           type="file"
@@ -78,15 +79,15 @@
           on:change={handleFileChange}
           required
         />
-        <small>Supported formats: .smc, .sfc, .fig, .swc, .mgd, .zip</small>
+        <small>{t($language, 'supportedFormats')}: .smc, .sfc, .fig, .swc, .mgd, .zip</small>
       </div>
 
       <div class="actions">
         <button type="submit" disabled={!file || !title || uploading} class="btn-upload">
-          {uploading ? 'Uploading...' : 'Upload'}
+          {uploading ? t($language, 'uploading') : t($language, 'upload')}
         </button>
         <button type="button" on:click={() => dispatch('close')} class="btn-cancel">
-          Cancel
+          {t($language, 'cancel')}
         </button>
       </div>
     </form>
@@ -134,18 +135,10 @@
   }
 
   .legal-notice p {
-    margin: 0.5rem 0;
+    margin: 0;
     font-size: 0.85rem;
     color: #ddd;
     line-height: 1.5;
-  }
-
-  .legal-notice p:first-of-type {
-    margin-top: 0;
-  }
-
-  .legal-notice p:last-of-type {
-    margin-bottom: 0;
   }
 
   .field {

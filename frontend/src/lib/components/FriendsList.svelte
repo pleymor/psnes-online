@@ -1,12 +1,18 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { socket } from '$lib/api/socket';
+  import { user } from '$lib/stores/user';
+  import { language } from '$lib/stores/language';
   import { goto } from '$app/navigation';
+  import { t } from '$lib/i18n/translations';
+  import FriendDetailsModal from './FriendDetailsModal.svelte';
 
   let friends: any[] = [];
   let friendRequests: any[] = [];
   let showAddFriend = false;
   let friendEmail = '';
+  let selectedFriend: any = null;
+  let friendRooms = new Map<string, any>(); // userId -> room
 
   onMount(async () => {
     // Load friends
@@ -27,8 +33,74 @@
     });
 
     $socket?.on('friend:roomCreated', ({ userId, room }: any) => {
-      // Show notification that friend created a room
+      // Store the room for this friend
+      friendRooms.set(userId, room);
+      friendRooms = friendRooms; // Trigger reactivity
     });
+
+    $socket?.on('friend:roomStatusChanged', ({ userId, roomId, status }: any) => {
+      if (status === 'destroyed') {
+        // Remove the room for this friend
+        friendRooms.delete(userId);
+        friendRooms = friendRooms; // Trigger reactivity
+      } else if (status === 'playing') {
+        // Update room status
+        const room = friendRooms.get(userId);
+        if (room && room.id === roomId) {
+          room.status = 'playing';
+          friendRooms = friendRooms; // Trigger reactivity
+        }
+      }
+    });
+
+    // Listen for new friend requests
+    $socket?.on('friend:requestReceived', (friendship: any) => {
+      friendRequests = [...friendRequests, friendship];
+    });
+
+    // Listen for accepted friend requests
+    $socket?.on('friend:requestAccepted', (friendship: any) => {
+      // Remove from requests list
+      friendRequests = friendRequests.filter(r => r.id !== friendship.id);
+
+      // Add to friends list (determine which user to add)
+      const newFriend = friendship.initiatorId !== friendship.receiverId
+        ? (friendship.initiator.id === $user?.id ? friendship.receiver : friendship.initiator)
+        : null;
+
+      if (newFriend && !friends.some(f => f.friend.id === newFriend.id)) {
+        friends = [...friends, {
+          friendshipId: friendship.id,
+          friend: newFriend,
+          friendsSince: friendship.updatedAt,
+          createdAt: friendship.createdAt
+        }];
+      }
+    });
+
+    // Listen for rejected/deleted friend requests
+    $socket?.on('friend:requestRejected', ({ friendshipId }: any) => {
+      friendRequests = friendRequests.filter(r => r.id !== friendshipId);
+    });
+
+    // Listen for removed friends
+    $socket?.on('friend:removed', ({ friendshipId }: any) => {
+      friends = friends.filter(f => f.friendshipId !== friendshipId);
+      // Close modal if the removed friend was selected
+      if (selectedFriend?.friendshipId === friendshipId) {
+        selectedFriend = null;
+      }
+    });
+  });
+
+  onDestroy(() => {
+    // Clean up event listeners
+    $socket?.off('friend:requestReceived');
+    $socket?.off('friend:requestAccepted');
+    $socket?.off('friend:requestRejected');
+    $socket?.off('friend:removed');
+    $socket?.off('friend:roomCreated');
+    $socket?.off('friend:roomStatusChanged');
   });
 
   async function sendFriendRequest() {
@@ -44,19 +116,39 @@
     if (res.ok) {
       friendEmail = '';
       showAddFriend = false;
-      alert('Friend request sent!');
+      alert(t($language, 'friendRequestSent'));
     } else {
       const error = await res.json();
-      alert(error.error || 'Failed to send request');
+      alert(error.error || t($language, 'failedToSendRequest'));
     }
   }
 
   async function acceptRequest(friendshipId: string) {
-    await fetch(`/api/friends/accept/${friendshipId}`, {
+    const res = await fetch(`/api/friends/accept/${friendshipId}`, {
       method: 'POST',
       credentials: 'include'
     });
-    location.reload();
+
+    if (res.ok) {
+      const updatedFriendship = await res.json();
+
+      // Remove from requests list
+      friendRequests = friendRequests.filter(r => r.id !== friendshipId);
+
+      // Add to friends list
+      const newFriend = updatedFriendship.initiatorId === $user?.id
+        ? updatedFriendship.receiver
+        : updatedFriendship.initiator;
+
+      if (!friends.some(f => f.friend.id === newFriend.id)) {
+        friends = [...friends, {
+          friendshipId: updatedFriendship.id,
+          friend: newFriend,
+          friendsSince: updatedFriendship.updatedAt,
+          createdAt: updatedFriendship.createdAt
+        }];
+      }
+    }
   }
 
   async function rejectRequest(friendshipId: string) {
@@ -70,11 +162,30 @@
   function joinFriend(roomId: string) {
     goto(`/room/${roomId}`);
   }
+
+  function openFriendDetails(friendData: any) {
+    selectedFriend = friendData;
+  }
+
+  async function handleRemoveFriend(event: CustomEvent<{ friendshipId: string }>) {
+    const { friendshipId } = event.detail;
+
+    const res = await fetch(`/api/friends/${friendshipId}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+
+    if (res.ok) {
+      // Remove from friends list
+      friends = friends.filter(f => f.friendshipId !== friendshipId);
+      selectedFriend = null;
+    }
+  }
 </script>
 
 <div class="friends-panel">
   <div class="header">
-    <h2>Friends</h2>
+    <h2>{t($language, 'friends')}</h2>
     <button on:click={() => showAddFriend = !showAddFriend} class="btn-add">
       +
     </button>
@@ -85,15 +196,15 @@
       <input
         type="email"
         bind:value={friendEmail}
-        placeholder="Friend's email"
+        placeholder={t($language, 'friendEmail')}
       />
-      <button on:click={sendFriendRequest}>Send</button>
+      <button on:click={sendFriendRequest}>{t($language, 'send')}</button>
     </div>
   {/if}
 
   {#if friendRequests.length > 0}
     <div class="section">
-      <h3>Requests</h3>
+      <h3>{t($language, 'requests')}</h3>
       {#each friendRequests as request}
         <div class="request">
           <div class="info">
@@ -110,26 +221,48 @@
 
   <div class="friends-list">
     {#if friends.length === 0}
-      <p class="empty">No friends yet</p>
+      <p class="empty">{t($language, 'noFriendsYet')}</p>
     {:else}
-      {#each friends as friend}
+      {#each friends as friendData}
+        {@const room = friendRooms.get(friendData.friend.id)}
         <div class="friend">
-          <div class="avatar">
-            {#if friend.avatar}
-              <img src={friend.avatar} alt={friend.displayName} />
-            {:else}
-              👤
-            {/if}
+          <div class="friend-main" on:click={() => openFriendDetails(friendData)}>
+            <div class="avatar">
+              {#if friendData.friend.avatar}
+                <img src={friendData.friend.avatar} alt={friendData.friend.displayName} />
+              {:else}
+                👤
+              {/if}
+            </div>
+            <div class="info">
+              <strong>{friendData.friend.displayName}</strong>
+              {#if room && room.status !== 'playing'}
+                <small class="room-status">{t($language, 'inRoom', { gameTitle: room.gameTitle })}</small>
+              {:else}
+                <small>{t($language, 'offline')}</small>
+              {/if}
+            </div>
           </div>
-          <div class="info">
-            <strong>{friend.displayName}</strong>
-            <small>Offline</small>
-          </div>
+          {#if room && room.status !== 'playing'}
+            <button class="btn-join" on:click|stopPropagation={() => joinFriend(room.id)}>
+              {t($language, 'joinRoom')}
+            </button>
+          {/if}
         </div>
       {/each}
     {/if}
   </div>
 </div>
+
+{#if selectedFriend}
+  <FriendDetailsModal
+    friend={selectedFriend.friend}
+    friendsSince={selectedFriend.friendsSince}
+    friendshipId={selectedFriend.friendshipId}
+    on:close={() => selectedFriend = null}
+    on:remove={handleRemoveFriend}
+  />
+{/if}
 
 <style>
   .friends-panel {
@@ -230,11 +363,28 @@
   .friend {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    justify-content: space-between;
     padding: 0.75rem;
     background: #1a1a1a;
     border-radius: 6px;
     margin-bottom: 0.5rem;
+    transition: all 0.2s;
+  }
+
+  .friend:hover {
+    background: #252525;
+  }
+
+  .friend-main {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+    cursor: pointer;
+  }
+
+  .friend-main:hover {
+    transform: translateX(4px);
   }
 
   .avatar {
@@ -263,6 +413,29 @@
   .info small {
     color: #888;
     font-size: 0.75rem;
+  }
+
+  .info .room-status {
+    color: #667eea;
+    font-weight: 500;
+  }
+
+  .btn-join {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .btn-join:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
   }
 
   .empty {
