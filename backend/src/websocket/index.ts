@@ -172,14 +172,47 @@ export function initializeWebSocket(io: Server) {
       try {
         await emulatorManager.startEmulator(room.id, room.gameId);
 
-        // Start streaming
-        emulatorManager.on(`frame:${room.id}`, (frameData) => {
-          io.to(room.id).emit('game:frame', frameData);
-        });
+        // Remove any existing listeners to prevent duplicates
+        emulatorManager.removeAllListeners(`frame:${room.id}`);
+        emulatorManager.removeAllListeners(`audio:${room.id}`);
 
-        emulatorManager.on(`audio:${room.id}`, (audioData) => {
+        // Start streaming - use named functions for easier cleanup
+        let frameEmitCount = 0;
+        let lastFrameEmitLog = Date.now();
+
+        const frameHandler = (frameData: any) => {
+          const emitStart = performance.now();
+          io.to(room.id).emit('game:frame', frameData);
+          const emitTime = performance.now() - emitStart;
+
+          frameEmitCount++;
+
+          // Log Socket.IO emit stats every 5 seconds
+          const now = Date.now();
+          if (now - lastFrameEmitLog >= 5000) {
+            const avgEmitTime = emitTime;
+            console.log(`🌐 Socket.IO: ${frameEmitCount} frames in 5s, last emit: ${avgEmitTime.toFixed(2)}ms`);
+            frameEmitCount = 0;
+            lastFrameEmitLog = now;
+          }
+
+          if (emitTime > 10) {
+            console.log(`⚠️  SOCKET.IO SLOW: Frame emit took ${emitTime.toFixed(2)}ms`);
+          }
+        };
+
+        const audioHandler = (audioData: any) => {
+          const emitStart = performance.now();
           io.to(room.id).emit('game:audio', audioData);
-        });
+          const emitTime = performance.now() - emitStart;
+
+          if (emitTime > 10) {
+            console.log(`⚠️  SOCKET.IO AUDIO SLOW: Emit took ${emitTime.toFixed(2)}ms`);
+          }
+        };
+
+        emulatorManager.on(`frame:${room.id}`, frameHandler);
+        emulatorManager.on(`audio:${room.id}`, audioHandler);
 
         io.to(room.id).emit('game:started');
       } catch (error) {
@@ -215,11 +248,15 @@ export function initializeWebSocket(io: Server) {
     });
 
     // Stop game
-    socket.on('game:stop', (data: { roomId: string }) => {
+    socket.on('game:stop', async (data: { roomId: string }) => {
       const room = rooms.get(data.roomId);
       if (!room) return;
 
-      emulatorManager.stopEmulator(room.id);
+      // Clean up event listeners
+      emulatorManager.removeAllListeners(`frame:${room.id}`);
+      emulatorManager.removeAllListeners(`audio:${room.id}`);
+
+      await emulatorManager.stopEmulator(room.id);
       room.status = 'waiting';
       room.players.forEach(p => p.isReady = false);
       io.to(data.roomId).emit('game:stopped');
@@ -283,7 +320,7 @@ export function initializeWebSocket(io: Server) {
   return { rooms, emulatorManager };
 }
 
-function handleLeaveRoom(
+async function handleLeaveRoom(
   io: Server,
   socket: Socket,
   roomId: string,
@@ -300,7 +337,10 @@ function handleLeaveRoom(
 
   if (room.players.length === 0) {
     // Room is empty, destroy it
-    emulatorManager.stopEmulator(roomId);
+    // Clean up event listeners
+    emulatorManager.removeAllListeners(`frame:${roomId}`);
+    emulatorManager.removeAllListeners(`audio:${roomId}`);
+    await emulatorManager.stopEmulator(roomId);
     rooms.delete(roomId);
     io.emit('room:destroyed', { roomId });
   } else {

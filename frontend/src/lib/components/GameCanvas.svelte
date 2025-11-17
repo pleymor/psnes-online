@@ -13,6 +13,11 @@
   let showSpeedIndicator = false;
   let speedIndicatorTimeout: NodeJS.Timeout;
 
+  // Reusable ImageData for better performance
+  let imageData: ImageData | null = null;
+  let pendingFrame: any = null;
+  let rafId: number | null = null;
+
   const speedPresets = [0.5, 1.0, 2.0, 3.0, 0]; // 0 = unlimited
   const speedLabels: { [key: number]: string } = {
     0: 'MAX',
@@ -53,12 +58,18 @@
   };
 
   onMount(() => {
-    ctx = canvas.getContext('2d')!;
+    ctx = canvas.getContext('2d', {
+      alpha: false,
+      desynchronized: true  // Better performance for animations
+    })!;
     audioContext = new AudioContext({ latencyHint: 'interactive' });
 
-    // Listen for video frames
+    // Start render loop
+    startRenderLoop();
+
+    // Listen for video frames - just store them, don't render immediately
     $socket?.on('game:frame', (frame: any) => {
-      renderFrame(frame);
+      pendingFrame = frame;
     });
 
     // Listen for audio
@@ -78,6 +89,7 @@
   });
 
   onDestroy(() => {
+    if (rafId) cancelAnimationFrame(rafId);
     $socket?.off('game:frame');
     $socket?.off('game:audio');
     $socket?.off('game:speedChanged');
@@ -87,27 +99,48 @@
     if (speedIndicatorTimeout) clearTimeout(speedIndicatorTimeout);
   });
 
-  function renderFrame(frame: any) {
+  function startRenderLoop() {
+    const render = () => {
+      if (pendingFrame) {
+        renderFrameOptimized(pendingFrame);
+        pendingFrame = null;
+      }
+      rafId = requestAnimationFrame(render);
+    };
+    rafId = requestAnimationFrame(render);
+  }
+
+  function renderFrameOptimized(frame: any) {
     if (!ctx || !canvas) return;
+
+    const startTime = performance.now();
 
     // Resize canvas if frame dimensions changed
     if (canvas.width !== frame.width || canvas.height !== frame.height) {
       canvas.width = frame.width;
       canvas.height = frame.height;
+      imageData = null; // Reset imageData when size changes
     }
 
-    // Create ImageData from frame
-    const imageData = new ImageData(
-      new Uint8ClampedArray(frame.data),
-      frame.width,
-      frame.height
-    );
+    // Reuse ImageData object to avoid GC
+    if (!imageData) {
+      imageData = ctx.createImageData(frame.width, frame.height);
+    }
+
+    // Copy frame data directly into existing buffer
+    const data = new Uint8Array(frame.data);
+    imageData.data.set(data);
 
     // Disable image smoothing for sharp pixels
     ctx.imageSmoothingEnabled = false;
 
     // Draw directly to canvas at native resolution
     ctx.putImageData(imageData, 0, 0);
+
+    const renderTime = performance.now() - startTime;
+    if (renderTime > 5) {
+      console.log(`⚠️  CLIENT RENDER: Took ${renderTime.toFixed(2)}ms`);
+    }
   }
 
   function playAudio(audio: any) {

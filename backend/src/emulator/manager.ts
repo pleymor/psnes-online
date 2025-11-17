@@ -11,6 +11,8 @@ interface EmulatorInstance {
   romPath: string;
   emulator: SNESEmulator;
   lastInputs: Map<number, GameInput>;
+  frameCount: number;
+  lastFrameTime: number;
 }
 
 export class EmulatorManager extends EventEmitter {
@@ -43,35 +45,76 @@ export class EmulatorManager extends EventEmitter {
       gameId,
       romPath: game.romPath,
       emulator,
-      lastInputs: new Map()
+      lastInputs: new Map(),
+      frameCount: 0,
+      lastFrameTime: Date.now()
     };
 
     this.instances.set(roomId, instance);
 
-    // Set up event handlers
-    emulator.on('video', (videoFrame) => {
-      // Convert Uint8Array to Buffer for Socket.IO transmission
-      const buffer = Buffer.from(videoFrame.data.buffer, videoFrame.data.byteOffset, videoFrame.data.byteLength);
+    // Set up event handlers - use arrow functions to avoid re-binding
+    const videoHandler = (videoFrame: any) => {
+      const handlerStart = performance.now();
+      instance.frameCount++;
 
+      // Send every frame for smooth playback
+      // Socket.IO can handle Uint8Array directly
       const frame: VideoFrame = {
         width: videoFrame.width,
         height: videoFrame.height,
-        data: buffer as unknown as ArrayBuffer
+        data: videoFrame.data.buffer.slice(
+          videoFrame.data.byteOffset,
+          videoFrame.data.byteOffset + videoFrame.data.byteLength
+        )
       };
-      this.emit(`frame:${roomId}`, frame);
-    });
 
-    emulator.on('audio', (audioSamples) => {
-      // Convert Float32Array to Buffer for Socket.IO transmission
-      const buffer = Buffer.from(audioSamples.data.buffer, audioSamples.data.byteOffset, audioSamples.data.byteLength);
+      const prepTime = performance.now() - handlerStart;
+      if (prepTime > 5) {
+        console.log(`⚠️  VIDEO HANDLER: Frame prep took ${prepTime.toFixed(2)}ms`);
+      }
 
+      // Use setImmediate to avoid blocking the event loop
+      setImmediate(() => {
+        const emitStart = performance.now();
+        this.emit(`frame:${roomId}`, frame);
+        const emitTime = performance.now() - emitStart;
+        if (emitTime > 5) {
+          console.log(`⚠️  VIDEO EMIT: Took ${emitTime.toFixed(2)}ms`);
+        }
+      });
+    };
+
+    const audioHandler = (audioSamples: any) => {
+      const handlerStart = performance.now();
+
+      // Send data directly without extra conversion
       const audio: AudioFrame = {
         sampleRate: audioSamples.sampleRate,
         channels: audioSamples.channels,
-        data: buffer as unknown as ArrayBuffer
+        data: audioSamples.data.buffer.slice(
+          audioSamples.data.byteOffset,
+          audioSamples.data.byteOffset + audioSamples.data.byteLength
+        )
       };
-      this.emit(`audio:${roomId}`, audio);
-    });
+
+      const prepTime = performance.now() - handlerStart;
+      if (prepTime > 5) {
+        console.log(`⚠️  AUDIO HANDLER: Prep took ${prepTime.toFixed(2)}ms`);
+      }
+
+      // Use setImmediate to avoid blocking the event loop
+      setImmediate(() => {
+        const emitStart = performance.now();
+        this.emit(`audio:${roomId}`, audio);
+        const emitTime = performance.now() - emitStart;
+        if (emitTime > 5) {
+          console.log(`⚠️  AUDIO EMIT: Took ${emitTime.toFixed(2)}ms`);
+        }
+      });
+    };
+
+    emulator.on('video', videoHandler);
+    emulator.on('audio', audioHandler);
 
     // Start emulation
     await emulator.start();

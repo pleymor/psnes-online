@@ -73,6 +73,14 @@ export class SNESEmulator extends EventEmitter {
   private fpsStartTime: number = 0;
   private fpsFrameCount: number = 0;
 
+  // Timing diagnostics
+  private lastFrameTimestamp: number = 0;
+  private frameDurations: number[] = [];
+
+  // Memory monitoring
+  private lastMemoryCheck: number = 0;
+  private memoryCheckInterval: number = 5000; // Check every 5 seconds
+
   // Controller states for port 1 and 2
   private controllerStates: Map<number, ControllerState> = new Map();
 
@@ -431,35 +439,97 @@ export class SNESEmulator extends EventEmitter {
   private runFrame(): void {
     if (!this.emulatorCore) return;
 
+    const frameStartTime = performance.now();
+
+    // Track frame timing for freeze detection
+    if (this.lastFrameTimestamp > 0) {
+      const gap = frameStartTime - this.lastFrameTimestamp;
+      const expectedGap = (1000 / this.refreshRate) / this.speed;
+
+      // Log if gap is more than 2x expected (indicating a freeze)
+      if (gap > expectedGap * 2) {
+        console.log(`⚠️  FREEZE DETECTED: Gap ${gap.toFixed(2)}ms (expected ${expectedGap.toFixed(2)}ms) - ${(gap - expectedGap).toFixed(2)}ms delay`);
+      }
+
+      this.frameDurations.push(gap);
+      if (this.frameDurations.length > 60) {
+        this.frameDurations.shift();
+      }
+    }
+    this.lastFrameTimestamp = frameStartTime;
+
     // FPS measurement
     this.fpsFrameCount++;
     const now = Date.now();
     if (this.fpsStartTime === 0) {
       this.fpsStartTime = now;
+      this.lastMemoryCheck = now;
     } else if (now - this.fpsStartTime >= 5000) {
       // Log FPS every 5 seconds
       const actualFPS = (this.fpsFrameCount / (now - this.fpsStartTime)) * 1000;
       const targetFPS = this.refreshRate * this.speed;
       const error = ((actualFPS - targetFPS) / targetFPS) * 100;
-      console.log(`Actual FPS: ${actualFPS.toFixed(2)} | Target: ${targetFPS.toFixed(2)} | Error: ${error.toFixed(1)}%`);
+
+      // Calculate average frame duration
+      const avgDuration = this.frameDurations.length > 0
+        ? this.frameDurations.reduce((a, b) => a + b, 0) / this.frameDurations.length
+        : 0;
+
+      // Memory usage
+      const memUsage = process.memoryUsage();
+      const heapUsedMB = (memUsage.heapUsed / 1024 / 1024).toFixed(2);
+      const heapTotalMB = (memUsage.heapTotal / 1024 / 1024).toFixed(2);
+      const externalMB = (memUsage.external / 1024 / 1024).toFixed(2);
+
+      console.log(`📊 FPS: ${actualFPS.toFixed(2)} | Target: ${targetFPS.toFixed(2)} | Error: ${error.toFixed(1)}% | Avg gap: ${avgDuration.toFixed(2)}ms`);
+      console.log(`💾 Memory: Heap ${heapUsedMB}/${heapTotalMB} MB | External: ${externalMB} MB`);
+
       this.fpsStartTime = now;
       this.fpsFrameCount = 0;
     }
 
+    // Force GC check if available and memory is high
+    if (global.gc && now - this.lastMemoryCheck >= this.memoryCheckInterval) {
+      const memBefore = process.memoryUsage().heapUsed;
+      const gcStart = performance.now();
+      global.gc();
+      const gcTime = performance.now() - gcStart;
+      const memAfter = process.memoryUsage().heapUsed;
+      const freedMB = ((memBefore - memAfter) / 1024 / 1024).toFixed(2);
+
+      if (gcTime > 10) {
+        console.log(`🗑️  Manual GC: ${gcTime.toFixed(2)}ms, freed ${freedMB} MB`);
+      }
+
+      this.lastMemoryCheck = now;
+    }
+
     // Clear buffers
+    const beforeClear = performance.now();
     this.currentVideoFrame = null;
     this.audioBuffer = [];
+    const clearTime = performance.now() - beforeClear;
 
     // Run one frame of emulation
     // This will trigger the video_refresh and audio callbacks
+    const beforeRun = performance.now();
     this.emulatorCore.run();
+    const runTime = performance.now() - beforeRun;
+
+    // Log if emulation takes too long
+    if (runTime > 20) {
+      console.log(`⚠️  SLOW EMULATION: Core run took ${runTime.toFixed(2)}ms`);
+    }
 
     // Emit video frame if we got one
+    const beforeVideoEmit = performance.now();
     if (this.currentVideoFrame) {
       this.emit('video', this.currentVideoFrame);
     }
+    const videoEmitTime = performance.now() - beforeVideoEmit;
 
     // Emit audio samples if we got any
+    const beforeAudio = performance.now();
     if (this.audioBuffer.length > 0) {
       // Combine all audio buffers
       const totalSamples = this.audioBuffer.reduce((sum, buf) => sum + buf.length, 0);
@@ -477,6 +547,14 @@ export class SNESEmulator extends EventEmitter {
       };
 
       this.emit('audio', audioSamples);
+    }
+    const audioTime = performance.now() - beforeAudio;
+
+    const totalFrameTime = performance.now() - frameStartTime;
+
+    // Log if entire frame processing takes too long
+    if (totalFrameTime > 20) {
+      console.log(`⏱️  Frame timing: run=${runTime.toFixed(2)}ms video=${videoEmitTime.toFixed(2)}ms audio=${audioTime.toFixed(2)}ms total=${totalFrameTime.toFixed(2)}ms`);
     }
   }
 
