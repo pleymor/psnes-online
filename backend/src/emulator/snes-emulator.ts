@@ -81,6 +81,10 @@ export class SNESEmulator extends EventEmitter {
   private lastMemoryCheck: number = 0;
   private memoryCheckInterval: number = 5000; // Check every 5 seconds
 
+  // Event loop monitoring
+  private lastEventLoopCheck: number = 0;
+  private eventLoopCheckInterval: NodeJS.Timeout | null = null;
+
   // Controller states for port 1 and 2
   private controllerStates: Map<number, ControllerState> = new Map();
 
@@ -386,7 +390,10 @@ export class SNESEmulator extends EventEmitter {
 
     this.running = true;
     this.paused = false;
-    this.nextFrameTime = Date.now();
+    this.nextFrameTime = performance.now();
+
+    // Start event loop monitoring
+    this.startEventLoopMonitoring();
 
     // Start emulation loop
     if (this.speed === 0) {
@@ -415,25 +422,36 @@ export class SNESEmulator extends EventEmitter {
     if (!this.running || this.unlimitedSpeedActive || this.paused) return;
 
     const frameTime = (1000 / this.refreshRate) / this.speed; // milliseconds per frame
-    const now = Date.now();
+    const now = performance.now();
 
     // Calculate when next frame should run
     this.nextFrameTime += frameTime;
 
     // If we're too far behind, reset to current time
     if (this.nextFrameTime < now - 100) {
+      console.log(`⚠️  SCHEDULER: Resetting timing (${(now - this.nextFrameTime).toFixed(2)}ms behind)`);
       this.nextFrameTime = now;
     }
 
     // Calculate delay until next frame
     const delay = Math.max(0, this.nextFrameTime - now);
 
-    this.frameTimeout = setTimeout(() => {
-      if (!this.paused && this.running) {
-        this.runFrame();
-      }
-      this.scheduleNextFrame();
-    }, delay);
+    // Use setImmediate for 0 delay to avoid setTimeout overhead
+    if (delay < 1) {
+      setImmediate(() => {
+        if (!this.paused && this.running) {
+          this.runFrame();
+        }
+        this.scheduleNextFrame();
+      });
+    } else {
+      this.frameTimeout = setTimeout(() => {
+        if (!this.paused && this.running) {
+          this.runFrame();
+        }
+        this.scheduleNextFrame();
+      }, delay);
+    }
   }
 
   private runFrame(): void {
@@ -513,11 +531,20 @@ export class SNESEmulator extends EventEmitter {
     // Run one frame of emulation
     // This will trigger the video_refresh and audio callbacks
     const beforeRun = performance.now();
-    this.emulatorCore.run();
+
+    try {
+      this.emulatorCore.run();
+    } catch (error) {
+      console.error('⚠️  EMULATOR CORE ERROR:', error);
+      return;
+    }
+
     const runTime = performance.now() - beforeRun;
 
     // Log if emulation takes too long
     if (runTime > 20) {
+      console.log(`⚠️  SLOW EMULATION: Core run took ${runTime.toFixed(2)}ms`);
+    } else if (runTime > 10) {
       console.log(`⚠️  SLOW EMULATION: Core run took ${runTime.toFixed(2)}ms`);
     }
 
@@ -586,7 +613,7 @@ export class SNESEmulator extends EventEmitter {
     this.paused = false;
 
     // Reset timing to avoid frame burst
-    this.nextFrameTime = Date.now();
+    this.nextFrameTime = performance.now();
 
     // Restart scheduling based on speed mode
     if (this.running && this.speed === 0 && !this.unlimitedSpeedActive) {
@@ -610,6 +637,9 @@ export class SNESEmulator extends EventEmitter {
     // Stop both timing mechanisms
     this.running = false;
     this.unlimitedSpeedActive = false;
+
+    // Stop event loop monitoring
+    this.stopEventLoopMonitoring();
 
     // Clear timeout if using fixed speed
     if (this.frameTimeout) {
@@ -705,7 +735,7 @@ export class SNESEmulator extends EventEmitter {
       }
 
       // Reset timing
-      this.nextFrameTime = Date.now();
+      this.nextFrameTime = performance.now();
 
       // Start new timing loop with updated speed
       if (speed === 0) {
@@ -730,6 +760,31 @@ export class SNESEmulator extends EventEmitter {
 
   getSpeed(): number {
     return this.speed;
+  }
+
+  private startEventLoopMonitoring(): void {
+    this.lastEventLoopCheck = Date.now();
+
+    // Check event loop lag every 100ms
+    this.eventLoopCheckInterval = setInterval(() => {
+      const now = Date.now();
+      const elapsed = now - this.lastEventLoopCheck;
+      const expectedElapsed = 100;
+      const lag = elapsed - expectedElapsed;
+
+      if (lag > 50) {
+        console.log(`🔴 EVENT LOOP LAG: ${lag.toFixed(2)}ms (expected ~${expectedElapsed}ms, actual ${elapsed.toFixed(2)}ms)`);
+      }
+
+      this.lastEventLoopCheck = now;
+    }, 100);
+  }
+
+  private stopEventLoopMonitoring(): void {
+    if (this.eventLoopCheckInterval) {
+      clearInterval(this.eventLoopCheckInterval);
+      this.eventLoopCheckInterval = null;
+    }
   }
 
   private getEmptyControllerState(): ControllerState {
