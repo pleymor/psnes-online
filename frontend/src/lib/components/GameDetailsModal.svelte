@@ -1,5 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { language } from '$lib/stores/language';
+  import { t } from '$lib/i18n/translations';
   import type { Game } from '$lib/stores/games';
 
   export let game: Game;
@@ -11,10 +13,11 @@
   }
 
   function formatDate(dateString?: string): string {
-    if (!dateString) return 'Unknown';
+    if (!dateString) return t($language, 'unknown');
     try {
       const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      const locale = $language === 'fr' ? 'fr-FR' : 'en-US';
+      return date.toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric' });
     } catch {
       return dateString;
     }
@@ -52,59 +55,59 @@
         <div class="metadata-grid">
           {#if game.genre}
             <div class="metadata-item">
-              <span class="label">Genre</span>
+              <span class="label">{t($language, 'genre')}</span>
               <span class="value">{game.genre}</span>
             </div>
           {/if}
 
           {#if game.publisher}
             <div class="metadata-item">
-              <span class="label">Publisher</span>
+              <span class="label">{t($language, 'publisher')}</span>
               <span class="value">{game.publisher}</span>
             </div>
           {/if}
 
           {#if game.developer}
             <div class="metadata-item">
-              <span class="label">Developer</span>
+              <span class="label">{t($language, 'developer')}</span>
               <span class="value">{game.developer}</span>
             </div>
           {/if}
 
           {#if game.releaseDate}
             <div class="metadata-item">
-              <span class="label">Release Date</span>
+              <span class="label">{t($language, 'releaseDate')}</span>
               <span class="value">{formatDate(game.releaseDate)}</span>
             </div>
           {/if}
 
           {#if game.players}
             <div class="metadata-item">
-              <span class="label">Players</span>
+              <span class="label">{t($language, 'players')}</span>
               <span class="value">{game.players}</span>
             </div>
           {/if}
 
           {#if game.region}
             <div class="metadata-item">
-              <span class="label">Region</span>
+              <span class="label">{t($language, 'region')}</span>
               <span class="value">{game.region}</span>
             </div>
           {/if}
 
           <div class="metadata-item">
-            <span class="label">Save States</span>
+            <span class="label">{t($language, 'saveStates')}</span>
             <span class="value">{game.saves?.length || 0}</span>
           </div>
 
           <div class="metadata-item">
-            <span class="label">Uploaded</span>
+            <span class="label">{t($language, 'uploaded')}</span>
             <span class="value">{formatDate(game.uploadedAt)}</span>
           </div>
         </div>
 
         <div class="filename-section">
-          <span class="label">ROM File</span>
+          <span class="label">{t($language, 'romFile')}</span>
           <span class="filename">{game.filename}</span>
         </div>
       </div>

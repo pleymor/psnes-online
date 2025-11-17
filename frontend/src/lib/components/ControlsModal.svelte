@@ -1,5 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { language } from '$lib/stores/language';
+  import { t } from '$lib/i18n/translations';
   import ControlsSettings from './ControlsSettings.svelte';
   import type { KeyConfig } from '$lib/types';
 
@@ -39,7 +41,7 @@
   <div class="modal-overlay" on:click={handleBackdropClick}>
     <div class="modal-content">
       <div class="modal-header">
-        <h2>🎮 Controller Settings</h2>
+        <h2>🎮 {t($language, 'controllerSettings')}</h2>
         <button class="close-btn" on:click={close}>✕</button>
       </div>
 

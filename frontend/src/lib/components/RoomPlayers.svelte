@@ -1,6 +1,8 @@
 <script lang="ts">
   import { socket } from '$lib/api/socket';
   import { user } from '$lib/stores/user';
+  import { language } from '$lib/stores/language';
+  import { t } from '$lib/i18n/translations';
 
   export let room: any;
   export let roomId: string;
@@ -24,7 +26,7 @@
 <div class="players-container">
   <div class="ports">
     <div class="port" class:selected={currentPlayerPort === 1}>
-      <h3>🎮 Controller 1</h3>
+      <h3>🎮 {t($language, 'controller1')}</h3>
       <button
         on:click={() => handlePortClick(1)}
         class="player-slot"
@@ -32,15 +34,15 @@
         class:mine={player1?.userId === $user?.id}
       >
         <span class="icon">🎮</span>
-        <span class="player-name">{player1?.displayName || 'Join as Player 1'}</span>
+        <span class="player-name">{player1?.displayName || t($language, 'joinAsPlayer1')}</span>
         {#if player1}
-          <span class="ready-badge">✓ Ready</span>
+          <span class="ready-badge">✓ {t($language, 'ready')}</span>
         {/if}
       </button>
     </div>
 
     <div class="port" class:selected={currentPlayerPort === 2}>
-      <h3>🎮 Controller 2</h3>
+      <h3>🎮 {t($language, 'controller2')}</h3>
       <button
         on:click={() => handlePortClick(2)}
         class="player-slot"
@@ -48,9 +50,9 @@
         class:mine={player2?.userId === $user?.id}
       >
         <span class="icon">🎮</span>
-        <span class="player-name">{player2?.displayName || 'Join as Player 2'}</span>
+        <span class="player-name">{player2?.displayName || t($language, 'joinAsPlayer2')}</span>
         {#if player2}
-          <span class="ready-badge">✓ Ready</span>
+          <span class="ready-badge">✓ {t($language, 'ready')}</span>
         {/if}
       </button>
     </div>

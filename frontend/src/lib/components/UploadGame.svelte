@@ -39,10 +39,10 @@
         dispatch('close');
         dispatch('uploaded'); // Notify parent to refresh games list
       } else {
-        alert('Upload failed');
+        alert(t($language, 'uploadFailed'));
       }
     } catch (error) {
-      alert('Upload error');
+      alert(t($language, 'uploadError'));
     } finally {
       uploading = false;
     }

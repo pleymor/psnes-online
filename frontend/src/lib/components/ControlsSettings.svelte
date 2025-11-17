@@ -1,6 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { socket } from '$lib/api/socket';
+  import { language } from '$lib/stores/language';
+  import { t } from '$lib/i18n/translations';
   import type { KeyConfig } from '$lib/types';
 
   export let roomId: string = ''; // Optional - if empty, only saves to user profile
@@ -18,21 +20,21 @@
   // Create a working copy of the config
   let workingConfig: KeyConfig = { ...currentConfig };
 
-  // Button display names
-  const buttonLabels: Record<keyof KeyConfig, string> = {
-    up: 'D-Pad Up',
-    down: 'D-Pad Down',
-    left: 'D-Pad Left',
-    right: 'D-Pad Right',
-    a: 'A Button',
-    b: 'B Button',
-    x: 'X Button',
-    y: 'Y Button',
-    l: 'L Shoulder',
-    r: 'R Shoulder',
-    start: 'Start',
-    select: 'Select'
-  };
+  // Button display names (reactive to language changes)
+  $: buttonLabels = {
+    up: t($language, 'dPadUp'),
+    down: t($language, 'dPadDown'),
+    left: t($language, 'dPadLeft'),
+    right: t($language, 'dPadRight'),
+    a: t($language, 'aButton'),
+    b: t($language, 'bButton'),
+    x: t($language, 'xButton'),
+    y: t($language, 'yButton'),
+    l: t($language, 'lShoulder'),
+    r: t($language, 'rShoulder'),
+    start: t($language, 'startButton'),
+    select: t($language, 'selectButton')
+  } as Record<keyof KeyConfig, string>;
 
   // Format key code for display
   function formatKeyDisplay(keyCode: string): string {
@@ -40,11 +42,11 @@
     if (keyCode.startsWith('Gamepad')) {
       const match = keyCode.match(/Gamepad(\d+)Button(\d+)/);
       if (match) {
-        return `🎮 Controller ${parseInt(match[1]) + 1} Button ${match[2]}`;
+        return `🎮 ${t($language, 'controller')} ${parseInt(match[1]) + 1} ${t($language, 'button')} ${match[2]}`;
       }
       const axisMatch = keyCode.match(/Gamepad(\d+)Axis(\d+)(Plus|Minus)/);
       if (axisMatch) {
-        return `🎮 Controller ${parseInt(axisMatch[1]) + 1} Axis ${axisMatch[2]} ${axisMatch[3]}`;
+        return `🎮 ${t($language, 'controller')} ${parseInt(axisMatch[1]) + 1} ${t($language, 'axis')} ${axisMatch[2]} ${axisMatch[3]}`;
       }
       return keyCode;
     }
@@ -54,17 +56,17 @@
       return keyCode.replace('Key', '');
     }
     if (keyCode.startsWith('Arrow')) {
-      return keyCode.replace('Arrow', '') + ' Arrow';
+      return `${keyCode.replace('Arrow', '')} ${t($language, 'arrow')}`;
     }
     if (keyCode.startsWith('Digit')) {
       return keyCode.replace('Digit', '');
     }
-    if (keyCode === 'ShiftLeft') return 'Left Shift';
-    if (keyCode === 'ShiftRight') return 'Right Shift';
-    if (keyCode === 'ControlLeft') return 'Left Ctrl';
-    if (keyCode === 'ControlRight') return 'Right Ctrl';
-    if (keyCode === 'AltLeft') return 'Left Alt';
-    if (keyCode === 'AltRight') return 'Right Alt';
+    if (keyCode === 'ShiftLeft') return t($language, 'leftShift');
+    if (keyCode === 'ShiftRight') return t($language, 'rightShift');
+    if (keyCode === 'ControlLeft') return t($language, 'leftCtrl');
+    if (keyCode === 'ControlRight') return t($language, 'rightCtrl');
+    if (keyCode === 'AltLeft') return t($language, 'leftAlt');
+    if (keyCode === 'AltRight') return t($language, 'rightAlt');
     return keyCode;
   }
 
@@ -183,7 +185,7 @@
 
     } catch (error) {
       console.error('Error saving controls:', error);
-      errorMessage = 'Failed to save controls configuration';
+      errorMessage = t($language, 'failedToSaveControls');
     } finally {
       isSaving = false;
     }
@@ -191,7 +193,7 @@
 
   // Reset to defaults
   async function resetToDefaults() {
-    if (!confirm('Reset all controls to default settings?')) return;
+    if (!confirm(t($language, 'confirmResetControls'))) return;
 
     isLoading = true;
     errorMessage = '';
@@ -224,7 +226,7 @@
 
     } catch (error) {
       console.error('Error resetting controls:', error);
-      errorMessage = 'Failed to reset controls';
+      errorMessage = t($language, 'failedToResetControls');
     } finally {
       isLoading = false;
     }
@@ -299,14 +301,14 @@
             on:click={() => handleButtonClick(button)}
           >
             {#if isListening && currentButton === button}
-              Press any key...
+              {t($language, 'pressAnyKey')}
             {:else}
               {getKeyDisplay(button)}
             {/if}
           </button>
           {#if hasConflict(button)}
             <div class="conflict-hint">
-              ⚠️ Also used by: {getConflictingButtons(button).join(', ')}
+              ⚠️ {t($language, 'alsoUsedBy')} {getConflictingButtons(button).join(', ')}
             </div>
           {/if}
         </div>
@@ -316,16 +318,15 @@
 
   {#if isListening && currentButton}
     <div class="listening-hint">
-      Press a key to bind it to {buttonLabels[currentButton]}
+      {t($language, 'pressKeyToBind', { button: buttonLabels[currentButton] })}
       <br />
-      Press ESC to cancel
+      {t($language, 'pressEscToCancel')}
     </div>
   {/if}
 
   {#if conflicts.size > 0}
     <div class="conflict-warning">
-      ⚠️ {conflicts.size} button{conflicts.size > 1 ? 's have' : ' has'} conflicting key assignments.
-      Please resolve conflicts before saving.
+      ⚠️ {t($language, 'conflictingAssignments', { count: conflicts.size })}
     </div>
   {/if}
 
@@ -339,7 +340,7 @@
       on:click={resetToDefaults}
       disabled={isLoading || isSaving || isListening}
     >
-      {isLoading ? 'Resetting...' : 'Reset to Defaults'}
+      {isLoading ? t($language, 'resetting') : t($language, 'resetToDefaults')}
     </button>
 
     <button
@@ -347,7 +348,7 @@
       on:click={saveConfig}
       disabled={!canSave || isSaving || isListening}
     >
-      {isSaving ? 'Saving...' : 'Save Changes'}
+      {isSaving ? t($language, 'saving') : t($language, 'saveChanges')}
     </button>
   </div>
 </div>

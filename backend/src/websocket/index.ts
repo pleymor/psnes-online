@@ -60,12 +60,14 @@ export function initializeWebSocket(io: Server) {
     // Send current rooms list
     socket.emit('rooms:list', Array.from(rooms.values()));
 
-    // Get online friends
-    const onlineFriends = await getOnlineFriends(user.id);
-    socket.emit('friends:online', onlineFriends);
-
     // Notify friends that this user is now online
     await notifyFriendsStatusChanged(io, user.id, true);
+
+    // Handle request for online friends status (client can request when ready)
+    socket.on('friends:getOnlineStatus', async () => {
+      const onlineFriends = await getOnlineFriends(user.id);
+      socket.emit('friends:online', onlineFriends);
+    });
 
     // Create room
     socket.on('room:create', async (data: { gameId: string; gameTitle: string }) => {

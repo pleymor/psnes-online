@@ -1,17 +1,19 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { socket } from '$lib/api/socket';
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
   import { goto } from '$app/navigation';
   import { t } from '$lib/i18n/translations';
-  import FriendDetailsModal from './FriendDetailsModal.svelte';
+
+  export let compact = false; // Compact mode for small screens
+
+  const dispatch = createEventDispatcher();
 
   let friends: any[] = [];
   let friendRequests: any[] = [];
   let showAddFriend = false;
   let friendEmail = '';
-  let selectedFriend: any = null;
   let friendRooms = new Map<string, any>(); // userId -> room
   let onlineFriends = new Map<string, boolean>(); // userId -> online status
 
@@ -32,6 +34,7 @@
     $socket?.on('friends:online', (friendsWithStatus: any[]) => {
       // Initialize online status map
       onlineFriends = new Map(friendsWithStatus.map(f => [f.id, f.online]));
+      onlineFriends = onlineFriends; // Trigger reactivity
     });
 
     // Listen for friend status changes (online/offline)
@@ -39,6 +42,9 @@
       onlineFriends.set(userId, online);
       onlineFriends = onlineFriends; // Trigger reactivity
     });
+
+    // Request initial online status (after listeners are set up)
+    $socket?.emit('friends:getOnlineStatus');
 
     $socket?.on('friend:roomCreated', ({ userId, room }: any) => {
       // Store the room for this friend
@@ -174,12 +180,10 @@
   }
 
   function openFriendDetails(friendData: any) {
-    selectedFriend = friendData;
+    dispatch('friendClicked', friendData);
   }
 
-  async function handleRemoveFriend(event: CustomEvent<{ friendshipId: string }>) {
-    const { friendshipId } = event.detail;
-
+  export async function removeFriend(friendshipId: string) {
     const res = await fetch(`/api/friends/${friendshipId}`, {
       method: 'DELETE',
       credentials: 'include'
@@ -188,98 +192,128 @@
     if (res.ok) {
       // Remove from friends list
       friends = friends.filter(f => f.friendshipId !== friendshipId);
-      selectedFriend = null;
     }
   }
 </script>
 
-<div class="friends-panel">
-  <div class="header">
-    <h2>{t($language, 'friends')}</h2>
-    <button on:click={() => showAddFriend = !showAddFriend} class="btn-add">
-      +
-    </button>
-  </div>
-
-  {#if showAddFriend}
-    <div class="add-friend">
-      <input
-        type="email"
-        bind:value={friendEmail}
-        placeholder={t($language, 'friendEmail')}
-      />
-      <button on:click={sendFriendRequest}>{t($language, 'send')}</button>
+<div class="friends-panel" class:compact>
+  {#if !compact}
+    <!-- Full view -->
+    <div class="header">
+      <h2>{t($language, 'friends')}</h2>
+      <button on:click={() => showAddFriend = !showAddFriend} class="btn-add">
+        +
+      </button>
     </div>
-  {/if}
 
-  {#if friendRequests.length > 0}
-    <div class="section">
-      <h3>{t($language, 'requests')}</h3>
-      {#each friendRequests as request}
-        <div class="request">
-          <div class="info">
-            <strong>{request.initiator.displayName}</strong>
+    {#if showAddFriend}
+      <div class="add-friend">
+        <input
+          type="email"
+          bind:value={friendEmail}
+          placeholder={t($language, 'friendEmail')}
+        />
+        <button on:click={sendFriendRequest}>{t($language, 'send')}</button>
+      </div>
+    {/if}
+
+    {#if friendRequests.length > 0}
+      <div class="section">
+        <h3>{t($language, 'requests')}</h3>
+        {#each friendRequests as request}
+          <div class="request">
+            <div class="info">
+              <strong>{request.initiator.displayName}</strong>
+            </div>
+            <div class="actions">
+              <button on:click={() => acceptRequest(request.id)} class="btn-accept">✓</button>
+              <button on:click={() => rejectRequest(request.id)} class="btn-reject">✗</button>
+            </div>
           </div>
-          <div class="actions">
-            <button on:click={() => acceptRequest(request.id)} class="btn-accept">✓</button>
-            <button on:click={() => rejectRequest(request.id)} class="btn-reject">✗</button>
+        {/each}
+      </div>
+    {/if}
+
+    <div class="friends-list">
+      {#if friends.length === 0}
+        <p class="empty">{t($language, 'noFriendsYet')}</p>
+      {:else}
+        {#each friends as friendData}
+          {@const room = friendRooms.get(friendData.friend.id)}
+          <div class="friend">
+            <div class="friend-main" on:click={() => openFriendDetails(friendData)}>
+              <div class="avatar">
+                {#if friendData.friend.avatar}
+                  <img src={friendData.friend.avatar} alt={friendData.friend.displayName} />
+                {:else}
+                  👤
+                {/if}
+              </div>
+              <div class="info">
+                <strong>{friendData.friend.displayName}</strong>
+                {#if room && room.status !== 'playing'}
+                  <small class="room-status">{t($language, 'inRoom', { gameTitle: room.gameTitle })}</small>
+                {:else if onlineFriends.get(friendData.friend.id)}
+                  <small class="online-status">{t($language, 'online')}</small>
+                {:else}
+                  <small class="offline-status">{t($language, 'offline')}</small>
+                {/if}
+              </div>
+            </div>
+            {#if room && room.status !== 'playing'}
+              <button class="btn-join" on:click|stopPropagation={() => joinFriend(room.id)}>
+                {t($language, 'joinRoom')}
+              </button>
+            {/if}
+          </div>
+        {/each}
+      {/if}
+    </div>
+  {:else}
+    <!-- Compact view: just avatars with status badges -->
+    <div class="compact-friends">
+      {#if friendRequests.length > 0}
+        <div class="compact-badge-container" title="{friendRequests.length} friend request(s)">
+          <div class="compact-avatar notification-badge">
+            <span class="icon">👥</span>
+            <div class="badge-dot requests">{friendRequests.length}</div>
           </div>
         </div>
-      {/each}
-    </div>
-  {/if}
+      {/if}
 
-  <div class="friends-list">
-    {#if friends.length === 0}
-      <p class="empty">{t($language, 'noFriendsYet')}</p>
-    {:else}
       {#each friends as friendData}
         {@const room = friendRooms.get(friendData.friend.id)}
-        <div class="friend">
-          <div class="friend-main" on:click={() => openFriendDetails(friendData)}>
-            <div class="avatar">
-              {#if friendData.friend.avatar}
-                <img src={friendData.friend.avatar} alt={friendData.friend.displayName} />
-              {:else}
-                👤
-              {/if}
-            </div>
-            <div class="info">
-              <strong>{friendData.friend.displayName}</strong>
-              {#if room && room.status !== 'playing'}
-                <small class="room-status">{t($language, 'inRoom', { gameTitle: room.gameTitle })}</small>
-              {:else if onlineFriends.get(friendData.friend.id)}
-                <small class="online-status">{t($language, 'online')}</small>
-              {:else}
-                <small class="offline-status">{t($language, 'offline')}</small>
-              {/if}
-            </div>
+        {@const isOnline = onlineFriends.get(friendData.friend.id)}
+        {@const inRoom = room && room.status !== 'playing'}
+        <div
+          class="compact-badge-container"
+          on:click={() => inRoom ? joinFriend(room.id) : openFriendDetails(friendData)}
+          title={friendData.friend.displayName}
+        >
+          <div class="compact-avatar">
+            {#if friendData.friend.avatar}
+              <img src={friendData.friend.avatar} alt={friendData.friend.displayName} />
+            {:else}
+              <span class="icon">👤</span>
+            {/if}
+            {#if inRoom}
+              <div class="badge-dot in-room"></div>
+            {:else if isOnline}
+              <div class="badge-dot online"></div>
+            {:else}
+              <div class="badge-dot offline"></div>
+            {/if}
           </div>
-          {#if room && room.status !== 'playing'}
-            <button class="btn-join" on:click|stopPropagation={() => joinFriend(room.id)}>
-              {t($language, 'joinRoom')}
-            </button>
-          {/if}
         </div>
       {/each}
-    {/if}
-  </div>
+    </div>
+  {/if}
 </div>
-
-{#if selectedFriend}
-  <FriendDetailsModal
-    friend={selectedFriend.friend}
-    friendsSince={selectedFriend.friendsSince}
-    friendshipId={selectedFriend.friendshipId}
-    on:close={() => selectedFriend = null}
-    on:remove={handleRemoveFriend}
-  />
-{/if}
 
 <style>
   .friends-panel {
-    background: #2a2a2a;
-    border-radius: 12px;
+    background: transparent;
+    border-radius: 0;
     padding: 1.5rem;
   }
 
@@ -463,5 +497,101 @@
     text-align: center;
     color: #666;
     padding: 2rem 0;
+  }
+
+  /* Compact mode styles */
+  .friends-panel.compact {
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+  }
+
+  .compact-friends {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.5rem;
+    align-items: center;
+  }
+
+  .compact-badge-container {
+    position: relative;
+    cursor: pointer;
+    transition: transform 0.2s;
+  }
+
+  .compact-badge-container:hover {
+    transform: scale(1.1);
+  }
+
+  .compact-avatar {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #333;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 1.5rem;
+    overflow: hidden;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    transition: border-color 0.2s;
+  }
+
+  .compact-badge-container:hover .compact-avatar {
+    border-color: rgba(102, 126, 234, 0.5);
+  }
+
+  .compact-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .compact-avatar .icon {
+    font-size: 1.5rem;
+  }
+
+  .compact-avatar.notification-badge {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  }
+
+  .badge-dot {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid #141414;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+  }
+
+  .badge-dot.online {
+    background: #4caf50;
+    box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
+  }
+
+  .badge-dot.offline {
+    background: #666;
+  }
+
+  .badge-dot.in-room {
+    background: #667eea;
+    box-shadow: 0 0 8px rgba(102, 126, 234, 0.6);
+  }
+
+  .badge-dot.requests {
+    width: 18px;
+    height: 18px;
+    background: #f44336;
+    color: white;
+    font-size: 0.65rem;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #141414;
   }
 </style>

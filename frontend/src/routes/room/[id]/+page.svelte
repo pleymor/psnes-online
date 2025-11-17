@@ -4,6 +4,8 @@
   import { socket } from '$lib/api/socket';
   import { goto } from '$app/navigation';
   import { user } from '$lib/stores/user';
+  import { language } from '$lib/stores/language';
+  import { t } from '$lib/i18n/translations';
   import GameCanvas from '$lib/components/GameCanvas.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
   import PauseMenu from '$lib/components/PauseMenu.svelte';
@@ -160,21 +162,21 @@
 <div class="room-container">
   {#if !gameStarted}
     <div class="lobby">
-      <h1>{room?.gameTitle || 'Loading...'}</h1>
+      <h1>{room?.gameTitle || t($language, 'loading')}</h1>
 
       {#if room}
         <RoomPlayers {room} {roomId} />
 
         <div class="actions">
           <button on:click={startGame} class="btn-start" disabled={!canStartGame}>
-            Start Game
+            {t($language, 'startGame')}
           </button>
           <button on:click={leaveRoom} class="btn-leave">
-            Leave Room
+            {t($language, 'leaveRoom')}
           </button>
         </div>
       {:else}
-        <p class="loading">Joining room...</p>
+        <p class="loading">{t($language, 'joiningRoom')}</p>
       {/if}
     </div>
   {:else}

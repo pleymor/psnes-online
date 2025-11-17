@@ -1,5 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { language } from '$lib/stores/language';
+  import { t } from '$lib/i18n/translations';
   import type { Game } from '$lib/stores/games';
 
   export let game: Game;
@@ -43,7 +45,7 @@
     {/if}
     <div class="hover-overlay">
       <div class="info-icon">ℹ️</div>
-      <div class="info-text">Click for details</div>
+      <div class="info-text">{t($language, 'clickForDetails')}</div>
     </div>
   </div>
 
@@ -52,15 +54,15 @@
     {#if game.genre}
       <p class="genre">{game.genre}</p>
     {/if}
-    <p class="saves">{game.saves?.length || 0} save states</p>
+    <p class="saves">{t($language, 'saveStatesCount', { count: game.saves?.length || 0 })}</p>
   </div>
 
   <div class="actions">
     <button on:click={handlePlayClick} class="btn-play">
-      Play
+      {t($language, 'play')}
     </button>
     <button on:click={deleteGame} class="btn-delete">
-      Delete
+      {t($language, 'delete')}
     </button>
   </div>
 </div>

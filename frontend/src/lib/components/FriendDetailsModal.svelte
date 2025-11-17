@@ -86,19 +86,43 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
     display: flex;
     justify-content: center;
     align-items: center;
-    z-index: 1000;
+    z-index: 9999;
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideUp {
+    from {
+      transform: translateY(30px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
   }
 
   .modal {
-    background: #2a2a2a;
-    border-radius: 12px;
+    background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
+    border-radius: 16px;
     max-width: 500px;
     width: 90%;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    animation: slideUp 0.3s ease-out;
   }
 
   .header {
@@ -221,5 +245,37 @@
   .btn-remove:hover {
     background: #d32f2f;
     transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
+  }
+
+  /* Responsive styles */
+  @media (max-width: 768px) {
+    .modal {
+      width: 95%;
+      max-width: none;
+      margin: 1rem;
+    }
+
+    .content {
+      padding: 1.5rem;
+    }
+
+    .header {
+      padding: 1rem 1.5rem;
+    }
+
+    h2 {
+      font-size: 1.25rem;
+    }
+
+    .avatar {
+      width: 64px;
+      height: 64px;
+      font-size: 2rem;
+    }
+
+    h3 {
+      font-size: 1.25rem;
+    }
   }
 </style>

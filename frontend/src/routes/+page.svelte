@@ -11,6 +11,7 @@
   import GameDetailsModal from '$lib/components/GameDetailsModal.svelte';
   import UploadGame from '$lib/components/UploadGame.svelte';
   import FriendsList from '$lib/components/FriendsList.svelte';
+  import FriendDetailsModal from '$lib/components/FriendDetailsModal.svelte';
   import ControlsModal from '$lib/components/ControlsModal.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import type { KeyConfig } from '$lib/types';
@@ -20,6 +21,8 @@
 
   let showUpload = false;
   let selectedGame: Game | null = null;
+  let selectedFriend: any = null;
+  let friendsListRef: FriendsList;
   let isRefreshingMetadata = false;
   let showToast = false;
   let toastMessage = '';
@@ -27,6 +30,7 @@
   let showDeleteConfirm = false;
   let gameToDelete: Game | null = null;
   let showControls = false;
+  let showMobileSidebar = false;
   let userKeyConfig: KeyConfig = {
     up: 'ArrowUp',
     down: 'ArrowDown',
@@ -77,14 +81,14 @@
       });
 
       if (res.ok) {
-        showNotification(`"${gameToDelete.title}" deleted successfully`, 'success');
+        showNotification(t($language, 'gameDeleted', { title: gameToDelete.title }), 'success');
         await loadGames();
       } else {
-        showNotification('Failed to delete game', 'error');
+        showNotification(t($language, 'failedToDeleteGame'), 'error');
       }
     } catch (error) {
       console.error('Error deleting game:', error);
-      showNotification('Error deleting game', 'error');
+      showNotification(t($language, 'errorDeletingGame'), 'error');
     } finally {
       showDeleteConfirm = false;
       gameToDelete = null;
@@ -105,6 +109,19 @@
     }, 4000);
   }
 
+  function handleFriendClicked(event: CustomEvent<any>) {
+    selectedFriend = event.detail;
+  }
+
+  async function handleRemoveFriend(event: CustomEvent<{ friendshipId: string }>) {
+    const { friendshipId } = event.detail;
+
+    if (friendsListRef) {
+      await friendsListRef.removeFriend(friendshipId);
+      selectedFriend = null;
+    }
+  }
+
   async function refreshMetadata() {
     isRefreshingMetadata = true;
 
@@ -118,15 +135,15 @@
         const result = await res.json();
         await loadGames();
         showNotification(
-          `Metadata updated! ${result.updated} game${result.updated !== 1 ? 's' : ''} matched, ${result.skipped} skipped.`,
+          t($language, 'metadataUpdated', { updated: result.updated, skipped: result.skipped }),
           'success'
         );
       } else {
-        showNotification('Failed to refresh metadata', 'error');
+        showNotification(t($language, 'failedToRefreshMetadata'), 'error');
       }
     } catch (error) {
       console.error('Error refreshing metadata:', error);
-      showNotification('Error refreshing metadata', 'error');
+      showNotification(t($language, 'errorRefreshingMetadata'), 'error');
     } finally {
       isRefreshingMetadata = false;
     }
@@ -196,17 +213,26 @@
 {:else}
   <!-- Library page for authenticated users -->
   <div class="app-layout">
+    <!-- Mobile burger button -->
+    <button class="burger-btn" on:click={() => showMobileSidebar = !showMobileSidebar}>
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+
+    <!-- Mobile overlay -->
+    {#if showMobileSidebar}
+      <div class="mobile-overlay" on:click={() => showMobileSidebar = false}></div>
+    {/if}
+
     <!-- Sidebar Menu -->
-    <aside class="sidebar-menu">
+    <aside class="sidebar-menu" class:show-mobile={showMobileSidebar}>
       <div class="sidebar-header">
         <a href="/" class="logo">🎮 PSNES</a>
+        <LanguageSelector />
       </div>
 
       <nav class="sidebar-nav">
-        <div class="nav-section">
-          <LanguageSelector />
-        </div>
-
         <div class="nav-section">
           <button on:click={() => showUpload = true} class="nav-button nav-button-primary">
             <span class="icon">+</span>
@@ -220,12 +246,12 @@
 
           <button on:click={refreshMetadata} class="nav-button" disabled={isRefreshingMetadata}>
             <span class="icon">{isRefreshingMetadata ? '⏳' : '🔄'}</span>
-            <span class="label">{isRefreshingMetadata ? 'Updating...' : 'Update Metadata'}</span>
+            <span class="label">{isRefreshingMetadata ? t($language, 'updating') : t($language, 'updateMetadata')}</span>
           </button>
         </div>
 
         <div class="nav-section nav-section-friends">
-          <FriendsList />
+          <FriendsList bind:this={friendsListRef} on:friendClicked={handleFriendClicked} />
         </div>
 
         <div class="nav-section nav-section-bottom">
@@ -242,7 +268,7 @@
       <div class="page-header">
         <div>
           <h1>{t($language, 'library')}</h1>
-          <p class="subtitle">{$games.length} {$games.length === 1 ? 'game' : 'games'}</p>
+          <p class="subtitle">{$games.length} {$games.length === 1 ? t($language, 'game') : t($language, 'games')}</p>
         </div>
       </div>
 
@@ -250,8 +276,8 @@
         {#if $games.length === 0}
           <div class="empty-state">
             <div class="empty-icon">🎮</div>
-            <h2>Your library is empty</h2>
-            <p>Start by uploading your first SNES ROM</p>
+            <h2>{t($language, 'emptyLibrary')}</h2>
+            <p>{t($language, 'startUploading')}</p>
             <button on:click={() => showUpload = true} class="btn-upload-large">
               + {t($language, 'uploadROM')}
             </button>
@@ -286,15 +312,25 @@
     />
   {/if}
 
+  {#if selectedFriend}
+    <FriendDetailsModal
+      friend={selectedFriend.friend}
+      friendsSince={selectedFriend.friendsSince}
+      friendshipId={selectedFriend.friendshipId}
+      on:close={() => selectedFriend = null}
+      on:remove={handleRemoveFriend}
+    />
+  {/if}
+
   {#if showDeleteConfirm && gameToDelete}
     <div class="modal-overlay" on:click={cancelDelete}>
       <div class="confirm-modal" on:click|stopPropagation>
-        <h3>Delete Game?</h3>
-        <p>Are you sure you want to delete "{gameToDelete.title}"?</p>
-        <p class="warning">This action cannot be undone.</p>
+        <h3>{t($language, 'deleteGame')}</h3>
+        <p>{t($language, 'confirmDeleteGame', { title: gameToDelete.title })}</p>
+        <p class="warning">{t($language, 'actionCannotBeUndone')}</p>
         <div class="modal-actions">
-          <button on:click={cancelDelete} class="btn-cancel">Cancel</button>
-          <button on:click={confirmDelete} class="btn-confirm-delete">Delete</button>
+          <button on:click={cancelDelete} class="btn-cancel">{t($language, 'cancel')}</button>
+          <button on:click={confirmDelete} class="btn-confirm-delete">{t($language, 'delete')}</button>
         </div>
       </div>
     </div>
@@ -424,6 +460,10 @@
   .sidebar-header {
     padding: 2rem 1.5rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
   }
 
   .logo {
@@ -433,7 +473,6 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     text-decoration: none;
-    display: block;
     transition: opacity 0.2s;
   }
 
@@ -458,6 +497,10 @@
     overflow-y: auto;
     padding: 0;
     margin-bottom: 0;
+  }
+
+  .nav-section-friends-compact {
+    display: none;
   }
 
   .nav-section-bottom {
@@ -557,8 +600,9 @@
 
   .games-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, 280px);
     gap: 1.5rem;
+    justify-content: start;
   }
 
   .empty-state {
@@ -733,85 +777,89 @@
     box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
   }
 
-  @media (max-width: 1200px) {
+  /* Burger menu button */
+  .burger-btn {
+    display: none;
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 10001;
+    background: rgba(42, 42, 42, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    width: 48px;
+    height: 48px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s;
+  }
+
+  .burger-btn:hover {
+    background: rgba(102, 126, 234, 0.2);
+    border-color: rgba(102, 126, 234, 0.5);
+  }
+
+  .burger-btn span {
+    display: block;
+    width: 24px;
+    height: 2px;
+    background: white;
+    border-radius: 2px;
+    transition: all 0.3s;
+  }
+
+  /* Mobile overlay */
+  .mobile-overlay {
+    display: none;
+  }
+
+  @media (max-width: 768px) {
+    .burger-btn {
+      display: flex;
+    }
+
+    .mobile-overlay {
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 9998;
+      backdrop-filter: blur(4px);
+    }
+
     .sidebar-menu {
-      width: 280px;
+      position: fixed;
+      left: -340px;
+      transition: left 0.3s ease-in-out;
+      z-index: 9999;
+    }
+
+    .sidebar-menu.show-mobile {
+      left: 0;
     }
 
     .main-content {
-      margin-left: 280px;
+      margin-left: 0;
+      padding: 1rem;
+      padding-top: 4rem;
     }
 
     .games-grid {
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 1.5rem;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    .page-header {
-      margin-bottom: 2rem;
-    }
-
-    h1 {
-      font-size: 2rem;
-    }
-
-    .games-grid {
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 1.5rem;
+      grid-template-columns: 1fr;
+      gap: 1rem;
     }
 
     .toast {
       left: 1rem;
       right: 1rem;
       bottom: 1rem;
-    }
-  }
-
-  @media (max-width: 768px) {
-    .sidebar-menu {
-      width: 70px;
-    }
-
-    .sidebar-header {
-      padding: 1.5rem 0.5rem;
-    }
-
-    .logo {
-      font-size: 1.25rem;
-      text-align: center;
-    }
-
-    .nav-section {
-      padding: 0.5rem 0.5rem;
-    }
-
-    .nav-section-friends {
-      display: none;
-    }
-
-    .nav-button .label {
-      display: none;
-    }
-
-    .nav-button {
-      justify-content: center;
-      padding: 0.875rem 0.5rem;
-    }
-
-    .nav-button .icon {
-      margin: 0;
-    }
-
-    .main-content {
-      margin-left: 70px;
-      padding: 1rem;
-    }
-
-    .games-grid {
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: 1rem;
     }
   }
 </style>

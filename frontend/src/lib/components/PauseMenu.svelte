@@ -185,7 +185,7 @@
   <div class="pause-menu">
     {#if !showKeyConfig && !showSaveLoad}
       <h2>{t($language, 'pauseMenu')}</h2>
-      <p class="hint">Use D-Pad + A to select, B to resume</p>
+      <p class="hint">{t($language, 'pauseMenuHint')}</p>
 
       <div class="menu-items">
         {#each menuItems as item, i}
