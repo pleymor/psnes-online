@@ -16,11 +16,31 @@ export function initializeWebSocket(io: Server) {
   io.on('connection', async (socket: Socket) => {
     console.log('Client connected:', socket.id);
 
-    const user = (socket.request as any).session?.passport?.user;
-    if (!user) {
+    const userId = (socket.request as any).session?.passport?.user;
+    if (!userId) {
       socket.disconnect();
       return;
     }
+
+    // Load full user data from database (WebSocket doesn't run deserializeUser)
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        displayName: true,
+        avatar: true,
+        email: true,
+        googleId: true
+      }
+    });
+
+    if (!user) {
+      console.error('User not found:', userId);
+      socket.disconnect();
+      return;
+    }
+
+    console.log('User connected:', user.displayName, user.email);
 
     socketUsers.set(socket.id, user);
     userSockets.set(user.id, socket.id);
@@ -131,6 +151,22 @@ export function initializeWebSocket(io: Server) {
       }
 
       player.port = data.port;
+      // Auto-ready when selecting a port
+      player.isReady = true;
+      io.to(data.roomId).emit('room:updated', room);
+    });
+
+    // Unselect controller port
+    socket.on('room:unselectPort', (data: { roomId: string }) => {
+      const room = rooms.get(data.roomId);
+      if (!room) return;
+
+      const player = room.players.find(p => p.userId === user.id);
+      if (!player) return;
+
+      player.port = null;
+      // Player is no longer ready when unselecting
+      player.isReady = false;
       io.to(data.roomId).emit('room:updated', room);
     });
 
@@ -163,8 +199,8 @@ export function initializeWebSocket(io: Server) {
       const room = rooms.get(data.roomId);
       if (!room) return;
 
-      // Check if all players are ready and have ports assigned
-      const playersWithPorts = room.players.filter(p => p.port !== null);
+      // Check if at least one player has selected a port (auto-ready)
+      const playersWithPorts = room.players.filter(p => p.port !== null && p.isReady);
       if (playersWithPorts.length === 0) {
         socket.emit('error', { message: 'At least one player must select a controller port' });
         return;
@@ -263,7 +299,14 @@ export function initializeWebSocket(io: Server) {
 
       await emulatorManager.stopEmulator(room.id);
       room.status = 'waiting';
-      room.players.forEach(p => p.isReady = false);
+      // Reset ready status but keep port selections
+      room.players.forEach(p => {
+        if (p.port !== null) {
+          p.isReady = true; // Players with ports remain ready
+        } else {
+          p.isReady = false;
+        }
+      });
       io.to(data.roomId).emit('game:stopped');
       io.to(data.roomId).emit('room:updated', room);
     });

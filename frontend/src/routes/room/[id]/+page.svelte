@@ -35,6 +35,9 @@
   $: currentPlayer = room?.players.find(p => p.userId === $user?.id);
   $: keyConfig = currentPlayer?.keyConfig || userKeyConfig;
 
+  // Check if at least one player is ready (has a port)
+  $: canStartGame = room?.players.some(p => p.port !== null && p.isReady) ?? false;
+
   onMount(async () => {
     if (!$socket) {
       goto('/library');
@@ -145,16 +148,20 @@
     <div class="lobby">
       <h1>{room?.gameTitle || 'Loading...'}</h1>
 
-      <RoomPlayers {room} {roomId} />
+      {#if room}
+        <RoomPlayers {room} {roomId} />
 
-      <div class="actions">
-        <button on:click={startGame} class="btn-start">
-          Start Game
-        </button>
-        <button on:click={leaveRoom} class="btn-leave">
-          Leave Room
-        </button>
-      </div>
+        <div class="actions">
+          <button on:click={startGame} class="btn-start" disabled={!canStartGame}>
+            Start Game
+          </button>
+          <button on:click={leaveRoom} class="btn-leave">
+            Leave Room
+          </button>
+        </div>
+      {:else}
+        <p class="loading">Joining room...</p>
+      {/if}
     </div>
   {:else}
     <GameCanvas {roomId} {keyConfig} />
@@ -211,6 +218,19 @@
     font-size: 1.125rem;
     border-radius: 8px;
     cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-start:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  }
+
+  .btn-start:disabled {
+    background: #333;
+    color: #666;
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 
   .btn-leave {
@@ -221,5 +241,12 @@
     font-size: 1.125rem;
     border-radius: 8px;
     cursor: pointer;
+  }
+
+  .loading {
+    text-align: center;
+    color: #888;
+    font-size: 1.125rem;
+    margin: 2rem 0;
   }
 </style>
