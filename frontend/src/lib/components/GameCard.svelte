@@ -43,26 +43,46 @@
 
 <style>
   .game-card {
-    background: #2a2a2a;
-    border-radius: 12px;
+    background: rgba(42, 42, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
     overflow: hidden;
-    transition: transform 0.2s;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   }
 
   .game-card:hover {
-    transform: translateY(-4px);
+    transform: translateY(-8px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+    border-color: rgba(102, 126, 234, 0.3);
   }
 
   .cover {
-    aspect-ratio: 3/4;
-    background: #1a1a1a;
+    aspect-ratio: 16/9;
+    background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
     display: flex;
     justify-content: center;
     align-items: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cover::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .game-card:hover .cover::before {
+    opacity: 1;
   }
 
   .placeholder {
-    font-size: 4rem;
+    font-size: 3rem;
+    opacity: 0.4;
   }
 
   img {
@@ -72,24 +92,26 @@
   }
 
   .info {
-    padding: 1rem;
+    padding: 1.25rem;
   }
 
   h3 {
     margin: 0 0 0.5rem 0;
     font-size: 1.125rem;
+    font-weight: 600;
+    color: #fff;
   }
 
   .saves {
     margin: 0;
-    color: #888;
+    color: #999;
     font-size: 0.875rem;
   }
 
   .actions {
-    padding: 0 1rem 1rem;
+    padding: 0 1.25rem 1.25rem;
     display: flex;
-    gap: 0.5rem;
+    gap: 0.75rem;
   }
 
   .btn-play {
@@ -97,19 +119,32 @@
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     border: none;
-    padding: 0.75rem;
-    border-radius: 6px;
+    padding: 0.875rem;
+    border-radius: 8px;
     cursor: pointer;
-    font-size: 0.875rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .btn-play:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
   }
 
   .btn-delete {
-    background: #444;
+    background: rgba(68, 68, 68, 0.8);
     color: white;
-    border: none;
-    padding: 0.75rem;
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 0.875rem 1rem;
+    border-radius: 8px;
     cursor: pointer;
-    font-size: 0.875rem;
+    font-size: 0.9375rem;
+    transition: all 0.2s;
+  }
+
+  .btn-delete:hover {
+    background: rgba(200, 50, 50, 0.8);
+    border-color: rgba(200, 50, 50, 0.3);
   }
 </style>

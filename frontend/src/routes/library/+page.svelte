@@ -48,25 +48,38 @@
   }
 </script>
 
-<div class="container">
-  <header>
-    <h1>My Game Library</h1>
-    <div class="actions">
-      <button on:click={() => showUpload = true} class="btn-primary">
+<nav class="menu">
+  <div class="menu-content">
+    <a href="/" class="logo">🎮 PSNES Online</a>
+    <div class="menu-actions">
+      <button on:click={() => showUpload = true} class="btn-upload">
         + Upload ROM
       </button>
-      <button on:click={logout} class="btn-secondary">
-        Logout
+      <button on:click={logout} class="btn-logout">
+        Déconnexion
       </button>
     </div>
-  </header>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <h1>Ma Bibliothèque</h1>
+      <p class="subtitle">{$games.length} {$games.length === 1 ? 'jeu' : 'jeux'} dans votre collection</p>
+    </div>
+  </div>
 
   <div class="content">
     <div class="games-section">
       {#if $games.length === 0}
         <div class="empty-state">
-          <p>No games in your library yet.</p>
-          <button on:click={() => showUpload = true}>Upload your first ROM</button>
+          <div class="empty-icon">🎮</div>
+          <h2>Votre bibliothèque est vide</h2>
+          <p>Commencez par uploader votre première ROM SNES</p>
+          <button on:click={() => showUpload = true} class="btn-upload-large">
+            + Upload ROM
+          </button>
         </div>
       {:else}
         <div class="games-grid">
@@ -91,48 +104,46 @@
 {/if}
 
 <style>
-  .container {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 2rem;
+  .menu {
+    background: rgba(30, 30, 30, 0.95);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 1rem 2rem;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    backdrop-filter: blur(10px);
   }
 
-  header {
+  .menu-content {
+    max-width: 1400px;
+    margin: 0 auto;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 2rem;
   }
 
-  h1 {
-    font-size: 2rem;
-    margin: 0;
+  .logo {
+    font-size: 1.5rem;
+    font-weight: 600;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-decoration: none;
+    transition: opacity 0.2s;
   }
 
-  .actions {
+  .logo:hover {
+    opacity: 0.8;
+  }
+
+  .menu-actions {
     display: flex;
     gap: 1rem;
   }
 
-  .content {
-    display: grid;
-    grid-template-columns: 1fr 300px;
-    gap: 2rem;
-  }
-
-  .games-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 1.5rem;
-  }
-
-  .empty-state {
-    text-align: center;
-    padding: 4rem 2rem;
-    color: #666;
-  }
-
-  .btn-primary {
+  .btn-upload {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     border: none;
@@ -140,9 +151,14 @@
     border-radius: 8px;
     cursor: pointer;
     font-size: 1rem;
+    transition: transform 0.2s;
   }
 
-  .btn-secondary {
+  .btn-upload:hover {
+    transform: translateY(-2px);
+  }
+
+  .btn-logout {
     background: #333;
     color: white;
     border: none;
@@ -150,11 +166,107 @@
     border-radius: 8px;
     cursor: pointer;
     font-size: 1rem;
+    transition: background 0.2s;
+  }
+
+  .btn-logout:hover {
+    background: #444;
+  }
+
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+    padding-top: 6rem;
+  }
+
+  .page-header {
+    margin-bottom: 3rem;
+  }
+
+  h1 {
+    font-size: 2.5rem;
+    margin: 0 0 0.5rem 0;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .subtitle {
+    font-size: 1.125rem;
+    color: #888;
+    margin: 0;
+  }
+
+  .content {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 2rem;
+  }
+
+  .games-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 6rem 2rem;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .empty-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    opacity: 0.3;
+  }
+
+  .empty-state h2 {
+    font-size: 1.75rem;
+    margin: 0 0 0.75rem 0;
+    color: #fff;
+  }
+
+  .empty-state p {
+    font-size: 1.125rem;
+    color: #888;
+    margin: 0 0 2rem 0;
+  }
+
+  .btn-upload-large {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 1rem 2.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1.125rem;
+    transition: transform 0.2s;
+  }
+
+  .btn-upload-large:hover {
+    transform: translateY(-2px);
   }
 
   @media (max-width: 1024px) {
     .content {
       grid-template-columns: 1fr;
+    }
+
+    .page-header {
+      margin-bottom: 2rem;
+    }
+
+    h1 {
+      font-size: 2rem;
+    }
+
+    .games-grid {
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 1.5rem;
     }
   }
 </style>
