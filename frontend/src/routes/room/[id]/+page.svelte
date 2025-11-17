@@ -33,6 +33,10 @@
 
     $socket.on('game:started', () => {
       gameStarted = true;
+      // Prevent scrolling when game is active
+      if (browser) {
+        document.body.style.overflow = 'hidden';
+      }
     });
 
     $socket.on('game:paused', () => {
@@ -48,6 +52,10 @@
       gameStarted = false;
       isPaused = false;
       showPauseMenu = false;
+      // Restore scrolling
+      if (browser) {
+        document.body.style.overflow = '';
+      }
     });
 
     // Handle Escape key for pause menu
@@ -67,6 +75,8 @@
     }
     if (browser) {
       window.removeEventListener('keydown', handleKeyDown);
+      // Restore scrolling when leaving the page
+      document.body.style.overflow = '';
     }
   });
 
@@ -121,10 +131,15 @@
 
 <style>
   .room-container {
-    min-height: 100vh;
+    height: 100vh;
+    width: 100vw;
     display: flex;
     justify-content: center;
     align-items: center;
+    overflow: hidden;
+  }
+
+  .room-container:has(.lobby) {
     padding: 2rem;
   }
 

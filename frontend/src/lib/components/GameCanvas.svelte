@@ -395,10 +395,10 @@
     /* Force 4:3 aspect ratio like a CRT TV */
     aspect-ratio: 4 / 3;
     width: auto;
-    height: 90vh;
+    height: 100vh;
     max-width: 100%;
-    max-height: 90vh;
-    border: 2px solid #333;
+    max-height: 100vh;
+    border: none;
   }
 
   .canvas-container:fullscreen {
