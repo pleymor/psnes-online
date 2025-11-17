@@ -5,6 +5,7 @@
 
   export let roomId: string;
   export let keyConfig: KeyConfig;
+  export let port: 1 | 2 | null = null; // Controller port for this player (null if spectator)
 
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D;
@@ -371,10 +372,13 @@
   }
 
   function sendInput() {
+    // Only send input if player has selected a port
+    if (!port) return;
+
     $socket?.emit('game:input', {
       roomId,
       input: {
-        port: 1, // TODO: Get from player's selected port
+        port,
         buttons: currentInput
       }
     });

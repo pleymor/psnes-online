@@ -34,6 +34,7 @@
   // Get current user's key configuration - prefer user's personal config, then room config, then defaults
   $: currentPlayer = room?.players.find(p => p.userId === $user?.id);
   $: keyConfig = currentPlayer?.keyConfig || userKeyConfig;
+  $: playerPort = (currentPlayer?.port ?? null) as 1 | 2 | null; // Get player's selected port (null if spectator)
 
   // Check if at least one player is ready (has a port)
   $: canStartGame = room?.players.some(p => p.port !== null && p.isReady) ?? false;
@@ -165,7 +166,7 @@
       {/if}
     </div>
   {:else}
-    <GameCanvas {roomId} {keyConfig} />
+    <GameCanvas {roomId} {keyConfig} port={playerPort} />
 
     {#if showPauseMenu}
       <PauseMenu
