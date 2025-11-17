@@ -258,10 +258,25 @@
         </div>
 
         <div class="nav-section nav-section-bottom">
-          <button on:click={logout} class="nav-button nav-button-logout">
-            <span class="icon">🚪</span>
-            <span class="label">{t($language, 'logout')}</span>
-          </button>
+          <div class="user-profile">
+            <div class="user-info">
+              <div class="user-avatar">
+                {#if $user?.avatar}
+                  <img src={$user.avatar} alt={$user.displayName} />
+                {:else}
+                  <span class="avatar-placeholder">👤</span>
+                {/if}
+                <div class="online-indicator"></div>
+              </div>
+              <div class="user-details">
+                <div class="user-name">{$user?.displayName}</div>
+                <div class="user-status">{t($language, 'online')}</div>
+              </div>
+            </div>
+            <button on:click={logout} class="logout-icon" title={t($language, 'logout')}>
+              🚪
+            </button>
+          </div>
         </div>
       </nav>
     </aside>
@@ -511,6 +526,97 @@
     margin-bottom: 0;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
     padding-top: 1rem;
+  }
+
+  .user-profile {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 8px;
+    gap: 0.75rem;
+  }
+
+  .user-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .user-avatar {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #333;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .avatar-placeholder {
+    font-size: 1.5rem;
+  }
+
+  .online-indicator {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 10px;
+    height: 10px;
+    background: #4caf50;
+    border: 2px solid #1a1a1a;
+    border-radius: 50%;
+  }
+
+  .user-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .user-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: white;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-status {
+    font-size: 0.75rem;
+    color: #4caf50;
+  }
+
+  .logout-icon {
+    background: transparent;
+    border: none;
+    font-size: 1.25rem;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 6px;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+
+  .logout-icon:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: scale(1.1);
   }
 
   .nav-button {
