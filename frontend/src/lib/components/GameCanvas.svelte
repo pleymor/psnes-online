@@ -20,6 +20,13 @@
   let pendingFrame: any = null;
   let rafId: number | null = null;
 
+  // Scale factor for crisp rendering (4x native SNES resolution)
+  const SCALE_FACTOR = 4;
+
+  // Offscreen canvas for native resolution
+  let offscreenCanvas: OffscreenCanvas | null = null;
+  let offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
+
   const speedPresets = [0.5, 1.0, 2.0, 3.0, 0]; // 0 = unlimited
   const speedLabels: { [key: number]: string } = {
     0: 'MAX',
@@ -121,27 +128,43 @@
 
     const startTime = performance.now();
 
-    // Resize canvas if frame dimensions changed
-    if (canvas.width !== frame.width || canvas.height !== frame.height) {
-      canvas.width = frame.width;
-      canvas.height = frame.height;
-      imageData = null; // Reset imageData when size changes
+    // Initialize or resize offscreen canvas if needed
+    if (!offscreenCanvas || offscreenCanvas.width !== frame.width || offscreenCanvas.height !== frame.height) {
+      offscreenCanvas = new OffscreenCanvas(frame.width, frame.height);
+      offscreenCtx = offscreenCanvas.getContext('2d', {
+        alpha: false,
+        desynchronized: true
+      });
+      imageData = null;
     }
 
-    // Reuse ImageData object to avoid GC
-    if (!imageData) {
-      imageData = ctx.createImageData(frame.width, frame.height);
+    // Resize display canvas to scaled resolution
+    const scaledWidth = frame.width * SCALE_FACTOR;
+    const scaledHeight = frame.height * SCALE_FACTOR;
+    if (canvas.width !== scaledWidth || canvas.height !== scaledHeight) {
+      canvas.width = scaledWidth;
+      canvas.height = scaledHeight;
     }
 
-    // Copy frame data directly into existing buffer
+    // Reuse ImageData object for offscreen canvas
+    if (!imageData || !offscreenCtx) {
+      imageData = offscreenCtx!.createImageData(frame.width, frame.height);
+    }
+
+    // Copy frame data to offscreen canvas at native resolution
     const data = new Uint8Array(frame.data);
     imageData.data.set(data);
+    offscreenCtx!.putImageData(imageData, 0, 0);
 
-    // Disable image smoothing for sharp pixels
+    // Disable image smoothing for sharp, pixelated upscaling
     ctx.imageSmoothingEnabled = false;
 
-    // Draw directly to canvas at native resolution
-    ctx.putImageData(imageData, 0, 0);
+    // Scale up from offscreen canvas to display canvas
+    ctx.drawImage(
+      offscreenCanvas,
+      0, 0, frame.width, frame.height,
+      0, 0, scaledWidth, scaledHeight
+    );
 
     const renderTime = performance.now() - startTime;
     if (renderTime > 5) {
@@ -360,8 +383,6 @@
 <div class="canvas-container" bind:this={canvasContainer}>
   <canvas
     bind:this={canvas}
-    width="256"
-    height="224"
   />
 
   {#if showSpeedIndicator}
