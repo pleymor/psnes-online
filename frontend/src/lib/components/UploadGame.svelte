@@ -51,6 +51,12 @@
   <div class="modal" on:click|stopPropagation>
     <h2>Upload ROM</h2>
 
+    <div class="legal-notice">
+      <strong>⚠️ Legal Warning / Avertissement Légal</strong>
+      <p><strong>🇬🇧</strong> You must own an original physical copy of the game. Uploading and using ROMs without owning the original game is illegal. You are solely responsible for complying with intellectual property laws.</p>
+      <p><strong>🇫🇷</strong> Vous devez posséder une copie physique originale du jeu. L'upload et l'utilisation de ROMs sans posséder le jeu original sont illégaux. Vous êtes seul responsable du respect des lois sur la propriété intellectuelle.</p>
+    </div>
+
     <form on:submit|preventDefault={handleSubmit}>
       <div class="field">
         <label for="title">Game Title</label>
@@ -111,6 +117,35 @@
 
   h2 {
     margin-top: 0;
+  }
+
+  .legal-notice {
+    background: rgba(255, 152, 0, 0.15);
+    border: 1px solid rgba(255, 152, 0, 0.5);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .legal-notice strong {
+    color: #ff9800;
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+
+  .legal-notice p {
+    margin: 0.5rem 0;
+    font-size: 0.85rem;
+    color: #ddd;
+    line-height: 1.5;
+  }
+
+  .legal-notice p:first-of-type {
+    margin-top: 0;
+  }
+
+  .legal-notice p:last-of-type {
+    margin-bottom: 0;
   }
 
   .field {

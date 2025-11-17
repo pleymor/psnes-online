@@ -118,7 +118,15 @@
     }
   }
 
-  function startGame() {
+  async function startGame() {
+    // Request fullscreen before starting the game to ensure user interaction is recent
+    if (browser && !document.fullscreenElement) {
+      try {
+        await document.documentElement.requestFullscreen();
+      } catch (err) {
+        console.log('Could not enter fullscreen:', err);
+      }
+    }
     $socket?.emit('game:start', { roomId });
   }
 

@@ -40,6 +40,12 @@
     <h1>🎮 PSNES Online</h1>
     <p>Play classic SNES games with your friends</p>
 
+    <div class="legal-disclaimer">
+      <p><strong>⚠️ Legal Warning / Avertissement Légal</strong></p>
+      <p><strong>🇬🇧</strong> This platform is provided for educational and preservation purposes. You must legally own the games for which you use ROMs. Using ROMs without owning the original games is illegal. By using this service, you agree to be solely responsible for complying with intellectual property laws.</p>
+      <p><strong>🇫🇷</strong> Cette plateforme est fournie à des fins éducatives et de préservation. Vous devez posséder légalement les jeux dont vous utilisez les ROMs. L'utilisation de ROMs sans posséder les jeux originaux est illégale. En utilisant ce service, vous acceptez d'être seul responsable du respect des lois sur la propriété intellectuelle.</p>
+    </div>
+
     {#if !$user}
       <button on:click={login} class="login-btn">
         Sign in with Google
@@ -143,6 +149,37 @@
     font-size: 1.25rem;
     color: #a0a0a0;
     margin-bottom: 2rem;
+  }
+
+  .legal-disclaimer {
+    background: rgba(255, 152, 0, 0.1);
+    border: 1px solid rgba(255, 152, 0, 0.3);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin: 2rem 0;
+    max-width: 700px;
+  }
+
+  .legal-disclaimer p {
+    font-size: 0.875rem;
+    color: #ddd;
+    margin-bottom: 0.75rem;
+    line-height: 1.6;
+    text-align: left;
+  }
+
+  .legal-disclaimer p:first-child {
+    text-align: center;
+    font-size: 1rem;
+  }
+
+  .legal-disclaimer p:last-child {
+    margin-bottom: 0;
+  }
+
+  .legal-disclaimer strong {
+    color: #ff9800;
+    font-size: 1rem;
   }
 
   .login-btn {

@@ -390,7 +390,67 @@ services:
 
 Projet privé - Tous droits réservés
 
-**Note légale**: L'upload de ROMs est de la responsabilité de l'utilisateur. Assurez-vous de posséder les droits légaux pour les jeux que vous uploadez.
+## ⚠️ Legal Disclaimer - ROMs and Intellectual Property / Disclaimer Légal - ROMs et Propriété Intellectuelle
+
+### 🇬🇧 English Version
+
+**IMPORTANT - READ BEFORE USE**
+
+This platform provides only a technical emulation infrastructure. The use of video game ROMs is strictly regulated by law:
+
+#### Legal Obligations
+
+1. **Ownership of original games**: You must own an original physical copy of the game whose ROM you upload. Possessing a ROM without the original game is illegal in most jurisdictions.
+
+2. **Personal use only**: ROMs may only be used for strictly personal purposes. Any commercial or public distribution or sharing is prohibited.
+
+3. **Copyright**: SNES games and their ROMs are protected by copyright. Nintendo and game developers retain all rights to their works.
+
+4. **Personal backup**: In some jurisdictions, you have the right to create a backup copy of a game you legally own. Downloading ROMs from the Internet, even for games you own, may be illegal.
+
+#### Responsibilities
+
+- **The user is solely responsible** for the content they upload and its compliance with applicable laws
+- The operators of this platform do not provide, host, or distribute any ROMs
+- This platform is provided solely for educational purposes and preservation of video game heritage
+- By using this platform, you agree to comply with all local, national, and international intellectual property laws
+
+#### Penalties
+
+Copyright infringement may result in civil and criminal prosecution, including substantial fines and imprisonment.
+
+**By using this platform, you acknowledge that you have read, understood, and accepted these terms.**
+
+---
+
+### 🇫🇷 Version Française
+
+**IMPORTANT - À LIRE AVANT UTILISATION**
+
+Cette plateforme fournit uniquement une infrastructure technique d'émulation. L'utilisation de ROMs de jeux vidéo est strictement encadrée par la loi :
+
+#### Obligations légales
+
+1. **Propriété des jeux originaux** : Vous devez posséder une copie physique originale du jeu dont vous uploadez la ROM. La possession d'une ROM sans le jeu original est illégale dans la plupart des juridictions.
+
+2. **Usage personnel uniquement** : Les ROMs ne peuvent être utilisées que dans un cadre strictement personnel. Toute distribution, partage commercial ou public est interdit.
+
+3. **Droits d'auteur** : Les jeux SNES et leurs ROMs sont protégés par le droit d'auteur. Nintendo et les développeurs de jeux détiennent tous les droits sur leurs œuvres.
+
+4. **Backup personnel** : Dans certaines juridictions, vous avez le droit de créer une copie de sauvegarde d'un jeu que vous possédez légalement. Le téléchargement de ROMs depuis Internet, même pour des jeux que vous possédez, peut être illégal.
+
+#### Responsabilités
+
+- **L'utilisateur est seul responsable** du contenu qu'il upload et de sa conformité avec les lois applicables
+- Les opérateurs de cette plateforme ne fournissent, n'hébergent et ne distribuent aucune ROM
+- Cette plateforme est fournie uniquement à des fins éducatives et de préservation du patrimoine vidéoludique
+- En utilisant cette plateforme, vous acceptez de respecter toutes les lois locales, nationales et internationales sur la propriété intellectuelle
+
+#### Sanctions
+
+La violation des droits d'auteur peut entraîner des poursuites civiles et pénales, incluant des amendes substantielles et des peines d'emprisonnement.
+
+**En utilisant cette plateforme, vous reconnaissez avoir lu, compris et accepté ces conditions.**
 
 ## 🎯 Roadmap
 
