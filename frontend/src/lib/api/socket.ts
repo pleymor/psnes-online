@@ -6,7 +6,13 @@ export const socket = writable<Socket | null>(null);
 export function initializeSocket() {
   const socketInstance = io('/', {
     withCredentials: true,
-    transports: ['websocket', 'polling']
+    transports: ['websocket'], // Force WebSocket for lowest latency
+    upgrade: false, // Don't start with polling
+    rememberUpgrade: true,
+    autoConnect: true,
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionAttempts: 10
   });
 
   socketInstance.on('connect', () => {

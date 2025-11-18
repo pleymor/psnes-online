@@ -441,8 +441,8 @@ export class SNESEmulator extends EventEmitter {
     // Calculate when next frame should run
     this.nextFrameTime += frameTime;
 
-    // If we're too far behind, reset to current time
-    if (this.nextFrameTime < now - 100) {
+    // If we're too far behind, reset to current time (tighter tolerance for lower latency)
+    if (this.nextFrameTime < now - 50) {
       console.log(`⚠️  SCHEDULER: Resetting timing (${(now - this.nextFrameTime).toFixed(2)}ms behind)`);
       this.nextFrameTime = now;
     }
@@ -450,8 +450,8 @@ export class SNESEmulator extends EventEmitter {
     // Calculate delay until next frame
     const delay = Math.max(0, this.nextFrameTime - now);
 
-    // Use setImmediate for 0 delay to avoid setTimeout overhead
-    if (delay < 1) {
+    // Use setImmediate for sub-millisecond delays (lower latency than setTimeout)
+    if (delay < 0.5) {
       setImmediate(() => {
         if (!this.paused && this.running) {
           this.runFrame();

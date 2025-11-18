@@ -24,6 +24,11 @@
   let pendingFrame: any = null;
   let rafId: number | null = null;
 
+  // Latency measurement
+  let lastInputTimestamp = 0;
+  let latencyHistory: number[] = [];
+  let averageLatency = 0;
+
   // Scale factor for crisp rendering (4x native SNES resolution)
   const SCALE_FACTOR = 4;
 
@@ -70,15 +75,32 @@
       desynchronized: true  // Better performance for animations
     })!;
     audioContext = new AudioContext({
-      latencyHint: 'interactive',
+      latencyHint: 'interactive', // Optimize for low latency over power consumption
       sampleRate: 48000
     });
+
+    // Request low latency mode if available
+    if ('baseLatency' in audioContext) {
+      console.log(`Audio base latency: ${audioContext.baseLatency * 1000}ms`);
+    }
 
     // Start render loop
     startRenderLoop();
 
-    // Listen for video frames - just store them, don't render immediately
+    // Listen for video frames - measure latency and render
     $socket?.on('game:frame', (frame: any) => {
+      // Measure input-to-render latency
+      if (frame.inputTimestamp && lastInputTimestamp > 0) {
+        const latency = performance.now() - frame.inputTimestamp;
+        latencyHistory.push(latency);
+        if (latencyHistory.length > 60) latencyHistory.shift(); // Keep last 60 frames
+        averageLatency = latencyHistory.reduce((a, b) => a + b, 0) / latencyHistory.length;
+
+        if (latency > 100) {
+          console.warn(`⚠️  HIGH LATENCY: ${latency.toFixed(1)}ms (avg: ${averageLatency.toFixed(1)}ms)`);
+        }
+      }
+
       pendingFrame = frame;
     });
 
@@ -119,6 +141,7 @@
 
   function startRenderLoop() {
     const render = () => {
+      // Render immediately if frame is available (no buffering)
       if (pendingFrame) {
         renderFrameOptimized(pendingFrame);
         pendingFrame = null;
@@ -133,12 +156,18 @@
 
     const startTime = performance.now();
 
-    // Initialize or resize offscreen canvas if needed
-    if (!offscreenCanvas || offscreenCanvas.width !== frame.width || offscreenCanvas.height !== frame.height) {
+    // Fast path: Skip initialization checks if already set up
+    const needsSetup = !offscreenCanvas ||
+                       offscreenCanvas.width !== frame.width ||
+                       offscreenCanvas.height !== frame.height;
+
+    // Initialize or resize offscreen canvas only if needed
+    if (needsSetup) {
       offscreenCanvas = new OffscreenCanvas(frame.width, frame.height);
       offscreenCtx = offscreenCanvas.getContext('2d', {
         alpha: false,
-        desynchronized: true
+        desynchronized: true,
+        willReadFrequently: false
       });
       imageData = null;
     }
@@ -174,7 +203,7 @@
     );
 
     const renderTime = performance.now() - startTime;
-    if (renderTime > 5) {
+    if (renderTime > 3) {
       console.log(`⚠️  CLIENT RENDER: Took ${renderTime.toFixed(2)}ms`);
     }
   }
@@ -250,11 +279,11 @@
       }
     }
 
-    // Schedule audio playback with improved buffering
+    // Schedule audio playback with low-latency buffering
     const currentTime = audioContext.currentTime;
-    const targetLatency = 0.1; // 100ms target buffer (increased for stability)
-    const minLatency = 0.05; // 50ms minimum
-    const maxLatency = 0.2; // 200ms maximum
+    const targetLatency = 0.05; // 50ms target buffer (reduced for lower latency)
+    const minLatency = 0.02; // 20ms minimum
+    const maxLatency = 0.15; // 150ms maximum
 
     // Initialize on first audio packet
     if (nextAudioTime === 0) {
@@ -321,6 +350,7 @@
     const button = keyCodeToButton[e.code];
     if (button && !currentInput[button]) {
       currentInput[button] = true;
+      lastInputTimestamp = performance.now(); // Track input timing
       sendInput();
       e.preventDefault();
     }
@@ -395,7 +425,8 @@
       roomId,
       input: {
         port,
-        buttons: currentInput
+        buttons: currentInput,
+        timestamp: lastInputTimestamp || performance.now()
       }
     });
   }
@@ -459,9 +490,10 @@
       }
 
       if (inputChanged) {
+        lastInputTimestamp = performance.now();
         sendInput();
       }
-    }, 16); // Poll every 16ms (~60Hz)
+    }, 8); // Poll every 8ms (~120Hz) for better responsiveness
   }
 
   function stopGamepadPolling() {

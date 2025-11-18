@@ -27,7 +27,15 @@ const io = new Server(httpServer, {
   cors: {
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     credentials: true
-  }
+  },
+  // Optimize for low latency
+  transports: ['websocket'], // Force WebSocket (no polling fallback for lower latency)
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  upgradeTimeout: 10000,
+  maxHttpBufferSize: 1e8, // 100MB for large frames
+  perMessageDeflate: false, // Disable compression for lower latency (CPU vs latency tradeoff)
+  httpCompression: false
 });
 
 // Redis client

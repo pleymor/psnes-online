@@ -11,6 +11,7 @@ interface EmulatorInstance {
   lastInputs: Map<number, GameInput>;
   frameCount: number;
   lastFrameTime: number;
+  inputTimestamp?: number; // Track input timing for latency measurement
 }
 
 export class EmulatorManager extends EventEmitter {
@@ -56,8 +57,12 @@ export class EmulatorManager extends EventEmitter {
       this.emit(`frame:${roomId}`, {
         width: videoFrame.width,
         height: videoFrame.height,
-        data: videoFrame.data // Pass TypedArray directly
+        data: videoFrame.data, // Pass TypedArray directly
+        inputTimestamp: instance.inputTimestamp // Pass through for latency measurement
       });
+
+      // Clear timestamp after using it
+      instance.inputTimestamp = undefined;
     };
 
     const audioHandler = (audioSamples: any) => {
@@ -99,9 +104,16 @@ export class EmulatorManager extends EventEmitter {
 
     instance.lastInputs.set(input.port, input);
 
-    // Send input to emulator
+    // Send input to emulator immediately (no queuing for lower latency)
     const controllerState = this.convertGameInputToControllerState(input);
     instance.emulator.setInput(input.port, controllerState);
+  }
+
+  setInputTimestamp(roomId: string, timestamp: number) {
+    const instance = this.instances.get(roomId);
+    if (instance) {
+      instance.inputTimestamp = timestamp;
+    }
   }
 
   pauseEmulator(roomId: string) {

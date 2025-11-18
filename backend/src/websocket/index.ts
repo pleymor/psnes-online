@@ -249,9 +249,14 @@ export function initializeWebSocket(io: Server) {
       }
     });
 
-    // Game input
-    socket.on('game:input', (data: { roomId: string; input: GameInput }) => {
+    // Game input - with timestamp for latency tracking
+    socket.on('game:input', (data: { roomId: string; input: GameInput & { timestamp?: number } }) => {
       emulatorManager.handleInput(data.roomId, data.input);
+
+      // Store timestamp for next frame emission
+      if (data.input.timestamp) {
+        emulatorManager.setInputTimestamp(data.roomId, data.input.timestamp);
+      }
     });
 
     // Pause game
