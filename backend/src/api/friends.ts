@@ -1,9 +1,8 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { User } from '../types/index.js';
 import { getIO, getUserSocket } from '../websocket/index.js';
+import { prisma } from '../db/prisma.js';
 
-const prisma = new PrismaClient();
 export const friendsRouter = Router();
 
 // Middleware to check authentication

@@ -73,18 +73,6 @@ export class SNESEmulator extends EventEmitter {
   private fpsStartTime: number = 0;
   private fpsFrameCount: number = 0;
 
-  // Timing diagnostics
-  private lastFrameTimestamp: number = 0;
-  private frameDurations: number[] = [];
-
-  // Memory monitoring
-  private lastMemoryCheck: number = 0;
-  private memoryCheckInterval: number = 5000; // Check every 5 seconds
-
-  // Event loop monitoring
-  private lastEventLoopCheck: number = 0;
-  private eventLoopCheckInterval: NodeJS.Timeout | null = null;
-
   // Controller states for port 1 and 2
   private controllerStates: Map<number, ControllerState> = new Map();
 
@@ -278,14 +266,12 @@ export class SNESEmulator extends EventEmitter {
             }
           }
 
-          // Create a copy for emission to avoid buffer reuse issues
-          const frameData = new Uint8Array(pixelCount * 4);
-          frameData.set(this.videoFrameBuffer.subarray(0, pixelCount * 4));
-
+          // Reuse the buffer view instead of copying
+          // The subarray creates a view, not a copy - much more efficient
           this.currentVideoFrame = {
             width: width,
             height: height,
-            data: frameData
+            data: this.videoFrameBuffer.subarray(0, pixelCount * 4)
           };
         });
       } catch (e) {
@@ -499,14 +485,11 @@ export class SNESEmulator extends EventEmitter {
 
     // Emit audio samples if we got any
     if (this.audioSampleCount > 0) {
-      // Copy data to a new buffer to avoid keeping the large buffer referenced
-      const audioData = new Float32Array(this.audioSampleCount);
-      audioData.set(this.audioSamples.subarray(0, this.audioSampleCount));
-
+      // Use subarray view instead of copying - more efficient
       this.emit('audio', {
         sampleRate: this.audioSampleRate,
         channels: 2,
-        data: audioData
+        data: this.audioSamples.subarray(0, this.audioSampleCount)
       });
     }
   }
@@ -683,31 +666,6 @@ export class SNESEmulator extends EventEmitter {
 
   getSpeed(): number {
     return this.speed;
-  }
-
-  private startEventLoopMonitoring(): void {
-    this.lastEventLoopCheck = Date.now();
-
-    // Check event loop lag every 1000ms (reduced frequency)
-    this.eventLoopCheckInterval = setInterval(() => {
-      const now = Date.now();
-      const elapsed = now - this.lastEventLoopCheck;
-      const expectedElapsed = 1000;
-      const lag = elapsed - expectedElapsed;
-
-      if (lag > 200) {
-        console.log(`🔴 EVENT LOOP LAG: ${lag.toFixed(2)}ms (expected ~${expectedElapsed}ms, actual ${elapsed.toFixed(2)}ms)`);
-      }
-
-      this.lastEventLoopCheck = now;
-    }, 1000);
-  }
-
-  private stopEventLoopMonitoring(): void {
-    if (this.eventLoopCheckInterval) {
-      clearInterval(this.eventLoopCheckInterval);
-      this.eventLoopCheckInterval = null;
-    }
   }
 
   private getEmptyControllerState(): ControllerState {

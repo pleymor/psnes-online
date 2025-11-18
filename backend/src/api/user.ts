@@ -1,8 +1,7 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import type { KeyConfig } from '../types';
+import { prisma } from '../db/prisma.js';
 
-const prisma = new PrismaClient();
 export const userRouter = Router();
 
 // Middleware to check authentication

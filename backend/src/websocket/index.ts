@@ -1,14 +1,13 @@
 import { Server, Socket } from 'socket.io';
-import { RedisClientType } from 'redis';
 import { Room, RoomPlayer, User, GameInput, KeyConfig } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { EmulatorManager } from '../emulator/manager.js';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../db/prisma.js';
+import { cache } from '../utils/cache.js';
 
 const rooms = new Map<string, Room>();
 const userSockets = new Map<string, string>(); // userId -> socketId
 const socketUsers = new Map<string, User>(); // socketId -> User
-const prisma = new PrismaClient();
 
 // Export io instance for use in other modules
 let ioInstance: Server | null = null;
@@ -36,14 +35,7 @@ export function initializeWebSocket(io: Server) {
 
     // Load full user data from database (WebSocket doesn't run deserializeUser)
     const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        displayName: true,
-        avatar: true,
-        email: true,
-        googleId: true
-      }
+      where: { id: userId }
     });
 
     if (!user) {
@@ -82,7 +74,7 @@ export function initializeWebSocket(io: Server) {
         players: [{
           userId: user.id,
           displayName: user.displayName,
-          avatar: user.avatar,
+          avatar: user.avatar ?? undefined,
           port: null,
           isReady: false,
           keyConfig: userKeyConfig
@@ -132,7 +124,7 @@ export function initializeWebSocket(io: Server) {
       const player: RoomPlayer = {
         userId: user.id,
         displayName: user.displayName,
-        avatar: user.avatar,
+        avatar: user.avatar ?? undefined,
         port: null,
         isReady: false,
         keyConfig: userKeyConfig
@@ -406,16 +398,22 @@ function broadcastRoomUpdate(io: Server, room: Room) {
 }
 
 async function notifyFriendsAboutRoom(io: Server, userId: string, room: Room) {
-  // Get user's friends
-  const friendships = await prisma.friendship.findMany({
-    where: {
-      OR: [
-        { initiatorId: userId },
-        { receiverId: userId }
-      ],
-      status: 'accepted'
-    }
-  });
+  // Get user's friends (with caching - 30 seconds TTL)
+  const cacheKey = `friendships:${userId}`;
+  let friendships = cache.get<any[]>(cacheKey);
+
+  if (!friendships) {
+    friendships = await prisma.friendship.findMany({
+      where: {
+        OR: [
+          { initiatorId: userId },
+          { receiverId: userId }
+        ],
+        status: 'accepted'
+      }
+    });
+    cache.set(cacheKey, friendships, 30000); // Cache for 30 seconds
+  }
 
   // Notify each online friend
   friendships.forEach(friendship => {
@@ -432,16 +430,22 @@ async function notifyFriendsAboutRoom(io: Server, userId: string, room: Room) {
 }
 
 async function notifyFriendsRoomStatusChanged(io: Server, userId: string, roomId: string, status: 'playing' | 'destroyed') {
-  // Get user's friends
-  const friendships = await prisma.friendship.findMany({
-    where: {
-      OR: [
-        { initiatorId: userId },
-        { receiverId: userId }
-      ],
-      status: 'accepted'
-    }
-  });
+  // Get user's friends (with caching - 30 seconds TTL)
+  const cacheKey = `friendships:${userId}`;
+  let friendships = cache.get<any[]>(cacheKey);
+
+  if (!friendships) {
+    friendships = await prisma.friendship.findMany({
+      where: {
+        OR: [
+          { initiatorId: userId },
+          { receiverId: userId }
+        ],
+        status: 'accepted'
+      }
+    });
+    cache.set(cacheKey, friendships, 30000); // Cache for 30 seconds
+  }
 
   // Notify each online friend
   friendships.forEach(friendship => {
@@ -459,16 +463,22 @@ async function notifyFriendsRoomStatusChanged(io: Server, userId: string, roomId
 }
 
 async function notifyFriendsStatusChanged(io: Server, userId: string, online: boolean) {
-  // Get user's friends
-  const friendships = await prisma.friendship.findMany({
-    where: {
-      OR: [
-        { initiatorId: userId },
-        { receiverId: userId }
-      ],
-      status: 'accepted'
-    }
-  });
+  // Get user's friends (with caching - 30 seconds TTL)
+  const cacheKey = `friendships:${userId}`;
+  let friendships = cache.get<any[]>(cacheKey);
+
+  if (!friendships) {
+    friendships = await prisma.friendship.findMany({
+      where: {
+        OR: [
+          { initiatorId: userId },
+          { receiverId: userId }
+        ],
+        status: 'accepted'
+      }
+    });
+    cache.set(cacheKey, friendships, 30000); // Cache for 30 seconds
+  }
 
   // Notify each online friend about status change
   friendships.forEach(friendship => {
@@ -542,6 +552,14 @@ function getDefaultKeyConfig(): KeyConfig {
 }
 
 async function getUserKeyConfig(userId: string): Promise<KeyConfig> {
+  // Cache user key configs for 5 minutes (they don't change often)
+  const cacheKey = `keyconfig:${userId}`;
+  let config = cache.get<KeyConfig>(cacheKey);
+
+  if (config) {
+    return config;
+  }
+
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -549,11 +567,15 @@ async function getUserKeyConfig(userId: string): Promise<KeyConfig> {
     });
 
     if (user?.controlsConfig) {
-      return JSON.parse(user.controlsConfig);
+      const parsedConfig = JSON.parse(user.controlsConfig);
+      cache.set(cacheKey, parsedConfig, 300000); // Cache for 5 minutes
+      return parsedConfig;
     }
   } catch (error) {
     console.error('Error loading user controls config:', error);
   }
 
-  return getDefaultKeyConfig();
+  const defaultConfig = getDefaultKeyConfig();
+  cache.set(cacheKey, defaultConfig, 300000);
+  return defaultConfig;
 }

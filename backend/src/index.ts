@@ -7,6 +7,7 @@ import RedisStore from 'connect-redis';
 import { createClient } from 'redis';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import dotenv from 'dotenv';
 
 import { initializeAuth } from './auth/passport.js';
@@ -45,6 +46,18 @@ app.use(helmet({
   contentSecurityPolicy: false // Disable for development
 }));
 
+// Enable gzip compression for all responses
+app.use(compression({
+  level: 6, // Balanced compression level (0-9)
+  threshold: 1024, // Only compress responses > 1KB
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    return compression.filter(req, res);
+  }
+}));
+
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true
@@ -53,24 +66,31 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Routing logger middleware
-app.use((req, res, next) => {
-  const start = Date.now();
-  const originalSend = res.send;
+// Routing logger middleware (only in development or for slow requests)
+if (process.env.NODE_ENV === 'development') {
+  app.use((req, res, next) => {
+    const start = Date.now();
+    const originalSend = res.send;
 
-  res.send = function (data) {
-    const duration = Date.now() - start;
-    const user = (req as any).user;
+    res.send = function (data) {
+      const duration = Date.now() - start;
 
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms` +
-      (user ? ` - User: ${user.id || user.email}` : ' - Guest') +
-      (Object.keys(req.query).length > 0 ? ` - Query: ${JSON.stringify(req.query)}` : ''));
+      // Only log slow requests (> 100ms) or errors in production
+      const shouldLog = process.env.NODE_ENV === 'development' || duration > 100 || res.statusCode >= 400;
 
-    return originalSend.call(this, data);
-  };
+      if (shouldLog) {
+        const user = (req as any).user;
+        console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms` +
+          (user ? ` - User: ${user.id || user.email}` : ' - Guest') +
+          (Object.keys(req.query).length > 0 ? ` - Query: ${JSON.stringify(req.query)}` : ''));
+      }
 
-  next();
-});
+      return originalSend.call(this, data);
+    };
+
+    next();
+  });
+}
 
 // Session
 const sessionMiddleware = session({

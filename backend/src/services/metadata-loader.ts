@@ -1,12 +1,13 @@
-import { PrismaClient } from '@prisma/client';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { prisma } from '../db/prisma.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const prisma = new PrismaClient();
+// In-memory cache for game metadata (loaded once at startup)
+let metadataCache: any[] | null = null;
 
 export interface GameMetadataEntry {
   title: string;
@@ -76,6 +77,10 @@ export async function loadGameMetadata(): Promise<void> {
     }
 
     console.log(`✅ Metadata loaded successfully: ${successCount} games, ${errorCount} errors`);
+
+    // Load metadata into cache
+    metadataCache = await prisma.gameMetadata.findMany();
+    console.log(`💾 Cached ${metadataCache.length} metadata entries in memory`);
   } catch (error) {
     console.error('❌ Failed to load game metadata:', error);
     throw error;
@@ -125,13 +130,17 @@ function normalizeTitle(title: string): string {
 
 /**
  * Searches for game metadata by title (fuzzy matching)
- * SQLite doesn't support case-insensitive mode, so we'll fetch all and compare manually
+ * Uses in-memory cache for fast lookups instead of querying database every time
  */
 export async function findGameMetadata(title: string): Promise<any | null> {
   const normalizedTitle = normalizeTitle(title);
 
-  // Get all metadata entries
-  const allMetadata = await prisma.gameMetadata.findMany();
+  // Load cache if not already loaded
+  if (!metadataCache) {
+    metadataCache = await prisma.gameMetadata.findMany();
+  }
+
+  const allMetadata = metadataCache;
 
   // First try exact match on normalized titles
   let metadata = allMetadata.find(m => {
@@ -187,6 +196,9 @@ export async function refreshGameMetadata(): Promise<void> {
   // Delete all existing metadata
   await prisma.gameMetadata.deleteMany({});
   console.log('🗑️  Cleared existing metadata');
+
+  // Clear cache
+  metadataCache = null;
 
   // Reload from file
   await loadGameMetadata();

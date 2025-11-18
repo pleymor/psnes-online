@@ -1,13 +1,12 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { User } from '../types/index.js';
 import { findGameMetadata, refreshGameMetadata } from '../services/metadata-loader.js';
+import { prisma } from '../db/prisma.js';
 
-const prisma = new PrismaClient();
 export const gamesRouter = Router();
 
 // Middleware to check authentication

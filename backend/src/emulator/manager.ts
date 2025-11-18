@@ -1,9 +1,7 @@
 import { EventEmitter } from 'events';
 import { GameInput, VideoFrame, AudioFrame } from '../types/index.js';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../db/prisma.js';
 import { SNESEmulator, ControllerState } from './snes-emulator.js';
-
-const prisma = new PrismaClient();
 
 interface EmulatorInstance {
   roomId: string;
@@ -13,8 +11,6 @@ interface EmulatorInstance {
   lastInputs: Map<number, GameInput>;
   frameCount: number;
   lastFrameTime: number;
-  audioBuffer: Float32Array[];
-  audioFrameCount: number;
 }
 
 export class EmulatorManager extends EventEmitter {
@@ -49,22 +45,18 @@ export class EmulatorManager extends EventEmitter {
       emulator,
       lastInputs: new Map(),
       frameCount: 0,
-      lastFrameTime: Date.now(),
-      audioBuffer: [],
-      audioFrameCount: 0
+      lastFrameTime: Date.now()
     };
 
     this.instances.set(roomId, instance);
 
     // Set up event handlers - use arrow functions to avoid re-binding
+    // Socket.IO handles binary data efficiently, no need to slice/copy buffers
     const videoHandler = (videoFrame: any) => {
       this.emit(`frame:${roomId}`, {
         width: videoFrame.width,
         height: videoFrame.height,
-        data: videoFrame.data.buffer.slice(
-          videoFrame.data.byteOffset,
-          videoFrame.data.byteOffset + videoFrame.data.byteLength
-        )
+        data: videoFrame.data // Pass TypedArray directly
       });
     };
 
@@ -72,10 +64,7 @@ export class EmulatorManager extends EventEmitter {
       this.emit(`audio:${roomId}`, {
         sampleRate: audioSamples.sampleRate,
         channels: audioSamples.channels,
-        data: audioSamples.data.buffer.slice(
-          audioSamples.data.byteOffset,
-          audioSamples.data.byteOffset + audioSamples.data.byteLength
-        )
+        data: audioSamples.data // Pass TypedArray directly
       });
     };
 
