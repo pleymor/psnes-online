@@ -80,6 +80,22 @@ gamesRouter.post('/upload', upload.single('rom'), async (req, res) => {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
+  // Check if user has reached the maximum number of games
+  const gameCount = await prisma.game.count({
+    where: { userId: user.id }
+  });
+
+  const MAX_GAMES_PER_USER = 100;
+  if (gameCount >= MAX_GAMES_PER_USER) {
+    // Delete the uploaded file since we won't use it
+    try {
+      await fs.unlink(req.file.path);
+    } catch (error) {
+      console.error('Failed to delete rejected ROM file:', error);
+    }
+    return res.status(400).json({ error: `Maximum number of games reached (${MAX_GAMES_PER_USER})` });
+  }
+
   const { title } = req.body;
 
   // Extract title from filename if not provided
