@@ -16,8 +16,10 @@ import { gamesRouter } from './api/games.js';
 import { friendsRouter } from './api/friends.js';
 import { roomsRouter } from './api/rooms.js';
 import { userRouter } from './api/user.js';
+import { avatarsRouter } from './api/avatars.js';
 import { initializeWebSocket } from './websocket/index.js';
 import { loadGameMetadata } from './services/metadata-loader.js';
+import { ensureAvatarsDir } from './utils/avatar.js';
 
 dotenv.config();
 
@@ -129,6 +131,7 @@ app.use('/api/games', gamesRouter);
 app.use('/api/friends', friendsRouter);
 app.use('/api/rooms', roomsRouter);
 app.use('/api/user', userRouter);
+app.use('/api/avatars', avatarsRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
@@ -146,6 +149,10 @@ const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, async () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`🎮 WebSocket ready for connections`);
+
+  // Ensure avatars directory exists
+  await ensureAvatarsDir();
+  console.log('📁 Avatars directory ready');
 
   // Load game metadata at startup
   try {

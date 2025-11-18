@@ -8,42 +8,37 @@ services:
     command: redis-server --appendonly yes
 
   backend:
-    image: node:20
-    working_dir: /app
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=development
-      - DATABASE_URL=file:/app/data/dev.db
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/data/prod.db
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     env_file:
       - ./backend/.env
     volumes:
-      - ./backend:/app
-      - /app/node_modules
       - backend-data:/app/data
       - backend-roms:/app/roms
       - backend-saves:/app/saves
       - backend-avatars:/app/avatars
     depends_on:
       - redis
-    command: sh /app/docker-entrypoint-dev.sh
+    restart: unless-stopped
 
   frontend:
-    image: node:20-alpine
-    working_dir: /app
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.svelte-kit
-    environment:
-      - VITE_API_URL=http://localhost:3000
-    command: sh -c "npm install && npm run dev -- --host"
+      - "5173:80"
     depends_on:
       - backend
+    restart: unless-stopped
 
 volumes:
   redis-data:

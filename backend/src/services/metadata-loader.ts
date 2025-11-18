@@ -81,9 +81,13 @@ export async function loadGameMetadata(): Promise<void> {
     // Load metadata into cache
     metadataCache = await prisma.gameMetadata.findMany();
     console.log(`💾 Cached ${metadataCache.length} metadata entries in memory`);
-  } catch (error) {
-    console.error('❌ Failed to load game metadata:', error);
-    throw error;
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      console.log('ℹ️  No metadata file found, continuing without metadata...');
+    } else {
+      console.error('❌ Failed to load game metadata:', error);
+    }
+    // Don't throw - allow app to continue without metadata
   }
 }
 

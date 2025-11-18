@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "docker-compose up",
+    "prod": "docker-compose  -f docker-compose.prod.yml up --build",
     "build": "npm run build --workspaces",
     "clean": "npm run clean --workspaces"
   }

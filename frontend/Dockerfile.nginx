@@ -3,7 +3,7 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files and install all dependencies (including devDependencies for build)
+# Copy package files and install all dependencies
 COPY package*.json ./
 RUN npm install && \
     npm cache clean --force
@@ -19,7 +19,7 @@ COPY static ./static
 RUN sed -i "s/mode: 'development'/mode: 'production'/" vite.config.ts && \
     sed -i "s/strategies: 'injectManifest'/strategies: 'generateSW'/" vite.config.ts
 
-# Build the SvelteKit app
+# Build the SvelteKit app (creates build/ directory with adapter-node)
 RUN npm run build
 
 # Production stage with nginx
@@ -28,21 +28,14 @@ FROM nginx:alpine
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Remove default nginx static files
-RUN rm -rf /usr/share/nginx/html/*
-
-# Copy built static assets from builder
-# SvelteKit with adapter-static creates static files in build/
-COPY --from=builder /app/build /usr/share/nginx/html
-
-# Fix file permissions for nginx to read all files
-RUN chmod -R 644 /usr/share/nginx/html/* && \
-    find /usr/share/nginx/html -type d -exec chmod 755 {} \;
+# Copy built application from builder
+# SvelteKit with adapter-node creates: build/client (static assets) and build/server (SSR code)
+# For static serving, we only need the client directory
+COPY --from=builder /app/build/client /usr/share/nginx/html
 
 # Create a healthcheck endpoint
-RUN echo 'OK' > /usr/share/nginx/html/health.txt
+RUN echo '<!DOCTYPE html><html><body>OK</body></html>' > /usr/share/nginx/html/health
 
 EXPOSE 80
 
-# Run nginx in foreground
 CMD ["nginx", "-g", "daemon off;"]

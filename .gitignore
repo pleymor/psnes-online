@@ -12,11 +12,14 @@ yarn-error.log*
 # Database
 *.db
 *.db-journal
-backend/data/
+backend/data/*.db
+backend/data/*.db-journal
+!backend/data/snes-metadata.json
 
 # ROMs and Saves (private user data)
 backend/roms/
 backend/saves/
+backend/avatars/
 
 # Build outputs
 dist/

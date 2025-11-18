@@ -1,20 +1,90 @@
-FROM node:20-alpine
+##
+## Production dependencies installation stage
+##
+FROM node:20 AS prod-deps
 
 WORKDIR /app
-
-# Install build dependencies for native modules and runtime libraries
-RUN apk add --no-cache python3 make g++ \
-    pkgconf cairo-dev pango-dev pixman-dev \
-    libjpeg-turbo-dev giflib-dev librsvg-dev \
-    openssl-dev openssl
+ENV NODE_ENV=build
 
 COPY package*.json ./
-RUN npm install
 
-COPY . .
+RUN npm ci --omit=dev --skip-validate --prefer-offline
 
+
+##
+## Build stage
+## Prisma generation and TypeScript compilation
+##
+FROM prod-deps AS builder
+
+# Install build dependencies for native modules
+RUN apt-get update && apt-get install -y \
+    python3 make g++ pkg-config \
+    libcairo2-dev \
+    libpango1.0-dev \
+    libpixman-1-dev \
+    libjpeg62-turbo-dev \
+    libgif-dev \
+    librsvg2-dev
+
+# Copy package files and install ALL dependencies (needed for build)
+RUN npm ci --skip-validate --prefer-offline
+
+# Copy source code and prisma schema
+COPY prisma ./prisma
+
+# Generate Prisma client
 RUN npx prisma generate
+
+COPY src ./src
+COPY tsconfig.json ./
+
+# Build TypeScript to JavaScript
+RUN npm run build
+
+
+##
+## Runtime stage
+##
+FROM node:20-trixie-slim AS production
+
+ENV NODE_ENV=production
+WORKDIR /app
+
+# Install only runtime dependencies for canvas and gosu for privilege dropping
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcairo2 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libpixman-1-0 \
+    libjpeg62-turbo \
+    libgif7 \
+    librsvg2-2 \
+    gosu \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy production dependencies from prod-deps stage
+COPY --from=prod-deps /app/node_modules ./node_modules
+
+# Copy Prisma schema and runtime dependencies from builder stage
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+
+# Copy built application from builder
+COPY --from=builder /app/dist ./dist
+
+# Create directories for runtime data (will be mounted as volumes)
+RUN mkdir -p roms saves data avatars && \
+    chown -R node:node /app
+
+# Copy metadata file into image
+COPY data/snes-metadata.json ./data/
+
+# Copy and setup entrypoint script for permission handling
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3000
 
-CMD ["npm", "run", "dev"]
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["node", "dist/index.js"]

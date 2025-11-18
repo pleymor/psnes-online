@@ -1,6 +1,7 @@
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { prisma } from '../db/prisma.js';
+import { downloadAvatar } from '../utils/avatar.js';
 
 export function initializeAuth() {
   passport.use(
@@ -21,13 +22,21 @@ export function initializeAuth() {
             where: { googleId: profile.id }
           });
 
+          // Download avatar from Google if available
+          let avatarUrl = null;
+          const googleAvatarUrl = profile.photos?.[0]?.value;
+          if (googleAvatarUrl) {
+            const downloadedAvatar = await downloadAvatar(googleAvatarUrl, profile.id);
+            avatarUrl = downloadedAvatar || googleAvatarUrl; // Fallback to Google URL if download fails
+          }
+
           if (!user) {
             user = await prisma.user.create({
               data: {
                 googleId: profile.id,
                 email,
                 displayName: profile.displayName,
-                avatar: profile.photos?.[0]?.value
+                avatar: avatarUrl
               }
             });
           } else {
@@ -36,7 +45,7 @@ export function initializeAuth() {
               where: { id: user.id },
               data: {
                 displayName: profile.displayName,
-                avatar: profile.photos?.[0]?.value
+                avatar: avatarUrl
               }
             });
           }

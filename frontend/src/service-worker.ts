@@ -42,6 +42,14 @@ sw.addEventListener('fetch', (event) => {
 
   async function respond() {
     const url = new URL(event.request.url);
+
+    // Skip service worker for auth and API requests (let Vite proxy handle them)
+    if (url.pathname.startsWith('/auth') ||
+        url.pathname.startsWith('/api') ||
+        url.pathname.startsWith('/socket.io')) {
+      return fetch(event.request);
+    }
+
     const cache = await caches.open(CACHE);
 
     // `build`/`files` can always be served from the cache
