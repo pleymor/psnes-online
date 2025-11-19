@@ -230,7 +230,12 @@ export function initializeWebSocket(io: Server) {
         emulatorManager.removeAllListeners(`audio:${room.id}`);
 
         // Start streaming - use named functions for easier cleanup
+        let frameCounter = 0;
         const frameHandler = (frameData: any) => {
+          frameCounter++;
+          if (frameCounter % 60 === 0) {
+            console.log(`🔄 Forwarding frame ${frameCounter} to room ${room.id}`);
+          }
           io.to(room.id).emit('game:frame', frameData);
         };
 
