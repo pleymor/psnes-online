@@ -24,6 +24,10 @@ import { ensureAvatarsDir } from './utils/avatar.js';
 dotenv.config();
 
 const app = express();
+
+// Trust nginx proxy for secure cookies
+app.set('trust proxy', 1);
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
