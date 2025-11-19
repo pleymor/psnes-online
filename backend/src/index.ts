@@ -109,12 +109,12 @@ const sessionMiddleware = session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false,
+    secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     sameSite: 'lax',
     path: '/',
-    domain: 'localhost'
+    domain: process.env.COOKIE_DOMAIN || undefined // undefined = auto-detect
   }
 });
 
