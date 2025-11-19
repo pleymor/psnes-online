@@ -77,30 +77,34 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Routing logger middleware (only in development or for slow requests)
-if (process.env.NODE_ENV === 'development') {
-  app.use((req, res, next) => {
-    const start = Date.now();
-    const originalSend = res.send;
+app.use((req, res, next) => {
+  const start = Date.now();
+  const originalSend = res.send;
 
-    res.send = function (data) {
-      const duration = Date.now() - start;
+  res.send = function (data) {
+    const duration = Date.now() - start;
 
-      // Only log slow requests (> 100ms) or errors in production
-      const shouldLog = process.env.NODE_ENV === 'development' || duration > 100 || res.statusCode >= 400;
+    // Always log auth errors (401/403)
+    if (res.statusCode === 401 || res.statusCode === 403) {
+      const user = (req as any).user;
+      console.warn(`⚠️  [${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms` +
+        (user ? ` - User: ${user.id || user.email}` : ' - Guest') +
+        (Object.keys(req.query).length > 0 ? ` - Query: ${JSON.stringify(req.query)}` : '') +
+        ` - IP: ${req.ip || req.socket.remoteAddress}`);
+    }
+    // Only log slow requests (> 100ms) or errors in production
+    else if (process.env.NODE_ENV === 'development' || duration > 100 || res.statusCode >= 400) {
+      const user = (req as any).user;
+      console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms` +
+        (user ? ` - User: ${user.id || user.email}` : ' - Guest') +
+        (Object.keys(req.query).length > 0 ? ` - Query: ${JSON.stringify(req.query)}` : ''));
+    }
 
-      if (shouldLog) {
-        const user = (req as any).user;
-        console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms` +
-          (user ? ` - User: ${user.id || user.email}` : ' - Guest') +
-          (Object.keys(req.query).length > 0 ? ` - Query: ${JSON.stringify(req.query)}` : ''));
-      }
+    return originalSend.call(this, data);
+  };
 
-      return originalSend.call(this, data);
-    };
-
-    next();
-  });
-}
+  next();
+});
 
 // Session
 const sessionMiddleware = session({
