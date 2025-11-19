@@ -1,0 +1,30 @@
+name: Trigger Production Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  trigger:
+    name: Trigger Infrastructure Deployment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger deployment in infra repo
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.INFRA_DEPLOY_TOKEN }}
+          repository: pleymor/psnes-online-infra
+          event-type: app-updated
+          client-payload: |
+            {
+              "ref": "${{ github.ref }}",
+              "sha": "${{ github.sha }}",
+              "triggered_by": "${{ github.actor }}"
+            }
+
+      - name: Deployment triggered
+        run: |
+          echo "✅ Deployment triggered in psnes-online-infra repository"
+          echo "Monitor at: https://github.com/pleymor/psnes-online-infra/actions"
