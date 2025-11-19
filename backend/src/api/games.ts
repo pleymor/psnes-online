@@ -166,6 +166,36 @@ gamesRouter.delete('/:gameId', async (req, res) => {
   res.json({ message: 'Game deleted' });
 });
 
+// Download ROM file (for client-side emulation)
+gamesRouter.get('/:gameId/download', async (req, res) => {
+  const user = req.user as User;
+  const { gameId } = req.params;
+
+  const game = await prisma.game.findUnique({
+    where: { id: gameId }
+  });
+
+  if (!game) {
+    return res.status(404).json({ error: 'Game not found' });
+  }
+
+  if (game.userId !== user.id) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  // Check if ROM file exists
+  try {
+    await fs.access(game.romPath);
+  } catch (error) {
+    return res.status(404).json({ error: 'ROM file not found on server' });
+  }
+
+  // Send ROM file
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${game.filename}"`);
+  res.sendFile(path.resolve(game.romPath));
+});
+
 // Get game saves
 gamesRouter.get('/:gameId/saves', async (req, res) => {
   const user = req.user as User;

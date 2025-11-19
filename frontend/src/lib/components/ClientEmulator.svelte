@@ -10,7 +10,7 @@
   const dispatch = createEventDispatcher();
 
   let canvas: HTMLCanvasElement;
-  let emulator: any = null;
+  let emulator: Nostalgist;
   let running = false;
 
   // Key mapping from KeyConfig to Nostalgist format
@@ -29,6 +29,9 @@
     select: 'select'
   };
 
+  const localPlayer = 0;  // Player 1 (0-indexed)
+  const remotePlayer = 1; // Player 2 (0-indexed)
+
   async function initEmulator() {
     if (!isHost) {
       console.log('Guest mode - waiting for stream');
@@ -46,6 +49,38 @@
           width: '100%',
           height: '100%',
           imageRendering: 'pixelated'
+        },
+        // Enable 2-player support
+        retroarchConfig: {
+          input_max_users: 2,
+          input_player1_joypad_index: localPlayer,
+          input_player2_joypad_index: remotePlayer,
+          
+          // input_player1_up: 'ArrowUp',
+          // input_player1_down: 'ArrowDown',
+          // input_player1_left: 'ArrowLeft',
+          // input_player1_right: 'ArrowRight',
+          // input_player1_a: 'KeyX',
+          // input_player1_b: 'KeyZ',
+          // input_player1_x: 'KeyS',
+          // input_player1_y: 'KeyA',
+          // input_player1_l: 'KeyQ',
+          // input_player1_r: 'KeyW',
+          // input_player1_start: 'Enter',
+          // input_player1_select: 'ShiftRight',
+
+          // input_player2_up: 'ArrowUp',
+          // input_player2_down: 'ArrowDown',
+          // input_player2_left: 'ArrowLeft',
+          // input_player2_right: 'ArrowRight',
+          // input_player2_a: 'KeyX',
+          // input_player2_b: 'KeyZ',
+          // input_player2_x: 'KeyS',
+          // input_player2_y: 'KeyA',
+          // input_player2_l: 'KeyQ',
+          // input_player2_r: 'KeyW',
+          // input_player2_start: 'Enter',
+          // input_player2_select: 'ShiftRight',
         }
       });
 
@@ -61,6 +96,7 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    console.log(`handleKeyDown called with code=${e.code}`);
     if (!isHost || !emulator) return;
 
     // Find which button corresponds to this key
@@ -68,38 +104,43 @@
       if (e.code === keyCode) {
         e.preventDefault();
         const nostalgistButton = keyMapping[button as keyof KeyConfig];
-        emulator.press(nostalgistButton);
-
-        // Emit input for P2P transmission
-        dispatch('input', { button, pressed: true });
+        console.log(`🎮 Host input: player 1, button ${nostalgistButton}, pressed true`);
+        // Player numbers are 0-indexed: 0 = player 1, 1 = player 2
+        emulator.pressDown({ button: nostalgistButton, player: localPlayer });
         break;
       }
     }
   }
 
   function handleKeyUp(e: KeyboardEvent) {
+    console.log(`handleKeyUp called with code=${e.code}`);
     if (!isHost || !emulator) return;
 
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
         const nostalgistButton = keyMapping[button as keyof KeyConfig];
-        emulator.release(nostalgistButton);
-
-        dispatch('input', { button, pressed: false });
+        console.log(`🎮 Host input: player 1, button ${nostalgistButton}, pressed false`);
+        // Player numbers are 0-indexed: 0 = player 1, 1 = player 2
+        emulator.pressUp({ button: nostalgistButton, player: localPlayer });
         break;
       }
     }
   }
 
   export function handleRemoteInput(button: string, pressed: boolean) {
+    console.log(`handleRemoteInput called with button=${button}, pressed=${pressed}`);
     if (!isHost || !emulator) return;
 
     const nostalgistButton = keyMapping[button as keyof KeyConfig];
+    console.log(`🎮 Remote input: player 2, button ${nostalgistButton}, pressed ${pressed}`);
+
+    // Use Nostalgist's pressDown/pressUp with object syntax
+    // Player numbers are 0-indexed: 0 = player 1, 1 = player 2
     if (pressed) {
-      emulator.press(nostalgistButton);
+      emulator.pressDown({ button: nostalgistButton, player: remotePlayer });
     } else {
-      emulator.release(nostalgistButton);
+      emulator.pressUp({ button: nostalgistButton, player: remotePlayer });
     }
   }
 

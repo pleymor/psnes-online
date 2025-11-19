@@ -346,10 +346,25 @@ export function initializeWebSocket(io: Server) {
       io.to(data.roomId).emit('game:targetFPSChanged', { targetFPS: data.targetFPS });
     });
 
+    // Simple P2P room join (for P2P POC/testing - no game state)
+    socket.on('p2p:join', (data: { roomId: string }) => {
+      console.log(`🔗 ${user.displayName} joining P2P room: ${data.roomId}`);
+      socket.join(data.roomId);
+
+      // Notify others in the room
+      socket.to(data.roomId).emit('p2p:peer-joined', {
+        socketId: socket.id,
+        userId: user.id,
+        displayName: user.displayName
+      });
+
+      // Send confirmation to the joiner
+      socket.emit('p2p:joined', { roomId: data.roomId });
+    });
+
     // WebRTC Signaling (for P2P emulation)
     socket.on('webrtc:signal', (data: { roomId: string; signal: any }) => {
-      const room = rooms.get(data.roomId);
-      if (!room) return;
+      console.log(`📡 Relaying WebRTC signal in room ${data.roomId} from ${socket.id}`);
 
       // Forward WebRTC signal to other players in the room (except sender)
       socket.to(data.roomId).emit('webrtc:signal', {

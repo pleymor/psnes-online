@@ -1,4 +1,5 @@
 <script lang="ts">
+  import '$lib/polyfills'; // Load Node.js polyfills for browser
   import { onMount } from 'svelte';
   import { user, userLoading } from '$lib/stores/user';
   import { socket, initializeSocket } from '$lib/api/socket';

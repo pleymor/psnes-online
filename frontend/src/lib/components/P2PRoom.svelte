@@ -10,7 +10,8 @@
   export let isHost: boolean;
   export let keyConfig: KeyConfig;
 
-  let emulator: any;
+  let emulatorComponent: ClientEmulator; // ClientEmulator component
+  let emulatorInstance: any; // Nostalgist emulator instance
   let p2pManager: P2PManager | null = null;
   let romData: ArrayBuffer | null = null;
   let loading = true;
@@ -49,6 +50,15 @@
     try {
       console.log('🔗 Setting up P2P connection...');
 
+      // First, join the Socket.IO room
+      await new Promise<void>((resolve) => {
+        $socket!.emit('p2p:join', { roomId });
+        $socket!.once('p2p:joined', () => {
+          console.log('✅ Joined Socket.IO room:', roomId);
+          resolve();
+        });
+      });
+
       // Initialize P2P manager
       p2pManager = new P2PManager($socket, roomId, isHost, {
         onStream: (stream) => {
@@ -62,8 +72,10 @@
         },
         onData: (data) => {
           // Handle remote input (for host receiving guest input)
+          console.log('📥 Received P2P data:', data);
           if (data.type === 'input' && isHost) {
-            emulator?.handleRemoteInput(data.button, data.pressed);
+            // Guest controls player 2 (0-indexed: player 1 = 0, player 2 = 1)
+            emulatorComponent?.handleRemoteInput(data.button, data.pressed);
           }
         },
         onConnect: () => {
@@ -87,8 +99,8 @@
         // Wait for emulator initialization
         await new Promise(resolve => setTimeout(resolve, 1000));
 
-        // Get canvas from emulator
-        const canvas = emulator?.getCanvas();
+        // Get canvas from emulator component
+        const canvas = emulatorComponent?.getCanvas();
         if (canvas) {
           const stream = captureCanvasStream(canvas, 60);
           await p2pManager.initConnection(stream);
@@ -107,30 +119,21 @@
   }
 
   function handleEmulatorReady(event: CustomEvent) {
-    emulator = event.detail.emulator;
+    emulatorInstance = event.detail.emulator;
     console.log('✅ Emulator ready');
 
     // Setup P2P after emulator is ready
     setupP2PConnection();
   }
 
-  function handleEmulatorInput(event: CustomEvent) {
-    // Send input to remote peer
-    if (p2pManager) {
-      p2pManager.sendData({
-        type: 'input',
-        button: event.detail.button,
-        pressed: event.detail.pressed
-      });
-    }
-  }
-
   function handleKeyDown(e: KeyboardEvent) {
+    console.log(`[P2PRoom] handleKeyDown: isHost=${isHost}, p2pManager=${!!p2pManager}, key=${e.code}`);
     // Guest sends their input to host via P2P
     if (!isHost && p2pManager) {
       for (const [button, keyCode] of Object.entries(keyConfig)) {
         if (e.code === keyCode) {
           e.preventDefault();
+          console.log(`📤 Guest sending input: ${button} = true`);
           p2pManager.sendData({
             type: 'input',
             button,
@@ -147,6 +150,7 @@
       for (const [button, keyCode] of Object.entries(keyConfig)) {
         if (e.code === keyCode) {
           e.preventDefault();
+          console.log(`📤 Guest sending input: ${button} = false`);
           p2pManager.sendData({
             type: 'input',
             button,
@@ -162,12 +166,14 @@
     // Load ROM
     await loadROM();
 
-    // For guest, setup P2P immediately (no emulator needed)
-    if (!isHost && romData) {
-      setupP2PConnection();
+    // For guest, setup P2P immediately after ROM is loaded
+    if (!isHost) {
+      console.log('🎮 Guest mode - setting up P2P connection');
+      await setupP2PConnection();
     }
 
     // Listen for keyboard (guest input)
+    console.log('⌨️ Adding keyboard event listeners');
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
   });
@@ -214,8 +220,7 @@
           {keyConfig}
           {isHost}
           on:ready={handleEmulatorReady}
-          on:input={handleEmulatorInput}
-          bind:this={emulator}
+          bind:this={emulatorComponent}
         />
       {:else}
         <!-- Guest: Receive video stream -->

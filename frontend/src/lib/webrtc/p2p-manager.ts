@@ -1,3 +1,5 @@
+// Import polyfills BEFORE SimplePeer to ensure they're available
+import '$lib/polyfills';
 import SimplePeer from 'simple-peer';
 import type { Socket } from 'socket.io-client';
 
@@ -43,6 +45,12 @@ export class P2PManager {
           initiator: this.isHost, // Host initiates the connection
           stream: localStream,     // Host sends video/audio stream
           trickle: true,           // Use trickle ICE for faster connection
+          channelName: 'input',    // Explicitly name the data channel
+          offerOptions: {
+            // Ensure data channel is created even with media stream
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true
+          },
           config: {
             iceServers: [
               { urls: 'stun:stun.l.google.com:19302' },
@@ -54,19 +62,80 @@ export class P2PManager {
 
         // Handle signaling data (offer/answer/ICE candidates)
         this.peer.on('signal', (data) => {
-          console.log('📤 Sending WebRTC signal');
+          console.log('📤 Sending WebRTC signal:', data.type || 'candidate');
           this.socket.emit('webrtc:signal', {
             roomId: this.roomId,
             signal: data
           });
         });
 
+        // Track if connection is being established
+        let connectionResolved = false;
+
         // Connection established
         this.peer.on('connect', () => {
           console.log('✅ P2P connection established!');
+          console.log('[P2PManager] Data channel ready, can send/receive data');
+          // @ts-ignore - Check internal connection state
+          console.log('[P2PManager] Peer connected:', this.peer.connected);
           this.callbacks.onConnect?.();
-          resolve();
+          if (!connectionResolved) {
+            connectionResolved = true;
+            resolve();
+          }
         });
+
+        // Debug: Monitor data channel state directly
+        // @ts-ignore - Access internal peer connection and data channel
+        setTimeout(() => {
+          const pc = this.peer?._pc;
+          const channel = this.peer?._channel;
+
+          console.log('[P2PManager] Checking connection state:', {
+            hasPC: !!pc,
+            hasChannel: !!channel,
+            pcState: pc?.connectionState,
+            channelState: channel?.readyState
+          });
+
+          if (pc) {
+            // Monitor peer connection state
+            pc.addEventListener('connectionstatechange', () => {
+              console.log('[P2PManager] PC connection state:', pc.connectionState);
+              if (pc.connectionState === 'connected' && !connectionResolved) {
+                console.log('[P2PManager] Peer connection is CONNECTED, triggering callbacks');
+                this.callbacks.onConnect?.();
+                connectionResolved = true;
+                resolve();
+              }
+            });
+
+            // For host: monitor the data channel it creates
+            if (this.isHost && channel) {
+              console.log('[P2PManager] Host data channel state:', channel.readyState);
+              channel.addEventListener('open', () => {
+                console.log('[P2PManager] Host data channel OPENED');
+                if (!connectionResolved) {
+                  this.callbacks.onConnect?.();
+                  connectionResolved = true;
+                  resolve();
+                }
+              });
+              channel.addEventListener('error', (err) => {
+                console.error('[P2PManager] Host data channel ERROR:', err);
+              });
+            }
+
+            // For guest: receive data channel
+            pc.addEventListener('datachannel', (event: RTCDataChannelEvent) => {
+              console.log('[P2PManager] Guest received data channel:', event.channel.label);
+              const receivedChannel = event.channel;
+              receivedChannel.addEventListener('open', () => {
+                console.log('[P2PManager] Guest data channel OPENED');
+              });
+            });
+          }
+        }, 100);
 
         // Receive remote stream (for guests)
         this.peer.on('stream', (stream: MediaStream) => {
@@ -78,6 +147,8 @@ export class P2PManager {
         this.peer.on('data', (data: Uint8Array) => {
           try {
             const decoded = JSON.parse(data.toString());
+            console.log('[P2PManager] Received data:', decoded);
+            // Pass data to callback (logging happens in handler)
             this.callbacks.onData?.(decoded);
           } catch (error) {
             console.error('Failed to parse P2P data:', error);
@@ -98,10 +169,24 @@ export class P2PManager {
         });
 
         // Listen for remote signals
-        this.socket.on('webrtc:signal', (data: { signal: any }) => {
-          console.log('📥 Received WebRTC signal');
+        this.socket.on('webrtc:signal', (data: { signal: any; from?: string }) => {
+          console.log('📥 Received WebRTC signal:', data.signal.type || 'candidate', 'from:', data.from);
           if (this.peer && !this.peer.destroyed) {
             this.peer.signal(data.signal);
+
+            // For host (initiator), resolve after receiving answer
+            // The data channel should be ready soon after
+            if (this.isHost && data.signal.type === 'answer' && !connectionResolved) {
+              console.log('[P2PManager] Host received answer, connection negotiated');
+              connectionResolved = true;
+              // Give a moment for data channel to open
+              setTimeout(() => {
+                console.log('[P2PManager] Host connection ready (via answer)');
+                resolve();
+              }, 500);
+            }
+          } else {
+            console.warn('⚠️ Received signal but peer not ready');
           }
         });
 
@@ -116,12 +201,30 @@ export class P2PManager {
    * Send data to remote peer via data channel
    */
   sendData(data: any): void {
-    if (this.peer && !this.peer.destroyed) {
-      try {
-        this.peer.send(JSON.stringify(data));
-      } catch (error) {
-        console.error('Failed to send P2P data:', error);
-      }
+    console.log('[P2PManager] sendData called:', {
+      hasPeer: !!this.peer,
+      destroyed: this.peer?.destroyed,
+      // @ts-ignore - Check connection state
+      connected: this.peer?.connected,
+      data
+    });
+
+    if (!this.peer || this.peer.destroyed) {
+      console.warn('⚠️ Cannot send data: peer not connected');
+      return;
+    }
+
+    // @ts-ignore - Check if data channel is ready
+    if (!this.peer.connected) {
+      console.warn('⚠️ Data channel not ready yet, buffering may fail');
+    }
+
+    try {
+      const jsonData = JSON.stringify(data);
+      console.log('📡 Sending P2P data:', data.type, data.button);
+      this.peer.send(jsonData);
+    } catch (error) {
+      console.error('Failed to send P2P data:', error);
     }
   }
 

@@ -10,21 +10,41 @@
   let games: any[] = [];
   let selectedGameId = '';
   let started = false;
+  let keyConfig: any = null;
 
-  const defaultKeyConfig = {
-    up: 'KeyW',
-    down: 'KeyS',
-    left: 'KeyA',
-    right: 'KeyD',
-    a: 'KeyK',
-    b: 'KeyL',
-    x: 'KeyI',
-    y: 'KeyO',
-    l: 'KeyU',
-    r: 'KeyP',
-    start: 'Enter',
-    select: 'ShiftRight'
-  };
+  async function loadKeyConfig() {
+    try {
+      const response = await fetch('/api/user/controls', { credentials: 'include' });
+      if (response.ok) {
+        keyConfig = await response.json();
+        console.log('✅ Loaded user key config:', keyConfig);
+      } else {
+        // Fallback to default if API fails
+        console.warn('⚠️ Using default key config tout pourri');
+        keyConfig = getDefaultKeyConfig();
+      }
+    } catch (error) {
+      console.error('Failed to load key config:', error);
+      keyConfig = getDefaultKeyConfig();
+    }
+  }
+
+  function getDefaultKeyConfig() {
+    return {
+      up: 'ArrowUp',
+      down: 'ArrowDown',
+      left: 'ArrowLeft',
+      right: 'ArrowRight',
+      a: 'KeyX',
+      b: 'KeyZ',
+      x: 'KeyS',
+      y: 'KeyA',
+      l: 'KeyQ',
+      r: 'KeyW',
+      start: 'Enter',
+      select: 'ShiftRight',
+    };
+  }
 
   async function loadGames() {
     try {
@@ -49,12 +69,14 @@
     started = true;
   }
 
-  onMount(() => {
-    if (!$user) {
-      goto('/');
-      return;
-    }
-    loadGames();
+  onMount(async () => {
+    // Skip auth check for POC testing
+    // if (!$user) {
+    //   goto('/');
+    //   return;
+    // }
+    await loadKeyConfig();
+    await loadGames();
   });
 </script>
 
@@ -92,7 +114,9 @@
             <strong>Game:</strong>
             <select bind:value={selectedGameId}>
               {#each games as game}
-                <option value={game.id}>{game.name}</option>
+                <option value={game.id}>
+                  {game.name || game.title || game.fileName || `Game ${game.id}`}
+                </option>
               {/each}
             </select>
           </label>
@@ -114,13 +138,15 @@
       </div>
     </div>
   </div>
-{:else}
+{:else if keyConfig}
   <P2PRoom
     {roomId}
     {gameId}
     {isHost}
-    keyConfig={defaultKeyConfig}
+    {keyConfig}
   />
+{:else}
+  <div class="loading">Loading...</div>
 {/if}
 
 <style>
@@ -228,5 +254,14 @@
 
   .info-box li {
     margin-bottom: 0.5rem;
+  }
+
+  .loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    color: white;
+    font-size: 1.5rem;
   }
 </style>
