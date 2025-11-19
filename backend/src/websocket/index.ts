@@ -337,6 +337,15 @@ export function initializeWebSocket(io: Server) {
       io.to(data.roomId).emit('game:speedChanged', { speed: data.speed });
     });
 
+    // Set target FPS (for performance tuning)
+    socket.on('game:setTargetFPS', (data: { roomId: string; targetFPS: number }) => {
+      const room = rooms.get(data.roomId);
+      if (!room) return;
+
+      emulatorManager.setEmulatorTargetFPS(room.id, data.targetFPS);
+      io.to(data.roomId).emit('game:targetFPSChanged', { targetFPS: data.targetFPS });
+    });
+
     // Disconnect
     socket.on('disconnect', async () => {
       console.log('Client disconnected:', socket.id);

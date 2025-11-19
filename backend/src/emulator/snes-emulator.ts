@@ -20,6 +20,7 @@ export interface EmulatorConfig {
   audioSampleRate?: number;
   videoScale?: number;
   speed?: number; // Speed multiplier (1.0 = normal, 2.0 = 2x speed, 0 = unlimited)
+  targetFPS?: number; // Target FPS (0 = auto-detect from ROM, e.g. 25 = half speed for performance)
 }
 
 export interface VideoFrame {
@@ -64,6 +65,8 @@ export class SNESEmulator extends EventEmitter {
   private speed: number;
   private unlimitedSpeedActive: boolean = false;
   private refreshRate: number = SNESEmulator.SNES_NTSC_FPS; // Detected from ROM
+  private targetFPS: number = 0; // 0 = use refreshRate, or custom FPS (e.g., 25 for half speed)
+  private frameSkipCounter: number = 0; // Counter for frame skipping
 
   // Precise timing for frame pacing
   private nextFrameTime: number = 0;
@@ -92,6 +95,7 @@ export class SNESEmulator extends EventEmitter {
     this.audioSampleRate = config.audioSampleRate || 48000;
     this.videoScale = config.videoScale || 1;
     this.speed = config.speed !== undefined ? config.speed : 1.0;
+    this.targetFPS = config.targetFPS || 0; // 0 = auto (use ROM refresh rate)
 
     // Initialize default controller states
     this.controllerStates.set(1, this.getEmptyControllerState());
@@ -478,19 +482,30 @@ export class SNESEmulator extends EventEmitter {
     // Run one frame of emulation
     this.emulatorCore.run();
 
-    // Emit video frame if we got one
-    if (this.currentVideoFrame) {
-      this.emit('video', this.currentVideoFrame);
-    }
+    // Frame skipping logic: only emit frames if we're at target FPS
+    const effectiveFPS = this.targetFPS > 0 ? this.targetFPS : this.refreshRate;
+    const skipRatio = this.refreshRate / effectiveFPS;
 
-    // Emit audio samples if we got any
-    if (this.audioSampleCount > 0) {
-      // Use subarray view instead of copying - more efficient
-      this.emit('audio', {
-        sampleRate: this.audioSampleRate,
-        channels: 2,
-        data: this.audioSamples.subarray(0, this.audioSampleCount)
-      });
+    this.frameSkipCounter++;
+    const shouldEmitFrame = (skipRatio <= 1) || (this.frameSkipCounter >= Math.floor(skipRatio));
+
+    if (shouldEmitFrame) {
+      this.frameSkipCounter = 0;
+
+      // Emit video frame if we got one
+      if (this.currentVideoFrame) {
+        this.emit('video', this.currentVideoFrame);
+      }
+
+      // Emit audio samples if we got any
+      if (this.audioSampleCount > 0) {
+        // Use subarray view instead of copying - more efficient
+        this.emit('audio', {
+          sampleRate: this.audioSampleRate,
+          channels: 2,
+          data: this.audioSamples.subarray(0, this.audioSampleCount)
+        });
+      }
     }
   }
 
@@ -666,6 +681,16 @@ export class SNESEmulator extends EventEmitter {
 
   getSpeed(): number {
     return this.speed;
+  }
+
+  setTargetFPS(fps: number): void {
+    this.targetFPS = fps;
+    const effectiveFPS = fps > 0 ? fps : this.refreshRate;
+    console.log(`Target FPS set to ${fps === 0 ? 'auto' : fps} (effective: ${effectiveFPS.toFixed(2)} FPS)`);
+  }
+
+  getTargetFPS(): number {
+    return this.targetFPS;
   }
 
   private getEmptyControllerState(): ControllerState {

@@ -143,6 +143,19 @@ export class EmulatorManager extends EventEmitter {
     return instance ? instance.emulator.getSpeed() : null;
   }
 
+  setEmulatorTargetFPS(roomId: string, targetFPS: number) {
+    const instance = this.instances.get(roomId);
+    if (instance) {
+      instance.emulator.setTargetFPS(targetFPS);
+      console.log(`Emulator target FPS set to ${targetFPS === 0 ? 'auto' : targetFPS} for room ${roomId}`);
+    }
+  }
+
+  getEmulatorTargetFPS(roomId: string): number | null {
+    const instance = this.instances.get(roomId);
+    return instance ? instance.emulator.getTargetFPS() : null;
+  }
+
   async stopEmulator(roomId: string) {
     const instance = this.instances.get(roomId);
     if (!instance) return;
