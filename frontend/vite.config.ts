@@ -59,6 +59,7 @@ export default defineConfig({
       },
       '/socket.io': {
         target: 'http://backend:3000',
+        changeOrigin: true,
         ws: true
       }
     }
