@@ -39,10 +39,10 @@
         dispatch('close');
         dispatch('uploaded'); // Notify parent to refresh games list
       } else {
-        alert(t($language, 'uploadFailed'));
+        console.error('Upload failed:', await res.text());
       }
     } catch (error) {
-      alert(t($language, 'uploadError'));
+      console.error('Upload error:', error);
     } finally {
       uploading = false;
     }

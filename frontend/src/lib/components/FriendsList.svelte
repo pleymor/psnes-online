@@ -132,10 +132,9 @@
     if (res.ok) {
       friendEmail = '';
       showAddFriend = false;
-      alert(t($language, 'friendRequestSent'));
     } else {
       const error = await res.json();
-      alert(error.error || t($language, 'failedToSendRequest'));
+      console.error('Failed to send friend request:', error.error || t($language, 'failedToSendRequest'));
     }
   }
 
