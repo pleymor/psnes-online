@@ -346,6 +346,18 @@ export function initializeWebSocket(io: Server) {
       io.to(data.roomId).emit('game:targetFPSChanged', { targetFPS: data.targetFPS });
     });
 
+    // WebRTC Signaling (for P2P emulation)
+    socket.on('webrtc:signal', (data: { roomId: string; signal: any }) => {
+      const room = rooms.get(data.roomId);
+      if (!room) return;
+
+      // Forward WebRTC signal to other players in the room (except sender)
+      socket.to(data.roomId).emit('webrtc:signal', {
+        signal: data.signal,
+        from: socket.id
+      });
+    });
+
     // Disconnect
     socket.on('disconnect', async () => {
       console.log('Client disconnected:', socket.id);
