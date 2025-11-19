@@ -8,7 +8,9 @@ services:
     command: redis-server --appendonly yes
 
   backend:
-    image: node:20
+    build:
+      context: ./backend
+      dockerfile: dev.Dockerfile
     working_dir: /app
     ports:
       - "3000:3000"
@@ -28,7 +30,6 @@ services:
       - backend-avatars:/app/avatars
     depends_on:
       - redis
-    command: sh /app/docker-entrypoint-dev.sh
 
   frontend:
     image: node:20-alpine

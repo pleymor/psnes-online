@@ -20,6 +20,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - COOKIE_DOMAIN=snes.pleymor.com
+      - BEHIND_PROXY=true
     env_file:
       - ./backend/.env
     volumes:

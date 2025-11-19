@@ -25,8 +25,10 @@ dotenv.config();
 
 const app = express();
 
-// Trust nginx proxy for secure cookies
-app.set('trust proxy', 1);
+// Trust nginx proxy for secure cookies (only when behind a reverse proxy)
+if (process.env.BEHIND_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
@@ -117,7 +119,7 @@ const sessionMiddleware = session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.BEHIND_PROXY === 'true', // Only secure when behind HTTPS proxy
     httpOnly: true,
     maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     sameSite: 'lax',
