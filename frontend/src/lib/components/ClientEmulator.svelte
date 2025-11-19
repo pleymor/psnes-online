@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-  import { Nostalgist } from 'nostalgist';
+  import { Nostalgist } from '$lib/nostalgist-local/src';
   import type { KeyConfig } from '$lib/types';
 
   export let romData: ArrayBuffer;
@@ -69,18 +69,18 @@
           // input_player1_start: 'Enter',
           // input_player1_select: 'ShiftRight',
 
-          // input_player2_up: 'ArrowUp',
-          // input_player2_down: 'ArrowDown',
-          // input_player2_left: 'ArrowLeft',
-          // input_player2_right: 'ArrowRight',
-          // input_player2_a: 'KeyX',
-          // input_player2_b: 'KeyZ',
-          // input_player2_x: 'KeyS',
-          // input_player2_y: 'KeyA',
-          // input_player2_l: 'KeyQ',
-          // input_player2_r: 'KeyW',
-          // input_player2_start: 'Enter',
-          // input_player2_select: 'ShiftRight',
+          input_player2_up: 'ArrowUp',
+          input_player2_down: 'ArrowDown',
+          input_player2_left: 'ArrowLeft',
+          input_player2_right: 'ArrowRight',
+          input_player2_a: 'KeyX',
+          input_player2_b: 'KeyZ',
+          input_player2_x: 'KeyS',
+          input_player2_y: 'KeyA',
+          input_player2_l: 'KeyQ',
+          input_player2_r: 'KeyW',
+          input_player2_start: 'Enter',
+          input_player2_select: 'ShiftRight',
         }
       });
 

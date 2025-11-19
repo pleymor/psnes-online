@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nostalgist.js Playground</title>
+    <link rel="icon" type="image/png" href="https://nostalgist.js.org/favicon.png" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/modern-normalize/modern-normalize.min.css" />
+    <style>
+      body {
+        text-align: center;
+        line-height: normal;
+      }
+
+      h1 {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        margin: 32px auto 0 auto;
+      }
+
+      div {
+        max-width: 1280px;
+        width: 96%;
+        margin: auto;
+      }
+
+      h3 {
+        margin: 10px auto;
+      }
+
+      button {
+        line-height: normal;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: wait;
+      }
+    </style>
+    <script type="module">
+      import { activate } from './activate.ts'
+      const useDist = location.search.includes('e2e')
+      const { Nostalgist } = useDist ? await import('../dist/nostalgist.js') : await import('../src/index.ts')
+      activate(Nostalgist)
+
+      globalThis.Nostalgist = Nostalgist
+    </script>
+  </head>
+  <body>
+    <h1>
+      <img
+        src="https://raw.githubusercontent.com/arianrhodsandlot/nostalgist/HEAD/docs/src/assets/logo.png"
+        width="48"
+        height="48"
+      />
+      Nostalgist.js Playground
+    </h1>
+    <div>
+      <h3>Static Methods</h3>
+      <h3>Instance Methods</h3>
+    </div>
+  </body>
+</html>

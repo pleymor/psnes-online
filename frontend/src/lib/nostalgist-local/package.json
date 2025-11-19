@@ -1,0 +1,97 @@
+{
+  "name": "nostalgist",
+  "description": "Nostalgist.js is a JavaScript library that allows you to run emulators of retro consoles within web browsers.",
+  "keywords": [
+    "retroarch",
+    "emulator",
+    "emscripten"
+  ],
+  "bugs": {
+    "url": "https://github.com/arianrhodsandlot/nostalgist/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arianrhodsandlot/nostalgist.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "arianrhodsandlot",
+    "email": "theguidanceofawhitetower@gmail.com"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/nostalgist.js",
+      "require": "./dist/nostalgist.umd.js"
+    }
+  },
+  "main": "./dist/nostalgist.umd.js",
+  "jsdelivr": "./dist/nostalgist.umd.js",
+  "module": "./dist/nostalgist.js",
+  "browser": "./dist/nostalgist.umd.js",
+  "types": "./dist/types/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node scripts/build.ts && tsc",
+    "dev": "vite playground --open",
+    "dev:e2e": "playwright test -c tests/e2e --ui",
+    "docs:build": "astro build --root docs",
+    "docs:dev": "astro dev --root docs",
+    "eslint": "eslint --no-warn-ignored",
+    "lint": "node --run=eslint -- src tests",
+    "prepare": "simple-git-hooks",
+    "test": "node --run=test:integration && node --run=test:e2e",
+    "test:e2e": "playwright test -c tests/e2e",
+    "test:integration": "node --test tests/integration/**/*.spec.ts"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm lint-staged && node --run=build"
+  },
+  "lint-staged": {
+    "*.?(m|c)@(j|t)s?(x)": "node --run=eslint -- --fix",
+    "package.json": "pnpm dlx sort-package-json"
+  },
+  "dependencies": {
+    "@types/emscripten": "1.41.5",
+    "@types/ini": "4.1.1",
+    "@types/path-browserify": "1.0.3"
+  },
+  "devDependencies": {
+    "@arianrhodsandlot/eslint-config": "0.23.0",
+    "@arianrhodsandlot/release-kit": "0.1.11",
+    "@astrojs/starlight": "0.36.2",
+    "@happy-dom/global-registrator": "20.0.10",
+    "@playwright/test": "1.56.1",
+    "@types/is-ci": "3.0.4",
+    "@types/node": "24.10.1",
+    "@types/wicg-file-system-access": "2023.10.7",
+    "@zip.js/zip.js": "2.8.10",
+    "astro": "5.15.9",
+    "eslint": "9.39.1",
+    "ini": "6.0.0",
+    "jiti": "2.6.1",
+    "lint-staged": "16.2.6",
+    "path-browserify": "1.0.1",
+    "prettier": "3.6.2",
+    "simple-git-hooks": "2.13.1",
+    "typescript": "5.9.3",
+    "vite": "7.2.2"
+  },
+  "packageManager": "pnpm@10.22.0",
+  "engines": {
+    "node": ">=24.7.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "simple-git-hooks",
+      "unrs-resolver"
+    ],
+    "ignoredBuiltDependencies": [
+      "sharp"
+    ]
+  }
+}

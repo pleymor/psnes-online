@@ -15,7 +15,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['simple-peer', 'buffer', 'process', 'events', 'util', 'stream-browserify'],
+    include: ['simple-peer', 'buffer', 'process', 'events', 'util', 'stream-browserify', 'ini', 'path-browserify'],
     esbuildOptions: {
       define: {
         global: 'globalThis',
