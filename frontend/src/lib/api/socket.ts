@@ -4,7 +4,12 @@ import { io, Socket } from 'socket.io-client';
 export const socket = writable<Socket | null>(null);
 
 export function initializeSocket() {
-  const socketInstance = io('/', {
+  // In development, connect directly to backend to avoid Vite proxy issues with binary data
+  // In production, use relative path (nginx handles proxy)
+  const isDev = import.meta.env.DEV;
+  const socketUrl = isDev ? 'http://localhost:3000' : '/';
+
+  const socketInstance = io(socketUrl, {
     withCredentials: true,
     transports: ['websocket'], // Force WebSocket for lowest latency
     upgrade: false, // Don't start with polling

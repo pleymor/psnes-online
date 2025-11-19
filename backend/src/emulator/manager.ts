@@ -54,10 +54,13 @@ export class EmulatorManager extends EventEmitter {
     // Set up event handlers - use arrow functions to avoid re-binding
     // Socket.IO handles binary data efficiently, no need to slice/copy buffers
     const videoHandler = (videoFrame: any) => {
+      // Convert Uint8Array to base64 to avoid nginx proxy issues with binary data
+      const base64Data = Buffer.from(videoFrame.data).toString('base64');
+
       this.emit(`frame:${roomId}`, {
         width: videoFrame.width,
         height: videoFrame.height,
-        data: videoFrame.data, // Pass TypedArray directly
+        data: base64Data, // Send as base64 string instead of binary
         inputTimestamp: instance.inputTimestamp // Pass through for latency measurement
       });
 
@@ -66,10 +69,14 @@ export class EmulatorManager extends EventEmitter {
     };
 
     const audioHandler = (audioSamples: any) => {
+      // Convert Float32Array to base64 to avoid nginx proxy issues with binary data
+      const buffer = Buffer.from(audioSamples.data.buffer, audioSamples.data.byteOffset, audioSamples.data.byteLength);
+      const base64Data = buffer.toString('base64');
+
       this.emit(`audio:${roomId}`, {
         sampleRate: audioSamples.sampleRate,
         channels: audioSamples.channels,
-        data: audioSamples.data // Pass TypedArray directly
+        data: base64Data // Send as base64 string instead of binary
       });
     };
 
