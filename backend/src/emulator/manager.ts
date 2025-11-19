@@ -54,10 +54,6 @@ export class EmulatorManager extends EventEmitter {
     // Set up event handlers - use arrow functions to avoid re-binding
     // Socket.IO handles binary data efficiently, no need to slice/copy buffers
     const videoHandler = (videoFrame: any) => {
-      instance.frameCount++;
-      if (instance.frameCount % 60 === 0) {
-        console.log(`📹 Frame ${instance.frameCount} emitted for room ${roomId} (${videoFrame.width}x${videoFrame.height})`);
-      }
       this.emit(`frame:${roomId}`, {
         width: videoFrame.width,
         height: videoFrame.height,
