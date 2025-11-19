@@ -187,19 +187,8 @@
       imageData = offscreenCtx!.createImageData(frame.width, frame.height);
     }
 
-    // Decode base64 data to Uint8Array (for nginx proxy compatibility)
-    let data: Uint8Array;
-    if (typeof frame.data === 'string') {
-      // Base64 encoded (production mode with nginx)
-      const binaryString = atob(frame.data);
-      data = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        data[i] = binaryString.charCodeAt(i);
-      }
-    } else {
-      // Direct binary data (development mode)
-      data = new Uint8Array(frame.data);
-    }
+    // Copy frame data to offscreen canvas at native resolution
+    const data = new Uint8Array(frame.data);
 
     imageData.data.set(data);
     offscreenCtx!.putImageData(imageData, 0, 0);
@@ -223,18 +212,10 @@
   function playAudio(audio: any) {
     if (!audioContext) return;
 
-    // Convert audio data to Float32Array
+    // Convert audio data to Float32Array if needed
     let audioData: Float32Array;
 
-    if (typeof audio.data === 'string') {
-      // Base64 encoded (production mode with nginx)
-      const binaryString = atob(audio.data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      audioData = new Float32Array(bytes.buffer);
-    } else if (audio.data instanceof Float32Array) {
+    if (audio.data instanceof Float32Array) {
       audioData = audio.data;
     } else if (audio.data instanceof ArrayBuffer) {
       audioData = new Float32Array(audio.data);
