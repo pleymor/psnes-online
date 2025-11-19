@@ -147,8 +147,6 @@ export class P2PManager {
         this.peer.on('data', (data: Uint8Array) => {
           try {
             const decoded = JSON.parse(data.toString());
-            console.log('[P2PManager] Received data:', decoded);
-            // Pass data to callback (logging happens in handler)
             this.callbacks.onData?.(decoded);
           } catch (error) {
             console.error('Failed to parse P2P data:', error);
@@ -201,27 +199,13 @@ export class P2PManager {
    * Send data to remote peer via data channel
    */
   sendData(data: any): void {
-    console.log('[P2PManager] sendData called:', {
-      hasPeer: !!this.peer,
-      destroyed: this.peer?.destroyed,
-      // @ts-ignore - Check connection state
-      connected: this.peer?.connected,
-      data
-    });
-
     if (!this.peer || this.peer.destroyed) {
       console.warn('⚠️ Cannot send data: peer not connected');
       return;
     }
 
-    // @ts-ignore - Check if data channel is ready
-    if (!this.peer.connected) {
-      console.warn('⚠️ Data channel not ready yet, buffering may fail');
-    }
-
     try {
       const jsonData = JSON.stringify(data);
-      console.log('📡 Sending P2P data:', data.type, data.button);
       this.peer.send(jsonData);
     } catch (error) {
       console.error('Failed to send P2P data:', error);

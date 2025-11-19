@@ -55,6 +55,8 @@ export class Emulator {
   private gameStatus: GameStatus = 'initial'
   private globalDOMEventListeners = new Map<EventTarget, Record<string, EventListenerOrEventListenerObject>>()
   private messageQueue: [Uint8Array, number][] = []
+  // Track input state for each player (0-indexed: 0 = player 1, 1 = player 2)
+  private playerInputStates: Map<number, Set<string>> = new Map()
 
   private options: EmulatorOptions
 
@@ -207,24 +209,82 @@ export class Emulator {
   }
 
   async press(button: string, player = 1, time = 100) {
-    const code = this.getKeyboardCode(button, player)
-    if (code) {
-      await this.keyboardPress(code, time)
-    }
+    // Convert to 0-indexed
+    const playerIndex = player - 1
+    this.setPlayerInput(playerIndex, button, true)
+    await delay(time)
+    this.setPlayerInput(playerIndex, button, false)
   }
 
   pressDown(button: string, player = 1) {
-    const code = this.getKeyboardCode(button, player)
-    if (code) {
-      this.keyboardDown(code)
-    }
+    // Convert to 0-indexed
+    const playerIndex = player - 1
+    this.setPlayerInput(playerIndex, button, true)
   }
 
   pressUp(button: string, player = 1) {
-    const code = this.getKeyboardCode(button, player)
-    if (code) {
-      this.keyboardUp(code)
+    // Convert to 0-indexed
+    const playerIndex = player - 1
+    this.setPlayerInput(playerIndex, button, false)
+  }
+
+  /**
+   * New API: Set input state for a specific player and button
+   * This allows multiple players to use different controls independently
+   */
+  private setPlayerInput(playerIndex: number, button: string, pressed: boolean) {
+    if (!this.playerInputStates.has(playerIndex)) {
+      this.playerInputStates.set(playerIndex, new Set())
     }
+
+    const playerState = this.playerInputStates.get(playerIndex)!
+
+    if (pressed) {
+      playerState.add(button)
+    } else {
+      playerState.delete(button)
+    }
+
+    // Generate a unique keyboard code for this player/button combination
+    // This ensures each player's input is independent
+    const uniqueCode = this.getUniqueInputCode(playerIndex, button)
+
+    if (pressed) {
+      this.keyboardDown(uniqueCode)
+    } else {
+      this.keyboardUp(uniqueCode)
+    }
+  }
+
+  /**
+   * Generate unique keyboard codes for each player/button to avoid conflicts
+   * Player 0 uses standard keys, Player 1+ use numpad/function keys
+   */
+  private getUniqueInputCode(playerIndex: number, button: string): string {
+    // For player 0 (host), use the configured keyboard mapping
+    if (playerIndex === 0) {
+      const code = this.getKeyboardCode(button, playerIndex + 1)
+      return code || `Key${button.toUpperCase()}`
+    }
+
+    // For player 1+ (guests), use unique codes that don't conflict
+    // Map standard buttons to numpad keys for player 1
+    const buttonMap: Record<string, string> = {
+      'up': 'Numpad8',
+      'down': 'Numpad2',
+      'left': 'Numpad4',
+      'right': 'Numpad6',
+      'a': 'Numpad7',
+      'b': 'Numpad9',
+      'x': 'Numpad1',
+      'y': 'Numpad3',
+      'l': 'NumpadSubtract',
+      'r': 'NumpadAdd',
+      'start': 'NumpadEnter',
+      'select': 'Numpad0'
+    }
+
+    return buttonMap[button] || `F${playerIndex + 1}`
   }
 
   resize({ height, width }: { height: number; width: number }) {

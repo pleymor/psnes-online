@@ -29,8 +29,8 @@
     select: 'select'
   };
 
-  const localPlayer = 0;  // Player 1 (0-indexed)
-  const remotePlayer = 1; // Player 2 (0-indexed)
+  const localPlayer = 1;  // Player 1 (1-indexed for API)
+  const remotePlayer = 2; // Player 2 (1-indexed for API)
 
   async function initEmulator() {
     if (!isHost) {
@@ -50,37 +50,26 @@
           height: '100%',
           imageRendering: 'pixelated'
         },
-        // Enable 2-player support
+        // Enable 2-player support with unique keybindings
+        // Player 1 uses default keyboard, Player 2 uses numpad
         retroarchConfig: {
           input_max_users: 2,
-          input_player1_joypad_index: localPlayer,
-          input_player2_joypad_index: remotePlayer,
-          
-          // input_player1_up: 'ArrowUp',
-          // input_player1_down: 'ArrowDown',
-          // input_player1_left: 'ArrowLeft',
-          // input_player1_right: 'ArrowRight',
-          // input_player1_a: 'KeyX',
-          // input_player1_b: 'KeyZ',
-          // input_player1_x: 'KeyS',
-          // input_player1_y: 'KeyA',
-          // input_player1_l: 'KeyQ',
-          // input_player1_r: 'KeyW',
-          // input_player1_start: 'Enter',
-          // input_player1_select: 'ShiftRight',
+          input_player1_joypad_index: 0, // RetroArch uses 0-indexed joypad
+          input_player2_joypad_index: 1,
 
-          input_player2_up: 'ArrowUp',
-          input_player2_down: 'ArrowDown',
-          input_player2_left: 'ArrowLeft',
-          input_player2_right: 'ArrowRight',
-          input_player2_a: 'KeyX',
-          input_player2_b: 'KeyZ',
-          input_player2_x: 'KeyS',
-          input_player2_y: 'KeyA',
-          input_player2_l: 'KeyQ',
-          input_player2_r: 'KeyW',
-          input_player2_start: 'Enter',
-          input_player2_select: 'ShiftRight',
+          // Player 2 mapped to numpad keys (matches getUniqueInputCode in emulator.ts)
+          input_player2_up: 'num8',
+          input_player2_down: 'num2',
+          input_player2_left: 'num4',
+          input_player2_right: 'num6',
+          input_player2_a: 'num7',
+          input_player2_b: 'num9',
+          input_player2_x: 'num1',
+          input_player2_y: 'num3',
+          input_player2_l: 'subtract',
+          input_player2_r: 'add',
+          input_player2_start: 'kp_enter',
+          input_player2_select: 'num0',
         }
       });
 
@@ -96,7 +85,6 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    console.log(`handleKeyDown called with code=${e.code}`);
     if (!isHost || !emulator) return;
 
     // Find which button corresponds to this key
@@ -104,8 +92,6 @@
       if (e.code === keyCode) {
         e.preventDefault();
         const nostalgistButton = keyMapping[button as keyof KeyConfig];
-        console.log(`🎮 Host input: player 1, button ${nostalgistButton}, pressed true`);
-        // Player numbers are 0-indexed: 0 = player 1, 1 = player 2
         emulator.pressDown({ button: nostalgistButton, player: localPlayer });
         break;
       }
@@ -113,15 +99,12 @@
   }
 
   function handleKeyUp(e: KeyboardEvent) {
-    console.log(`handleKeyUp called with code=${e.code}`);
     if (!isHost || !emulator) return;
 
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
         const nostalgistButton = keyMapping[button as keyof KeyConfig];
-        console.log(`🎮 Host input: player 1, button ${nostalgistButton}, pressed false`);
-        // Player numbers are 0-indexed: 0 = player 1, 1 = player 2
         emulator.pressUp({ button: nostalgistButton, player: localPlayer });
         break;
       }
@@ -129,14 +112,11 @@
   }
 
   export function handleRemoteInput(button: string, pressed: boolean) {
-    console.log(`handleRemoteInput called with button=${button}, pressed=${pressed}`);
     if (!isHost || !emulator) return;
 
     const nostalgistButton = keyMapping[button as keyof KeyConfig];
-    console.log(`🎮 Remote input: player 2, button ${nostalgistButton}, pressed ${pressed}`);
 
-    // Use Nostalgist's pressDown/pressUp with object syntax
-    // Player numbers are 0-indexed: 0 = player 1, 1 = player 2
+    // Remote player uses player 2 port
     if (pressed) {
       emulator.pressDown({ button: nostalgistButton, player: remotePlayer });
     } else {

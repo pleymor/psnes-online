@@ -72,9 +72,8 @@
         },
         onData: (data) => {
           // Handle remote input (for host receiving guest input)
-          console.log('📥 Received P2P data:', data);
           if (data.type === 'input' && isHost) {
-            // Guest controls player 2 (0-indexed: player 1 = 0, player 2 = 1)
+            // Guest controls player 2
             emulatorComponent?.handleRemoteInput(data.button, data.pressed);
           }
         },
@@ -127,13 +126,11 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    console.log(`[P2PRoom] handleKeyDown: isHost=${isHost}, p2pManager=${!!p2pManager}, key=${e.code}`);
     // Guest sends their input to host via P2P
     if (!isHost && p2pManager) {
       for (const [button, keyCode] of Object.entries(keyConfig)) {
         if (e.code === keyCode) {
           e.preventDefault();
-          console.log(`📤 Guest sending input: ${button} = true`);
           p2pManager.sendData({
             type: 'input',
             button,
@@ -150,7 +147,6 @@
       for (const [button, keyCode] of Object.entries(keyConfig)) {
         if (e.code === keyCode) {
           e.preventDefault();
-          console.log(`📤 Guest sending input: ${button} = false`);
           p2pManager.sendData({
             type: 'input',
             button,
