@@ -252,6 +252,12 @@
 
   function handleGamepadConnected(e: GamepadEvent) {
     console.log('🎮 P1 Physical gamepad connected!', e.gamepad.id, 'at index', e.gamepad.index);
+
+    // Log the full gamepad array to see actual positions
+    const gamepads = navigator.getGamepads();
+    console.log('🎮 P1 Full gamepad array after connection:', Array.from(gamepads).map((gp, i) =>
+      gp ? `[${i}] ${gp.id}` : `[${i}] null`
+    ));
   }
 
   function handleGamepadDisconnected(e: GamepadEvent) {
