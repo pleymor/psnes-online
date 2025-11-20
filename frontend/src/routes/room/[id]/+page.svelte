@@ -47,6 +47,8 @@
   let guestVideoElement: HTMLVideoElement;
   let guestStream: MediaStream | null = null; // Store stream until video element is ready
   let connectionStatus: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
+  let gamepadPollInterval: number | null = null;
+  let lastGamepadState: Record<string, boolean> = {};
 
   $: roomId = data.roomId;
 
@@ -232,6 +234,104 @@
     }
   }
 
+  function pollGamepad() {
+    if (!isGuest || !p2pManager || playerPort !== 2) return;
+
+    const gamepads = navigator.getGamepads();
+
+    for (let i = 0; i < gamepads.length; i++) {
+      const gamepad = gamepads[i];
+      if (!gamepad) continue;
+
+      // Check buttons
+      for (let j = 0; j < gamepad.buttons.length; j++) {
+        const inputCode = `Gamepad${i}Button${j}`;
+        const isPressed = gamepad.buttons[j].pressed;
+        const wasPressed = lastGamepadState[inputCode] || false;
+
+        if (isPressed !== wasPressed) {
+          lastGamepadState[inputCode] = isPressed;
+
+          // Find which button this input is mapped to
+          for (const [button, mappedInput] of Object.entries(keyConfig)) {
+            if (mappedInput === inputCode) {
+              console.log('🎮 Guest gamepad input:', button, isPressed ? 'pressed' : 'released');
+              p2pManager.sendData({
+                type: 'input',
+                button,
+                pressed: isPressed
+              });
+              break;
+            }
+          }
+        }
+      }
+
+      // Check axes (for d-pad on some controllers)
+      for (let j = 0; j < gamepad.axes.length; j++) {
+        const axisValue = gamepad.axes[j];
+
+        // Check positive direction
+        const inputCodePlus = `Gamepad${i}Axis${j}Plus`;
+        const isPressedPlus = axisValue > 0.5;
+        const wasPressedPlus = lastGamepadState[inputCodePlus] || false;
+
+        if (isPressedPlus !== wasPressedPlus) {
+          lastGamepadState[inputCodePlus] = isPressedPlus;
+
+          for (const [button, mappedInput] of Object.entries(keyConfig)) {
+            if (mappedInput === inputCodePlus) {
+              console.log('🎮 Guest gamepad axis input:', button, isPressedPlus ? 'pressed' : 'released');
+              p2pManager.sendData({
+                type: 'input',
+                button,
+                pressed: isPressedPlus
+              });
+              break;
+            }
+          }
+        }
+
+        // Check negative direction
+        const inputCodeMinus = `Gamepad${i}Axis${j}Minus`;
+        const isPressedMinus = axisValue < -0.5;
+        const wasPressedMinus = lastGamepadState[inputCodeMinus] || false;
+
+        if (isPressedMinus !== wasPressedMinus) {
+          lastGamepadState[inputCodeMinus] = isPressedMinus;
+
+          for (const [button, mappedInput] of Object.entries(keyConfig)) {
+            if (mappedInput === inputCodeMinus) {
+              console.log('🎮 Guest gamepad axis input:', button, isPressedMinus ? 'pressed' : 'released');
+              p2pManager.sendData({
+                type: 'input',
+                button,
+                pressed: isPressedMinus
+              });
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  function startGamepadPolling() {
+    if (gamepadPollInterval !== null) return; // Already polling
+
+    console.log('🎮 Starting gamepad polling');
+    gamepadPollInterval = window.setInterval(pollGamepad, 16); // Poll at ~60Hz
+  }
+
+  function stopGamepadPolling() {
+    if (gamepadPollInterval !== null) {
+      console.log('🎮 Stopping gamepad polling');
+      clearInterval(gamepadPollInterval);
+      gamepadPollInterval = null;
+      lastGamepadState = {};
+    }
+  }
+
   onMount(async () => {
     if (!$socket) {
       goto('/');
@@ -296,6 +396,9 @@
         console.log('🎮 Adding guest keyboard listeners', { isGuest, playerPort, p2pManager: !!p2pManager });
         window.addEventListener('keydown', handleGuestKeyDown);
         window.addEventListener('keyup', handleGuestKeyUp);
+
+        // Start polling for gamepad input
+        startGamepadPolling();
       }
     });
 
@@ -309,6 +412,9 @@
     $socket.on('game:stopped', () => {
       gameStarted = false;
       showPauseMenu = false;
+
+      // Stop gamepad polling
+      stopGamepadPolling();
 
       // Cleanup P2P connection
       if (p2pManager) {
@@ -336,6 +442,9 @@
       $socket.off('game:resumed');
       $socket.off('game:stopped');
     }
+
+    // Stop gamepad polling
+    stopGamepadPolling();
 
     // Cleanup P2P connection
     if (p2pManager) {
