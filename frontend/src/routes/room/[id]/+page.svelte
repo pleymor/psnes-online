@@ -56,12 +56,6 @@
   $: currentPlayer = room?.players.find(p => p.userId === $user?.id);
   $: {
     keyConfig = currentPlayer?.keyConfig || userKeyConfig;
-    console.log('🎮 keyConfig updated:', {
-      hasCurrentPlayer: !!currentPlayer,
-      currentPlayerKeyConfig: currentPlayer?.keyConfig,
-      userKeyConfig,
-      finalKeyConfig: keyConfig
-    });
   }
   $: playerPort = (currentPlayer?.port ?? null) as 1 | 2 | null; // Get player's selected port (null if spectator)
 
