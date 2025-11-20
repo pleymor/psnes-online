@@ -29,13 +29,14 @@ export class VirtualGamepad implements Gamepad {
 
   /**
    * Map SNES button names to standard gamepad button indices
-   * Fixed rotation: X was triggering B, Y was triggering X, B was triggering Y
+   * Must use standard gamepad layout that RetroArch expects:
+   * Button 0 = B (bottom), Button 1 = A (right), Button 2 = Y (left), Button 3 = X (top)
    */
   private buttonMap: Record<string, number> = {
-    x: 0,      // X now at bottom position (was b)
-    a: 1,      // A stays at right position
-    b: 2,      // B now at left position (was y)
-    y: 3,      // Y now at top position (was x)
+    b: 0,      // B at bottom position (standard button 0)
+    a: 1,      // A at right position (standard button 1)
+    y: 2,      // Y at left position (standard button 2)
+    x: 3,      // X at top position (standard button 3)
     l: 4,      // Left shoulder
     r: 5,      // Right shoulder
     select: 8, // Select
