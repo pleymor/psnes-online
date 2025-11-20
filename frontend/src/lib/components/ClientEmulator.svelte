@@ -51,6 +51,9 @@
       // We'll use this to poll physical gamepads while hiding them from RetroArch
       originalGetGamepads = navigator.getGamepads.bind(navigator);
 
+      // Store on window so ControlsSettings can also access it
+      (window as any).__originalGetGamepads = originalGetGamepads;
+
       // Install virtual gamepads for BOTH players BEFORE creating emulator
       // Use indices 0 and 1 (standard player positions)
       // Physical gamepads will be hidden from RetroArch
