@@ -12,6 +12,8 @@
   let canvas: HTMLCanvasElement;
   let emulator: Nostalgist;
   let running = false;
+  let gamepadPollInterval: number | null = null;
+  let lastGamepadState: Record<string, boolean> = {};
 
   // Key mapping from KeyConfig to Nostalgist format
   const keyMapping: Record<keyof KeyConfig, string> = {
@@ -137,6 +139,122 @@
     }
   }
 
+  function pollGamepad() {
+    if (!isHost || !emulator) return;
+
+    const gamepads = navigator.getGamepads();
+
+    for (let i = 0; i < gamepads.length; i++) {
+      const gamepad = gamepads[i];
+      if (!gamepad) continue;
+
+      // Check buttons
+      for (let j = 0; j < gamepad.buttons.length; j++) {
+        const inputCode = `Gamepad${i}Button${j}`;
+        const isPressed = gamepad.buttons[j].pressed;
+        const wasPressed = lastGamepadState[inputCode] || false;
+
+        if (isPressed !== wasPressed) {
+          lastGamepadState[inputCode] = isPressed;
+          console.log('🎮 P1 gamepad button state change:', inputCode, 'pressed:', isPressed);
+
+          // Find which button this input is mapped to
+          for (const [button, mappedInput] of Object.entries(keyConfig)) {
+            if (mappedInput === inputCode) {
+              const nostalgistButton = keyMapping[button as keyof KeyConfig];
+              const virtualGamepadP1 = (window as any).__virtualGamepadP1;
+
+              if (virtualGamepadP1 && nostalgistButton) {
+                if (isPressed) {
+                  virtualGamepadP1.pressButton(nostalgistButton);
+                } else {
+                  virtualGamepadP1.releaseButton(nostalgistButton);
+                }
+                virtualGamepadP1.updateTimestamp();
+                console.log(`🎮 P1 ${nostalgistButton}: ${isPressed ? 'pressed' : 'released'} via gamepad`);
+              }
+              break;
+            }
+          }
+        }
+      }
+
+      // Check axes (for d-pad on some controllers)
+      for (let j = 0; j < gamepad.axes.length; j++) {
+        const axisValue = gamepad.axes[j];
+
+        // Check positive direction
+        const inputCodePlus = `Gamepad${i}Axis${j}Plus`;
+        const isPressedPlus = axisValue > 0.5;
+        const wasPressedPlus = lastGamepadState[inputCodePlus] || false;
+
+        if (isPressedPlus !== wasPressedPlus) {
+          lastGamepadState[inputCodePlus] = isPressedPlus;
+
+          for (const [button, mappedInput] of Object.entries(keyConfig)) {
+            if (mappedInput === inputCodePlus) {
+              const nostalgistButton = keyMapping[button as keyof KeyConfig];
+              const virtualGamepadP1 = (window as any).__virtualGamepadP1;
+
+              if (virtualGamepadP1 && nostalgistButton) {
+                if (isPressedPlus) {
+                  virtualGamepadP1.pressButton(nostalgistButton);
+                } else {
+                  virtualGamepadP1.releaseButton(nostalgistButton);
+                }
+                virtualGamepadP1.updateTimestamp();
+                console.log(`🎮 P1 ${nostalgistButton}: ${isPressedPlus ? 'pressed' : 'released'} via gamepad axis`);
+              }
+              break;
+            }
+          }
+        }
+
+        // Check negative direction
+        const inputCodeMinus = `Gamepad${i}Axis${j}Minus`;
+        const isPressedMinus = axisValue < -0.5;
+        const wasPressedMinus = lastGamepadState[inputCodeMinus] || false;
+
+        if (isPressedMinus !== wasPressedMinus) {
+          lastGamepadState[inputCodeMinus] = isPressedMinus;
+
+          for (const [button, mappedInput] of Object.entries(keyConfig)) {
+            if (mappedInput === inputCodeMinus) {
+              const nostalgistButton = keyMapping[button as keyof KeyConfig];
+              const virtualGamepadP1 = (window as any).__virtualGamepadP1;
+
+              if (virtualGamepadP1 && nostalgistButton) {
+                if (isPressedMinus) {
+                  virtualGamepadP1.pressButton(nostalgistButton);
+                } else {
+                  virtualGamepadP1.releaseButton(nostalgistButton);
+                }
+                virtualGamepadP1.updateTimestamp();
+                console.log(`🎮 P1 ${nostalgistButton}: ${isPressedMinus ? 'pressed' : 'released'} via gamepad axis`);
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  function startGamepadPolling() {
+    if (gamepadPollInterval !== null) return;
+    console.log('🎮 P1 starting gamepad polling');
+    gamepadPollInterval = window.setInterval(pollGamepad, 16); // Poll at ~60Hz
+  }
+
+  function stopGamepadPolling() {
+    if (gamepadPollInterval !== null) {
+      console.log('🎮 P1 stopping gamepad polling');
+      clearInterval(gamepadPollInterval);
+      gamepadPollInterval = null;
+      lastGamepadState = {};
+    }
+  }
+
   export function handleRemoteInput(button: string, pressed: boolean) {
     if (!isHost) return;
 
@@ -228,10 +346,13 @@
       initEmulator();
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('keyup', handleKeyUp);
+      startGamepadPolling();
     }
   });
 
   onDestroy(() => {
+    stopGamepadPolling();
+
     if (emulator) {
       emulator.exit();
     }
