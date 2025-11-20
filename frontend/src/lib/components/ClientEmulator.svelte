@@ -143,14 +143,26 @@
     if (!isHost || !emulator) return;
 
     const gamepads = navigator.getGamepads();
+    let physicalGamepadIndex = 0; // Remap physical gamepads to start from index 0
 
     for (let i = 0; i < gamepads.length; i++) {
       const gamepad = gamepads[i];
       if (!gamepad) continue;
 
+      // Skip virtual gamepads - only poll real physical controllers
+      if (gamepad.id.includes('Virtual Gamepad')) {
+        continue;
+      }
+
+      // Use remapped index for config matching (physical gamepads start from 0)
+      const configIndex = physicalGamepadIndex;
+      physicalGamepadIndex++;
+
+      console.log(`🎮 P1 polling physical gamepad at real index ${i}, config index ${configIndex}: ${gamepad.id}`);
+
       // Check buttons
       for (let j = 0; j < gamepad.buttons.length; j++) {
-        const inputCode = `Gamepad${i}Button${j}`;
+        const inputCode = `Gamepad${configIndex}Button${j}`; // Use config index, not real index
         const isPressed = gamepad.buttons[j].pressed;
         const wasPressed = lastGamepadState[inputCode] || false;
 
@@ -184,7 +196,7 @@
         const axisValue = gamepad.axes[j];
 
         // Check positive direction
-        const inputCodePlus = `Gamepad${i}Axis${j}Plus`;
+        const inputCodePlus = `Gamepad${configIndex}Axis${j}Plus`; // Use config index
         const isPressedPlus = axisValue > 0.5;
         const wasPressedPlus = lastGamepadState[inputCodePlus] || false;
 
@@ -211,7 +223,7 @@
         }
 
         // Check negative direction
-        const inputCodeMinus = `Gamepad${i}Axis${j}Minus`;
+        const inputCodeMinus = `Gamepad${configIndex}Axis${j}Minus`; // Use config index
         const isPressedMinus = axisValue < -0.5;
         const wasPressedMinus = lastGamepadState[inputCodeMinus] || false;
 
