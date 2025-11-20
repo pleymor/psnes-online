@@ -21,6 +21,15 @@
   let showSpeedIndicator = false;
   let speedIndicatorTimeout: ReturnType<typeof setTimeout> | null = null;
 
+  // Latency metrics
+  let inputLatency = 0;      // Time from keydown to input processing (ms)
+  let totalLatency = 0;      // Time from keydown to frame render (ms)
+  let lastInputTimestamp: number | null = null;
+  let frameRenderTimestamp: number | null = null;
+  let latencyHistoryInput: number[] = [];  // Rolling average
+  let latencyHistoryTotal: number[] = [];  // Rolling average
+  const LATENCY_HISTORY_SIZE = 10;
+
   // Key mapping from KeyConfig to Nostalgist format
   const keyMapping: Record<keyof KeyConfig, string> = {
     up: 'up',
@@ -36,6 +45,41 @@
     start: 'start',
     select: 'select'
   };
+
+  // Latency measurement functions
+  function measureLatency() {
+    if (lastInputTimestamp !== null) {
+      // First requestAnimationFrame: measures time to next frame (input processing)
+      requestAnimationFrame(() => {
+        if (lastInputTimestamp !== null) {
+          const now = performance.now();
+          const inputLat = now - lastInputTimestamp;
+
+          // Update input latency (time to first frame after input)
+          latencyHistoryInput.push(inputLat);
+          if (latencyHistoryInput.length > LATENCY_HISTORY_SIZE) {
+            latencyHistoryInput.shift();
+          }
+          inputLatency = latencyHistoryInput.reduce((a, b) => a + b, 0) / latencyHistoryInput.length;
+
+          // Second requestAnimationFrame: measures time to frame render (image display)
+          const inputTime = lastInputTimestamp;
+          requestAnimationFrame(() => {
+            const now2 = performance.now();
+            const totalLat = now2 - inputTime;
+
+            latencyHistoryTotal.push(totalLat);
+            if (latencyHistoryTotal.length > LATENCY_HISTORY_SIZE) {
+              latencyHistoryTotal.shift();
+            }
+            totalLatency = latencyHistoryTotal.reduce((a, b) => a + b, 0) / latencyHistoryTotal.length;
+          });
+
+          lastInputTimestamp = null;
+        }
+      });
+    }
+  }
 
 
   async function initEmulator() {
@@ -161,6 +205,9 @@
       if (e.code === keyCode) {
         e.preventDefault();
 
+        // Capture timestamp for latency measurement
+        lastInputTimestamp = performance.now();
+
         const nostalgistButton = keyMapping[button as keyof KeyConfig];
         const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
@@ -168,6 +215,9 @@
         if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
           virtualGamepadP1.pressButton(nostalgistButton);
           virtualGamepadP1.updateTimestamp();
+
+          // Measure latency
+          measureLatency();
         }
         break;
       }
@@ -240,7 +290,10 @@
               // DEFENSIVE: Only update P1, never P2
               if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
                 if (isPressed) {
+                  // Capture timestamp for latency measurement
+                  lastInputTimestamp = performance.now();
                   virtualGamepadP1.pressButton(nostalgistButton);
+                  measureLatency();
                 } else {
                   virtualGamepadP1.releaseButton(nostalgistButton);
                 }
@@ -272,7 +325,9 @@
               // DEFENSIVE: Only update P1, never P2
               if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
                 if (isPressedPlus) {
+                  lastInputTimestamp = performance.now();
                   virtualGamepadP1.pressButton(nostalgistButton);
+                  measureLatency();
                 } else {
                   virtualGamepadP1.releaseButton(nostalgistButton);
                 }
@@ -299,7 +354,9 @@
               // DEFENSIVE: Only update P1, never P2
               if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
                 if (isPressedMinus) {
+                  lastInputTimestamp = performance.now();
                   virtualGamepadP1.pressButton(nostalgistButton);
+                  measureLatency();
                 } else {
                   virtualGamepadP1.releaseButton(nostalgistButton);
                 }
@@ -488,6 +545,19 @@
   {#if isHost}
     <canvas bind:this={canvas} />
 
+    <!-- Latency indicator (always visible) -->
+    <div class="latency-indicator">
+      <div class="latency-label">Latence</div>
+      <div class="latency-row">
+        <span class="latency-name">Input:</span>
+        <span class="latency-value">{inputLatency.toFixed(1)}ms</span>
+      </div>
+      <div class="latency-row">
+        <span class="latency-name">Input+Image:</span>
+        <span class="latency-value">{totalLatency.toFixed(1)}ms</span>
+      </div>
+    </div>
+
     {#if showSpeedIndicator}
       <div class="speed-indicator" class:fast={currentSpeed === 'fast'} class:slow={currentSpeed === 'slow'}>
         <div class="speed-icon">⚡</div>
@@ -542,6 +612,50 @@
   .guest-message {
     color: #aaa;
     text-align: center;
+  }
+
+  .latency-indicator {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(0, 0, 0, 0.75);
+    border: 1px solid #4a9eff;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    min-width: 160px;
+  }
+
+  .latency-label {
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: #4a9eff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .latency-row {
+    display: flex;
+    justify-content: space-between;
+    margin: 3px 0;
+    padding: 2px 0;
+  }
+
+  .latency-name {
+    color: #aaa;
+    font-size: 11px;
+  }
+
+  .latency-value {
+    color: #4aff4a;
+    font-weight: bold;
+    font-size: 12px;
+    text-shadow: 0 0 4px rgba(74, 255, 74, 0.5);
   }
 
   .speed-indicator {

@@ -50,6 +50,13 @@
   let gamepadPollInterval: number | null = null;
   let lastGamepadState: Record<string, boolean> = {};
 
+  // Latency tracking for guest
+  let inputLatency = 0;
+  let totalLatency = 0;
+  let latencyHistoryInput: number[] = [];
+  let latencyHistoryTotal: number[] = [];
+  const LATENCY_HISTORY_SIZE = 10;
+
   $: roomId = data.roomId;
 
   // Get current user's key configuration - prefer user's personal config, then room config, then defaults
@@ -124,6 +131,40 @@
           // Handle remote input (for host receiving guest input)
           if (data.type === 'input' && playerPort === 1) {
             emulatorComponent?.handleRemoteInput(data.button, data.pressed);
+
+            // Send ACK back to guest with timestamp
+            if (p2pManager && data.inputId && data.timestamp) {
+              p2pManager.sendData({
+                type: 'input_ack',
+                inputId: data.inputId,
+                timestamp: data.timestamp
+              });
+            }
+          }
+
+          // Handle ACK from host (for guest measuring latency)
+          if (data.type === 'input_ack' && playerPort === 2) {
+            const now = performance.now();
+            const sendTime = data.timestamp;
+            const latency = now - sendTime;
+
+            // Update input latency (round-trip time)
+            latencyHistoryInput.push(latency);
+            if (latencyHistoryInput.length > LATENCY_HISTORY_SIZE) {
+              latencyHistoryInput.shift();
+            }
+            inputLatency = latencyHistoryInput.reduce((a, b) => a + b, 0) / latencyHistoryInput.length;
+
+            // Estimate total latency (input + 1-2 frames for video encoding/decoding)
+            // At 60fps, 2 frames = ~33ms
+            const estimatedVideoLatency = 33;
+            const totalLat = latency + estimatedVideoLatency;
+
+            latencyHistoryTotal.push(totalLat);
+            if (latencyHistoryTotal.length > LATENCY_HISTORY_SIZE) {
+              latencyHistoryTotal.shift();
+            }
+            totalLatency = latencyHistoryTotal.reduce((a, b) => a + b, 0) / latencyHistoryTotal.length;
           }
         },
         onConnect: () => {
@@ -180,10 +221,14 @@
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
+        const timestamp = performance.now();
+        const inputId = `${button}_${timestamp}`;
         p2pManager.sendData({
           type: 'input',
           button,
-          pressed: true
+          pressed: true,
+          timestamp,
+          inputId
         });
         break;
       }
@@ -196,10 +241,14 @@
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
+        const timestamp = performance.now();
+        const inputId = `${button}_${timestamp}`;
         p2pManager.sendData({
           type: 'input',
           button,
-          pressed: false
+          pressed: false,
+          timestamp,
+          inputId
         });
         break;
       }
@@ -251,10 +300,14 @@
           // Find which button this input is mapped to
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCode) {
+              const timestamp = performance.now();
+              const inputId = `${button}_${timestamp}`;
               p2pManager.sendData({
                 type: 'input',
                 button,
-                pressed: isPressed
+                pressed: isPressed,
+                timestamp,
+                inputId
               });
               break;
             }
@@ -276,10 +329,14 @@
 
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodePlus) {
+              const timestamp = performance.now();
+              const inputId = `${button}_${timestamp}`;
               p2pManager.sendData({
                 type: 'input',
                 button,
-                pressed: isPressedPlus
+                pressed: isPressedPlus,
+                timestamp,
+                inputId
               });
               break;
             }
@@ -296,10 +353,14 @@
 
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodeMinus) {
+              const timestamp = performance.now();
+              const inputId = `${button}_${timestamp}`;
               p2pManager.sendData({
                 type: 'input',
                 button,
-                pressed: isPressedMinus
+                pressed: isPressedMinus,
+                timestamp,
+                inputId
               });
               break;
             }
@@ -551,6 +612,21 @@
             muted={false}
             style="max-width: 100%; max-height: 100%; image-rendering: pixelated;"
           />
+
+          <!-- Latency indicator for guest -->
+          {#if connectionStatus === 'connected' && playerPort === 2}
+            <div class="latency-indicator">
+              <div class="latency-label">Latence</div>
+              <div class="latency-row">
+                <span class="latency-name">Input:</span>
+                <span class="latency-value">{inputLatency.toFixed(1)}ms</span>
+              </div>
+              <div class="latency-row">
+                <span class="latency-name">Input+Image:</span>
+                <span class="latency-value">{totalLatency.toFixed(1)}ms</span>
+              </div>
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -746,5 +822,50 @@
 
   .connection-status.error {
     border: 2px solid #f44336;
+  }
+
+  .latency-indicator {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(0, 0, 0, 0.75);
+    border: 1px solid #4a9eff;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    min-width: 160px;
+    z-index: 10;
+  }
+
+  .latency-label {
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: #4a9eff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .latency-row {
+    display: flex;
+    justify-content: space-between;
+    margin: 3px 0;
+    padding: 2px 0;
+  }
+
+  .latency-name {
+    color: #aaa;
+    font-size: 11px;
+  }
+
+  .latency-value {
+    color: #4aff4a;
+    font-weight: bold;
+    font-size: 12px;
+    text-shadow: 0 0 4px rgba(74, 255, 74, 0.5);
   }
 </style>
