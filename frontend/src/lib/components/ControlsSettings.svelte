@@ -97,11 +97,6 @@
       const getGamepads = (window as any).__originalGetGamepads || navigator.getGamepads.bind(navigator);
       const gamepads = getGamepads();
 
-      console.log('🎮 ControlsSettings polling:', {
-        hasOriginal: !!(window as any).__originalGetGamepads,
-        gamepads: Array.from(gamepads).map((gp, i) => gp ? `[${i}] ${gp.id}` : `[${i}] null`)
-      });
-
       // Remap physical gamepad indices (skip virtual gamepads)
       let physicalGamepadIndex = 0;
 
@@ -121,7 +116,6 @@
         // Check buttons
         for (let j = 0; j < gamepad.buttons.length; j++) {
           if (gamepad.buttons[j].pressed) {
-            console.log(`🎮 Button detected: Gamepad${configIndex}Button${j} from real gamepad ${i} (${gamepad.id})`);
             handleGamepadInput(`Gamepad${configIndex}Button${j}`);
             return;
           }

@@ -9,11 +9,6 @@
 
   const dispatch = createEventDispatcher();
 
-  // Debug: Log keyConfig whenever it changes
-  $: {
-    console.log('🎮 ClientEmulator received keyConfig:', keyConfig);
-  }
-
   let canvas: HTMLCanvasElement;
   let emulator: Nostalgist;
   let running = false;
@@ -40,13 +35,10 @@
 
   async function initEmulator() {
     if (!isHost) {
-      console.log('Guest mode - waiting for stream');
       return;
     }
 
     try {
-      console.log('🎮 Initializing client-side SNES emulator...');
-
       // Capture original getGamepads BEFORE installing virtual gamepads
       // We'll use this to poll physical gamepads while hiding them from RetroArch
       originalGetGamepads = navigator.getGamepads.bind(navigator);
@@ -62,12 +54,10 @@
       // Player 1 (local/host) at gamepad index 0
       const virtualGamepadP1 = new VirtualGamepad(0);
       const cleanupP1 = installVirtualGamepad(virtualGamepadP1);
-      console.log('🎮 Virtual gamepad for Player 1 installed at index 0');
 
       // Player 2 (remote/guest) at gamepad index 1
       const virtualGamepadP2 = new VirtualGamepad(1);
       const cleanupP2 = installVirtualGamepad(virtualGamepadP2);
-      console.log('🎮 Virtual gamepad for Player 2 installed at index 1');
 
       // Store references for later use
       (window as any).__virtualGamepadP1 = virtualGamepadP1;
@@ -136,8 +126,6 @@
       });
 
       running = true;
-      console.log('✅ Emulator initialized successfully');
-
       dispatch('ready', { emulator });
 
     } catch (error) {
@@ -160,20 +148,6 @@
         if (virtualGamepadP1 && nostalgistButton) {
           virtualGamepadP1.pressButton(nostalgistButton);
           virtualGamepadP1.updateTimestamp();
-          console.log(`🎮 P1 ${nostalgistButton}: pressed`);
-
-          // Debug: Check if navigator.getGamepads() sees the change
-          const gamepads = navigator.getGamepads();
-          const gp0 = gamepads[0];
-          if (gp0) {
-            console.log('🎮 Gamepad[0] after press:', {
-              id: gp0.id,
-              buttons: Array.from(gp0.buttons).map((b, i) => b.pressed ? i : null).filter(x => x !== null),
-              timestamp: gp0.timestamp
-            });
-          } else {
-            console.log('❌ Gamepad[0] not found in navigator.getGamepads()!');
-          }
         }
         break;
       }
@@ -194,7 +168,6 @@
         if (virtualGamepadP1 && nostalgistButton) {
           virtualGamepadP1.releaseButton(nostalgistButton);
           virtualGamepadP1.updateTimestamp();
-          console.log(`🎮 P1 ${nostalgistButton}: released`);
         }
         break;
       }
@@ -230,15 +203,10 @@
 
         if (isPressed !== wasPressed) {
           lastGamepadState[inputCode] = isPressed;
-          console.log('🎮 P1 gamepad button state change:', inputCode, 'pressed:', isPressed);
-          console.log('🎮 P1 checking against keyConfig:', keyConfig);
 
           // Find which button this input is mapped to
-          let found = false;
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCode) {
-              found = true;
-              console.log(`🎮 P1 Found mapping: ${button} -> ${mappedInput}`);
               const nostalgistButton = keyMapping[button as keyof KeyConfig];
               const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
@@ -249,13 +217,9 @@
                   virtualGamepadP1.releaseButton(nostalgistButton);
                 }
                 virtualGamepadP1.updateTimestamp();
-                console.log(`🎮 P1 ${nostalgistButton}: ${isPressed ? 'pressed' : 'released'} via gamepad`);
               }
               break;
             }
-          }
-          if (!found) {
-            console.log(`🎮 P1 No mapping found for ${inputCode}`);
           }
         }
       }
@@ -271,13 +235,9 @@
 
         if (isPressedPlus !== wasPressedPlus) {
           lastGamepadState[inputCodePlus] = isPressedPlus;
-          console.log('🎮 P1 gamepad axis state change:', inputCodePlus, 'value:', axisValue.toFixed(2), 'pressed:', isPressedPlus);
 
-          let foundPlus = false;
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodePlus) {
-              foundPlus = true;
-              console.log(`🎮 P1 Found axis mapping: ${button} -> ${mappedInput}`);
               const nostalgistButton = keyMapping[button as keyof KeyConfig];
               const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
@@ -288,13 +248,9 @@
                   virtualGamepadP1.releaseButton(nostalgistButton);
                 }
                 virtualGamepadP1.updateTimestamp();
-                console.log(`🎮 P1 ${nostalgistButton}: ${isPressedPlus ? 'pressed' : 'released'} via gamepad axis`);
               }
               break;
             }
-          }
-          if (!foundPlus) {
-            console.log(`🎮 P1 No mapping found for ${inputCodePlus}`);
           }
         }
 
@@ -305,13 +261,9 @@
 
         if (isPressedMinus !== wasPressedMinus) {
           lastGamepadState[inputCodeMinus] = isPressedMinus;
-          console.log('🎮 P1 gamepad axis state change:', inputCodeMinus, 'value:', axisValue.toFixed(2), 'pressed:', isPressedMinus);
 
-          let foundMinus = false;
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodeMinus) {
-              foundMinus = true;
-              console.log(`🎮 P1 Found axis mapping: ${button} -> ${mappedInput}`);
               const nostalgistButton = keyMapping[button as keyof KeyConfig];
               const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
@@ -322,13 +274,9 @@
                   virtualGamepadP1.releaseButton(nostalgistButton);
                 }
                 virtualGamepadP1.updateTimestamp();
-                console.log(`🎮 P1 ${nostalgistButton}: ${isPressedMinus ? 'pressed' : 'released'} via gamepad axis`);
               }
               break;
             }
-          }
-          if (!foundMinus) {
-            console.log(`🎮 P1 No mapping found for ${inputCodeMinus}`);
           }
         }
       }
@@ -336,43 +284,25 @@
   }
 
   function handleGamepadConnected(e: GamepadEvent) {
-    console.log('🎮 P1 Physical gamepad connected!', e.gamepad.id, 'at index', e.gamepad.index);
-
-    // Log the full gamepad array to see actual positions (use original to see physical gamepads)
-    if (originalGetGamepads) {
-      const gamepads = originalGetGamepads();
-      console.log('🎮 P1 Full gamepad array after connection (original):', Array.from(gamepads).map((gp, i) =>
-        gp ? `[${i}] ${gp.id}` : `[${i}] null`
-      ));
-    }
+    // Physical gamepad connected
   }
 
   function handleGamepadDisconnected(e: GamepadEvent) {
-    console.log('🎮 P1 Physical gamepad disconnected!', e.gamepad.id, 'at index', e.gamepad.index);
+    // Physical gamepad disconnected
   }
 
   function startGamepadPolling() {
     if (gamepadPollInterval !== null) return;
-    console.log('🎮 P1 starting gamepad polling');
 
     // Listen for gamepad connection events
     window.addEventListener('gamepadconnected', handleGamepadConnected);
     window.addEventListener('gamepaddisconnected', handleGamepadDisconnected);
-
-    // Log currently connected gamepads (use original to see physical gamepads)
-    if (originalGetGamepads) {
-      const gamepads = originalGetGamepads();
-      console.log('🎮 P1 Gamepads at polling start (original):', Array.from(gamepads).map((gp, i) =>
-        gp ? `[${i}] ${gp.id}` : `[${i}] null`
-      ));
-    }
 
     gamepadPollInterval = window.setInterval(pollGamepad, 16); // Poll at ~60Hz
   }
 
   function stopGamepadPolling() {
     if (gamepadPollInterval !== null) {
-      console.log('🎮 P1 stopping gamepad polling');
       clearInterval(gamepadPollInterval);
       gamepadPollInterval = null;
       lastGamepadState = {};
@@ -387,7 +317,6 @@
     if (!isHost) return;
 
     const nostalgistButton = keyMapping[button as keyof KeyConfig];
-    console.log(`🎮 P2 ${nostalgistButton}: ${pressed}`);
 
     // Use the pre-installed virtual gamepad directly
     const virtualGamepad = (window as any).__virtualGamepadP2;
@@ -398,35 +327,6 @@
         virtualGamepad.releaseButton(nostalgistButton);
       }
       virtualGamepad.updateTimestamp();
-
-      // Debug: Check gamepad state
-      console.log('🎮 P2 Virtual Gamepad State:', {
-        index: virtualGamepad.index,
-        buttons: virtualGamepad.buttons.map((b: any, i: number) => b.pressed ? i : null).filter((x: any) => x !== null),
-        axes: virtualGamepad.axes
-      });
-
-      // Debug: Check if navigator.getGamepads() sees it
-      const gamepads = navigator.getGamepads();
-      console.log('🎮 Navigator gamepads:', Array.from(gamepads).map((gp, i) => {
-        if (gp) {
-          const pressedButtons = Array.from(gp.buttons).map((b, idx) => b.pressed ? idx : null).filter(x => x !== null);
-          return `${i}: ${gp.id} (pressed: [${pressedButtons}])`;
-        }
-        return `${i}: null`;
-      }));
-
-      // Also check gamepad at index 1 specifically
-      const gp1 = gamepads[1];
-      if (gp1) {
-        console.log('🎮 Gamepad[1] detailed state:', {
-          id: gp1.id,
-          index: gp1.index,
-          connected: gp1.connected,
-          buttons: Array.from(gp1.buttons).map((b, i) => b.pressed ? `${i}:pressed` : null).filter(x => x),
-          timestamp: gp1.timestamp
-        });
-      }
     } else {
       console.error('❌ Virtual gamepad not found on window');
     }

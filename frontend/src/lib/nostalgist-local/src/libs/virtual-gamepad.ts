@@ -71,7 +71,6 @@ export class VirtualGamepad implements Gamepad {
       btn.pressed = true
       btn.touched = true
       btn.value = 1
-      console.log(`🎮 Virtual gamepad: Button ${button} (${index}) pressed`, this.buttons[index])
 
       // Also update axes for D-pad (RetroArch expects D-pad on axes)
       if (button === 'left') this.axes[0] = -1
@@ -81,8 +80,6 @@ export class VirtualGamepad implements Gamepad {
 
       // Dispatch gamepad event to trigger RetroArch polling
       this.dispatchGamepadEvent()
-    } else {
-      console.warn(`⚠️ Unknown button: ${button}`)
     }
   }
 
@@ -97,7 +94,6 @@ export class VirtualGamepad implements Gamepad {
       btn.pressed = false
       btn.touched = false
       btn.value = 0
-      console.log(`🎮 Virtual gamepad: Button ${button} (${index}) released`, this.buttons[index])
 
       // Also reset axes for D-pad
       if (button === 'left' || button === 'right') this.axes[0] = 0
@@ -156,21 +152,9 @@ export function installVirtualGamepad(gamepad: VirtualGamepad): () => void {
     };
   }
 
-  console.log(`🎮 Virtual gamepad installed at index ${gamepad.index}`);
-  console.log(`🎮 Total installed gamepads: ${installedGamepads.size}`);
-
-  // Test that it's accessible
-  setTimeout(() => {
-    const gamepads = navigator.getGamepads();
-    console.log(`🎮 Gamepads after installation:`, Array.from(gamepads).map((gp, i) =>
-      gp ? `[${i}] ${gp.id}` : `[${i}] null`
-    ));
-  }, 100);
-
   // Return cleanup function
   return () => {
     installedGamepads.delete(gamepad.index);
-    console.log(`🎮 Virtual gamepad removed from index ${gamepad.index}`);
 
     // Restore original if no more virtual gamepads
     if (installedGamepads.size === 0 && originalGetGamepads) {
