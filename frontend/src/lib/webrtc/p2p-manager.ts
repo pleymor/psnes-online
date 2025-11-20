@@ -38,7 +38,6 @@ export class P2PManager {
   async initConnection(localStream?: MediaStream): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        console.log(`🔗 Initializing P2P as ${this.isHost ? 'HOST' : 'GUEST'}`);
 
         // Create peer connection
         this.peer = new SimplePeer({
@@ -62,7 +61,6 @@ export class P2PManager {
 
         // Handle signaling data (offer/answer/ICE candidates)
         this.peer.on('signal', (data) => {
-          console.log('📤 Sending WebRTC signal:', data.type || 'candidate');
           this.socket.emit('webrtc:signal', {
             roomId: this.roomId,
             signal: data
@@ -74,10 +72,7 @@ export class P2PManager {
 
         // Connection established
         this.peer.on('connect', () => {
-          console.log('✅ P2P connection established!');
-          console.log('[P2PManager] Data channel ready, can send/receive data');
           // @ts-ignore - Check internal connection state
-          console.log('[P2PManager] Peer connected:', this.peer.connected);
           this.callbacks.onConnect?.();
           if (!connectionResolved) {
             connectionResolved = true;
@@ -91,7 +86,6 @@ export class P2PManager {
           const pc = this.peer?._pc;
           const channel = this.peer?._channel;
 
-          console.log('[P2PManager] Checking connection state:', {
             hasPC: !!pc,
             hasChannel: !!channel,
             pcState: pc?.connectionState,
@@ -101,9 +95,7 @@ export class P2PManager {
           if (pc) {
             // Monitor peer connection state
             pc.addEventListener('connectionstatechange', () => {
-              console.log('[P2PManager] PC connection state:', pc.connectionState);
               if (pc.connectionState === 'connected' && !connectionResolved) {
-                console.log('[P2PManager] Peer connection is CONNECTED, triggering callbacks');
                 this.callbacks.onConnect?.();
                 connectionResolved = true;
                 resolve();
@@ -112,9 +104,7 @@ export class P2PManager {
 
             // For host: monitor the data channel it creates
             if (this.isHost && channel) {
-              console.log('[P2PManager] Host data channel state:', channel.readyState);
               channel.addEventListener('open', () => {
-                console.log('[P2PManager] Host data channel OPENED');
                 if (!connectionResolved) {
                   this.callbacks.onConnect?.();
                   connectionResolved = true;
@@ -128,10 +118,8 @@ export class P2PManager {
 
             // For guest: receive data channel
             pc.addEventListener('datachannel', (event: RTCDataChannelEvent) => {
-              console.log('[P2PManager] Guest received data channel:', event.channel.label);
               const receivedChannel = event.channel;
               receivedChannel.addEventListener('open', () => {
-                console.log('[P2PManager] Guest data channel OPENED');
               });
             });
           }
@@ -139,7 +127,6 @@ export class P2PManager {
 
         // Receive remote stream (for guests)
         this.peer.on('stream', (stream: MediaStream) => {
-          console.log('📺 Received remote stream');
           this.callbacks.onStream?.(stream);
         });
 
@@ -162,24 +149,20 @@ export class P2PManager {
 
         // Handle connection close
         this.peer.on('close', () => {
-          console.log('❌ P2P connection closed');
           this.callbacks.onClose?.();
         });
 
         // Listen for remote signals
         this.socket.on('webrtc:signal', (data: { signal: any; from?: string }) => {
-          console.log('📥 Received WebRTC signal:', data.signal.type || 'candidate', 'from:', data.from);
           if (this.peer && !this.peer.destroyed) {
             this.peer.signal(data.signal);
 
             // For host (initiator), resolve after receiving answer
             // The data channel should be ready soon after
             if (this.isHost && data.signal.type === 'answer' && !connectionResolved) {
-              console.log('[P2PManager] Host received answer, connection negotiated');
               connectionResolved = true;
               // Give a moment for data channel to open
               setTimeout(() => {
-                console.log('[P2PManager] Host connection ready (via answer)');
                 resolve();
               }, 500);
             }
@@ -259,7 +242,6 @@ export function captureCanvasStream(
 ): MediaStream {
   // @ts-ignore - captureStream is supported in modern browsers
   const stream = canvas.captureStream(frameRate);
-  console.log(`📹 Capturing canvas stream at ${frameRate} FPS`);
   return stream;
 }
 
@@ -269,6 +251,5 @@ export function captureCanvasStream(
 export function captureAudioStream(audioContext: AudioContext): MediaStream {
   // @ts-ignore - createMediaStreamDestination is standard Web Audio API
   const destination = audioContext.createMediaStreamDestination();
-  console.log('🔊 Created audio stream');
   return destination.stream;
 }

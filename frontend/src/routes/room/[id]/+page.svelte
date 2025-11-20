@@ -68,7 +68,6 @@
 
   // Attach stream to video element when both are available
   $: if (guestVideoElement && guestStream) {
-    console.log('📺 Attaching stream to video element');
     guestVideoElement.srcObject = guestStream;
     guestVideoElement.play().catch(err => console.error('Failed to play video:', err));
   }
@@ -77,7 +76,6 @@
     if (!room?.gameId) return;
 
     try {
-      console.log('📥 Loading ROM...', room.gameId);
       loading = true;
       const response = await fetch(`/api/games/${room.gameId}/download`, {
         credentials: 'include'
@@ -88,7 +86,6 @@
       }
 
       romData = await response.arrayBuffer();
-      console.log(`✅ ROM loaded (${romData.byteLength} bytes)`);
       loading = false;
 
     } catch (err) {
@@ -106,14 +103,12 @@
     }
 
     try {
-      console.log('🔗 Setting up P2P connection...', { isHost, playerPort, hasEmulator: !!emulatorComponent });
       connectionStatus = 'connecting';
 
       // Join the P2P room via Socket.IO
       await new Promise<void>((resolve) => {
         $socket!.emit('p2p:join', { roomId });
         $socket!.once('p2p:joined', () => {
-          console.log('✅ Joined P2P room:', roomId);
           resolve();
         });
       });
@@ -121,25 +116,20 @@
       // Initialize P2P manager
       p2pManager = new P2PManager($socket, roomId, isHost, {
         onStream: (stream) => {
-          console.log('📺 Received stream from host');
           // Store stream - reactive statement will attach it when video element is ready
           guestStream = stream;
           connectionStatus = 'connected';
         },
         onData: (data) => {
-          console.log('📥 Received P2P data:', data, 'playerPort:', playerPort);
           // Handle remote input (for host receiving guest input)
           if (data.type === 'input' && playerPort === 1) {
-            console.log('🎮 Host calling handleRemoteInput:', data.button, data.pressed);
             emulatorComponent?.handleRemoteInput(data.button, data.pressed);
           }
         },
         onConnect: () => {
-          console.log('✅ P2P connected!');
           connectionStatus = 'connected';
         },
         onClose: () => {
-          console.log('❌ P2P connection closed');
           connectionStatus = 'disconnected';
         },
         onError: (err) => {
@@ -150,26 +140,20 @@
 
       // If host, wait for emulator to be ready, then capture stream
       if (isHost) {
-        console.log('🎮 Host: Waiting for emulator to stabilize...');
         // Wait for emulator initialization
         await new Promise(resolve => setTimeout(resolve, 1000));
 
-        console.log('🎮 Host: Getting canvas from emulator component');
         // Get canvas from emulator component
         const canvas = emulatorComponent?.getCanvas();
-        console.log('🎮 Host: Canvas element:', canvas ? 'found' : 'NOT FOUND');
 
         if (canvas) {
-          console.log('🎮 Host: Capturing canvas stream at 60 FPS');
           const stream = captureCanvasStream(canvas, 60);
-          console.log('🎮 Host: Initializing P2P with stream');
           await p2pManager.initConnection(stream);
         } else {
           throw new Error('Failed to get canvas from emulator');
         }
       } else {
         // Guest: just init connection (no local stream)
-        console.log('🎮 Guest: Initializing P2P (no local stream)');
         await p2pManager.initConnection();
       }
 
@@ -181,26 +165,21 @@
 
   function handleEmulatorReady(event: CustomEvent) {
     emulatorInstance = event.detail.emulator;
-    console.log('✅ Emulator ready, isHost:', isHost, 'playerPort:', playerPort);
 
     // Setup P2P after emulator is ready (host only)
     if (isHost) {
-      console.log('🔗 Host: Setting up P2P connection after emulator ready');
       setupP2PConnection();
     } else {
-      console.log('🎮 Guest: Not setting up P2P (already done)');
     }
   }
 
   function handleGuestKeyDown(e: KeyboardEvent) {
     // Guest sends their input to host via P2P
-    console.log('🎮 Guest keydown:', e.code, 'isGuest:', isGuest, 'p2pManager:', !!p2pManager, 'playerPort:', playerPort);
     if (!isGuest || !p2pManager || playerPort !== 2) return;
 
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
-        console.log('📤 Guest sending input:', button, 'pressed');
         p2pManager.sendData({
           type: 'input',
           button,
@@ -217,7 +196,6 @@
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
-        console.log('📤 Guest sending input:', button, 'released');
         p2pManager.sendData({
           type: 'input',
           button,
@@ -231,9 +209,6 @@
   function pollGamepad() {
     if (!isGuest || !p2pManager || playerPort !== 2) {
       // Debug: log why we're not polling
-      if (!isGuest) console.log('🎮 Not polling: not a guest');
-      if (!p2pManager) console.log('🎮 Not polling: no p2pManager');
-      if (playerPort !== 2) console.log('🎮 Not polling: playerPort is', playerPort);
       return;
     }
 
@@ -242,8 +217,6 @@
 
     // Debug: log gamepad detection (only once per second to avoid spam)
     if (Math.random() < 0.016) { // ~1/60th of the time
-      console.log('🎮 Polling gamepads:', gamepads.length, 'connected:', Array.from(gamepads).filter(g => g).length);
-      console.log('🎮 Current keyConfig:', keyConfig);
     }
 
     for (let i = 0; i < gamepads.length; i++) {
@@ -259,7 +232,6 @@
       const configIndex = physicalGamepadIndex;
       physicalGamepadIndex++;
 
-      console.log(`🎮 P2 polling physical gamepad at real index ${i}, config index ${configIndex}: ${gamepad.id}`);
 
       // Check buttons
       for (let j = 0; j < gamepad.buttons.length; j++) {
@@ -269,12 +241,10 @@
 
         if (isPressed !== wasPressed) {
           lastGamepadState[inputCode] = isPressed;
-          console.log('🎮 Gamepad button state change detected:', inputCode, 'pressed:', isPressed);
 
           // Find which button this input is mapped to
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCode) {
-              console.log('🎮 Guest gamepad input MATCHED:', button, isPressed ? 'pressed' : 'released');
               p2pManager.sendData({
                 type: 'input',
                 button,
@@ -300,7 +270,6 @@
 
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodePlus) {
-              console.log('🎮 Guest gamepad axis input:', button, isPressedPlus ? 'pressed' : 'released');
               p2pManager.sendData({
                 type: 'input',
                 button,
@@ -321,7 +290,6 @@
 
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodeMinus) {
-              console.log('🎮 Guest gamepad axis input:', button, isPressedMinus ? 'pressed' : 'released');
               p2pManager.sendData({
                 type: 'input',
                 button,
@@ -338,13 +306,11 @@
   function startGamepadPolling() {
     if (gamepadPollInterval !== null) return; // Already polling
 
-    console.log('🎮 Starting gamepad polling');
     gamepadPollInterval = window.setInterval(pollGamepad, 16); // Poll at ~60Hz
   }
 
   function stopGamepadPolling() {
     if (gamepadPollInterval !== null) {
-      console.log('🎮 Stopping gamepad polling');
       clearInterval(gamepadPollInterval);
       gamepadPollInterval = null;
       lastGamepadState = {};
@@ -379,7 +345,6 @@
     });
 
     $socket.on('game:started', async () => {
-      console.log('🎮 Game starting...');
 
       // Set gameStarted first so video element renders
       gameStarted = true;
@@ -394,16 +359,13 @@
 
       if (isHost) {
         // Host: Load ROM and run emulator
-        console.log('🎮 Host mode - loading ROM');
         await loadROM();
       } else if (isGuest) {
         // Guest: Setup P2P to receive stream (no ROM needed)
         // Video element should now exist, so stream can be attached
-        console.log('🎮 Guest mode - setting up P2P connection', { isGuest, playerPort, p2pManager: !!p2pManager });
         await setupP2PConnection();
 
         // Listen for guest keyboard input (Player 2 only)
-        console.log('🎮 Adding guest keyboard listeners', { isGuest, playerPort, p2pManager: !!p2pManager });
         window.addEventListener('keydown', handleGuestKeyDown);
         window.addEventListener('keyup', handleGuestKeyUp);
 

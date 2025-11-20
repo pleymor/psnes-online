@@ -370,7 +370,6 @@ export class Emulator {
     // Check if virtual gamepad was pre-installed (from ClientEmulator.svelte)
     if ((window as any).__virtualGamepadP2) {
       this.virtualGamepad = (window as any).__virtualGamepadP2
-      console.log('🎮 Using pre-installed virtual gamepad from window')
     }
 
     await this.setupEmscripten()
@@ -417,23 +416,6 @@ export class Emulator {
     const configContent = this.fs.readFile(EmulatorFileSystem.configPath)
     const config = ini.parse(configContent)
 
-    // Debug: Log player 2 config once on first call
-    if (!this.playerInputStates.has(1)) {
-      console.log('📋 RetroArch config:')
-      console.log('  input_max_users:', config.input_max_users)
-      console.log('  input_libretro_device_p1:', config.input_libretro_device_p1)
-      console.log('  input_libretro_device_p2:', config.input_libretro_device_p2)
-      console.log('  input_player1_joypad_index:', config.input_player1_joypad_index)
-      console.log('  input_player2_joypad_index:', config.input_player2_joypad_index)
-
-      // Dump all input-related config
-      console.log('📋 All input config:')
-      for (const [key, value] of Object.entries(config)) {
-        if (key.startsWith('input_')) {
-          console.log(`  ${key} = ${value}`)
-        }
-      }
-    }
 
     return config
   }
@@ -505,10 +487,8 @@ export class Emulator {
     // Tell RetroArch that controllers are connected by dispatching gamepadconnected events
     // This is critical for virtual gamepads to be recognized
     const gamepads = navigator.getGamepads?.() ?? [];
-    console.log('🎮 Gamepads available for RetroArch:', gamepads.length);
     for (const gamepad of gamepads) {
       if (gamepad) {
-        console.log(`  - [${gamepad.index}] ${gamepad.id} (connected: ${gamepad.connected})`);
         // Dispatch gamepadconnected event so RetroArch registers this gamepad
         // Use custom event approach since GamepadEvent constructor is strict
         const event = new Event('gamepadconnected') as any;
@@ -524,22 +504,7 @@ export class Emulator {
   }
 
   private dumpRetroArchConfig() {
-    const configContent = this.fs.readFile(EmulatorFileSystem.configPath)
-    const config = ini.parse(configContent)
-
-    console.log('📋 RetroArch Input Config:')
-    console.log('  input_max_users:', config.input_max_users)
-    console.log('  input_libretro_device_p1:', config.input_libretro_device_p1)
-    console.log('  input_libretro_device_p2:', config.input_libretro_device_p2)
-    console.log('  input_player1_joypad_index:', config.input_player1_joypad_index)
-    console.log('  input_player2_joypad_index:', config.input_player2_joypad_index)
-
-    // Check if there are any other player2 joypad settings
-    const p2Keys = Object.keys(config).filter(k => k.includes('player2') && k.includes('joypad'))
-    if (p2Keys.length > 0) {
-      console.log('  Other P2 joypad keys:', p2Keys)
-      p2Keys.forEach(k => console.log(`    ${k} = ${config[k]}`))
-    }
+    // Debug function - no longer logs to console
   }
 
   private recordGlobalDOMEventListeners() {
