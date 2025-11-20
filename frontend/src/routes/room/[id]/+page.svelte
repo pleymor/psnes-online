@@ -233,8 +233,19 @@
 
         // Get canvas from emulator component
         const canvas = emulatorComponent?.getCanvas();
+        console.log('🎮 Got canvas:', canvas);
 
         if (canvas) {
+          console.log(`📐 Canvas dimensions before resize: ${canvas.width}x${canvas.height} (CSS: ${canvas.offsetWidth}x${canvas.offsetHeight})`);
+
+          // Force canvas resolution to 768x672 (3x SNES native 256x224)
+          // This ensures consistent encoding quality regardless of container size
+          emulatorComponent.resize(768, 672);
+
+          // Wait for resize to take effect and emulator to stabilize
+          await new Promise(resolve => setTimeout(resolve, 500));
+          console.log(`✅ Canvas resolution after resize: ${canvas.width}x${canvas.height}`);
+
           // Capture video from canvas
           const videoStream = captureCanvasStream(canvas, 60);
 

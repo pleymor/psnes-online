@@ -460,6 +460,12 @@
     return canvas;
   }
 
+  export function resize(width: number, height: number) {
+    if (emulator) {
+      emulator.resize({ width, height });
+    }
+  }
+
   async function toggleFullscreen() {
     try {
       if (!document.fullscreenElement) {
