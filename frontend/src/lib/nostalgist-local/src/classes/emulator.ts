@@ -502,11 +502,13 @@ export class Emulator {
   private postRun() {
     this.resize(this.canvasInitialSize)
 
-    // Virtual gamepad was already installed in setup()
-    // Tell retroarch that controllers are connected (including our virtual gamepad)
-    for (const gamepad of navigator.getGamepads?.() ?? []) {
+    // RetroArch will automatically poll navigator.getGamepads()
+    // Log available gamepads for debugging
+    const gamepads = navigator.getGamepads?.() ?? [];
+    console.log('🎮 Gamepads available for RetroArch:', gamepads.length);
+    for (const gamepad of gamepads) {
       if (gamepad) {
-        console.log(`🎮 Gamepad available at index ${gamepad.index}: ${gamepad.id}`)
+        console.log(`  - [${gamepad.index}] ${gamepad.id} (connected: ${gamepad.connected})`);
       }
     }
 

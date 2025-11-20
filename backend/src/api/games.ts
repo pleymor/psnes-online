@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { User } from '../types/index.js';
@@ -25,7 +25,7 @@ const storage = multer.diskStorage({
     cb(null, romsDir);
   },
   filename: (req, file, cb) => {
-    const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
+    const uniqueName = `${randomUUID()}${path.extname(file.originalname)}`;
     cb(null, uniqueName);
   }
 });

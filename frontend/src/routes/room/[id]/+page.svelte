@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { browser } from '$app/environment';
   import { socket } from '$lib/api/socket';
   import { goto } from '$app/navigation';
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
-  import GameCanvas from '$lib/components/GameCanvas.svelte';
+  import ClientEmulator from '$lib/components/ClientEmulator.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
   import PauseMenu from '$lib/components/PauseMenu.svelte';
+  import { P2PManager, captureCanvasStream } from '$lib/webrtc/p2p-manager';
   import type { Room, KeyConfig } from '$lib/types';
 
   export let data;
@@ -34,6 +35,17 @@
     select: 'ShiftRight'
   };
 
+  // Client-side emulator state
+  let emulatorComponent: ClientEmulator;
+  let emulatorInstance: any;
+  let p2pManager: P2PManager | null = null;
+  let romData: ArrayBuffer | null = null;
+  let loading = false;
+  let error: string | null = null;
+  let guestVideoElement: HTMLVideoElement;
+  let guestStream: MediaStream | null = null; // Store stream until video element is ready
+  let connectionStatus: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
+
   $: roomId = data.roomId;
 
   // Get current user's key configuration - prefer user's personal config, then room config, then defaults
@@ -41,8 +53,174 @@
   $: keyConfig = currentPlayer?.keyConfig || userKeyConfig;
   $: playerPort = (currentPlayer?.port ?? null) as 1 | 2 | null; // Get player's selected port (null if spectator)
 
+  // Determine if current player is the host (Player 1)
+  $: isHost = playerPort === 1;
+  $: isGuest = playerPort === 2 || playerPort === null; // Player 2 or spectator
+
   // Check if at least one player is ready (has a port)
   $: canStartGame = room?.players.some(p => p.port !== null && p.isReady) ?? false;
+
+  // Attach stream to video element when both are available
+  $: if (guestVideoElement && guestStream) {
+    console.log('📺 Attaching stream to video element');
+    guestVideoElement.srcObject = guestStream;
+    guestVideoElement.play().catch(err => console.error('Failed to play video:', err));
+  }
+
+  async function loadROM() {
+    if (!room?.gameId) return;
+
+    try {
+      console.log('📥 Loading ROM...', room.gameId);
+      loading = true;
+      const response = await fetch(`/api/games/${room.gameId}/download`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load ROM');
+      }
+
+      romData = await response.arrayBuffer();
+      console.log(`✅ ROM loaded (${romData.byteLength} bytes)`);
+      loading = false;
+
+    } catch (err) {
+      console.error('Failed to load ROM:', err);
+      error = 'Failed to load game';
+      loading = false;
+    }
+  }
+
+  async function setupP2PConnection() {
+    if (!$socket) {
+      console.error('❌ Cannot setup P2P: Socket not connected');
+      error = 'Socket not connected';
+      return;
+    }
+
+    try {
+      console.log('🔗 Setting up P2P connection...', { isHost, playerPort, hasEmulator: !!emulatorComponent });
+      connectionStatus = 'connecting';
+
+      // Join the P2P room via Socket.IO
+      await new Promise<void>((resolve) => {
+        $socket!.emit('p2p:join', { roomId });
+        $socket!.once('p2p:joined', () => {
+          console.log('✅ Joined P2P room:', roomId);
+          resolve();
+        });
+      });
+
+      // Initialize P2P manager
+      p2pManager = new P2PManager($socket, roomId, isHost, {
+        onStream: (stream) => {
+          console.log('📺 Received stream from host');
+          // Store stream - reactive statement will attach it when video element is ready
+          guestStream = stream;
+          connectionStatus = 'connected';
+        },
+        onData: (data) => {
+          console.log('📥 Received P2P data:', data, 'playerPort:', playerPort);
+          // Handle remote input (for host receiving guest input)
+          if (data.type === 'input' && playerPort === 1) {
+            console.log('🎮 Host calling handleRemoteInput:', data.button, data.pressed);
+            emulatorComponent?.handleRemoteInput(data.button, data.pressed);
+          }
+        },
+        onConnect: () => {
+          console.log('✅ P2P connected!');
+          connectionStatus = 'connected';
+        },
+        onClose: () => {
+          console.log('❌ P2P connection closed');
+          connectionStatus = 'disconnected';
+        },
+        onError: (err) => {
+          console.error('P2P error:', err);
+          connectionStatus = 'disconnected';
+        }
+      });
+
+      // If host, wait for emulator to be ready, then capture stream
+      if (isHost) {
+        console.log('🎮 Host: Waiting for emulator to stabilize...');
+        // Wait for emulator initialization
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        console.log('🎮 Host: Getting canvas from emulator component');
+        // Get canvas from emulator component
+        const canvas = emulatorComponent?.getCanvas();
+        console.log('🎮 Host: Canvas element:', canvas ? 'found' : 'NOT FOUND');
+
+        if (canvas) {
+          console.log('🎮 Host: Capturing canvas stream at 60 FPS');
+          const stream = captureCanvasStream(canvas, 60);
+          console.log('🎮 Host: Initializing P2P with stream');
+          await p2pManager.initConnection(stream);
+        } else {
+          throw new Error('Failed to get canvas from emulator');
+        }
+      } else {
+        // Guest: just init connection (no local stream)
+        console.log('🎮 Guest: Initializing P2P (no local stream)');
+        await p2pManager.initConnection();
+      }
+
+    } catch (err) {
+      console.error('Failed to setup P2P:', err);
+      error = 'Failed to establish peer connection';
+    }
+  }
+
+  function handleEmulatorReady(event: CustomEvent) {
+    emulatorInstance = event.detail.emulator;
+    console.log('✅ Emulator ready, isHost:', isHost, 'playerPort:', playerPort);
+
+    // Setup P2P after emulator is ready (host only)
+    if (isHost) {
+      console.log('🔗 Host: Setting up P2P connection after emulator ready');
+      setupP2PConnection();
+    } else {
+      console.log('🎮 Guest: Not setting up P2P (already done)');
+    }
+  }
+
+  function handleGuestKeyDown(e: KeyboardEvent) {
+    // Guest sends their input to host via P2P
+    console.log('🎮 Guest keydown:', e.code, 'isGuest:', isGuest, 'p2pManager:', !!p2pManager, 'playerPort:', playerPort);
+    if (!isGuest || !p2pManager || playerPort !== 2) return;
+
+    for (const [button, keyCode] of Object.entries(keyConfig)) {
+      if (e.code === keyCode) {
+        e.preventDefault();
+        console.log('📤 Guest sending input:', button, 'pressed');
+        p2pManager.sendData({
+          type: 'input',
+          button,
+          pressed: true
+        });
+        break;
+      }
+    }
+  }
+
+  function handleGuestKeyUp(e: KeyboardEvent) {
+    if (!isGuest || !p2pManager || playerPort !== 2) return;
+
+    for (const [button, keyCode] of Object.entries(keyConfig)) {
+      if (e.code === keyCode) {
+        e.preventDefault();
+        console.log('📤 Guest sending input:', button, 'released');
+        p2pManager.sendData({
+          type: 'input',
+          button,
+          pressed: false
+        });
+        break;
+      }
+    }
+  }
 
   onMount(async () => {
     if (!$socket) {
@@ -71,21 +249,54 @@
       }
     });
 
-    $socket.on('game:started', () => {
+    $socket.on('game:started', async () => {
+      console.log('🎮 Game starting...');
+
+      // Set gameStarted first so video element renders
       gameStarted = true;
+
       // Prevent scrolling when game is active
       if (browser) {
         document.body.style.overflow = 'hidden';
       }
+
+      // Wait for DOM to update
+      await tick();
+
+      if (isHost) {
+        // Host: Load ROM and run emulator
+        console.log('🎮 Host mode - loading ROM');
+        await loadROM();
+      } else if (isGuest) {
+        // Guest: Setup P2P to receive stream (no ROM needed)
+        // Video element should now exist, so stream can be attached
+        console.log('🎮 Guest mode - setting up P2P connection', { isGuest, playerPort, p2pManager: !!p2pManager });
+        await setupP2PConnection();
+
+        // Listen for guest keyboard input (Player 2 only)
+        console.log('🎮 Adding guest keyboard listeners', { isGuest, playerPort, p2pManager: !!p2pManager });
+        window.addEventListener('keydown', handleGuestKeyDown);
+        window.addEventListener('keyup', handleGuestKeyUp);
+      }
     });
 
     $socket.on('game:resumed', () => {
+      if (isHost && emulatorComponent) {
+        emulatorComponent.resume();
+      }
       showPauseMenu = false;
     });
 
     $socket.on('game:stopped', () => {
       gameStarted = false;
       showPauseMenu = false;
+
+      // Cleanup P2P connection
+      if (p2pManager) {
+        p2pManager.destroy();
+        p2pManager = null;
+      }
+
       // Restore scrolling
       if (browser) {
         document.body.style.overflow = '';
@@ -106,8 +317,17 @@
       $socket.off('game:resumed');
       $socket.off('game:stopped');
     }
+
+    // Cleanup P2P connection
+    if (p2pManager) {
+      p2pManager.destroy();
+      p2pManager = null;
+    }
+
     if (browser) {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keydown', handleGuestKeyDown);
+      window.removeEventListener('keyup', handleGuestKeyUp);
       // Restore scrolling when leaving the page
       document.body.style.overflow = '';
     }
@@ -116,9 +336,17 @@
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape' && gameStarted) {
       if (!showPauseMenu) {
+        // Pause the game
+        if (isHost && emulatorComponent) {
+          emulatorComponent.pause();
+        }
         $socket?.emit('game:pause', { roomId });
         showPauseMenu = true;
       } else {
+        // Resume the game
+        if (isHost && emulatorComponent) {
+          emulatorComponent.resume();
+        }
         $socket?.emit('game:resume', { roomId });
       }
     }
@@ -180,14 +408,59 @@
       {/if}
     </div>
   {:else}
-    <GameCanvas {roomId} {keyConfig} port={playerPort} />
+    <!-- Game canvas container -->
+    <div class="game-canvas-container">
+      {#if loading}
+        <div class="loading-overlay">
+          <p>Loading game...</p>
+        </div>
+      {:else if error}
+        <div class="error-overlay">
+          <p>❌ {error}</p>
+        </div>
+      {:else if isHost && romData}
+        <!-- Host: Run emulator locally -->
+        <ClientEmulator
+          {romData}
+          {keyConfig}
+          {isHost}
+          on:ready={handleEmulatorReady}
+          bind:this={emulatorComponent}
+        />
+      {:else if isGuest}
+        <!-- Guest: Receive video stream -->
+        <div class="guest-stream">
+          {#if connectionStatus === 'connecting'}
+            <div class="connection-status">
+              <p>🔄 Connecting to host...</p>
+            </div>
+          {:else if connectionStatus === 'disconnected'}
+            <div class="connection-status error">
+              <p>❌ Connection lost</p>
+            </div>
+          {/if}
+          <video
+            bind:this={guestVideoElement}
+            autoplay
+            playsinline
+            muted={false}
+            style="max-width: 100%; max-height: 100%; image-rendering: pixelated;"
+          />
+        </div>
+      {/if}
+    </div>
 
     {#if showPauseMenu}
       <PauseMenu
         {roomId}
         gameId={room?.gameId || ''}
         {keyConfig}
-        on:resume={() => $socket?.emit('game:resume', { roomId })}
+        on:resume={() => {
+          if (isHost && emulatorComponent) {
+            emulatorComponent.resume();
+          }
+          $socket?.emit('game:resume', { roomId });
+        }}
         on:quit={() => $socket?.emit('game:stop', { roomId })}
         on:saved={handleControlsSaved}
         on:notification={handleNotification}
@@ -312,5 +585,61 @@
       transform: translateX(0);
       opacity: 1;
     }
+  }
+
+  /* Game canvas container */
+  .game-canvas-container {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+  }
+
+  .loading-overlay, .error-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    font-size: 1.2rem;
+    z-index: 10;
+  }
+
+  .error-overlay {
+    color: #f44336;
+  }
+
+  .guest-stream {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .guest-stream video {
+    max-width: 100%;
+    max-height: 100%;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  .connection-status {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 1rem 2rem;
+    background: rgba(0, 0, 0, 0.85);
+    border-radius: 8px;
+    z-index: 5;
+  }
+
+  .connection-status.error {
+    border: 2px solid #f44336;
   }
 </style>
