@@ -238,9 +238,9 @@
         if (canvas) {
           console.log(`📐 Canvas dimensions before resize: ${canvas.width}x${canvas.height} (CSS: ${canvas.offsetWidth}x${canvas.offsetHeight})`);
 
-          // Force canvas resolution to 768x672 (3x SNES native 256x224)
-          // This ensures consistent encoding quality regardless of container size
-          emulatorComponent.resize(768, 672);
+          // Force canvas resolution to native SNES (256x224)
+          // Minimal resolution for maximum encoding performance
+          emulatorComponent.resize(256, 224);
 
           // Wait for resize to take effect and emulator to stabilize
           await new Promise(resolve => setTimeout(resolve, 500));

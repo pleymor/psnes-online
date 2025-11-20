@@ -30,6 +30,12 @@
   let latencyHistoryTotal: number[] = [];  // Rolling average
   const LATENCY_HISTORY_SIZE = 10;
 
+  // FPS monitoring
+  let currentFPS = 0;
+  let lastFrameTime = 0;
+  let frameCount = 0;
+  let fpsInterval: number | null = null;
+
   // Key mapping from KeyConfig to Nostalgist format
   const keyMapping: Record<keyof KeyConfig, string> = {
     up: 'up',
@@ -133,6 +139,19 @@
         // Both players use virtual gamepads for native gamepad API support
         retroarchConfig: {
           input_max_users: 2,
+
+          // Performance optimizations for 60 FPS
+          video_vsync: 'false',             // Disable VSync to allow manual FPS control
+          video_max_swapchain_images: '2',  // Double buffering
+          video_hard_sync: 'false',         // Disable hard GPU sync for better performance
+          video_frame_delay: '0',           // No artificial frame delay
+          video_threaded: 'false',          // Disable threaded video for more predictable timing
+          audio_sync: 'true',               // Keep audio in sync (this limits to 60 FPS)
+          audio_latency: '64',              // Low audio latency (64ms)
+          audio_max_timing_skew: '0.05',    // Sync video to audio (forces 60 FPS)
+          fastforward_ratio: '1.0',         // Set to 1.0 = exactly 60 FPS (no fast-forward)
+          slowmotion_ratio: '1.0',          // Disable slow motion
+          run_ahead_enabled: 'false',       // Disable run-ahead (can cause issues)
 
           // Enable both player ports as joypads
           input_libretro_device_p1: '1', // RETRO_DEVICE_JOYPAD
@@ -521,6 +540,29 @@
     }, 2000);
   }
 
+  function startFPSMonitoring() {
+    lastFrameTime = performance.now();
+    frameCount = 0;
+    let lastLogTime = performance.now();
+
+    const measureFPS = () => {
+      const now = performance.now();
+      frameCount++;
+
+      // Log FPS every 2 seconds (less spam)
+      if (now - lastLogTime >= 2000) {
+        currentFPS = Math.round((frameCount * 1000) / (now - lastLogTime));
+        console.log(`📊 Emulator FPS: ${currentFPS}`);
+        frameCount = 0;
+        lastLogTime = now;
+      }
+
+      requestAnimationFrame(measureFPS);
+    };
+
+    requestAnimationFrame(measureFPS);
+  }
+
   onMount(() => {
     if (isHost) {
       initEmulator();
@@ -528,6 +570,7 @@
       window.addEventListener('keyup', handleKeyUp);
       // Re-enable gamepad polling for host, but only when window has focus
       startGamepadPolling();
+      startFPSMonitoring();
     }
     document.addEventListener('fullscreenchange', handleFullscreenChange);
   });

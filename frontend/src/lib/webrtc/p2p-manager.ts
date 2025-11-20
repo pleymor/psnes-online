@@ -305,7 +305,8 @@ export class P2PManager {
         }
 
         // Optimize for low latency with hardware encoding
-        params.encodings[0].maxBitrate = 3000000; // 3 Mbps (H.264 hardware can handle higher bitrate with lower latency)
+        params.encodings[0].maxBitrate = 5000000; // 5 Mbps (higher bitrate for better quality at 60 FPS)
+        params.encodings[0].minBitrate = 2000000; // 2 Mbps minimum
         params.encodings[0].maxFramerate = 60; // Match emulator framerate
         params.encodings[0].priority = 'high'; // Prioritize video
         params.encodings[0].networkPriority = 'high';
@@ -344,22 +345,36 @@ export class P2PManager {
    */
   private async detectHardwareEncoding(sender: RTCRtpSender): Promise<void> {
     try {
+      console.log('⏳ Waiting 2s for encoding to start...');
       await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for encoding to start
 
+      console.log('📊 Getting encoder stats...');
       const stats = await sender.getStats();
+      console.log(`📊 Found ${stats.size} stats entries`);
+
+      let foundVideo = false;
       for (const [, stat] of stats) {
         if (stat.type === 'outbound-rtp' && stat.kind === 'video') {
+          foundVideo = true;
+          console.log('✅ Found outbound-rtp video stat');
           const codecId = stat.codecId;
+          console.log(`   Codec ID: ${codecId}`);
 
           // Find codec info
           for (const [, codecStat] of stats) {
             if (codecStat.id === codecId) {
+              console.log('✅ Found matching codec stat');
+
               const mimeType = (codecStat as any).mimeType || '';
               const implementation = (codecStat as any).implementation || 'unknown';
 
               console.log('🎥 Video Encoder Info:');
               console.log(`   Codec: ${mimeType}`);
               console.log(`   Implementation: ${implementation}`);
+              console.log(`   Encoder ID: ${codecStat.id}`);
+
+              // Log all codec stats for debugging
+              console.log('   Full codec stats:', codecStat);
 
               // Hardware encoding typically shows as 'ExternalEncoder' or similar
               if (implementation.toLowerCase().includes('external') ||
@@ -367,7 +382,7 @@ export class P2PManager {
                   mimeType.includes('H264')) {
                 console.log('   ✅ Hardware encoding likely active!');
               } else {
-                console.log('   ℹ️ Software encoding (may increase latency)');
+                console.log('   ⚠️ Software encoding detected (GPU may not be used)');
               }
 
               // Log current resolution and framerate
