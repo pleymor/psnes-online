@@ -5,6 +5,7 @@
 let globalAudioStream: MediaStream | null = null;
 let globalAudioContext: AudioContext | null = null;
 let globalDestination: MediaStreamAudioDestinationNode | null = null;
+let connectedNodes = new Set<AudioNode>(); // Track connected nodes to avoid duplicates
 
 /**
  * Initialize audio capture by intercepting AudioContext creation
@@ -42,19 +43,23 @@ export function initializeAudioCapture(): void {
 
         // Monkey-patch connect to intercept audio nodes
         const originalConnect = AudioNode.prototype.connect;
-        AudioNode.prototype.connect = function(this: AudioNode, destination: any, ...args: any[]) {
-          const result = originalConnect.call(this, destination, ...args);
+        let isPatching = false; // Prevent infinite recursion
 
+        AudioNode.prototype.connect = function(this: AudioNode, destination: any, ...args: any[]): any {
           // If connecting to the main destination, also connect to our stream
-          if (destination === originalDestination && globalDestination) {
+          if (!isPatching && destination === originalDestination && globalDestination && !connectedNodes.has(this)) {
             try {
+              isPatching = true;
               originalConnect.call(this, globalDestination as any);
-              console.log('🎵 Audio node connected to stream destination');
+              connectedNodes.add(this); // Track to avoid reconnecting
+              isPatching = false;
             } catch (e) {
+              isPatching = false;
               // Ignore connection errors
             }
           }
 
+          const result = originalConnect.call(this, destination, ...args);
           return result;
         };
       }

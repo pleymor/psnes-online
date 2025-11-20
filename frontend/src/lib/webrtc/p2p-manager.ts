@@ -66,12 +66,26 @@ export class P2PManager {
             ],
             // Prefer direct P2P connection, avoid relay servers
             iceTransportPolicy: 'all', // 'all' tries direct first, 'relay' forces TURN
-            iceCandidatePoolSize: 10 // Pre-gather ICE candidates for faster connection
+            iceCandidatePoolSize: 10, // Pre-gather ICE candidates for faster connection
+
+            // Enable hardware acceleration for encoding/decoding
+            // @ts-ignore - Non-standard but supported in Chrome/Edge
+            encodedInsertableStreams: false, // Disable for better hardware acceleration
+          },
+          // Force H.264 codec for hardware acceleration
+          sdpTransform: (sdp: string) => {
+            // Prefer H.264 over VP8/VP9 for better hardware support
+            return this.preferH264Codec(sdp);
           }
         });
 
         // Handle signaling data (offer/answer/ICE candidates)
         this.peer.on('signal', (data) => {
+          // Log SDP to debug codec selection
+          if (data.type === 'offer' || data.type === 'answer') {
+            console.log(`📡 WebRTC ${data.type}:`, data.sdp?.includes('H264') ? 'H264 present ✅' : 'H264 missing ⚠️');
+          }
+
           this.socket.emit('webrtc:signal', {
             roomId: this.roomId,
             signal: data
@@ -208,7 +222,72 @@ export class P2PManager {
   }
 
   /**
-   * Optimize video encoding for minimal latency
+   * Prefer H.264 codec for hardware acceleration
+   */
+  private preferH264Codec(sdp: string): string {
+    console.log('🔧 Attempting to prioritize H.264 codec...');
+
+    // Move H.264 to the front of the codec list for hardware acceleration
+    const lines = sdp.split('\n');
+    let mLineIndex = -1;
+    let h264PayloadType = '';
+
+    // Find m=video line
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith('m=video')) {
+        mLineIndex = i;
+        console.log(`📍 Found m=video line at index ${i}: ${lines[i]}`);
+        break;
+      }
+    }
+
+    if (mLineIndex === -1) {
+      console.warn('⚠️ No m=video line found in SDP');
+      return sdp;
+    }
+
+    // Find H.264 payload type
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('H264') || lines[i].includes('h264')) {
+        const match = lines[i].match(/rtpmap:(\d+)\s+H264/i);
+        if (match) {
+          h264PayloadType = match[1];
+          console.log(`📍 Found H.264 codec with payload type: ${h264PayloadType}`);
+          break;
+        }
+      }
+    }
+
+    if (!h264PayloadType) {
+      console.warn('⚠️ H.264 codec not found in SDP, using default codec');
+      console.log('Available codecs in SDP:');
+      lines.forEach(line => {
+        if (line.includes('rtpmap:')) {
+          console.log(`   ${line}`);
+        }
+      });
+      return sdp;
+    }
+
+    // Reorder codecs to prefer H.264
+    const mLine = lines[mLineIndex];
+    const parts = mLine.split(' ');
+    const payloadTypes = parts.slice(3); // Skip 'm=video', port, protocol
+
+    console.log(`📍 Original codec order: ${payloadTypes.join(', ')}`);
+
+    // Move H.264 to front
+    const reordered = [h264PayloadType, ...payloadTypes.filter(pt => pt !== h264PayloadType)];
+    lines[mLineIndex] = parts.slice(0, 3).join(' ') + ' ' + reordered.join(' ');
+
+    console.log(`✅ H.264 codec prioritized! New order: ${reordered.join(', ')}`);
+    console.log(`   Payload type ${h264PayloadType} moved to front`);
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Optimize video encoding for minimal latency with hardware acceleration
    */
   private async optimizeVideoEncoding(pc: RTCPeerConnection): Promise<void> {
     try {
@@ -225,17 +304,22 @@ export class P2PManager {
           params.encodings = [{}];
         }
 
-        // Optimize for low latency
-        params.encodings[0].maxBitrate = 2500000; // 2.5 Mbps max (balance quality/latency)
+        // Optimize for low latency with hardware encoding
+        params.encodings[0].maxBitrate = 3000000; // 3 Mbps (H.264 hardware can handle higher bitrate with lower latency)
         params.encodings[0].maxFramerate = 60; // Match emulator framerate
         params.encodings[0].priority = 'high'; // Prioritize video
         params.encodings[0].networkPriority = 'high';
+
+        // @ts-ignore - scalabilityMode for hardware encoding hints
+        params.encodings[0].scalabilityMode = 'L1T1'; // Single layer, no temporal scalability for minimum latency
 
         // Degradation preference: prefer to maintain framerate over resolution
         params.degradationPreference = 'maintain-framerate';
 
         await videoSender.setParameters(params);
-        console.log('✅ Video encoding optimized for low latency');
+
+        // Check if hardware encoding is being used
+        await this.detectHardwareEncoding(videoSender);
       }
 
       // Also optimize audio
@@ -252,6 +336,53 @@ export class P2PManager {
 
     } catch (error) {
       console.warn('Could not optimize video encoding:', error);
+    }
+  }
+
+  /**
+   * Detect if hardware encoding is being used
+   */
+  private async detectHardwareEncoding(sender: RTCRtpSender): Promise<void> {
+    try {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for encoding to start
+
+      const stats = await sender.getStats();
+      for (const [, stat] of stats) {
+        if (stat.type === 'outbound-rtp' && stat.kind === 'video') {
+          const codecId = stat.codecId;
+
+          // Find codec info
+          for (const [, codecStat] of stats) {
+            if (codecStat.id === codecId) {
+              const mimeType = (codecStat as any).mimeType || '';
+              const implementation = (codecStat as any).implementation || 'unknown';
+
+              console.log('🎥 Video Encoder Info:');
+              console.log(`   Codec: ${mimeType}`);
+              console.log(`   Implementation: ${implementation}`);
+
+              // Hardware encoding typically shows as 'ExternalEncoder' or similar
+              if (implementation.toLowerCase().includes('external') ||
+                  implementation.toLowerCase().includes('hardware') ||
+                  mimeType.includes('H264')) {
+                console.log('   ✅ Hardware encoding likely active!');
+              } else {
+                console.log('   ℹ️ Software encoding (may increase latency)');
+              }
+
+              // Log current resolution and framerate
+              if (stat.frameWidth && stat.frameHeight) {
+                console.log(`   Resolution: ${stat.frameWidth}x${stat.frameHeight}`);
+              }
+              if (stat.framesPerSecond) {
+                console.log(`   FPS: ${stat.framesPerSecond}`);
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Could not detect hardware encoding:', error);
     }
   }
 
