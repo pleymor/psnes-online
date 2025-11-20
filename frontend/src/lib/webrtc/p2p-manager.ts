@@ -510,6 +510,9 @@ export function captureCanvasStream(
   canvas: HTMLCanvasElement,
   frameRate: number = 60
 ): MediaStream {
+  // Log canvas resolution for debugging
+  console.log(`📹 Capturing canvas stream: ${canvas.width}x${canvas.height} @ ${frameRate}fps`);
+
   // @ts-ignore - captureStream is supported in modern browsers
   const stream = canvas.captureStream(frameRate);
   return stream;

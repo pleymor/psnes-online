@@ -115,9 +115,15 @@
       (window as any).__cleanupVirtualGamepadP2 = cleanupP2;
 
       // Create emulator instance
+      // SNES native resolution: 256x224
+      // Using 3x scale: 768x672 for optimal quality/performance balance
       emulator = await Nostalgist.snes({
         element: canvas,
         rom: new Uint8Array(romData),
+        size: {
+          width: 768,
+          height: 672
+        },
         style: {
           width: '100%',
           height: '100%',
