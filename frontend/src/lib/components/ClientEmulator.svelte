@@ -269,9 +269,28 @@
     }
   }
 
+  function handleGamepadConnected(e: GamepadEvent) {
+    console.log('🎮 P1 Physical gamepad connected!', e.gamepad.id, 'at index', e.gamepad.index);
+  }
+
+  function handleGamepadDisconnected(e: GamepadEvent) {
+    console.log('🎮 P1 Physical gamepad disconnected!', e.gamepad.id, 'at index', e.gamepad.index);
+  }
+
   function startGamepadPolling() {
     if (gamepadPollInterval !== null) return;
     console.log('🎮 P1 starting gamepad polling');
+
+    // Listen for gamepad connection events
+    window.addEventListener('gamepadconnected', handleGamepadConnected);
+    window.addEventListener('gamepaddisconnected', handleGamepadDisconnected);
+
+    // Log currently connected gamepads
+    const gamepads = navigator.getGamepads();
+    console.log('🎮 P1 Gamepads at polling start:', Array.from(gamepads).map((gp, i) =>
+      gp ? `[${i}] ${gp.id}` : `[${i}] null`
+    ));
+
     gamepadPollInterval = window.setInterval(pollGamepad, 16); // Poll at ~60Hz
   }
 
@@ -281,6 +300,10 @@
       clearInterval(gamepadPollInterval);
       gamepadPollInterval = null;
       lastGamepadState = {};
+
+      // Remove event listeners
+      window.removeEventListener('gamepadconnected', handleGamepadConnected);
+      window.removeEventListener('gamepaddisconnected', handleGamepadDisconnected);
     }
   }
 
