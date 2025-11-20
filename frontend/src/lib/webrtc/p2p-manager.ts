@@ -86,12 +86,6 @@ export class P2PManager {
           const pc = this.peer?._pc;
           const channel = this.peer?._channel;
 
-            hasPC: !!pc,
-            hasChannel: !!channel,
-            pcState: pc?.connectionState,
-            channelState: channel?.readyState
-          });
-
           if (pc) {
             // Monitor peer connection state
             pc.addEventListener('connectionstatechange', () => {
