@@ -23,6 +23,11 @@ export function getEmscriptenModuleOverrides(overrides: RetroArchEmscriptenModul
     },
 
     print(...args: unknown[]) {
+      // Filter out noisy RetroArch info messages
+      const message = args.join(' ');
+      if (message.includes('[INFO]')) {
+        return; // Suppress all [INFO] messages
+      }
       console.info(...args)
     },
 
