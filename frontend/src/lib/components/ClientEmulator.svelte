@@ -121,15 +121,11 @@
       (window as any).__cleanupVirtualGamepadP2 = cleanupP2;
 
       // Create emulator instance
-      // SNES native resolution: 256x224
-      // Using 3x scale: 768x672 for optimal quality/performance balance
+      // Let RetroArch handle canvas sizing naturally
+      // We'll force resize to 256x224 after init for WebRTC streaming
       emulator = await Nostalgist.snes({
         element: canvas,
         rom: new Uint8Array(romData),
-        size: {
-          width: 768,
-          height: 672
-        },
         style: {
           width: '100%',
           height: '100%',
@@ -485,6 +481,22 @@
     }
   }
 
+  // Lock canvas size after initial setup to prevent WebRTC capture issues
+  let canvasResizeLocked = false;
+  export function lockCanvasSize() {
+    canvasResizeLocked = true;
+    // Don't start monitor - it causes cropping issues
+    // startCanvasSizeMonitor();
+  }
+
+  // Override resize to prevent it when locked
+  const originalResize = resize;
+  export function resizeIfUnlocked(width: number, height: number) {
+    if (!canvasResizeLocked) {
+      originalResize(width, height);
+    }
+  }
+
   async function toggleFullscreen() {
     try {
       if (!document.fullscreenElement) {
@@ -563,6 +575,25 @@
     requestAnimationFrame(measureFPS);
   }
 
+  // Monitor canvas size and force it back to 256x224 if it changes
+  let resizeObserver: ResizeObserver | null = null;
+
+  function startCanvasSizeMonitor() {
+    if (!canvas || !canvasResizeLocked) return;
+
+    resizeObserver = new ResizeObserver(() => {
+      // Check if canvas internal resolution changed
+      if (canvas.width !== 256 || canvas.height !== 224) {
+        console.warn(`⚠️ Canvas size changed to ${canvas.width}x${canvas.height}, forcing back to 256x224`);
+        if (emulator) {
+          emulator.resize({ width: 256, height: 224 });
+        }
+      }
+    });
+
+    resizeObserver.observe(canvas);
+  }
+
   onMount(() => {
     if (isHost) {
       initEmulator();
@@ -589,6 +620,12 @@
     if (cleanupP2) cleanupP2();
 
     if (speedIndicatorTimeout) clearTimeout(speedIndicatorTimeout);
+
+    // Cleanup resize observer
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+      resizeObserver = null;
+    }
 
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);

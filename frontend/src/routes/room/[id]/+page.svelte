@@ -228,26 +228,23 @@
 
       // If host, wait for emulator to be ready, then capture stream
       if (isHost) {
-        // Wait for emulator initialization
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Wait for emulator initialization and first frame render
+        await new Promise(resolve => setTimeout(resolve, 3000));
 
         // Get canvas from emulator component
         const canvas = emulatorComponent?.getCanvas();
         console.log('🎮 Got canvas:', canvas);
 
         if (canvas) {
-          console.log(`📐 Canvas dimensions before resize: ${canvas.width}x${canvas.height} (CSS: ${canvas.offsetWidth}x${canvas.offsetHeight})`);
-
-          // Force canvas resolution to native SNES (256x224)
-          // Minimal resolution for maximum encoding performance
-          emulatorComponent.resize(256, 224);
-
-          // Wait for resize to take effect and emulator to stabilize
-          await new Promise(resolve => setTimeout(resolve, 500));
-          console.log(`✅ Canvas resolution after resize: ${canvas.width}x${canvas.height}`);
+          console.log(`📐 Canvas resolution: ${canvas.width}x${canvas.height} (CSS: ${canvas.offsetWidth}x${canvas.offsetHeight})`);
+          console.log(`✅ Using natural canvas resolution for WebRTC streaming`);
 
           // Capture video from canvas
           const videoStream = captureCanvasStream(canvas, 60);
+
+          // Lock canvas size to prevent resize issues during WebRTC streaming
+          emulatorComponent.lockCanvasSize();
+          console.log('🔒 Canvas size locked at 256x224');
 
           // Try to add audio from the captured emulator audio
           const audioStream = getAudioStream();
