@@ -145,7 +145,7 @@
           audio_sync: 'true',               // Keep audio in sync (this limits to 60 FPS)
           audio_latency: '64',              // Low audio latency (64ms)
           audio_max_timing_skew: '0.05',    // Sync video to audio (forces 60 FPS)
-          fastforward_ratio: '1.0',         // Set to 1.0 = exactly 60 FPS (no fast-forward)
+          fastforward_ratio: '0.0',         // 0.0 = unlimited (allows fast-forward with Tab)
           slowmotion_ratio: '1.0',          // Disable slow motion
           run_ahead_enabled: 'false',       // Disable run-ahead (can cause issues)
 
