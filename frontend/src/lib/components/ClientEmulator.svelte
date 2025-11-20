@@ -140,20 +140,9 @@
   }
 
   function pollGamepad() {
-    if (!isHost || !emulator) {
-      console.log('🎮 P1 pollGamepad early return - isHost:', isHost, 'emulator:', !!emulator);
-      return;
-    }
+    if (!isHost || !emulator) return;
 
     const gamepads = navigator.getGamepads();
-
-    // Log all gamepads every 2 seconds
-    if (Math.random() < 0.033) { // ~1/30th at 60Hz = ~2 logs per second
-      console.log('🎮 P1 All gamepads:', Array.from(gamepads).map((gp, i) =>
-        gp ? `[${i}] ${gp.id}` : `[${i}] null`
-      ));
-    }
-
     let physicalGamepadIndex = 0; // Remap physical gamepads to start from index 0
 
     for (let i = 0; i < gamepads.length; i++) {
@@ -162,20 +151,12 @@
 
       // Skip virtual gamepads - only poll real physical controllers
       if (gamepad.id.includes('Virtual Gamepad')) {
-        if (Math.random() < 0.01) { // Occasionally log that we're skipping
-          console.log(`🎮 P1 Skipping virtual gamepad at index ${i}`);
-        }
         continue;
       }
 
       // Use remapped index for config matching (physical gamepads start from 0)
       const configIndex = physicalGamepadIndex;
       physicalGamepadIndex++;
-
-      if (Math.random() < 0.033) { // Log occasionally
-        console.log(`🎮 P1 polling physical gamepad at real index ${i}, config index ${configIndex}: ${gamepad.id}`);
-        console.log(`🎮 P1 Current keyConfig:`, keyConfig);
-      }
 
       // Check buttons
       for (let j = 0; j < gamepad.buttons.length; j++) {
