@@ -359,23 +359,14 @@
 
     // Load user's personal control configuration
     try {
-      console.log('🎮 Loading user controls from API...');
       const res = await fetch('/api/user/controls', { credentials: 'include' });
-      console.log('🎮 Controls API response:', res.status, res.ok);
-
       if (res.ok) {
         const config = await res.json();
-        console.log('🎮 Loaded user controls:', config);
         userKeyConfig = config;
-      } else {
-        const errorText = await res.text();
-        console.error('🎮 Failed to load controls - status:', res.status, 'error:', errorText);
       }
     } catch (error) {
-      console.error('🎮 Exception loading user controls:', error);
+      console.error('Failed to load user controls:', error);
     }
-
-    console.log('🎮 Final userKeyConfig:', userKeyConfig);
 
     // Join room
     $socket.emit('room:join', { roomId });
