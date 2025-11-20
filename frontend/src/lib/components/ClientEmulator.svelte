@@ -44,17 +44,18 @@
       console.log('🎮 Initializing client-side SNES emulator...');
 
       // Install virtual gamepads for BOTH players BEFORE creating emulator
+      // Use high indices (8 and 9) to avoid conflicts with physical gamepads
       const { VirtualGamepad, installVirtualGamepad } = await import('$lib/nostalgist-local/src/libs/virtual-gamepad.ts');
 
-      // Player 1 (local/host) at gamepad index 0
-      const virtualGamepadP1 = new VirtualGamepad(0);
+      // Player 1 (local/host) at gamepad index 8
+      const virtualGamepadP1 = new VirtualGamepad(8);
       const cleanupP1 = installVirtualGamepad(virtualGamepadP1);
-      console.log('🎮 Virtual gamepad for Player 1 installed at index 0');
+      console.log('🎮 Virtual gamepad for Player 1 installed at index 8');
 
-      // Player 2 (remote/guest) at gamepad index 1
-      const virtualGamepadP2 = new VirtualGamepad(1);
+      // Player 2 (remote/guest) at gamepad index 9
+      const virtualGamepadP2 = new VirtualGamepad(9);
       const cleanupP2 = installVirtualGamepad(virtualGamepadP2);
-      console.log('🎮 Virtual gamepad for Player 2 installed at index 1');
+      console.log('🎮 Virtual gamepad for Player 2 installed at index 9');
 
       // Store references for later use
       (window as any).__virtualGamepadP1 = virtualGamepadP1;
@@ -80,9 +81,9 @@
           input_libretro_device_p1: '1', // RETRO_DEVICE_JOYPAD
           input_libretro_device_p2: '1', // RETRO_DEVICE_JOYPAD
 
-          // Map players to their virtual gamepad indices
-          input_player1_joypad_index: '0', // Player 1 uses gamepad at index 0
-          input_player2_joypad_index: '1', // Player 2 uses gamepad at index 1
+          // Map players to their virtual gamepad indices (8 and 9 to avoid conflicts with physical gamepads)
+          input_player1_joypad_index: '8', // Player 1 uses gamepad at index 8
+          input_player2_joypad_index: '9', // Player 2 uses gamepad at index 9
         }
       });
 
