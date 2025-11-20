@@ -31,8 +31,8 @@ services:
       - DATABASE_URL=file:/app/data/prod.db
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - COOKIE_DOMAIN=snes.pleymor.com
-      - BEHIND_PROXY=true
+      - COOKIE_DOMAIN=
+      - BEHIND_PROXY=false
     env_file:
       - ./backend/.env
     volumes:
