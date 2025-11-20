@@ -48,7 +48,15 @@ export class P2PManager {
           offerOptions: {
             // Ensure data channel is created even with media stream
             offerToReceiveAudio: true,
-            offerToReceiveVideo: true
+            offerToReceiveVideo: true,
+            // Optimize for low latency
+            voiceActivityDetection: false,
+            iceRestart: false
+          },
+          answerOptions: {
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true,
+            voiceActivityDetection: false
           },
           config: {
             iceServers: [
@@ -94,6 +102,9 @@ export class P2PManager {
           const channel = this.peer?._channel;
 
           if (pc) {
+            // Optimize video encoding for minimal latency
+            this.optimizeVideoEncoding(pc);
+
             // Monitor peer connection state
             pc.addEventListener('connectionstatechange', () => {
               if (pc.connectionState === 'connected' && !connectionResolved) {
@@ -193,6 +204,54 @@ export class P2PManager {
       this.peer.send(jsonData);
     } catch (error) {
       console.error('Failed to send P2P data:', error);
+    }
+  }
+
+  /**
+   * Optimize video encoding for minimal latency
+   */
+  private async optimizeVideoEncoding(pc: RTCPeerConnection): Promise<void> {
+    try {
+      // Wait a bit for senders to be available
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const senders = pc.getSenders();
+      const videoSender = senders.find(s => s.track?.kind === 'video');
+
+      if (videoSender) {
+        const params = videoSender.getParameters();
+
+        if (!params.encodings || params.encodings.length === 0) {
+          params.encodings = [{}];
+        }
+
+        // Optimize for low latency
+        params.encodings[0].maxBitrate = 2500000; // 2.5 Mbps max (balance quality/latency)
+        params.encodings[0].maxFramerate = 60; // Match emulator framerate
+        params.encodings[0].priority = 'high'; // Prioritize video
+        params.encodings[0].networkPriority = 'high';
+
+        // Degradation preference: prefer to maintain framerate over resolution
+        params.degradationPreference = 'maintain-framerate';
+
+        await videoSender.setParameters(params);
+        console.log('✅ Video encoding optimized for low latency');
+      }
+
+      // Also optimize audio
+      const audioSender = senders.find(s => s.track?.kind === 'audio');
+      if (audioSender) {
+        const params = audioSender.getParameters();
+        if (!params.encodings || params.encodings.length === 0) {
+          params.encodings = [{}];
+        }
+        params.encodings[0].priority = 'high';
+        params.encodings[0].networkPriority = 'high';
+        await audioSender.setParameters(params);
+      }
+
+    } catch (error) {
+      console.warn('Could not optimize video encoding:', error);
     }
   }
 

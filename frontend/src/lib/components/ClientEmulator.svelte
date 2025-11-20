@@ -603,10 +603,23 @@
   }
 
   canvas {
+    /* Maintain stable size and aspect ratio */
+    width: auto;
+    height: auto;
     max-width: 100%;
     max-height: 100%;
+
+    /* SNES native aspect ratio */
+    aspect-ratio: 256 / 224;
+
+    /* Prevent resizing */
+    object-fit: contain;
+
     image-rendering: pixelated;
     image-rendering: crisp-edges;
+
+    /* Prevent layout shifts */
+    display: block;
   }
 
   .guest-message {

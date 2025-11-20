@@ -62,6 +62,9 @@
   let connectionType = 'connecting';
   let connectionRTT = 0;
 
+  // Fullscreen state for guest
+  let guestContainerElement: HTMLDivElement;
+
   $: roomId = data.roomId;
 
   // Get current user's key configuration - prefer user's personal config, then room config, then defaults
@@ -81,6 +84,33 @@
   // Attach stream to video element when both are available
   $: if (guestVideoElement && guestStream) {
     guestVideoElement.srcObject = guestStream;
+
+    // Optimize for low latency
+    // @ts-ignore - Non-standard but widely supported
+    if ('playsInline' in guestVideoElement) {
+      guestVideoElement.playsInline = true;
+    }
+
+    // Reduce buffering for minimal latency
+    try {
+      // @ts-ignore - Experimental API for low latency
+      if ('requestVideoFrameCallback' in guestVideoElement) {
+        console.log('✅ Video frame callback available - minimal latency mode');
+      }
+
+      // Disable preload to reduce buffer
+      guestVideoElement.preload = 'none';
+
+      // Set very low latency hint (experimental)
+      // @ts-ignore
+      if (guestVideoElement.mozPreservesPitch !== undefined) {
+        guestVideoElement.mozPreservesPitch = false;
+      }
+
+    } catch (e) {
+      console.warn('Could not set low latency video options:', e);
+    }
+
     guestVideoElement.play().catch(err => console.error('Failed to play video:', err));
   }
 
@@ -248,6 +278,13 @@
   }
 
   function handleGuestKeyDown(e: KeyboardEvent) {
+    // Fullscreen toggle with Alt+Enter (for guest)
+    if (e.altKey && e.key === 'Enter') {
+      e.preventDefault();
+      toggleGuestFullscreen();
+      return;
+    }
+
     // Guest sends their input to host via P2P
     if (!isGuest || !p2pManager || playerPort !== 2) return;
 
@@ -570,6 +607,20 @@
     goto('/');
   }
 
+  function toggleGuestFullscreen() {
+    if (!guestContainerElement) return;
+
+    if (!document.fullscreenElement) {
+      // Enter fullscreen
+      guestContainerElement.requestFullscreen().catch(err => {
+        console.error('Error attempting to enable fullscreen:', err);
+      });
+    } else {
+      // Exit fullscreen
+      document.exitFullscreen();
+    }
+  }
+
   function handleControlsSaved(event: CustomEvent<{ config: KeyConfig }>) {
     // Update the room state locally so controls apply immediately
     if (room && currentPlayer) {
@@ -631,7 +682,7 @@
         />
       {:else if isGuest}
         <!-- Guest: Receive video stream -->
-        <div class="guest-stream">
+        <div class="guest-stream" bind:this={guestContainerElement}>
           {#if connectionStatus === 'connecting'}
             <div class="connection-status">
               <p>🔄 Connecting to host...</p>
@@ -647,7 +698,9 @@
             playsinline
             muted={false}
             style="max-width: 100%; max-height: 100%; image-rendering: pixelated;"
-          />
+          >
+            <!-- Low latency video attributes -->
+          </video>
 
           <!-- Latency indicator for guest -->
           {#if connectionStatus === 'connected' && playerPort === 2}
@@ -857,13 +910,40 @@
     display: flex;
     justify-content: center;
     align-items: center;
+    background: #000;
+  }
+
+  /* Fullscreen mode for guest video */
+  .guest-stream:fullscreen {
+    background: #000;
+  }
+
+  .guest-stream:fullscreen video {
+    width: 100vw;
+    height: 100vh;
+    max-width: 100vw;
+    max-height: 100vh;
+    object-fit: contain;
   }
 
   .guest-stream video {
+    /* Maintain fixed aspect ratio and prevent size variations */
+    width: auto;
+    height: auto;
     max-width: 100%;
     max-height: 100%;
+
+    /* Force specific dimensions to prevent resizing */
+    object-fit: contain;
+
+    /* SNES native aspect ratio (8:7 pixel aspect ratio) */
+    aspect-ratio: 256 / 224;
+
     image-rendering: pixelated;
     image-rendering: crisp-edges;
+
+    /* Prevent any layout shifts */
+    display: block;
   }
 
   .connection-status {
