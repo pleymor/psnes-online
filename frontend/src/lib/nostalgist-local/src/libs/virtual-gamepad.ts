@@ -53,6 +53,9 @@ export class VirtualGamepad implements Gamepad {
       this.buttons[index].pressed = true
       this.buttons[index].touched = true
       this.buttons[index].value = 1
+      console.log(`🎮 Virtual gamepad: Button ${button} (${index}) pressed`, this.buttons[index])
+    } else {
+      console.warn(`⚠️ Unknown button: ${button}`)
     }
   }
 
@@ -66,6 +69,7 @@ export class VirtualGamepad implements Gamepad {
       this.buttons[index].pressed = false
       this.buttons[index].touched = false
       this.buttons[index].value = 0
+      console.log(`🎮 Virtual gamepad: Button ${button} (${index}) released`, this.buttons[index])
     }
   }
 
@@ -83,16 +87,67 @@ export class VirtualGamepad implements Gamepad {
 export function installVirtualGamepad(gamepad: VirtualGamepad): () => void {
   const originalGetGamepads = navigator.getGamepads.bind(navigator)
 
+  let pollCount = 0
+  let lastPollTime = 0
+
+  // Wrap the buttons array in a proxy to detect accesses
+  let buttonsAccessCount = 0
+  const buttonsProxy = new Proxy(gamepad.buttons, {
+    get(target, prop) {
+      buttonsAccessCount++
+      const now = performance.now()
+
+      // Log every access when buttons are pressed, or every second otherwise
+      if (prop === '15' || (typeof prop === 'string' && !isNaN(Number(prop)))) {
+        const idx = Number(prop)
+        const anyPressed = (target as GamepadButton[]).some(b => b.pressed)
+        if (anyPressed || now - lastPollTime > 1000) {
+          const pressedButtons = (target as GamepadButton[])
+            .map((b, i) => b.pressed ? i : null)
+            .filter(i => i !== null)
+
+          console.log(`🎮 RetroArch reading button[${prop}] (access #${buttonsAccessCount})`)
+          console.log(`  All pressed: [${pressedButtons.join(', ')}]`)
+          console.log(`  buttons[${prop}]:`, target[idx])
+          lastPollTime = now
+        }
+      }
+      return target[prop as any]
+    }
+  })
+
+  // Wrap gamepad in a proxy to return our proxied buttons array
+  const gamepadProxy = new Proxy(gamepad, {
+    get(target, prop) {
+      if (prop === 'buttons') {
+        return buttonsProxy
+      }
+      return (target as any)[prop]
+    }
+  })
+
   // Override getGamepads to include our virtual gamepad
   navigator.getGamepads = function() {
     const gamepads = originalGetGamepads()
     const result = Array.from(gamepads)
-    result[gamepad.index] = gamepad as any
+    result[gamepad.index] = gamepadProxy as any
     return result as unknown as Gamepad[]
   }
+
+  console.log(`🎮 Virtual gamepad installed at index ${gamepad.index}`)
+  console.log(`🎮 RetroArch will detect it via gamepad polling`)
+
+  // Test that it's accessible
+  setTimeout(() => {
+    const gamepads = navigator.getGamepads()
+    console.log(`🎮 Gamepads after installation:`, Array.from(gamepads).map((gp, i) =>
+      gp ? `[${i}] ${gp.id}` : `[${i}] null`
+    ))
+  }, 100)
 
   // Return cleanup function
   return () => {
     navigator.getGamepads = originalGetGamepads
+    console.log(`🎮 Virtual gamepad removed from index ${gamepad.index}`)
   }
 }

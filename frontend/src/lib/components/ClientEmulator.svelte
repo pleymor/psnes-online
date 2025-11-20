@@ -11,6 +11,7 @@
 
   let canvas: HTMLCanvasElement;
   let emulator: Nostalgist;
+  let running = false;
 
   // Key mapping from KeyConfig to Nostalgist format
   const keyMapping: Record<keyof KeyConfig, string> = {
@@ -28,22 +29,30 @@
     select: 'select'
   };
 
+  const localPlayer = 1;  // Player 1 (1-indexed for API)
+  const remotePlayer = 2; // Player 2 (1-indexed for API)
+
   async function initEmulator() {
     if (!isHost) {
+      console.log('Guest mode - waiting for stream');
       return;
     }
 
     try {
+      console.log('🎮 Initializing client-side SNES emulator...');
+
       // Install virtual gamepads for BOTH players BEFORE creating emulator
       const { VirtualGamepad, installVirtualGamepad } = await import('$lib/nostalgist-local/src/libs/virtual-gamepad.ts');
 
       // Player 1 (local/host) at gamepad index 0
       const virtualGamepadP1 = new VirtualGamepad(0);
       const cleanupP1 = installVirtualGamepad(virtualGamepadP1);
+      console.log('🎮 Virtual gamepad for Player 1 installed at index 0');
 
       // Player 2 (remote/guest) at gamepad index 1
       const virtualGamepadP2 = new VirtualGamepad(1);
       const cleanupP2 = installVirtualGamepad(virtualGamepadP2);
+      console.log('🎮 Virtual gamepad for Player 2 installed at index 1');
 
       // Store references for later use
       (window as any).__virtualGamepadP1 = virtualGamepadP1;
@@ -63,17 +72,20 @@
         // Enable 2-player support
         // Both players use virtual gamepads for native gamepad API support
         retroarchConfig: {
-          input_max_users: 2,
+          input_max_users: '2',
 
           // Enable both player ports as joypads
-          input_libretro_device_p1: 1, // RETRO_DEVICE_JOYPAD
-          input_libretro_device_p2: 1, // RETRO_DEVICE_JOYPAD
+          input_libretro_device_p1: '1', // RETRO_DEVICE_JOYPAD
+          input_libretro_device_p2: '1', // RETRO_DEVICE_JOYPAD
 
           // Map players to their virtual gamepad indices
-          input_player1_joypad_index: 0, // Player 1 uses gamepad at index 0
-          input_player2_joypad_index: 1, // Player 2 uses gamepad at index 1
+          input_player1_joypad_index: '0', // Player 1 uses gamepad at index 0
+          input_player2_joypad_index: '1', // Player 2 uses gamepad at index 1
         }
       });
+
+      running = true;
+      console.log('✅ Emulator initialized successfully');
 
       dispatch('ready', { emulator });
 
@@ -97,6 +109,7 @@
         if (virtualGamepadP1 && nostalgistButton) {
           virtualGamepadP1.pressButton(nostalgistButton);
           virtualGamepadP1.updateTimestamp();
+          console.log(`🎮 P1 ${nostalgistButton}: pressed`);
         }
         break;
       }
@@ -117,6 +130,7 @@
         if (virtualGamepadP1 && nostalgistButton) {
           virtualGamepadP1.releaseButton(nostalgistButton);
           virtualGamepadP1.updateTimestamp();
+          console.log(`🎮 P1 ${nostalgistButton}: released`);
         }
         break;
       }
@@ -127,8 +141,10 @@
     if (!isHost) return;
 
     const nostalgistButton = keyMapping[button as keyof KeyConfig];
-    const virtualGamepad = (window as any).__virtualGamepadP2;
+    console.log(`🎮 P2 ${nostalgistButton}: ${pressed}`);
 
+    // Use the pre-installed virtual gamepad directly
+    const virtualGamepad = (window as any).__virtualGamepadP2;
     if (virtualGamepad) {
       if (pressed) {
         virtualGamepad.pressButton(nostalgistButton);
@@ -136,22 +152,26 @@
         virtualGamepad.releaseButton(nostalgistButton);
       }
       virtualGamepad.updateTimestamp();
+    } else {
+      console.error('❌ Virtual gamepad not found on window');
     }
   }
 
   export function pause() {
     if (emulator) {
       emulator.pause();
+      running = false;
     }
   }
 
   export function resume() {
     if (emulator) {
       emulator.resume();
+      running = true;
     }
   }
 
-  export async function saveState() {
+  export async function saveState(): Promise<Uint8Array | null> {
     if (!emulator) return null;
     try {
       return await emulator.saveState();
