@@ -228,7 +228,7 @@ export class P2PManager {
 }
 
 /**
- * Helper: Capture canvas stream for WebRTC
+ * Helper: Capture canvas stream for WebRTC (video only)
  */
 export function captureCanvasStream(
   canvas: HTMLCanvasElement,
@@ -237,6 +237,76 @@ export function captureCanvasStream(
   // @ts-ignore - captureStream is supported in modern browsers
   const stream = canvas.captureStream(frameRate);
   return stream;
+}
+
+/**
+ * Helper: Get audio stream from emulator's AudioContext
+ * Intercepts the global AudioContext used by RetroArch/Emscripten
+ */
+export function getEmulatorAudioStream(): MediaStream | null {
+  try {
+    // Try to find the AudioContext created by Emscripten/RetroArch
+    // Emscripten stores it in SDL.audioContext
+    // @ts-ignore
+    const sdlAudio = window.SDL?.audioContext || window.SDL2?.audioContext;
+
+    if (sdlAudio && sdlAudio instanceof AudioContext) {
+      // Create a MediaStreamDestination to capture the audio
+      const destination = sdlAudio.createMediaStreamDestination();
+
+      // Connect the audio context's destination to our stream destination
+      // We need to intercept at the source, but since we can't access internal nodes,
+      // we'll use a different approach: create a MediaElementSource
+
+      // Alternative: Look for existing audio nodes
+      // @ts-ignore - Access internal Emscripten audio
+      const audioNode = window.SDL?.audio;
+      if (audioNode) {
+        // Try to tap into the audio stream
+        try {
+          audioNode.connect(destination);
+        } catch (e) {
+          console.warn('Could not connect audio node:', e);
+        }
+      }
+
+      return destination.stream;
+    }
+  } catch (error) {
+    console.warn('Could not get emulator audio stream:', error);
+  }
+
+  return null;
+}
+
+/**
+ * Helper: Combine canvas video with emulator audio
+ */
+export function captureCanvasWithAudio(
+  canvas: HTMLCanvasElement,
+  frameRate: number = 60
+): MediaStream {
+  // Get video stream from canvas
+  // @ts-ignore
+  const videoStream = canvas.captureStream(frameRate);
+
+  // Try to get audio from the emulator
+  try {
+    const audioStream = getEmulatorAudioStream();
+    if (audioStream) {
+      const audioTracks = audioStream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        console.log('✅ Adding audio tracks to video stream');
+        audioTracks.forEach((track: MediaStreamTrack) => videoStream.addTrack(track));
+      }
+    } else {
+      console.warn('⚠️ No audio stream available from emulator');
+    }
+  } catch (error) {
+    console.warn('Could not add audio to stream:', error);
+  }
+
+  return videoStream;
 }
 
 /**

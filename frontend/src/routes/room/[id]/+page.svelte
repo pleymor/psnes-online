@@ -10,6 +10,7 @@
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
   import PauseMenu from '$lib/components/PauseMenu.svelte';
   import { P2PManager, captureCanvasStream } from '$lib/webrtc/p2p-manager';
+  import { initializeAudioCapture, getAudioStream } from '$lib/emulator/audio-capture';
   import type { Room, KeyConfig } from '$lib/types';
 
   export let data;
@@ -188,8 +189,24 @@
         const canvas = emulatorComponent?.getCanvas();
 
         if (canvas) {
-          const stream = captureCanvasStream(canvas, 60);
-          await p2pManager.initConnection(stream);
+          // Capture video from canvas
+          const videoStream = captureCanvasStream(canvas, 60);
+
+          // Try to add audio from the captured emulator audio
+          const audioStream = getAudioStream();
+          if (audioStream) {
+            const audioTracks = audioStream.getAudioTracks();
+            if (audioTracks.length > 0) {
+              console.log('✅ Adding audio tracks to video stream');
+              audioTracks.forEach(track => videoStream.addTrack(track));
+            } else {
+              console.warn('⚠️ No audio tracks in captured stream');
+            }
+          } else {
+            console.warn('⚠️ No audio stream available');
+          }
+
+          await p2pManager.initConnection(videoStream);
         } else {
           throw new Error('Failed to get canvas from emulator');
         }
@@ -424,6 +441,9 @@
       await tick();
 
       if (isHost) {
+        // Initialize audio capture BEFORE loading emulator
+        initializeAudioCapture();
+
         // Host: Load ROM and run emulator
         await loadROM();
       } else if (isGuest) {
