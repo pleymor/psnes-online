@@ -35,6 +35,8 @@
     select: 'ShiftRight'
   };
 
+  let keyConfig: KeyConfig = userKeyConfig; // Will be updated by reactive statement
+
   // Client-side emulator state
   let emulatorComponent: ClientEmulator;
   let emulatorInstance: any;
