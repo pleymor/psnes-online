@@ -10,11 +10,13 @@
   const dispatch = createEventDispatcher();
 
   let canvas: HTMLCanvasElement;
+  let emulatorContainer: HTMLDivElement;
   let emulator: Nostalgist;
   let running = false;
   let gamepadPollInterval: number | null = null;
   let lastGamepadState: Record<string, boolean> = {};
   let originalGetGamepads: typeof navigator.getGamepads | null = null;
+  let isFullscreen = false;
 
   // Key mapping from KeyConfig to Nostalgist format
   const keyMapping: Record<keyof KeyConfig, string> = {
@@ -135,6 +137,13 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    // Fullscreen toggle with Alt+Enter (works for both host and guest)
+    if (e.altKey && e.key === 'Enter') {
+      e.preventDefault();
+      toggleFullscreen();
+      return;
+    }
+
     if (!isHost || !emulator) return;
 
     // Translate keyboard input to virtual gamepad for Player 1
@@ -369,6 +378,26 @@
     return canvas;
   }
 
+  async function toggleFullscreen() {
+    try {
+      if (!document.fullscreenElement) {
+        // Enter fullscreen
+        await emulatorContainer.requestFullscreen();
+        isFullscreen = true;
+      } else {
+        // Exit fullscreen
+        await document.exitFullscreen();
+        isFullscreen = false;
+      }
+    } catch (error) {
+      console.error('Error toggling fullscreen:', error);
+    }
+  }
+
+  function handleFullscreenChange() {
+    isFullscreen = !!document.fullscreenElement;
+  }
+
   onMount(() => {
     if (isHost) {
       initEmulator();
@@ -376,6 +405,7 @@
       window.addEventListener('keyup', handleKeyUp);
       startGamepadPolling();
     }
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
   });
 
   onDestroy(() => {
@@ -393,10 +423,11 @@
 
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
+    document.removeEventListener('fullscreenchange', handleFullscreenChange);
   });
 </script>
 
-<div class="emulator-container">
+<div class="emulator-container" bind:this={emulatorContainer}>
   {#if isHost}
     <canvas bind:this={canvas} />
   {:else}
@@ -414,6 +445,16 @@
     justify-content: center;
     align-items: center;
     background: #000;
+  }
+
+  .emulator-container:fullscreen {
+    background: #000;
+  }
+
+  .emulator-container:fullscreen canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
 
   canvas {
