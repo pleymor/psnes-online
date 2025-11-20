@@ -235,9 +235,21 @@
   }
 
   function pollGamepad() {
-    if (!isGuest || !p2pManager || playerPort !== 2) return;
+    if (!isGuest || !p2pManager || playerPort !== 2) {
+      // Debug: log why we're not polling
+      if (!isGuest) console.log('🎮 Not polling: not a guest');
+      if (!p2pManager) console.log('🎮 Not polling: no p2pManager');
+      if (playerPort !== 2) console.log('🎮 Not polling: playerPort is', playerPort);
+      return;
+    }
 
     const gamepads = navigator.getGamepads();
+
+    // Debug: log gamepad detection (only once per second to avoid spam)
+    if (Math.random() < 0.016) { // ~1/60th of the time
+      console.log('🎮 Polling gamepads:', gamepads.length, 'connected:', Array.from(gamepads).filter(g => g).length);
+      console.log('🎮 Current keyConfig:', keyConfig);
+    }
 
     for (let i = 0; i < gamepads.length; i++) {
       const gamepad = gamepads[i];
@@ -251,11 +263,12 @@
 
         if (isPressed !== wasPressed) {
           lastGamepadState[inputCode] = isPressed;
+          console.log('🎮 Gamepad button state change detected:', inputCode, 'pressed:', isPressed);
 
           // Find which button this input is mapped to
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCode) {
-              console.log('🎮 Guest gamepad input:', button, isPressed ? 'pressed' : 'released');
+              console.log('🎮 Guest gamepad input MATCHED:', button, isPressed ? 'pressed' : 'released');
               p2pManager.sendData({
                 type: 'input',
                 button,
