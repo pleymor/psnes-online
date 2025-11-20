@@ -17,6 +17,9 @@
   let lastGamepadState: Record<string, boolean> = {};
   let originalGetGamepads: typeof navigator.getGamepads | null = null;
   let isFullscreen = false;
+  let currentSpeed: 'normal' | 'fast' | 'slow' = 'normal';
+  let showSpeedIndicator = false;
+  let speedIndicatorTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Key mapping from KeyConfig to Nostalgist format
   const keyMapping: Record<keyof KeyConfig, string> = {
@@ -145,6 +148,13 @@
     }
 
     if (!isHost || !emulator) return;
+
+    // Speed control
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      toggleSpeed();
+      return;
+    }
 
     // Translate keyboard input to virtual gamepad for Player 1
     for (const [button, keyCode] of Object.entries(keyConfig)) {
@@ -398,6 +408,41 @@
     isFullscreen = !!document.fullscreenElement;
   }
 
+  function toggleSpeed() {
+    // Toggle between normal and fast
+    const newSpeed = currentSpeed === 'normal' ? 'fast' : 'normal';
+    setSpeed(newSpeed);
+  }
+
+  function setSpeed(speed: 'normal' | 'fast' | 'slow') {
+    if (!emulator || currentSpeed === speed) return;
+
+    // Turn off current speed mode
+    if (currentSpeed === 'fast') {
+      emulator.sendCommand('FAST_FORWARD'); // Toggle off fast forward
+    } else if (currentSpeed === 'slow') {
+      emulator.sendCommand('SLOWMOTION'); // Toggle off slow motion
+    }
+
+    // Turn on new speed mode
+    if (speed === 'fast') {
+      emulator.sendCommand('FAST_FORWARD'); // Toggle on fast forward
+    } else if (speed === 'slow') {
+      emulator.sendCommand('SLOWMOTION'); // Toggle on slow motion
+    }
+
+    currentSpeed = speed;
+    showSpeedIndicatorBriefly();
+  }
+
+  function showSpeedIndicatorBriefly() {
+    showSpeedIndicator = true;
+    if (speedIndicatorTimeout) clearTimeout(speedIndicatorTimeout);
+    speedIndicatorTimeout = setTimeout(() => {
+      showSpeedIndicator = false;
+    }, 2000);
+  }
+
   onMount(() => {
     if (isHost) {
       initEmulator();
@@ -421,6 +466,8 @@
     if (cleanupP1) cleanupP1();
     if (cleanupP2) cleanupP2();
 
+    if (speedIndicatorTimeout) clearTimeout(speedIndicatorTimeout);
+
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
     document.removeEventListener('fullscreenchange', handleFullscreenChange);
@@ -430,6 +477,24 @@
 <div class="emulator-container" bind:this={emulatorContainer}>
   {#if isHost}
     <canvas bind:this={canvas} />
+
+    {#if showSpeedIndicator}
+      <div class="speed-indicator" class:fast={currentSpeed === 'fast'} class:slow={currentSpeed === 'slow'}>
+        <div class="speed-icon">⚡</div>
+        <div class="speed-text">
+          {#if currentSpeed === 'fast'}
+            MAX
+          {:else if currentSpeed === 'slow'}
+            0.5x
+          {:else}
+            1x
+          {/if}
+        </div>
+        <div class="speed-hint">
+          Tab: Toggle
+        </div>
+      </div>
+    {/if}
   {:else}
     <div class="guest-message">
       <p>Waiting for host stream...</p>
@@ -467,5 +532,70 @@
   .guest-message {
     color: #aaa;
     text-align: center;
+  }
+
+  .speed-indicator {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.85);
+    border: 2px solid #4a9eff;
+    border-radius: 12px;
+    padding: 16px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    animation: slideIn 0.3s ease-out;
+    box-shadow: 0 4px 20px rgba(74, 158, 255, 0.3);
+  }
+
+  .speed-indicator.fast {
+    border-color: #ff4a4a;
+    box-shadow: 0 4px 20px rgba(255, 74, 74, 0.3);
+  }
+
+  .speed-indicator.slow {
+    border-color: #4aff4a;
+    box-shadow: 0 4px 20px rgba(74, 255, 74, 0.3);
+  }
+
+  .speed-icon {
+    font-size: 32px;
+    animation: pulse 1s ease-in-out infinite;
+  }
+
+  .speed-text {
+    font-size: 28px;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  }
+
+  .speed-hint {
+    font-size: 11px;
+    color: #aaa;
+    margin-top: 4px;
+    text-align: center;
+  }
+
+  @keyframes slideIn {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes pulse {
+    0%, 100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.1);
+    }
   }
 </style>
