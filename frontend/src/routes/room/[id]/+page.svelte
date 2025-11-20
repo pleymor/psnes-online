@@ -49,13 +49,15 @@
   let guestStream: MediaStream | null = null; // Store stream until video element is ready
   let connectionStatus: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
   let gamepadPollInterval: number | null = null;
+  let frameTimestampInterval: number | null = null;
   let lastGamepadState: Record<string, boolean> = {};
 
   // Latency tracking for guest
   let inputLatency = 0;
+  let videoLatency = 0;
   let totalLatency = 0;
   let latencyHistoryInput: number[] = [];
-  let latencyHistoryTotal: number[] = [];
+  let latencyHistoryVideo: number[] = [];
   const LATENCY_HISTORY_SIZE = 10;
 
   // P2P connection info
@@ -189,17 +191,21 @@
               latencyHistoryInput.shift();
             }
             inputLatency = latencyHistoryInput.reduce((a, b) => a + b, 0) / latencyHistoryInput.length;
+          }
 
-            // Estimate total latency (input + 1-2 frames for video encoding/decoding)
-            // At 60fps, 2 frames = ~33ms
-            const estimatedVideoLatency = 33;
-            const totalLat = latency + estimatedVideoLatency;
+          // Handle frame timestamp from host (for guest measuring video latency)
+          if (data.type === 'frame_timestamp' && playerPort === 2) {
+            const now = performance.now();
+            const frameTime = data.timestamp;
+            const vidLatency = now - frameTime;
 
-            latencyHistoryTotal.push(totalLat);
-            if (latencyHistoryTotal.length > LATENCY_HISTORY_SIZE) {
-              latencyHistoryTotal.shift();
+            // Update video latency
+            latencyHistoryVideo.push(vidLatency);
+            if (latencyHistoryVideo.length > LATENCY_HISTORY_SIZE) {
+              latencyHistoryVideo.shift();
             }
-            totalLatency = latencyHistoryTotal.reduce((a, b) => a + b, 0) / latencyHistoryTotal.length;
+            videoLatency = latencyHistoryVideo.reduce((a, b) => a + b, 0) / latencyHistoryVideo.length;
+            totalLatency = inputLatency + videoLatency;
           }
         },
         onConnect: async () => {
@@ -216,13 +222,35 @@
               }
             }, 2000);
           }
+
+          // Host: Send frame timestamps for video latency measurement
+          if (playerPort === 1 && p2pManager) {
+            // Send a timestamp every ~250ms (15 frames at 60fps)
+            frameTimestampInterval = window.setInterval(() => {
+              if (p2pManager && connectionStatus === 'connected') {
+                p2pManager.sendData({
+                  type: 'frame_timestamp',
+                  timestamp: performance.now()
+                });
+              }
+            }, 250);
+            console.log('📹 Started sending frame timestamps for video latency measurement');
+          }
         },
         onClose: () => {
           connectionStatus = 'disconnected';
+          if (frameTimestampInterval) {
+            clearInterval(frameTimestampInterval);
+            frameTimestampInterval = null;
+          }
         },
         onError: (err) => {
           console.error('P2P error:', err);
           connectionStatus = 'disconnected';
+          if (frameTimestampInterval) {
+            clearInterval(frameTimestampInterval);
+            frameTimestampInterval = null;
+          }
         }
       });
 
@@ -565,6 +593,12 @@
     // Stop gamepad polling
     stopGamepadPolling();
 
+    // Stop frame timestamp interval
+    if (frameTimestampInterval) {
+      clearInterval(frameTimestampInterval);
+      frameTimestampInterval = null;
+    }
+
     // Cleanup P2P connection
     if (p2pManager) {
       p2pManager.destroy();
@@ -718,10 +752,16 @@
                 <span class="latency-name">Input:</span>
                 <span class="latency-value">{inputLatency.toFixed(1)}ms</span>
               </div>
-              <div class="latency-row">
-                <span class="latency-name">Input+Image:</span>
-                <span class="latency-value">{totalLatency.toFixed(1)}ms</span>
-              </div>
+              {#if videoLatency > 0}
+                <div class="latency-row">
+                  <span class="latency-name">Video:</span>
+                  <span class="latency-value">{videoLatency.toFixed(1)}ms</span>
+                </div>
+                <div class="latency-row">
+                  <span class="latency-name">Total:</span>
+                  <span class="latency-value" style="font-weight: 600;">{totalLatency.toFixed(1)}ms</span>
+                </div>
+              {/if}
               <div class="latency-separator"></div>
               <div class="latency-row">
                 <span class="latency-name">Type:</span>
