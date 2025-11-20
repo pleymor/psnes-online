@@ -55,7 +55,10 @@ export class P2PManager {
               { urls: 'stun:stun.l.google.com:19302' },
               { urls: 'stun:stun1.l.google.com:19302' },
               { urls: 'stun:stun2.l.google.com:19302' }
-            ]
+            ],
+            // Prefer direct P2P connection, avoid relay servers
+            iceTransportPolicy: 'all', // 'all' tries direct first, 'relay' forces TURN
+            iceCandidatePoolSize: 10 // Pre-gather ICE candidates for faster connection
           }
         });
 
@@ -76,6 +79,10 @@ export class P2PManager {
           this.callbacks.onConnect?.();
           if (!connectionResolved) {
             connectionResolved = true;
+
+            // Log connection type for diagnostics
+            this.logConnectionType();
+
             resolve();
           }
         });
@@ -190,6 +197,50 @@ export class P2PManager {
   }
 
   /**
+   * Log connection type (direct P2P vs relayed)
+   */
+  private async logConnectionType(): Promise<void> {
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for ICE to complete
+
+      const stats = await this.getStats();
+      if (!stats) return;
+
+      for (const [, stat] of stats) {
+        if (stat.type === 'candidate-pair' && stat.state === 'succeeded') {
+          const localCandidate = [...stats.values()].find(
+            s => s.type === 'local-candidate' && s.id === stat.localCandidateId
+          );
+          const remoteCandidate = [...stats.values()].find(
+            s => s.type === 'remote-candidate' && s.id === stat.remoteCandidateId
+          );
+
+          const localType = (localCandidate as any)?.candidateType || 'unknown';
+          const remoteType = (remoteCandidate as any)?.candidateType || 'unknown';
+
+          console.log('🔗 P2P Connection established:');
+          console.log(`   Local: ${localType} (${(localCandidate as any)?.protocol})`);
+          console.log(`   Remote: ${remoteType} (${(remoteCandidate as any)?.protocol})`);
+
+          // Check if it's a direct connection
+          if (localType === 'host' || localType === 'srflx') {
+            console.log('   ✅ DIRECT P2P CONNECTION - Optimal latency!');
+          } else if (localType === 'relay') {
+            console.warn('   ⚠️ RELAYED CONNECTION - May have higher latency');
+          }
+
+          // Log estimated RTT
+          if (stat.currentRoundTripTime) {
+            console.log(`   RTT: ${(stat.currentRoundTripTime * 1000).toFixed(1)}ms`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to log connection type:', error);
+    }
+  }
+
+  /**
    * Get connection stats for monitoring
    */
   async getStats(): Promise<RTCStatsReport | null> {
@@ -206,6 +257,41 @@ export class P2PManager {
     }
 
     return null;
+  }
+
+  /**
+   * Get connection quality metrics
+   */
+  async getConnectionMetrics(): Promise<{
+    type: string;
+    rtt: number;
+    bytesReceived: number;
+    bytesSent: number;
+  } | null> {
+    const stats = await this.getStats();
+    if (!stats) return null;
+
+    let connectionType = 'unknown';
+    let rtt = 0;
+    let bytesReceived = 0;
+    let bytesSent = 0;
+
+    for (const [, stat] of stats) {
+      if (stat.type === 'candidate-pair' && stat.state === 'succeeded') {
+        const localCandidate = [...stats.values()].find(
+          s => s.type === 'local-candidate' && s.id === stat.localCandidateId
+        );
+        connectionType = (localCandidate as any)?.candidateType || 'unknown';
+        rtt = (stat.currentRoundTripTime || 0) * 1000; // Convert to ms
+      }
+
+      if (stat.type === 'transport') {
+        bytesReceived = stat.bytesReceived || 0;
+        bytesSent = stat.bytesSent || 0;
+      }
+    }
+
+    return { type: connectionType, rtt, bytesReceived, bytesSent };
   }
 
   /**

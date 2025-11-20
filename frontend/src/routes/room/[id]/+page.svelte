@@ -58,6 +58,10 @@
   let latencyHistoryTotal: number[] = [];
   const LATENCY_HISTORY_SIZE = 10;
 
+  // P2P connection info
+  let connectionType = 'connecting';
+  let connectionRTT = 0;
+
   $: roomId = data.roomId;
 
   // Get current user's key configuration - prefer user's personal config, then room config, then defaults
@@ -168,8 +172,20 @@
             totalLatency = latencyHistoryTotal.reduce((a, b) => a + b, 0) / latencyHistoryTotal.length;
           }
         },
-        onConnect: () => {
+        onConnect: async () => {
           connectionStatus = 'connected';
+
+          // Get connection metrics for display
+          if (playerPort === 2 && p2pManager) {
+            setTimeout(async () => {
+              const metrics = await p2pManager!.getConnectionMetrics();
+              if (metrics) {
+                connectionType = metrics.type;
+                connectionRTT = metrics.rtt;
+                console.log('📊 Connection metrics:', metrics);
+              }
+            }, 2000);
+          }
         },
         onClose: () => {
           connectionStatus = 'disconnected';
@@ -636,7 +652,7 @@
           <!-- Latency indicator for guest -->
           {#if connectionStatus === 'connected' && playerPort === 2}
             <div class="latency-indicator">
-              <div class="latency-label">Latence</div>
+              <div class="latency-label">Latence Guest</div>
               <div class="latency-row">
                 <span class="latency-name">Input:</span>
                 <span class="latency-value">{inputLatency.toFixed(1)}ms</span>
@@ -645,6 +661,27 @@
                 <span class="latency-name">Input+Image:</span>
                 <span class="latency-value">{totalLatency.toFixed(1)}ms</span>
               </div>
+              <div class="latency-separator"></div>
+              <div class="latency-row">
+                <span class="latency-name">Type:</span>
+                <span class="latency-value" class:p2p-direct={connectionType === 'host' || connectionType === 'srflx'} class:p2p-relay={connectionType === 'relay'}>
+                  {#if connectionType === 'host'}
+                    Direct P2P ✓
+                  {:else if connectionType === 'srflx'}
+                    P2P (STUN) ✓
+                  {:else if connectionType === 'relay'}
+                    Relayed ⚠
+                  {:else}
+                    {connectionType}
+                  {/if}
+                </span>
+              </div>
+              {#if connectionRTT > 0}
+                <div class="latency-row">
+                  <span class="latency-name">Network RTT:</span>
+                  <span class="latency-value">{connectionRTT.toFixed(1)}ms</span>
+                </div>
+              {/if}
             </div>
           {/if}
         </div>
@@ -887,5 +924,21 @@
     font-weight: bold;
     font-size: 12px;
     text-shadow: 0 0 4px rgba(74, 255, 74, 0.5);
+  }
+
+  .latency-value.p2p-direct {
+    color: #00ff00;
+    text-shadow: 0 0 6px rgba(0, 255, 0, 0.7);
+  }
+
+  .latency-value.p2p-relay {
+    color: #ffaa00;
+    text-shadow: 0 0 6px rgba(255, 170, 0, 0.7);
+  }
+
+  .latency-separator {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.2);
+    margin: 4px 0;
   }
 </style>
