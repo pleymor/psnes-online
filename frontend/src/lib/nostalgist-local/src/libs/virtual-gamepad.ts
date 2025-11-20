@@ -55,6 +55,12 @@ export class VirtualGamepad implements Gamepad {
       this.buttons[index].touched = true
       this.buttons[index].value = 1
       console.log(`🎮 Virtual gamepad: Button ${button} (${index}) pressed`, this.buttons[index])
+
+      // Also update axes for D-pad (RetroArch expects D-pad on axes)
+      if (button === 'left') this.axes[0] = -1
+      else if (button === 'right') this.axes[0] = 1
+      else if (button === 'up') this.axes[1] = -1
+      else if (button === 'down') this.axes[1] = 1
     } else {
       console.warn(`⚠️ Unknown button: ${button}`)
     }
@@ -71,6 +77,10 @@ export class VirtualGamepad implements Gamepad {
       this.buttons[index].touched = false
       this.buttons[index].value = 0
       console.log(`🎮 Virtual gamepad: Button ${button} (${index}) released`, this.buttons[index])
+
+      // Also reset axes for D-pad
+      if (button === 'left' || button === 'right') this.axes[0] = 0
+      else if (button === 'up' || button === 'down') this.axes[1] = 0
     }
   }
 
