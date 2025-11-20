@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { User } from '../types/index.js';
@@ -25,7 +25,7 @@ const storage = multer.diskStorage({
     cb(null, romsDir);
   },
   filename: (req, file, cb) => {
-    const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
+    const uniqueName = `${randomUUID()}${path.extname(file.originalname)}`;
     cb(null, uniqueName);
   }
 });
@@ -164,6 +164,36 @@ gamesRouter.delete('/:gameId', async (req, res) => {
   });
 
   res.json({ message: 'Game deleted' });
+});
+
+// Download ROM file (for client-side emulation)
+gamesRouter.get('/:gameId/download', async (req, res) => {
+  const user = req.user as User;
+  const { gameId } = req.params;
+
+  const game = await prisma.game.findUnique({
+    where: { id: gameId }
+  });
+
+  if (!game) {
+    return res.status(404).json({ error: 'Game not found' });
+  }
+
+  if (game.userId !== user.id) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  // Check if ROM file exists
+  try {
+    await fs.access(game.romPath);
+  } catch (error) {
+    return res.status(404).json({ error: 'ROM file not found on server' });
+  }
+
+  // Send ROM file
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${game.filename}"`);
+  res.sendFile(path.resolve(game.romPath));
 });
 
 // Get game saves

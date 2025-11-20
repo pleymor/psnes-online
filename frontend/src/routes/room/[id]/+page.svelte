@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { browser } from '$app/environment';
   import { socket } from '$lib/api/socket';
   import { goto } from '$app/navigation';
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
-  import GameCanvas from '$lib/components/GameCanvas.svelte';
+  import ClientEmulator from '$lib/components/ClientEmulator.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
   import PauseMenu from '$lib/components/PauseMenu.svelte';
+  import { P2PManager, captureCanvasStream } from '$lib/webrtc/p2p-manager';
   import type { Room, KeyConfig } from '$lib/types';
 
   export let data;
@@ -34,15 +35,293 @@
     select: 'ShiftRight'
   };
 
+  let keyConfig: KeyConfig = userKeyConfig; // Will be updated by reactive statement
+
+  // Client-side emulator state
+  let emulatorComponent: ClientEmulator;
+  let emulatorInstance: any;
+  let p2pManager: P2PManager | null = null;
+  let romData: ArrayBuffer | null = null;
+  let loading = false;
+  let error: string | null = null;
+  let guestVideoElement: HTMLVideoElement;
+  let guestStream: MediaStream | null = null; // Store stream until video element is ready
+  let connectionStatus: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
+  let gamepadPollInterval: number | null = null;
+  let lastGamepadState: Record<string, boolean> = {};
+
   $: roomId = data.roomId;
 
   // Get current user's key configuration - prefer user's personal config, then room config, then defaults
   $: currentPlayer = room?.players.find(p => p.userId === $user?.id);
-  $: keyConfig = currentPlayer?.keyConfig || userKeyConfig;
+  $: {
+    keyConfig = currentPlayer?.keyConfig || userKeyConfig;
+  }
   $: playerPort = (currentPlayer?.port ?? null) as 1 | 2 | null; // Get player's selected port (null if spectator)
+
+  // Determine if current player is the host (Player 1)
+  $: isHost = playerPort === 1;
+  $: isGuest = playerPort === 2 || playerPort === null; // Player 2 or spectator
 
   // Check if at least one player is ready (has a port)
   $: canStartGame = room?.players.some(p => p.port !== null && p.isReady) ?? false;
+
+  // Attach stream to video element when both are available
+  $: if (guestVideoElement && guestStream) {
+    guestVideoElement.srcObject = guestStream;
+    guestVideoElement.play().catch(err => console.error('Failed to play video:', err));
+  }
+
+  async function loadROM() {
+    if (!room?.gameId) return;
+
+    try {
+      loading = true;
+      const response = await fetch(`/api/games/${room.gameId}/download`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load ROM');
+      }
+
+      romData = await response.arrayBuffer();
+      loading = false;
+
+    } catch (err) {
+      console.error('Failed to load ROM:', err);
+      error = 'Failed to load game';
+      loading = false;
+    }
+  }
+
+  async function setupP2PConnection() {
+    if (!$socket) {
+      console.error('❌ Cannot setup P2P: Socket not connected');
+      error = 'Socket not connected';
+      return;
+    }
+
+    try {
+      connectionStatus = 'connecting';
+
+      // Join the P2P room via Socket.IO
+      await new Promise<void>((resolve) => {
+        $socket!.emit('p2p:join', { roomId });
+        $socket!.once('p2p:joined', () => {
+          resolve();
+        });
+      });
+
+      // Initialize P2P manager
+      p2pManager = new P2PManager($socket, roomId, isHost, {
+        onStream: (stream) => {
+          // Store stream - reactive statement will attach it when video element is ready
+          guestStream = stream;
+          connectionStatus = 'connected';
+        },
+        onData: (data) => {
+          // Handle remote input (for host receiving guest input)
+          if (data.type === 'input' && playerPort === 1) {
+            emulatorComponent?.handleRemoteInput(data.button, data.pressed);
+          }
+        },
+        onConnect: () => {
+          connectionStatus = 'connected';
+        },
+        onClose: () => {
+          connectionStatus = 'disconnected';
+        },
+        onError: (err) => {
+          console.error('P2P error:', err);
+          connectionStatus = 'disconnected';
+        }
+      });
+
+      // If host, wait for emulator to be ready, then capture stream
+      if (isHost) {
+        // Wait for emulator initialization
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Get canvas from emulator component
+        const canvas = emulatorComponent?.getCanvas();
+
+        if (canvas) {
+          const stream = captureCanvasStream(canvas, 60);
+          await p2pManager.initConnection(stream);
+        } else {
+          throw new Error('Failed to get canvas from emulator');
+        }
+      } else {
+        // Guest: just init connection (no local stream)
+        await p2pManager.initConnection();
+      }
+
+    } catch (err) {
+      console.error('Failed to setup P2P:', err);
+      error = 'Failed to establish peer connection';
+    }
+  }
+
+  function handleEmulatorReady(event: CustomEvent) {
+    emulatorInstance = event.detail.emulator;
+
+    // Setup P2P after emulator is ready (host only)
+    if (isHost) {
+      setupP2PConnection();
+    } else {
+    }
+  }
+
+  function handleGuestKeyDown(e: KeyboardEvent) {
+    // Guest sends their input to host via P2P
+    if (!isGuest || !p2pManager || playerPort !== 2) return;
+
+    for (const [button, keyCode] of Object.entries(keyConfig)) {
+      if (e.code === keyCode) {
+        e.preventDefault();
+        p2pManager.sendData({
+          type: 'input',
+          button,
+          pressed: true
+        });
+        break;
+      }
+    }
+  }
+
+  function handleGuestKeyUp(e: KeyboardEvent) {
+    if (!isGuest || !p2pManager || playerPort !== 2) return;
+
+    for (const [button, keyCode] of Object.entries(keyConfig)) {
+      if (e.code === keyCode) {
+        e.preventDefault();
+        p2pManager.sendData({
+          type: 'input',
+          button,
+          pressed: false
+        });
+        break;
+      }
+    }
+  }
+
+  function pollGamepad() {
+    if (!isGuest || !p2pManager || playerPort !== 2) {
+      // Debug: log why we're not polling
+      return;
+    }
+
+    // IMPORTANT: Only poll gamepad when THIS window has focus
+    // This prevents both host and guest from polling the same physical gamepad
+    if (!document.hasFocus()) {
+      return;
+    }
+
+    const gamepads = navigator.getGamepads();
+    let physicalGamepadIndex = 0; // Remap physical gamepads to start from index 0
+
+    // Debug: log gamepad detection (only once per second to avoid spam)
+    if (Math.random() < 0.016) { // ~1/60th of the time
+    }
+
+    for (let i = 0; i < gamepads.length; i++) {
+      const gamepad = gamepads[i];
+      if (!gamepad) continue;
+
+      // Skip virtual gamepads - only poll real physical controllers
+      if (gamepad.id.includes('Virtual Gamepad')) {
+        continue;
+      }
+
+      // Use remapped index for config matching (physical gamepads start from 0)
+      const configIndex = physicalGamepadIndex;
+      physicalGamepadIndex++;
+
+
+      // Check buttons
+      for (let j = 0; j < gamepad.buttons.length; j++) {
+        const inputCode = `Gamepad${configIndex}Button${j}`; // Use config index
+        const isPressed = gamepad.buttons[j].pressed;
+        const wasPressed = lastGamepadState[inputCode] || false;
+
+        if (isPressed !== wasPressed) {
+          lastGamepadState[inputCode] = isPressed;
+
+          // Find which button this input is mapped to
+          for (const [button, mappedInput] of Object.entries(keyConfig)) {
+            if (mappedInput === inputCode) {
+              p2pManager.sendData({
+                type: 'input',
+                button,
+                pressed: isPressed
+              });
+              break;
+            }
+          }
+        }
+      }
+
+      // Check axes (for d-pad on some controllers)
+      for (let j = 0; j < gamepad.axes.length; j++) {
+        const axisValue = gamepad.axes[j];
+
+        // Check positive direction
+        const inputCodePlus = `Gamepad${configIndex}Axis${j}Plus`; // Use config index
+        const isPressedPlus = axisValue > 0.5;
+        const wasPressedPlus = lastGamepadState[inputCodePlus] || false;
+
+        if (isPressedPlus !== wasPressedPlus) {
+          lastGamepadState[inputCodePlus] = isPressedPlus;
+
+          for (const [button, mappedInput] of Object.entries(keyConfig)) {
+            if (mappedInput === inputCodePlus) {
+              p2pManager.sendData({
+                type: 'input',
+                button,
+                pressed: isPressedPlus
+              });
+              break;
+            }
+          }
+        }
+
+        // Check negative direction
+        const inputCodeMinus = `Gamepad${configIndex}Axis${j}Minus`; // Use config index
+        const isPressedMinus = axisValue < -0.5;
+        const wasPressedMinus = lastGamepadState[inputCodeMinus] || false;
+
+        if (isPressedMinus !== wasPressedMinus) {
+          lastGamepadState[inputCodeMinus] = isPressedMinus;
+
+          for (const [button, mappedInput] of Object.entries(keyConfig)) {
+            if (mappedInput === inputCodeMinus) {
+              p2pManager.sendData({
+                type: 'input',
+                button,
+                pressed: isPressedMinus
+              });
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  function startGamepadPolling() {
+    if (gamepadPollInterval !== null) return; // Already polling
+
+    gamepadPollInterval = window.setInterval(pollGamepad, 16); // Poll at ~60Hz
+  }
+
+  function stopGamepadPolling() {
+    if (gamepadPollInterval !== null) {
+      clearInterval(gamepadPollInterval);
+      gamepadPollInterval = null;
+      lastGamepadState = {};
+    }
+  }
 
   onMount(async () => {
     if (!$socket) {
@@ -71,21 +350,55 @@
       }
     });
 
-    $socket.on('game:started', () => {
+    $socket.on('game:started', async () => {
+      // Set gameStarted first so video element renders
       gameStarted = true;
+
       // Prevent scrolling when game is active
       if (browser) {
         document.body.style.overflow = 'hidden';
       }
+
+      // Wait for DOM to update
+      await tick();
+
+      if (isHost) {
+        // Host: Load ROM and run emulator
+        await loadROM();
+      } else if (isGuest) {
+        // Guest: Setup P2P to receive stream (no ROM needed)
+        // Video element should now exist, so stream can be attached
+        await setupP2PConnection();
+
+        // Listen for guest keyboard input (Player 2 only)
+        window.addEventListener('keydown', handleGuestKeyDown);
+        window.addEventListener('keyup', handleGuestKeyUp);
+
+        // Start polling for gamepad input
+        startGamepadPolling();
+      }
     });
 
     $socket.on('game:resumed', () => {
+      if (isHost && emulatorComponent) {
+        emulatorComponent.resume();
+      }
       showPauseMenu = false;
     });
 
     $socket.on('game:stopped', () => {
       gameStarted = false;
       showPauseMenu = false;
+
+      // Stop gamepad polling
+      stopGamepadPolling();
+
+      // Cleanup P2P connection
+      if (p2pManager) {
+        p2pManager.destroy();
+        p2pManager = null;
+      }
+
       // Restore scrolling
       if (browser) {
         document.body.style.overflow = '';
@@ -106,8 +419,20 @@
       $socket.off('game:resumed');
       $socket.off('game:stopped');
     }
+
+    // Stop gamepad polling
+    stopGamepadPolling();
+
+    // Cleanup P2P connection
+    if (p2pManager) {
+      p2pManager.destroy();
+      p2pManager = null;
+    }
+
     if (browser) {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keydown', handleGuestKeyDown);
+      window.removeEventListener('keyup', handleGuestKeyUp);
       // Restore scrolling when leaving the page
       document.body.style.overflow = '';
     }
@@ -116,9 +441,17 @@
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape' && gameStarted) {
       if (!showPauseMenu) {
+        // Pause the game
+        if (isHost && emulatorComponent) {
+          emulatorComponent.pause();
+        }
         $socket?.emit('game:pause', { roomId });
         showPauseMenu = true;
       } else {
+        // Resume the game
+        if (isHost && emulatorComponent) {
+          emulatorComponent.resume();
+        }
         $socket?.emit('game:resume', { roomId });
       }
     }
@@ -180,14 +513,59 @@
       {/if}
     </div>
   {:else}
-    <GameCanvas {roomId} {keyConfig} port={playerPort} />
+    <!-- Game canvas container -->
+    <div class="game-canvas-container">
+      {#if loading}
+        <div class="loading-overlay">
+          <p>Loading game...</p>
+        </div>
+      {:else if error}
+        <div class="error-overlay">
+          <p>❌ {error}</p>
+        </div>
+      {:else if isHost && romData}
+        <!-- Host: Run emulator locally -->
+        <ClientEmulator
+          {romData}
+          {keyConfig}
+          {isHost}
+          on:ready={handleEmulatorReady}
+          bind:this={emulatorComponent}
+        />
+      {:else if isGuest}
+        <!-- Guest: Receive video stream -->
+        <div class="guest-stream">
+          {#if connectionStatus === 'connecting'}
+            <div class="connection-status">
+              <p>🔄 Connecting to host...</p>
+            </div>
+          {:else if connectionStatus === 'disconnected'}
+            <div class="connection-status error">
+              <p>❌ Connection lost</p>
+            </div>
+          {/if}
+          <video
+            bind:this={guestVideoElement}
+            autoplay
+            playsinline
+            muted={false}
+            style="max-width: 100%; max-height: 100%; image-rendering: pixelated;"
+          />
+        </div>
+      {/if}
+    </div>
 
     {#if showPauseMenu}
       <PauseMenu
         {roomId}
         gameId={room?.gameId || ''}
         {keyConfig}
-        on:resume={() => $socket?.emit('game:resume', { roomId })}
+        on:resume={() => {
+          if (isHost && emulatorComponent) {
+            emulatorComponent.resume();
+          }
+          $socket?.emit('game:resume', { roomId });
+        }}
         on:quit={() => $socket?.emit('game:stop', { roomId })}
         on:saved={handleControlsSaved}
         on:notification={handleNotification}
@@ -312,5 +690,61 @@
       transform: translateX(0);
       opacity: 1;
     }
+  }
+
+  /* Game canvas container */
+  .game-canvas-container {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+  }
+
+  .loading-overlay, .error-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    font-size: 1.2rem;
+    z-index: 10;
+  }
+
+  .error-overlay {
+    color: #f44336;
+  }
+
+  .guest-stream {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .guest-stream video {
+    max-width: 100%;
+    max-height: 100%;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  .connection-status {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 1rem 2rem;
+    background: rgba(0, 0, 0, 0.85);
+    border-radius: 8px;
+    z-index: 5;
+  }
+
+  .connection-status.error {
+    border: 2px solid #f44336;
   }
 </style>

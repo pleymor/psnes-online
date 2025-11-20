@@ -92,16 +92,31 @@
     stopGamepadPolling(); // Clear any existing interval
 
     gamepadPollInterval = window.setInterval(() => {
-      const gamepads = navigator.getGamepads();
+      // Use original getGamepads if available (when called from emulator with virtual gamepads)
+      // Otherwise use normal navigator.getGamepads (when called from homepage)
+      const getGamepads = (window as any).__originalGetGamepads || navigator.getGamepads.bind(navigator);
+      const gamepads = getGamepads();
+
+      // Remap physical gamepad indices (skip virtual gamepads)
+      let physicalGamepadIndex = 0;
 
       for (let i = 0; i < gamepads.length; i++) {
         const gamepad = gamepads[i];
         if (!gamepad) continue;
 
+        // Skip virtual gamepads when detecting input for config
+        if (gamepad.id.includes('Virtual Gamepad')) {
+          continue;
+        }
+
+        // Use remapped index for physical gamepads (starts from 0)
+        const configIndex = physicalGamepadIndex;
+        physicalGamepadIndex++;
+
         // Check buttons
         for (let j = 0; j < gamepad.buttons.length; j++) {
           if (gamepad.buttons[j].pressed) {
-            handleGamepadInput(`Gamepad${i}Button${j}`);
+            handleGamepadInput(`Gamepad${configIndex}Button${j}`);
             return;
           }
         }
@@ -111,7 +126,7 @@
           const axisValue = gamepad.axes[j];
           if (Math.abs(axisValue) > 0.5) {
             const direction = axisValue > 0 ? 'Plus' : 'Minus';
-            handleGamepadInput(`Gamepad${i}Axis${j}${direction}`);
+            handleGamepadInput(`Gamepad${configIndex}Axis${j}${direction}`);
             return;
           }
         }

@@ -1,7 +1,6 @@
 import { Server, Socket } from 'socket.io';
 import { Room, RoomPlayer, User, GameInput, KeyConfig } from '../types/index.js';
-import { v4 as uuidv4 } from 'uuid';
-import { EmulatorManager } from '../emulator/manager.js';
+import { randomUUID } from 'crypto';
 import { prisma } from '../db/prisma.js';
 import { cache } from '../utils/cache.js';
 
@@ -22,7 +21,6 @@ export function getUserSocket(userId: string): string | undefined {
 
 export function initializeWebSocket(io: Server) {
   ioInstance = io;
-  const emulatorManager = new EmulatorManager();
 
   io.on('connection', async (socket: Socket) => {
     console.log('Client connected:', socket.id);
@@ -63,7 +61,7 @@ export function initializeWebSocket(io: Server) {
 
     // Create room
     socket.on('room:create', async (data: { gameId: string; gameTitle: string }) => {
-      const roomId = uuidv4();
+      const roomId = randomUUID();
       const userKeyConfig = await getUserKeyConfig(user.id);
 
       const room: Room = {
@@ -139,7 +137,7 @@ export function initializeWebSocket(io: Server) {
 
     // Leave room
     socket.on('room:leave', (data: { roomId: string }) => {
-      handleLeaveRoom(io, socket, data.roomId, emulatorManager);
+      handleLeaveRoom(io, socket, data.roomId);
     });
 
     // Select controller port
@@ -203,7 +201,7 @@ export function initializeWebSocket(io: Server) {
       io.to(data.roomId).emit('room:updated', room);
     });
 
-    // Start game
+    // Start game (client-side emulation)
     socket.on('game:start', async (data: { roomId: string }) => {
       const room = rooms.get(data.roomId);
       if (!room) return;
@@ -221,74 +219,45 @@ export function initializeWebSocket(io: Server) {
       // Notify friends that the game started
       await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'playing');
 
-      // Start emulator
-      try {
-        await emulatorManager.startEmulator(room.id, room.gameId);
-
-        // Remove any existing listeners to prevent duplicates
-        emulatorManager.removeAllListeners(`frame:${room.id}`);
-        emulatorManager.removeAllListeners(`audio:${room.id}`);
-
-        // Start streaming - use named functions for easier cleanup
-        const frameHandler = (frameData: any) => {
-          io.to(room.id).emit('game:frame', frameData);
-        };
-
-        const audioHandler = (audioData: any) => {
-          io.to(room.id).emit('game:audio', audioData);
-        };
-
-        emulatorManager.on(`frame:${room.id}`, frameHandler);
-        emulatorManager.on(`audio:${room.id}`, audioHandler);
-
-        io.to(room.id).emit('game:started');
-      } catch (error) {
-        console.error('Failed to start emulator:', error);
-        socket.emit('error', { message: 'Failed to start game' });
-        room.status = 'waiting';
-      }
+      // Client-side emulation: Just notify clients to start their emulators
+      // No server-side emulator needed - P1 (host) runs emulator and streams via WebRTC
+      io.to(room.id).emit('game:started');
+      console.log(`✅ Game started for room ${room.id} (client-side emulation)`);
     });
 
-    // Game input - with timestamp for latency tracking
-    socket.on('game:input', (data: { roomId: string; input: GameInput & { timestamp?: number } }) => {
-      emulatorManager.handleInput(data.roomId, data.input);
-
-      // Store timestamp for next frame emission
-      if (data.input.timestamp) {
-        emulatorManager.setInputTimestamp(data.roomId, data.input.timestamp);
-      }
+    // Game input - NO LONGER NEEDED (client-side emulation)
+    // Input is handled locally on host client or sent via P2P from guests
+    socket.on('game:input', (_data: { roomId: string; input: GameInput & { timestamp?: number } }) => {
+      // No-op for client-side emulation
+      // Kept for backwards compatibility but does nothing
     });
 
-    // Pause game
+    // Pause game (client-side emulation)
     socket.on('game:pause', (data: { roomId: string }) => {
       const room = rooms.get(data.roomId);
       if (!room) return;
 
-      emulatorManager.pauseEmulator(room.id);
+      // Client-side emulation: Pause is handled on host client
       room.status = 'paused';
       io.to(data.roomId).emit('game:paused');
     });
 
-    // Resume game
+    // Resume game (client-side emulation)
     socket.on('game:resume', (data: { roomId: string }) => {
       const room = rooms.get(data.roomId);
       if (!room) return;
 
-      emulatorManager.resumeEmulator(room.id);
+      // Client-side emulation: Resume is handled on host client
       room.status = 'playing';
       io.to(data.roomId).emit('game:resumed');
     });
 
-    // Stop game
+    // Stop game (client-side emulation)
     socket.on('game:stop', async (data: { roomId: string }) => {
       const room = rooms.get(data.roomId);
       if (!room) return;
 
-      // Clean up event listeners
-      emulatorManager.removeAllListeners(`frame:${room.id}`);
-      emulatorManager.removeAllListeners(`audio:${room.id}`);
-
-      await emulatorManager.stopEmulator(room.id);
+      // Client-side emulation: No server-side emulator to stop
       room.status = 'waiting';
       // Reset ready status but keep port selections
       room.players.forEach(p => {
@@ -300,50 +269,76 @@ export function initializeWebSocket(io: Server) {
       });
       io.to(data.roomId).emit('game:stopped');
       io.to(data.roomId).emit('room:updated', room);
+      console.log(`🛑 Game stopped for room ${room.id} (client-side emulation)`);
     });
 
-    // Save state
+    // Save state (client-side emulation)
+    // TODO: Implement client-side save state management
     socket.on('game:save', async (data: { roomId: string; slotNumber: number; name: string }) => {
       const room = rooms.get(data.roomId);
       if (!room) return;
 
-      try {
-        await emulatorManager.saveState(room.id, room.gameId, user.id, data.slotNumber, data.name);
-        socket.emit('game:saved', { slotNumber: data.slotNumber });
-      } catch (error) {
-        socket.emit('error', { message: 'Failed to save game' });
-      }
+      // Client-side emulation: Save state is handled on host client
+      // For now, just acknowledge - implement server-side save storage later if needed
+      socket.emit('game:saved', { slotNumber: data.slotNumber });
     });
 
-    // Load state
+    // Load state (client-side emulation)
+    // TODO: Implement client-side save state management
     socket.on('game:load', async (data: { roomId: string; saveId: string }) => {
       const room = rooms.get(data.roomId);
       if (!room) return;
 
-      try {
-        await emulatorManager.loadState(room.id, data.saveId);
-        io.to(data.roomId).emit('game:loaded', { saveId: data.saveId });
-      } catch (error) {
-        socket.emit('error', { message: 'Failed to load game' });
-      }
+      // Client-side emulation: Load state is handled on host client
+      // For now, just acknowledge - implement server-side save retrieval later if needed
+      io.to(data.roomId).emit('game:loaded', { saveId: data.saveId });
     });
 
-    // Set emulation speed
+    // Set emulation speed (client-side emulation)
     socket.on('game:setSpeed', (data: { roomId: string; speed: number }) => {
       const room = rooms.get(data.roomId);
       if (!room) return;
 
-      emulatorManager.setEmulatorSpeed(room.id, data.speed);
+      // Client-side emulation: Speed is handled on host client
+      // Just broadcast to all clients in room
       io.to(data.roomId).emit('game:speedChanged', { speed: data.speed });
     });
 
-    // Set target FPS (for performance tuning)
+    // Set target FPS (client-side emulation)
     socket.on('game:setTargetFPS', (data: { roomId: string; targetFPS: number }) => {
       const room = rooms.get(data.roomId);
       if (!room) return;
 
-      emulatorManager.setEmulatorTargetFPS(room.id, data.targetFPS);
+      // Client-side emulation: FPS is handled on host client
+      // Just broadcast to all clients in room
       io.to(data.roomId).emit('game:targetFPSChanged', { targetFPS: data.targetFPS });
+    });
+
+    // Simple P2P room join (for P2P POC/testing - no game state)
+    socket.on('p2p:join', (data: { roomId: string }) => {
+      console.log(`🔗 ${user.displayName} joining P2P room: ${data.roomId}`);
+      socket.join(data.roomId);
+
+      // Notify others in the room
+      socket.to(data.roomId).emit('p2p:peer-joined', {
+        socketId: socket.id,
+        userId: user.id,
+        displayName: user.displayName
+      });
+
+      // Send confirmation to the joiner
+      socket.emit('p2p:joined', { roomId: data.roomId });
+    });
+
+    // WebRTC Signaling (for P2P emulation)
+    socket.on('webrtc:signal', (data: { roomId: string; signal: any }) => {
+      console.log(`📡 Relaying WebRTC signal in room ${data.roomId} from ${socket.id}`);
+
+      // Forward WebRTC signal to other players in the room (except sender)
+      socket.to(data.roomId).emit('webrtc:signal', {
+        signal: data.signal,
+        from: socket.id
+      });
     });
 
     // Disconnect
@@ -356,7 +351,7 @@ export function initializeWebSocket(io: Server) {
       // Find and leave all rooms
       rooms.forEach((room, roomId) => {
         if (room.players.some(p => p.userId === user.id)) {
-          handleLeaveRoom(io, socket, roomId, emulatorManager);
+          handleLeaveRoom(io, socket, roomId);
         }
       });
 
@@ -366,14 +361,13 @@ export function initializeWebSocket(io: Server) {
     });
   });
 
-  return { rooms, emulatorManager };
+  return { rooms };
 }
 
 async function handleLeaveRoom(
   io: Server,
   socket: Socket,
-  roomId: string,
-  emulatorManager: EmulatorManager
+  roomId: string
 ) {
   const room = rooms.get(roomId);
   if (!room) return;
@@ -385,12 +379,7 @@ async function handleLeaveRoom(
   socket.leave(roomId);
 
   if (room.players.length === 0) {
-    // Room is empty, destroy it
-    // Clean up event listeners
-    emulatorManager.removeAllListeners(`frame:${roomId}`);
-    emulatorManager.removeAllListeners(`audio:${roomId}`);
-    await emulatorManager.stopEmulator(roomId);
-
+    // Room is empty, destroy it (client-side emulation - no cleanup needed)
     // Notify friends before deleting the room
     await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'destroyed');
 

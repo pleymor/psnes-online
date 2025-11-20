@@ -1,0 +1,715 @@
+import { coreInfoMap } from '../constants/core-info.ts'
+import { keyboardCodeMap } from '../constants/keyboard-code-map.ts'
+import { getEmscriptenModuleOverrides } from '../libs/emscripten.ts'
+import {
+  checkIsAborted,
+  delay,
+  importCoreJsAsESM,
+  installSetImmediatePolyfill,
+  padZero,
+  textEncoder,
+  uninstallSetImmediatePolyfill,
+  updateStyle,
+} from '../libs/utils.ts'
+import { vendors } from '../libs/vendors.ts'
+import { VirtualGamepad, installVirtualGamepad } from '../libs/virtual-gamepad.ts'
+import type { RetroArchCommand } from '../types/retroarch-command.ts'
+import type { RetroArchEmscriptenModule } from '../types/retroarch-emscripten'
+import { EmulatorFileSystem } from './emulator-file-system.ts'
+import type { EmulatorOptions } from './emulator-options'
+import type { ResolvableFile } from './resolvable-file.ts'
+
+const { ini, path } = vendors
+
+const interactableElements = [
+  globalThis.HTMLAnchorElement,
+  globalThis.HTMLButtonElement,
+  globalThis.HTMLDetailsElement,
+  globalThis.HTMLInputElement,
+  globalThis.HTMLSelectElement,
+  globalThis.HTMLTextAreaElement,
+].filter(Boolean)
+
+function isInteractable(element?: EventTarget | null) {
+  return element && interactableElements.some((clazz) => element instanceof clazz)
+}
+
+type GameStatus = 'initial' | 'paused' | 'running' | 'terminated'
+type EmulatorEvent = 'beforeLaunch' | 'onLaunch'
+
+interface EmulatorEmscripten {
+  AL: any
+  Browser: any
+  exit: (code: number) => void
+  JSEvents: any
+  Module: RetroArchEmscriptenModule
+}
+
+export class Emulator {
+  private canvasInitialSize = { height: 0, width: 0 }
+  private emscripten: EmulatorEmscripten | undefined
+  private eventListeners: Record<EmulatorEvent, ((...args: unknown[]) => unknown)[]> = {
+    beforeLaunch: [],
+    onLaunch: [],
+  }
+  private fileSystem: EmulatorFileSystem | undefined
+  private gameStatus: GameStatus = 'initial'
+  private globalDOMEventListeners = new Map<EventTarget, Record<string, EventListenerOrEventListenerObject>>()
+  private messageQueue: [Uint8Array, number][] = []
+  // Track input state for each player (0-indexed: 0 = player 1, 1 = player 2)
+  private playerInputStates: Map<number, Set<string>> = new Map()
+  // Virtual gamepad for Player 2
+  private virtualGamepad: VirtualGamepad | null = null
+  private cleanupVirtualGamepad: (() => void) | null = null
+
+  private options: EmulatorOptions
+
+  private get coreFullName() {
+    const { core } = this.options
+    const coreFullName = coreInfoMap[core.name].corename || core.name
+    if (!coreFullName) {
+      throw new Error(`invalid core name: ${core.name}`)
+    }
+    return coreFullName
+  }
+
+  private get fs() {
+    if (!this.fileSystem) {
+      throw new Error('fileSystem is not ready')
+    }
+    return this.fileSystem
+  }
+
+  private get romBaseName() {
+    const {
+      rom: [{ baseName }],
+    } = this.options
+    return baseName
+  }
+
+  private get sramFileDirectory() {
+    return path.join(EmulatorFileSystem.userdataDirectory, 'saves', this.coreFullName)
+  }
+
+  private get sramFilePath() {
+    return path.join(this.sramFileDirectory, `${this.romBaseName}.srm`)
+  }
+
+  private get stateFileDirectory() {
+    return path.join(EmulatorFileSystem.userdataDirectory, 'states', this.coreFullName)
+  }
+
+  private get stateFilePath() {
+    return path.join(this.stateFileDirectory, `${this.romBaseName}.state`)
+  }
+
+  private get stateThumbnailFilePath() {
+    return `${this.stateFilePath}.png`
+  }
+
+  constructor(options: EmulatorOptions) {
+    this.options = options
+  }
+
+  callCommand(command: string) {
+    const { Module } = this.getEmscripten()
+    // @ts-expect-error command may be an arbitrary string here
+    Module[command]?.()
+  }
+
+  exit(statusCode = 0) {
+    const { exit, JSEvents } = this.getEmscripten()
+    try {
+      exit(statusCode)
+    } catch {}
+    JSEvents.removeAllEventListeners()
+    this.removeGlobalDOMEventListeners()
+
+    // Cleanup virtual gamepad (if it was created by us, not pre-installed)
+    if (this.cleanupVirtualGamepad) {
+      this.cleanupVirtualGamepad()
+      this.cleanupVirtualGamepad = null
+    } else if ((window as any).__cleanupVirtualGamepad) {
+      // Cleanup pre-installed gamepad
+      (window as any).__cleanupVirtualGamepad()
+      delete (window as any).__cleanupVirtualGamepad
+      delete (window as any).__virtualGamepadP2
+    }
+
+    uninstallSetImmediatePolyfill()
+    this.gameStatus = 'terminated'
+  }
+
+  getEmscripten() {
+    if (!this.emscripten) {
+      throw new Error('emulator is not ready')
+    }
+    return this.emscripten
+  }
+
+  getOptions() {
+    return this.options
+  }
+
+  getStatus() {
+    return this.gameStatus
+  }
+
+  async launch() {
+    const { element, respondToGlobalEvents, signal, style, waitForInteraction } = this.options
+    updateStyle(element, style)
+
+    // a workaround for avoiding width and height to be deleted by these lines:
+    // https://github.com/emscripten-core/emscripten/blob/5b489fcde78f596d0b3a28f655a8d88a9bfde34a/src/lib/libglfw.js#L1262-L1263
+    const removeProperty = element.style.removeProperty.bind(element.style)
+    element.style.removeProperty = (property: string) => {
+      if (property !== 'width' && property !== 'height') {
+        return removeProperty(property)
+      }
+      return element.style[property]
+    }
+
+    if (!element.isConnected) {
+      document.body.append(element)
+      signal?.addEventListener('abort', () => {
+        element?.remove()
+      })
+    }
+    this.canvasInitialSize = this.getElementSize()
+
+    if (respondToGlobalEvents === false) {
+      if (!element.tabIndex || element.tabIndex === -1) {
+        element.tabIndex = 0
+      }
+      const { activeElement } = document
+      element.focus()
+      signal?.addEventListener('abort', () => {
+        if (activeElement instanceof HTMLElement) {
+          activeElement.focus()
+        }
+      })
+    }
+
+    await this.runEventListeners('beforeLaunch')
+
+    if (waitForInteraction) {
+      waitForInteraction({
+        done: async () => {
+          this.runMain()
+          await this.runEventListeners('onLaunch')
+        },
+      })
+    } else {
+      this.runMain()
+      await this.runEventListeners('onLaunch')
+    }
+  }
+
+  async loadState(state: ResolvableFile) {
+    this.clearStateFile()
+    await this.fs.writeFile(this.stateFilePath, state)
+    await this.fs.waitForFile(this.stateFilePath)
+    this.sendCommand('LOAD_STATE')
+  }
+
+  on(event: EmulatorEvent, callback: (...args: unknown[]) => unknown) {
+    this.eventListeners[event].push(callback)
+    return this
+  }
+
+  pause() {
+    if (this.gameStatus === 'running') {
+      this.sendCommand('PAUSE_TOGGLE')
+    }
+    this.gameStatus = 'paused'
+  }
+
+  async press(button: string, player = 1, time = 100) {
+    // Convert to 0-indexed
+    const playerIndex = player - 1
+    this.setPlayerInput(playerIndex, button, true)
+    await delay(time)
+    this.setPlayerInput(playerIndex, button, false)
+  }
+
+  pressDown(button: string, player = 1) {
+    // Convert to 0-indexed
+    const playerIndex = player - 1
+    this.setPlayerInput(playerIndex, button, true)
+  }
+
+  pressUp(button: string, player = 1) {
+    // Convert to 0-indexed
+    const playerIndex = player - 1
+    this.setPlayerInput(playerIndex, button, false)
+  }
+
+  /**
+   * New API: Set input state for a specific player and button
+   * This allows multiple players to use different controls independently
+   */
+  private setPlayerInput(playerIndex: number, button: string, pressed: boolean) {
+    if (!this.playerInputStates.has(playerIndex)) {
+      this.playerInputStates.set(playerIndex, new Set())
+    }
+
+    const playerState = this.playerInputStates.get(playerIndex)!
+
+    if (pressed) {
+      playerState.add(button)
+    } else {
+      playerState.delete(button)
+    }
+
+    // Player 1 (index 0) uses keyboard
+    // Player 2 is handled by virtual gamepad directly in ClientEmulator.svelte
+    if (playerIndex === 0) {
+      // Player 1: Use keyboard events
+      const uniqueCode = this.getUniqueInputCode(playerIndex, button)
+
+      if (pressed) {
+        this.keyboardDown(uniqueCode)
+      } else {
+        this.keyboardUp(uniqueCode)
+      }
+    }
+  }
+
+  /**
+   * Generate unique keyboard codes for each player/button to avoid conflicts
+   * Player 0 uses standard keys, Player 1+ use numpad/function keys
+   */
+  private getUniqueInputCode(playerIndex: number, button: string): string {
+    // Always use the configured keyboard mapping from RetroArch config
+    const code = this.getKeyboardCode(button, playerIndex + 1)
+
+    if (code) {
+      return code
+    }
+
+    // Fallback if no config found
+    console.warn(`⚠️ No config for P${playerIndex + 1} ${button}`)
+    return `Key${button.toUpperCase()}`
+  }
+
+  resize({ height, width }: { height: number; width: number }) {
+    const { Module } = this.getEmscripten()
+    if (typeof width === 'number' && typeof height === 'number') {
+      Module.setCanvasSize(width, height)
+    }
+  }
+
+  restart() {
+    this.sendCommand('RESET')
+    this.resume()
+  }
+
+  resume() {
+    if (this.gameStatus === 'paused') {
+      this.sendCommand('PAUSE_TOGGLE')
+    }
+    this.gameStatus = 'running'
+  }
+
+  async saveSRAM() {
+    this.fs.unlink(this.sramFilePath)
+    this.callCommand('_cmd_savefiles')
+    const buffer = await this.fs.waitForFile(this.sramFilePath)
+    const blob = new Blob([buffer], { type: 'application/octet-stream' })
+    return blob
+  }
+
+  async saveState() {
+    this.clearStateFile()
+    this.sendCommand('SAVE_STATE')
+    const savestateThumbnailEnable = this.options.retroarchConfig.savestate_thumbnail_enable
+    let stateBuffer: ArrayBufferView<ArrayBuffer>
+    let stateThumbnailBuffer: ArrayBufferView<ArrayBuffer> | undefined
+    if (savestateThumbnailEnable) {
+      ;[stateBuffer, stateThumbnailBuffer] = await Promise.all([
+        this.fs.waitForFile(this.stateFilePath),
+        this.fs.waitForFile(this.stateThumbnailFilePath),
+      ])
+    } else {
+      stateBuffer = await this.fs.waitForFile(this.stateFilePath)
+    }
+    this.clearStateFile()
+
+    const state = new Blob([stateBuffer], { type: 'application/octet-stream' })
+    const thumbnail = stateThumbnailBuffer ? new Blob([stateThumbnailBuffer], { type: 'image/png' }) : undefined
+    return { state, thumbnail }
+  }
+
+  async screenshot() {
+    this.sendCommand('SCREENSHOT')
+    const screenshotFileName = this.guessScreenshotFileName()
+    const screenshotPath = path.join(EmulatorFileSystem.screenshotsDirectory, screenshotFileName)
+    const buffer = await this.fs.waitForFile(screenshotPath)
+    this.fs.unlink(screenshotPath)
+    return new Blob([buffer], { type: 'image/png' })
+  }
+
+  sendCommand(msg: RetroArchCommand) {
+    const exportedCommand: Partial<Record<RetroArchCommand, string>> = {
+      LOAD_STATE: '_cmd_load_state',
+      PAUSE_TOGGLE: '_cmd_toggle_pause',
+      RESET: '_cmd_reset',
+      SAVE_STATE: '_cmd_save_state',
+      SCREENSHOT: '_cmd_take_screenshot',
+    }
+    const { Module } = this.getEmscripten()
+    if (exportedCommand[msg] && exportedCommand[msg] in Module) {
+      this.callCommand(exportedCommand[msg])
+    } else {
+      const bytes = textEncoder.encode(`${msg}\n`)
+      this.messageQueue.push([bytes, 0])
+    }
+  }
+
+  async setup() {
+    // Check if virtual gamepad was pre-installed (from ClientEmulator.svelte)
+    if ((window as any).__virtualGamepadP2) {
+      this.virtualGamepad = (window as any).__virtualGamepadP2
+    }
+
+    await this.setupEmscripten()
+    await this.setupFileSystem()
+  }
+
+  private clearStateFile() {
+    try {
+      this.fs.unlink(this.stateFilePath)
+      this.fs.unlink(this.stateThumbnailFilePath)
+    } catch {}
+  }
+
+  private fireKeyboardEvent(type: 'keydown' | 'keyup', code: string) {
+    const { JSEvents } = this.getEmscripten()
+
+    // Create a more complete keyboard event object that RetroArch expects
+    const event = {
+      code,
+      key: code,
+      target: this.options.element,
+      type,
+      preventDefault: () => {},
+      stopPropagation: () => {},
+      repeat: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      metaKey: false,
+    }
+
+    for (const { eventListenerFunc, eventTypeString } of JSEvents.eventHandlers) {
+      if (eventTypeString === type) {
+        try {
+          eventListenerFunc(event)
+        } catch (error) {
+          console.error(`❌ Keyboard event error:`, error)
+        }
+      }
+    }
+  }
+
+  private getCurrentRetroarchConfig() {
+    const configContent = this.fs.readFile(EmulatorFileSystem.configPath)
+    const config = ini.parse(configContent)
+
+
+    return config
+  }
+
+  private getElementSize() {
+    const { element, size } = this.options
+    return !size || size === 'auto' ? { height: element.offsetHeight, width: element.offsetWidth } : size
+  }
+
+  private getKeyboardCode(button: string, player = 1) {
+    const config = this.getCurrentRetroarchConfig()
+    const configName = `input_player${player}_${button}`
+    const key: string = config[configName]
+
+    if (!key || key === 'nul') {
+      return
+    }
+
+    const { length } = key
+    // single letters
+    if (length === 1) {
+      return `Key${key.toUpperCase()}`
+    }
+    // f1, f2, f3...
+    if (key[0] === 'f' && (length === 2 || length === 3)) {
+      return key.toUpperCase()
+    }
+    // num1, num2, num3...
+    if (length === 4 && key.startsWith('num')) {
+      return `Numpad${key.at(-1)}`
+    }
+    if (length === 7 && key.startsWith('keypad')) {
+      return `Digit${key.at(-1)}`
+    }
+
+    return keyboardCodeMap[key] || ''
+  }
+
+  private guessScreenshotFileName() {
+    const date = new Date()
+    const year = date.getFullYear() % 1000
+    const month = padZero(date.getMonth() + 1)
+    const day = padZero(date.getDate())
+    const hour = padZero(date.getHours())
+    const minute = padZero(date.getMinutes())
+    const second = padZero(date.getSeconds())
+    const dateString = `${year}${month}${day}-${hour}${minute}${second}`
+    const baseName = this.romBaseName
+    return `${baseName}-${dateString}.png`
+  }
+
+  private keyboardDown(code: string) {
+    this.fireKeyboardEvent('keydown', code)
+  }
+
+  private async keyboardPress(code: string, time = 100) {
+    this.keyboardDown(code)
+    await delay(time)
+    this.keyboardUp(code)
+  }
+
+  private keyboardUp(code: string) {
+    this.fireKeyboardEvent('keyup', code)
+  }
+
+  private postRun() {
+    this.resize(this.canvasInitialSize)
+
+    // Tell RetroArch that controllers are connected by dispatching gamepadconnected events
+    // This is critical for virtual gamepads to be recognized
+    const gamepads = navigator.getGamepads?.() ?? [];
+    for (const gamepad of gamepads) {
+      if (gamepad) {
+        // Dispatch gamepadconnected event so RetroArch registers this gamepad
+        // Use custom event approach since GamepadEvent constructor is strict
+        const event = new Event('gamepadconnected') as any;
+        event.gamepad = gamepad;
+        globalThis.dispatchEvent(event);
+      }
+    }
+
+    // Log the actual RetroArch config to debug P2 setup
+    this.dumpRetroArchConfig()
+
+    this.updateKeyboardEventHandlers()
+  }
+
+  private dumpRetroArchConfig() {
+    // Debug function - no longer logs to console
+  }
+
+  private recordGlobalDOMEventListeners() {
+    for (const eventTarget of [globalThis, document]) {
+      eventTarget.addEventListener = (...args: [string, any]) => {
+        const [type, listener] = args
+        const value = this.globalDOMEventListeners.get(eventTarget) || {}
+        value[type] = listener
+        this.globalDOMEventListeners.set(eventTarget, value)
+        return EventTarget.prototype.addEventListener.apply(eventTarget, args)
+      }
+    }
+  }
+
+  private removeGlobalDOMEventListeners() {
+    for (const [eventTarget, eventListeners] of this.globalDOMEventListeners) {
+      for (const eventType in eventListeners) {
+        const listener = eventListeners[eventType]
+        eventTarget.removeEventListener(eventType, listener)
+      }
+    }
+  }
+
+  private async runEventListeners(event: EmulatorEvent) {
+    const { [event]: eventListeners } = this.eventListeners
+    for (const eventListener of eventListeners) {
+      await eventListener()
+    }
+  }
+
+  private runMain() {
+    checkIsAborted(this.options.signal)
+    const { Module } = this.getEmscripten()
+    const { arguments: raArgs = [] } = Module
+    const { rom, signal } = this.options
+    if (!Module.arguments && rom.length > 0) {
+      const [{ name }] = rom
+      raArgs.push(path.join(EmulatorFileSystem.contentDirectory, name))
+    }
+
+    raArgs.push('-c', EmulatorFileSystem.configPath)
+
+    installSetImmediatePolyfill()
+
+    this.recordGlobalDOMEventListeners()
+    Module.callMain(raArgs)
+    for (const [eventTarget] of this.globalDOMEventListeners) {
+      // @ts-expect-error the `addEventListener` here is the modified one attached in `recordGlobalDOMEventListeners`
+      delete eventTarget.addEventListener
+    }
+
+    signal?.addEventListener('abort', () => {
+      this.exit()
+    })
+    this.gameStatus = 'running'
+    this.postRun()
+  }
+
+  private async setupEmscripten() {
+    const { core, element, emscriptenModule } = this.options
+    const { wasm } = core
+    const moduleOptions = { canvas: element, preRun: [], wasmBinary: await wasm.getArrayBuffer(), ...emscriptenModule }
+    const initialModule = getEmscriptenModuleOverrides(moduleOptions)
+    initialModule.preRun?.push(() => initialModule.FS.init(() => this.stdin()))
+
+    const { getEmscripten } = await importCoreJsAsESM(core)
+    checkIsAborted(this.options.signal)
+    const emscripten: EmulatorEmscripten = await getEmscripten({ Module: initialModule })
+    checkIsAborted(this.options.signal)
+    this.emscripten = emscripten
+    const { Module } = emscripten
+    await Module.monitorRunDependencies()
+    checkIsAborted(this.options.signal)
+  }
+
+  private async setupFileSystem() {
+    const { Module } = this.getEmscripten()
+    const { bios, rom, signal, sram, state } = this.options
+
+    for (const { name } of bios) {
+      if (!name) {
+        throw new Error('file name is required for bios')
+      }
+    }
+
+    const fileSystem = await EmulatorFileSystem.create({ emscriptenModule: Module, signal })
+    this.fileSystem = fileSystem
+    if (state) {
+      this.fs.mkdirTree(this.stateFileDirectory)
+    }
+    if (sram) {
+      this.fs.mkdirTree(this.sramFileDirectory)
+    }
+
+    const filePromises: Promise<void>[] = []
+    filePromises.push(
+      ...rom.map((file) => this.fs.writeFile(path.join(EmulatorFileSystem.contentDirectory, file.name), file)),
+      ...bios.map((file) => this.fs.writeFile(path.join(EmulatorFileSystem.systemDirectory, file.name), file)),
+    )
+    if (state) {
+      filePromises.push(this.fs.writeFile(`${this.stateFilePath}.auto`, state))
+    }
+    if (sram) {
+      filePromises.push(this.fs.writeFile(this.sramFilePath, sram))
+    }
+    await Promise.all(filePromises)
+    checkIsAborted(signal)
+
+    await this.setupRaConfigFiles()
+    checkIsAborted(this.options.signal)
+  }
+
+  private async setupRaConfigFiles() {
+    await this.fs.writeIni(EmulatorFileSystem.configPath, this.options.retroarchConfig)
+    await this.fs.writeIni(EmulatorFileSystem.coreConfigPath, this.options.retroarchCoreConfig)
+    await this.setupRaShaderFiles()
+  }
+
+  private async setupRaShaderFiles() {
+    const { shader } = this.options
+    if (shader.length === 0) {
+      return
+    }
+    const glslpFiles = shader.filter((file) => file.name.endsWith('.glslp'))
+    if (glslpFiles.length === 0) {
+      return
+    }
+
+    for (const { name } of shader) {
+      if (!name) {
+        throw new Error('file name is required for shader')
+      }
+    }
+
+    const globalGlslpContent = glslpFiles
+      .map((file) => `#reference "${path.join(EmulatorFileSystem.shaderDirectory, file.name)}"`)
+      .join('\n')
+
+    await this.fs.writeFile(path.join(EmulatorFileSystem.configDirectory, 'global.glslp'), globalGlslpContent)
+
+    await Promise.all(
+      shader.map(async (resolvable) => {
+        const directory =
+          resolvable.extension === '.glslp'
+            ? EmulatorFileSystem.shaderDirectory
+            : path.join(EmulatorFileSystem.shaderDirectory, 'shaders')
+        await this.fs.writeFile(path.join(directory, resolvable.name), resolvable)
+      }),
+    )
+  }
+
+  // copied from https://github.com/libretro/RetroArch/pull/15017
+  private stdin() {
+    const { messageQueue } = this
+    // Return ASCII code of character, or null if no input
+    while (messageQueue.length > 0) {
+      const msg = messageQueue[0][0]
+      const index = messageQueue[0][1]
+      if (index >= msg.length) {
+        messageQueue.shift()
+      } else {
+        messageQueue[0][1] = index + 1
+        // assumption: msg is a uint8array
+        return msg[index]
+      }
+    }
+    return null
+  }
+
+  private updateKeyboardEventHandlers() {
+    const { JSEvents } = this.getEmscripten()
+    const { element, respondToGlobalEvents } = this.options
+    if (!respondToGlobalEvents) {
+      if (!element.getAttribute('tabindex')) {
+        element.tabIndex = -1
+      }
+      element.focus()
+      element.addEventListener('click', () => {
+        element.focus()
+      })
+    }
+
+    // Emscripten module may register keyboard events to document or canvas.
+    // Versions before 1.16.0 will use document while newer versions will use canvas.
+    // Let's modify the default event liseners as needed
+    const keyboardEvents = new Set(['keydown', 'keypress', 'keyup'])
+    const globalKeyboardEventHandlers = JSEvents.eventHandlers.filter(
+      ({ eventTypeString, target }: { eventTypeString: string; target: Document | Element }) =>
+        keyboardEvents.has(eventTypeString) && (target === document || target === element),
+    )
+    for (const globalKeyboardEventHandler of globalKeyboardEventHandlers) {
+      const { eventTypeString, handlerFunc, target } = globalKeyboardEventHandler
+      JSEvents.registerOrRemoveHandler({ eventTypeString, target })
+      JSEvents.registerOrRemoveHandler({
+        ...globalKeyboardEventHandler,
+        handlerFunc: (...args: [KeyboardEvent]) => {
+          const [event] = args
+          const target = event?.target
+          const isValidEmulatorInput = respondToGlobalEvents ? !isInteractable(target) : target === element
+          if (isValidEmulatorInput) {
+            handlerFunc(...args)
+          }
+        },
+        target: respondToGlobalEvents ? document : element,
+      })
+    }
+  }
+}

@@ -3,6 +3,28 @@ import { defineConfig } from 'vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 
 export default defineConfig({
+  define: {
+    global: 'globalThis', // Polyfill for Node.js global
+    'process.env': {},
+  },
+  resolve: {
+    alias: {
+      buffer: 'buffer/',
+      stream: 'stream-browserify',
+      events: 'events',
+      util: 'util/',
+      path: 'path-browserify',
+    },
+  },
+  optimizeDeps: {
+    include: ['simple-peer', 'buffer', 'process', 'events', 'util', 'stream-browserify', 'ini', 'path-browserify'],
+    esbuildOptions: {
+      define: {
+        global: 'globalThis',
+        'process.env': '{}',
+      },
+    },
+  },
   plugins: [
     sveltekit(),
     SvelteKitPWA({

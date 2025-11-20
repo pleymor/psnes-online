@@ -32,8 +32,8 @@ export async function loadGameMetadata(): Promise<void> {
   console.log('🎮 Loading SNES game metadata...');
 
   try {
-    // Read metadata JSON file
-    const metadataPath = path.join(__dirname, '../../data/snes-metadata.json');
+    // Read metadata JSON file (from metadata directory, not data which is volume-mounted)
+    const metadataPath = path.join(__dirname, '../../metadata/snes-metadata.json');
     const metadataContent = await fs.readFile(metadataPath, 'utf-8');
     const metadata: GameMetadataEntry[] = JSON.parse(metadataContent);
 

@@ -18,7 +18,7 @@ import { roomsRouter } from './api/rooms.js';
 import { userRouter } from './api/user.js';
 import { avatarsRouter } from './api/avatars.js';
 import { initializeWebSocket } from './websocket/index.js';
-import { loadGameMetadata } from './services/metadata-loader.js';
+import { refreshGameMetadata } from './services/metadata-loader.js';
 import { ensureAvatarsDir } from './utils/avatar.js';
 
 dotenv.config();
@@ -164,10 +164,10 @@ httpServer.listen(PORT, async () => {
   await ensureAvatarsDir();
   console.log('📁 Avatars directory ready');
 
-  // Load game metadata at startup
+  // Refresh game metadata at startup (reload from JSON file)
   try {
-    await loadGameMetadata();
+    await refreshGameMetadata();
   } catch (error) {
-    console.error('⚠️  Failed to load game metadata, but server is still running');
+    console.error('⚠️  Failed to refresh game metadata, but server is still running');
   }
 });

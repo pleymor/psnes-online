@@ -74,11 +74,11 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/dist ./dist
 
 # Create directories for runtime data (will be mounted as volumes)
-RUN mkdir -p roms saves data avatars && \
+RUN mkdir -p roms saves data avatars metadata && \
     chown -R node:node /app
 
-# Copy metadata file into image
-COPY data/snes-metadata.json ./data/
+# Copy metadata file into image (not in /data to avoid volume shadowing)
+COPY data/snes-metadata.json ./metadata/
 
 # Copy and setup entrypoint script for permission handling
 COPY docker-entrypoint.sh /usr/local/bin/

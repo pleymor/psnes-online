@@ -1,7 +1,12 @@
 <script lang="ts">
+  import '$lib/polyfills'; // Load Node.js polyfills for browser
   import { onMount } from 'svelte';
   import { user, userLoading } from '$lib/stores/user';
   import { socket, initializeSocket } from '$lib/api/socket';
+
+  // Accept props from SvelteKit (even if unused)
+  export let data: any = {};
+  export let params: any = {};
 
   let socketInitialized = false;
 
