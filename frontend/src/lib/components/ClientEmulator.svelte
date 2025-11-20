@@ -9,11 +9,17 @@
 
   const dispatch = createEventDispatcher();
 
+  // Debug: Log keyConfig whenever it changes
+  $: {
+    console.log('🎮 ClientEmulator received keyConfig:', keyConfig);
+  }
+
   let canvas: HTMLCanvasElement;
   let emulator: Nostalgist;
   let running = false;
   let gamepadPollInterval: number | null = null;
   let lastGamepadState: Record<string, boolean> = {};
+  let originalGetGamepads: typeof navigator.getGamepads | null = null;
 
   // Key mapping from KeyConfig to Nostalgist format
   const keyMapping: Record<keyof KeyConfig, string> = {
@@ -31,8 +37,6 @@
     select: 'select'
   };
 
-  const localPlayer = 1;  // Player 1 (1-indexed for API)
-  const remotePlayer = 2; // Player 2 (1-indexed for API)
 
   async function initEmulator() {
     if (!isHost) {
@@ -43,19 +47,24 @@
     try {
       console.log('🎮 Initializing client-side SNES emulator...');
 
+      // Capture original getGamepads BEFORE installing virtual gamepads
+      // We'll use this to poll physical gamepads while hiding them from RetroArch
+      originalGetGamepads = navigator.getGamepads.bind(navigator);
+
       // Install virtual gamepads for BOTH players BEFORE creating emulator
-      // Use indices 2 and 3 (low enough for RetroArch but avoiding most physical gamepads)
-      const { VirtualGamepad, installVirtualGamepad } = await import('$lib/nostalgist-local/src/libs/virtual-gamepad.ts');
+      // Use indices 0 and 1 (standard player positions)
+      // Physical gamepads will be hidden from RetroArch
+      const { VirtualGamepad, installVirtualGamepad } = await import('$lib/nostalgist-local/src/libs/virtual-gamepad');
 
-      // Player 1 (local/host) at gamepad index 2
-      const virtualGamepadP1 = new VirtualGamepad(2);
+      // Player 1 (local/host) at gamepad index 0
+      const virtualGamepadP1 = new VirtualGamepad(0);
       const cleanupP1 = installVirtualGamepad(virtualGamepadP1);
-      console.log('🎮 Virtual gamepad for Player 1 installed at index 2');
+      console.log('🎮 Virtual gamepad for Player 1 installed at index 0');
 
-      // Player 2 (remote/guest) at gamepad index 3
-      const virtualGamepadP2 = new VirtualGamepad(3);
+      // Player 2 (remote/guest) at gamepad index 1
+      const virtualGamepadP2 = new VirtualGamepad(1);
       const cleanupP2 = installVirtualGamepad(virtualGamepadP2);
-      console.log('🎮 Virtual gamepad for Player 2 installed at index 3');
+      console.log('🎮 Virtual gamepad for Player 2 installed at index 1');
 
       // Store references for later use
       (window as any).__virtualGamepadP1 = virtualGamepadP1;
@@ -75,15 +84,51 @@
         // Enable 2-player support
         // Both players use virtual gamepads for native gamepad API support
         retroarchConfig: {
-          input_max_users: '2',
+          input_max_users: 2,
 
           // Enable both player ports as joypads
           input_libretro_device_p1: '1', // RETRO_DEVICE_JOYPAD
           input_libretro_device_p2: '1', // RETRO_DEVICE_JOYPAD
 
-          // Map players to their virtual gamepad indices (2 and 3 to avoid most physical gamepads)
-          input_player1_joypad_index: '2', // Player 1 uses gamepad at index 2
-          input_player2_joypad_index: '3', // Player 2 uses gamepad at index 3
+          // Map players to their virtual gamepad indices (0 and 1)
+          input_player1_joypad_index: '0', // Player 1 uses gamepad at index 0
+          input_player2_joypad_index: '1', // Player 2 uses gamepad at index 1
+
+          // Disable ALL keyboard bindings - use "nul" to completely disable keyboard input
+          // RetroArch will only respond to virtual gamepads
+          input_player1_a: 'nul',
+          input_player1_b: 'nul',
+          input_player1_x: 'nul',
+          input_player1_y: 'nul',
+          input_player1_l: 'nul',
+          input_player1_r: 'nul',
+          input_player1_l2: 'nul',
+          input_player1_r2: 'nul',
+          input_player1_l3: 'nul',
+          input_player1_r3: 'nul',
+          input_player1_start: 'nul',
+          input_player1_select: 'nul',
+          input_player1_up: 'nul',
+          input_player1_down: 'nul',
+          input_player1_left: 'nul',
+          input_player1_right: 'nul',
+
+          input_player2_a: 'nul',
+          input_player2_b: 'nul',
+          input_player2_x: 'nul',
+          input_player2_y: 'nul',
+          input_player2_l: 'nul',
+          input_player2_r: 'nul',
+          input_player2_l2: 'nul',
+          input_player2_r2: 'nul',
+          input_player2_l3: 'nul',
+          input_player2_r3: 'nul',
+          input_player2_start: 'nul',
+          input_player2_select: 'nul',
+          input_player2_up: 'nul',
+          input_player2_down: 'nul',
+          input_player2_left: 'nul',
+          input_player2_right: 'nul',
         }
       });
 
@@ -113,6 +158,19 @@
           virtualGamepadP1.pressButton(nostalgistButton);
           virtualGamepadP1.updateTimestamp();
           console.log(`🎮 P1 ${nostalgistButton}: pressed`);
+
+          // Debug: Check if navigator.getGamepads() sees the change
+          const gamepads = navigator.getGamepads();
+          const gp0 = gamepads[0];
+          if (gp0) {
+            console.log('🎮 Gamepad[0] after press:', {
+              id: gp0.id,
+              buttons: Array.from(gp0.buttons).map((b, i) => b.pressed ? i : null).filter(x => x !== null),
+              timestamp: gp0.timestamp
+            });
+          } else {
+            console.log('❌ Gamepad[0] not found in navigator.getGamepads()!');
+          }
         }
         break;
       }
@@ -141,9 +199,11 @@
   }
 
   function pollGamepad() {
-    if (!isHost || !emulator) return;
+    if (!isHost || !emulator || !originalGetGamepads) return;
 
-    const gamepads = navigator.getGamepads();
+    // Use original getGamepads to see physical controllers
+    // (navigator.getGamepads is overridden to hide them from RetroArch)
+    const gamepads = originalGetGamepads();
     let physicalGamepadIndex = 0; // Remap physical gamepads to start from index 0
 
     for (let i = 0; i < gamepads.length; i++) {
@@ -168,10 +228,14 @@
         if (isPressed !== wasPressed) {
           lastGamepadState[inputCode] = isPressed;
           console.log('🎮 P1 gamepad button state change:', inputCode, 'pressed:', isPressed);
+          console.log('🎮 P1 checking against keyConfig:', keyConfig);
 
           // Find which button this input is mapped to
+          let found = false;
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCode) {
+              found = true;
+              console.log(`🎮 P1 Found mapping: ${button} -> ${mappedInput}`);
               const nostalgistButton = keyMapping[button as keyof KeyConfig];
               const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
@@ -186,6 +250,9 @@
               }
               break;
             }
+          }
+          if (!found) {
+            console.log(`🎮 P1 No mapping found for ${inputCode}`);
           }
         }
       }
@@ -203,8 +270,11 @@
           lastGamepadState[inputCodePlus] = isPressedPlus;
           console.log('🎮 P1 gamepad axis state change:', inputCodePlus, 'value:', axisValue.toFixed(2), 'pressed:', isPressedPlus);
 
+          let foundPlus = false;
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodePlus) {
+              foundPlus = true;
+              console.log(`🎮 P1 Found axis mapping: ${button} -> ${mappedInput}`);
               const nostalgistButton = keyMapping[button as keyof KeyConfig];
               const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
@@ -220,6 +290,9 @@
               break;
             }
           }
+          if (!foundPlus) {
+            console.log(`🎮 P1 No mapping found for ${inputCodePlus}`);
+          }
         }
 
         // Check negative direction
@@ -231,8 +304,11 @@
           lastGamepadState[inputCodeMinus] = isPressedMinus;
           console.log('🎮 P1 gamepad axis state change:', inputCodeMinus, 'value:', axisValue.toFixed(2), 'pressed:', isPressedMinus);
 
+          let foundMinus = false;
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodeMinus) {
+              foundMinus = true;
+              console.log(`🎮 P1 Found axis mapping: ${button} -> ${mappedInput}`);
               const nostalgistButton = keyMapping[button as keyof KeyConfig];
               const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
@@ -248,6 +324,9 @@
               break;
             }
           }
+          if (!foundMinus) {
+            console.log(`🎮 P1 No mapping found for ${inputCodeMinus}`);
+          }
         }
       }
     }
@@ -256,11 +335,13 @@
   function handleGamepadConnected(e: GamepadEvent) {
     console.log('🎮 P1 Physical gamepad connected!', e.gamepad.id, 'at index', e.gamepad.index);
 
-    // Log the full gamepad array to see actual positions
-    const gamepads = navigator.getGamepads();
-    console.log('🎮 P1 Full gamepad array after connection:', Array.from(gamepads).map((gp, i) =>
-      gp ? `[${i}] ${gp.id}` : `[${i}] null`
-    ));
+    // Log the full gamepad array to see actual positions (use original to see physical gamepads)
+    if (originalGetGamepads) {
+      const gamepads = originalGetGamepads();
+      console.log('🎮 P1 Full gamepad array after connection (original):', Array.from(gamepads).map((gp, i) =>
+        gp ? `[${i}] ${gp.id}` : `[${i}] null`
+      ));
+    }
   }
 
   function handleGamepadDisconnected(e: GamepadEvent) {
@@ -275,11 +356,13 @@
     window.addEventListener('gamepadconnected', handleGamepadConnected);
     window.addEventListener('gamepaddisconnected', handleGamepadDisconnected);
 
-    // Log currently connected gamepads
-    const gamepads = navigator.getGamepads();
-    console.log('🎮 P1 Gamepads at polling start:', Array.from(gamepads).map((gp, i) =>
-      gp ? `[${i}] ${gp.id}` : `[${i}] null`
-    ));
+    // Log currently connected gamepads (use original to see physical gamepads)
+    if (originalGetGamepads) {
+      const gamepads = originalGetGamepads();
+      console.log('🎮 P1 Gamepads at polling start (original):', Array.from(gamepads).map((gp, i) =>
+        gp ? `[${i}] ${gp.id}` : `[${i}] null`
+      ));
+    }
 
     gamepadPollInterval = window.setInterval(pollGamepad, 16); // Poll at ~60Hz
   }

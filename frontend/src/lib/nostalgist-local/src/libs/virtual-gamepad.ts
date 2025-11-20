@@ -9,8 +9,8 @@ export class VirtualGamepad implements Gamepad {
   public readonly connected: boolean = true
   public timestamp: number = performance.now()
   public readonly mapping: GamepadMappingType = 'standard'
-  public readonly axes: readonly number[] = [0, 0, 0, 0]
-  public readonly buttons: GamepadButton[]
+  public axes: number[] = [0, 0, 0, 0]
+  public buttons: GamepadButton[]
   public readonly vibrationActuator: null = null
   public readonly hapticActuators: readonly GamepadHapticActuator[] = []
 
@@ -19,21 +19,23 @@ export class VirtualGamepad implements Gamepad {
     this.id = `Virtual Gamepad (Player ${index + 1})`
 
     // Initialize buttons (16 standard gamepad buttons) - create mutable objects
+    // Cast to any to bypass readonly constraints of GamepadButton interface
     this.buttons = Array.from({ length: 16 }, (_, i) => ({
       pressed: false,
       touched: false,
       value: 0,
-    }))
+    })) as any
   }
 
   /**
    * Map SNES button names to standard gamepad button indices
+   * Fixed rotation: X was triggering B, Y was triggering X, B was triggering Y
    */
   private buttonMap: Record<string, number> = {
-    b: 0,      // A button (Xbox: A, PS: Cross)
-    a: 1,      // B button (Xbox: B, PS: Circle)
-    y: 2,      // X button (Xbox: X, PS: Square)
-    x: 3,      // Y button (Xbox: Y, PS: Triangle)
+    x: 0,      // X now at bottom position (was b)
+    a: 1,      // A stays at right position
+    b: 2,      // B now at left position (was y)
+    y: 3,      // Y now at top position (was x)
     l: 4,      // Left shoulder
     r: 5,      // Right shoulder
     select: 8, // Select
@@ -45,15 +47,29 @@ export class VirtualGamepad implements Gamepad {
   }
 
   /**
+   * Dispatch a gamepad event to notify RetroArch of state changes
+   */
+  private dispatchGamepadEvent() {
+    try {
+      const event = new Event('gamepadconnected') as any
+      event.gamepad = this
+      globalThis.dispatchEvent(event)
+    } catch (err) {
+      // Ignore errors
+    }
+  }
+
+  /**
    * Press a button
    */
   pressButton(button: string) {
     const index = this.buttonMap[button]
     if (index !== undefined) {
       // Mutate the existing button object instead of replacing it
-      this.buttons[index].pressed = true
-      this.buttons[index].touched = true
-      this.buttons[index].value = 1
+      const btn = this.buttons[index] as any
+      btn.pressed = true
+      btn.touched = true
+      btn.value = 1
       console.log(`🎮 Virtual gamepad: Button ${button} (${index}) pressed`, this.buttons[index])
 
       // Also update axes for D-pad (RetroArch expects D-pad on axes)
@@ -61,6 +77,9 @@ export class VirtualGamepad implements Gamepad {
       else if (button === 'right') this.axes[0] = 1
       else if (button === 'up') this.axes[1] = -1
       else if (button === 'down') this.axes[1] = 1
+
+      // Dispatch gamepad event to trigger RetroArch polling
+      this.dispatchGamepadEvent()
     } else {
       console.warn(`⚠️ Unknown button: ${button}`)
     }
@@ -73,14 +92,18 @@ export class VirtualGamepad implements Gamepad {
     const index = this.buttonMap[button]
     if (index !== undefined) {
       // Mutate the existing button object instead of replacing it
-      this.buttons[index].pressed = false
-      this.buttons[index].touched = false
-      this.buttons[index].value = 0
+      const btn = this.buttons[index] as any
+      btn.pressed = false
+      btn.touched = false
+      btn.value = 0
       console.log(`🎮 Virtual gamepad: Button ${button} (${index}) released`, this.buttons[index])
 
       // Also reset axes for D-pad
       if (button === 'left' || button === 'right') this.axes[0] = 0
       else if (button === 'up' || button === 'down') this.axes[1] = 0
+
+      // Dispatch gamepad event to trigger RetroArch polling
+      this.dispatchGamepadEvent()
     }
   }
 
@@ -115,7 +138,15 @@ export function installVirtualGamepad(gamepad: VirtualGamepad): () => void {
       const gamepads = originalGetGamepads!();
       const result = Array.from(gamepads);
 
-      // Add all installed virtual gamepads
+      // HIDE physical gamepads by setting them to null
+      // This prevents RetroArch from using them directly
+      for (let i = 0; i < result.length; i++) {
+        if (result[i] && !result[i]!.id.includes('Virtual Gamepad')) {
+          result[i] = null;
+        }
+      }
+
+      // Add all installed virtual gamepads at their configured indices
       installedGamepads.forEach((gp, index) => {
         result[index] = gp as any;
       });
