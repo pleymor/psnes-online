@@ -15,22 +15,10 @@
 
   let showKeyConfig = false;
   let showSaveLoad = false;
-  let showFPSSettings = false;
   let selectedIndex = 0;
   let menuButtons: HTMLButtonElement[] = [];
   let gamepadPollInterval: number | null = null;
   let lastGamepadState: Record<string, boolean> = {};
-
-  // FPS presets: 0 = auto-detect from ROM
-  const fpsPresets = [0, 30, 25, 20, 15];
-  const fpsLabels: { [key: number]: string } = {
-    0: 'Auto',
-    30: '30 FPS',
-    25: '25 FPS',
-    20: '20 FPS',
-    15: '15 FPS'
-  };
-  let currentTargetFPS = 0;
 
   // Create a reverse mapping from key codes to button names
   let keyCodeToButton: Record<string, keyof KeyConfig> = {};
@@ -44,26 +32,9 @@
   $: menuItems = [
     { label: t($language, 'resume'), action: () => dispatch('resume') },
     { label: t($language, 'controls'), action: () => showKeyConfig = true },
-    { label: 'Performance', action: () => showFPSSettings = true },
     { label: t($language, 'saves'), action: () => showSaveLoad = true },
     { label: t($language, 'quit'), action: () => dispatch('quit'), danger: true }
   ];
-
-  function setTargetFPS(fps: number) {
-    currentTargetFPS = fps;
-    $socket?.emit('game:setTargetFPS', { roomId, targetFPS: fps });
-  }
-
-  onMount(() => {
-    // Listen for FPS changes
-    $socket?.on('game:targetFPSChanged', (data: { targetFPS: number }) => {
-      currentTargetFPS = data.targetFPS;
-    });
-  });
-
-  onDestroy(() => {
-    $socket?.off('game:targetFPSChanged');
-  });
 
   function handleSaved(event: CustomEvent<{ config: KeyConfig }>) {
     // Forward the saved config to parent
@@ -74,7 +45,7 @@
 
   function handleKeyDown(e: KeyboardEvent) {
     // Skip navigation when in submenus
-    if (showKeyConfig || showSaveLoad || showFPSSettings) return;
+    if (showKeyConfig || showSaveLoad) return;
 
     const button = keyCodeToButton[e.code];
 
@@ -103,7 +74,6 @@
   function handleBackFromSubmenu() {
     showKeyConfig = false;
     showSaveLoad = false;
-    showFPSSettings = false;
     selectedIndex = 0;
     // Refocus the menu after a short delay to ensure DOM is updated
     setTimeout(() => menuButtons[selectedIndex]?.focus(), 50);
@@ -124,7 +94,7 @@
 
     gamepadPollInterval = window.setInterval(() => {
       // Skip if in submenus
-      if (showKeyConfig || showSaveLoad || showFPSSettings) return;
+      if (showKeyConfig || showSaveLoad) return;
 
       const gamepads = navigator.getGamepads();
 
@@ -214,7 +184,7 @@
 
 <div class="pause-overlay">
   <div class="pause-menu">
-    {#if !showKeyConfig && !showSaveLoad && !showFPSSettings}
+    {#if !showKeyConfig && !showSaveLoad}
       <h2>{t($language, 'pauseMenu')}</h2>
       <p class="hint">{t($language, 'pauseMenuHint')}</p>
 
@@ -250,40 +220,6 @@
           on:notification={handleNotification}
           on:close={handleSaveClose}
         />
-        <button on:click={handleBackFromSubmenu} class="back-button">
-          {t($language, 'close')}
-        </button>
-      </div>
-    {/if}
-
-    {#if showFPSSettings}
-      <div class="submenu">
-        <h3>Performance Settings</h3>
-        <p class="fps-hint">Lower FPS reduces CPU load on weak servers</p>
-
-        <div class="fps-presets">
-          {#each fpsPresets as fps}
-            <button
-              on:click={() => setTargetFPS(fps)}
-              class:selected={currentTargetFPS === fps}
-              class="fps-button"
-            >
-              {fpsLabels[fps]}
-              {#if fps === 0}
-                <span class="fps-description">(50 FPS for PAL, 60 for NTSC)</span>
-              {:else if fps === 30}
-                <span class="fps-description">(Half speed, less lag)</span>
-              {:else if fps === 25}
-                <span class="fps-description">(Smooth for weak CPU)</span>
-              {:else if fps === 20}
-                <span class="fps-description">(Low performance mode)</span>
-              {:else if fps === 15}
-                <span class="fps-description">(Minimum viable)</span>
-              {/if}
-            </button>
-          {/each}
-        </div>
-
         <button on:click={handleBackFromSubmenu} class="back-button">
           {t($language, 'close')}
         </button>
@@ -383,51 +319,5 @@
 
   .back-button:hover {
     background: #555;
-  }
-
-  .fps-hint {
-    color: #aaa;
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
-  }
-
-  .fps-presets {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .fps-button {
-    background: #2a2a2a;
-    color: white;
-    border: 2px solid #444;
-    padding: 1rem;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 1rem;
-    text-align: left;
-    transition: all 0.2s;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .fps-button:hover {
-    background: #333;
-    border-color: #667eea;
-  }
-
-  .fps-button.selected {
-    background: #667eea;
-    border-color: #667eea;
-  }
-
-  .fps-description {
-    font-size: 0.85rem;
-    color: #aaa;
-  }
-
-  .fps-button.selected .fps-description {
-    color: #ddd;
   }
 </style>
