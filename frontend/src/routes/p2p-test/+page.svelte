@@ -56,10 +56,7 @@
       const response = await fetch('/api/user/controls', { credentials: 'include' });
       if (response.ok) {
         keyConfig = await response.json();
-        console.log('✅ Loaded user key config:', keyConfig);
       } else {
-        // Fallback to default if API fails
-        console.warn('⚠️ Using default key config tout pourri');
         keyConfig = getDefaultKeyConfig();
       }
     } catch (error) {

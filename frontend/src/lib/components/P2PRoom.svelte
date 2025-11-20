@@ -21,7 +21,6 @@
 
   async function loadROM() {
     try {
-      console.log('📥 Loading ROM...', gameId);
       const response = await fetch(`/api/games/${gameId}/download`, {
         credentials: 'include'
       });
@@ -31,7 +30,6 @@
       }
 
       romData = await response.arrayBuffer();
-      console.log(`✅ ROM loaded (${romData.byteLength} bytes)`);
       loading = false;
 
     } catch (err) {
@@ -48,13 +46,10 @@
     }
 
     try {
-      console.log('🔗 Setting up P2P connection...');
-
       // First, join the Socket.IO room
       await new Promise<void>((resolve) => {
         $socket!.emit('p2p:join', { roomId });
         $socket!.once('p2p:joined', () => {
-          console.log('✅ Joined Socket.IO room:', roomId);
           resolve();
         });
       });
@@ -62,7 +57,6 @@
       // Initialize P2P manager
       p2pManager = new P2PManager($socket, roomId, isHost, {
         onStream: (stream) => {
-          console.log('📺 Received stream from host');
           // Attach stream to video element (for guest)
           if (guestVideoElement) {
             guestVideoElement.srcObject = stream;
@@ -73,16 +67,13 @@
         onData: (data) => {
           // Handle remote input (for host receiving guest input)
           if (data.type === 'input' && isHost) {
-            // Guest controls player 2
             emulatorComponent?.handleRemoteInput(data.button, data.pressed);
           }
         },
         onConnect: () => {
-          console.log('✅ P2P connected!');
           connectionStatus = 'connected';
         },
         onClose: () => {
-          console.log('❌ P2P connection closed');
           connectionStatus = 'disconnected';
           error = 'Connection lost';
         },
@@ -119,9 +110,6 @@
 
   function handleEmulatorReady(event: CustomEvent) {
     emulatorInstance = event.detail.emulator;
-    console.log('✅ Emulator ready');
-
-    // Setup P2P after emulator is ready
     setupP2PConnection();
   }
 
@@ -164,12 +152,10 @@
 
     // For guest, setup P2P immediately after ROM is loaded
     if (!isHost) {
-      console.log('🎮 Guest mode - setting up P2P connection');
       await setupP2PConnection();
     }
 
     // Listen for keyboard (guest input)
-    console.log('⌨️ Adding keyboard event listeners');
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
   });

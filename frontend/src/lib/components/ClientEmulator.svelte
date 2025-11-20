@@ -11,7 +11,6 @@
 
   let canvas: HTMLCanvasElement;
   let emulator: Nostalgist;
-  let running = false;
 
   // Key mapping from KeyConfig to Nostalgist format
   const keyMapping: Record<keyof KeyConfig, string> = {
@@ -29,17 +28,28 @@
     select: 'select'
   };
 
-  const localPlayer = 1;  // Player 1 (1-indexed for API)
-  const remotePlayer = 2; // Player 2 (1-indexed for API)
-
   async function initEmulator() {
     if (!isHost) {
-      console.log('Guest mode - waiting for stream');
       return;
     }
 
     try {
-      console.log('🎮 Initializing client-side SNES emulator...');
+      // Install virtual gamepads for BOTH players BEFORE creating emulator
+      const { VirtualGamepad, installVirtualGamepad } = await import('$lib/nostalgist-local/src/libs/virtual-gamepad.ts');
+
+      // Player 1 (local/host) at gamepad index 0
+      const virtualGamepadP1 = new VirtualGamepad(0);
+      const cleanupP1 = installVirtualGamepad(virtualGamepadP1);
+
+      // Player 2 (remote/guest) at gamepad index 1
+      const virtualGamepadP2 = new VirtualGamepad(1);
+      const cleanupP2 = installVirtualGamepad(virtualGamepadP2);
+
+      // Store references for later use
+      (window as any).__virtualGamepadP1 = virtualGamepadP1;
+      (window as any).__virtualGamepadP2 = virtualGamepadP2;
+      (window as any).__cleanupVirtualGamepadP1 = cleanupP1;
+      (window as any).__cleanupVirtualGamepadP2 = cleanupP2;
 
       // Create emulator instance
       emulator = await Nostalgist.snes({
@@ -50,31 +60,20 @@
           height: '100%',
           imageRendering: 'pixelated'
         },
-        // Enable 2-player support with unique keybindings
-        // Player 1 uses default keyboard, Player 2 uses numpad
+        // Enable 2-player support
+        // Both players use virtual gamepads for native gamepad API support
         retroarchConfig: {
           input_max_users: 2,
-          input_player1_joypad_index: 0, // RetroArch uses 0-indexed joypad
-          input_player2_joypad_index: 1,
 
-          // Player 2 mapped to numpad keys (matches getUniqueInputCode in emulator.ts)
-          input_player2_up: 'num8',
-          input_player2_down: 'num2',
-          input_player2_left: 'num4',
-          input_player2_right: 'num6',
-          input_player2_a: 'num7',
-          input_player2_b: 'num9',
-          input_player2_x: 'num1',
-          input_player2_y: 'num3',
-          input_player2_l: 'subtract',
-          input_player2_r: 'add',
-          input_player2_start: 'kp_enter',
-          input_player2_select: 'num0',
+          // Enable both player ports as joypads
+          input_libretro_device_p1: 1, // RETRO_DEVICE_JOYPAD
+          input_libretro_device_p2: 1, // RETRO_DEVICE_JOYPAD
+
+          // Map players to their virtual gamepad indices
+          input_player1_joypad_index: 0, // Player 1 uses gamepad at index 0
+          input_player2_joypad_index: 1, // Player 2 uses gamepad at index 1
         }
       });
-
-      running = true;
-      console.log('✅ Emulator initialized successfully');
 
       dispatch('ready', { emulator });
 
@@ -87,12 +86,18 @@
   function handleKeyDown(e: KeyboardEvent) {
     if (!isHost || !emulator) return;
 
-    // Find which button corresponds to this key
+    // Translate keyboard input to virtual gamepad for Player 1
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
+
         const nostalgistButton = keyMapping[button as keyof KeyConfig];
-        emulator.pressDown({ button: nostalgistButton, player: localPlayer });
+        const virtualGamepadP1 = (window as any).__virtualGamepadP1;
+
+        if (virtualGamepadP1 && nostalgistButton) {
+          virtualGamepadP1.pressButton(nostalgistButton);
+          virtualGamepadP1.updateTimestamp();
+        }
         break;
       }
     }
@@ -101,44 +106,52 @@
   function handleKeyUp(e: KeyboardEvent) {
     if (!isHost || !emulator) return;
 
+    // Translate keyboard input to virtual gamepad for Player 1
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
+
         const nostalgistButton = keyMapping[button as keyof KeyConfig];
-        emulator.pressUp({ button: nostalgistButton, player: localPlayer });
+        const virtualGamepadP1 = (window as any).__virtualGamepadP1;
+
+        if (virtualGamepadP1 && nostalgistButton) {
+          virtualGamepadP1.releaseButton(nostalgistButton);
+          virtualGamepadP1.updateTimestamp();
+        }
         break;
       }
     }
   }
 
   export function handleRemoteInput(button: string, pressed: boolean) {
-    if (!isHost || !emulator) return;
+    if (!isHost) return;
 
     const nostalgistButton = keyMapping[button as keyof KeyConfig];
+    const virtualGamepad = (window as any).__virtualGamepadP2;
 
-    // Remote player uses player 2 port
-    if (pressed) {
-      emulator.pressDown({ button: nostalgistButton, player: remotePlayer });
-    } else {
-      emulator.pressUp({ button: nostalgistButton, player: remotePlayer });
+    if (virtualGamepad) {
+      if (pressed) {
+        virtualGamepad.pressButton(nostalgistButton);
+      } else {
+        virtualGamepad.releaseButton(nostalgistButton);
+      }
+      virtualGamepad.updateTimestamp();
     }
   }
 
   export function pause() {
     if (emulator) {
       emulator.pause();
-      running = false;
     }
   }
 
   export function resume() {
     if (emulator) {
       emulator.resume();
-      running = true;
     }
   }
 
-  export async function saveState(): Promise<Uint8Array | null> {
+  export async function saveState() {
     if (!emulator) return null;
     try {
       return await emulator.saveState();
@@ -173,6 +186,13 @@
     if (emulator) {
       emulator.exit();
     }
+
+    // Cleanup virtual gamepads
+    const cleanupP1 = (window as any).__cleanupVirtualGamepadP1;
+    const cleanupP2 = (window as any).__cleanupVirtualGamepadP2;
+    if (cleanupP1) cleanupP1();
+    if (cleanupP2) cleanupP2();
+
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
   });

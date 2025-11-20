@@ -12,6 +12,7 @@ import {
   updateStyle,
 } from '../libs/utils.ts'
 import { vendors } from '../libs/vendors.ts'
+import { VirtualGamepad, installVirtualGamepad } from '../libs/virtual-gamepad.ts'
 import type { RetroArchCommand } from '../types/retroarch-command.ts'
 import type { RetroArchEmscriptenModule } from '../types/retroarch-emscripten'
 import { EmulatorFileSystem } from './emulator-file-system.ts'
@@ -57,6 +58,9 @@ export class Emulator {
   private messageQueue: [Uint8Array, number][] = []
   // Track input state for each player (0-indexed: 0 = player 1, 1 = player 2)
   private playerInputStates: Map<number, Set<string>> = new Map()
+  // Virtual gamepad for Player 2
+  private virtualGamepad: VirtualGamepad | null = null
+  private cleanupVirtualGamepad: (() => void) | null = null
 
   private options: EmulatorOptions
 
@@ -120,6 +124,18 @@ export class Emulator {
     } catch {}
     JSEvents.removeAllEventListeners()
     this.removeGlobalDOMEventListeners()
+
+    // Cleanup virtual gamepad (if it was created by us, not pre-installed)
+    if (this.cleanupVirtualGamepad) {
+      this.cleanupVirtualGamepad()
+      this.cleanupVirtualGamepad = null
+    } else if ((window as any).__cleanupVirtualGamepad) {
+      // Cleanup pre-installed gamepad
+      (window as any).__cleanupVirtualGamepad()
+      delete (window as any).__cleanupVirtualGamepad
+      delete (window as any).__virtualGamepadP2
+    }
+
     uninstallSetImmediatePolyfill()
     this.gameStatus = 'terminated'
   }
@@ -245,14 +261,17 @@ export class Emulator {
       playerState.delete(button)
     }
 
-    // Generate a unique keyboard code for this player/button combination
-    // This ensures each player's input is independent
-    const uniqueCode = this.getUniqueInputCode(playerIndex, button)
+    // Player 1 (index 0) uses keyboard
+    // Player 2 is handled by virtual gamepad directly in ClientEmulator.svelte
+    if (playerIndex === 0) {
+      // Player 1: Use keyboard events
+      const uniqueCode = this.getUniqueInputCode(playerIndex, button)
 
-    if (pressed) {
-      this.keyboardDown(uniqueCode)
-    } else {
-      this.keyboardUp(uniqueCode)
+      if (pressed) {
+        this.keyboardDown(uniqueCode)
+      } else {
+        this.keyboardUp(uniqueCode)
+      }
     }
   }
 
@@ -261,30 +280,15 @@ export class Emulator {
    * Player 0 uses standard keys, Player 1+ use numpad/function keys
    */
   private getUniqueInputCode(playerIndex: number, button: string): string {
-    // For player 0 (host), use the configured keyboard mapping
-    if (playerIndex === 0) {
-      const code = this.getKeyboardCode(button, playerIndex + 1)
-      return code || `Key${button.toUpperCase()}`
+    // Always use the configured keyboard mapping from RetroArch config
+    const code = this.getKeyboardCode(button, playerIndex + 1)
+
+    if (code) {
+      return code
     }
 
-    // For player 1+ (guests), use unique codes that don't conflict
-    // Map standard buttons to numpad keys for player 1
-    const buttonMap: Record<string, string> = {
-      'up': 'Numpad8',
-      'down': 'Numpad2',
-      'left': 'Numpad4',
-      'right': 'Numpad6',
-      'a': 'Numpad7',
-      'b': 'Numpad9',
-      'x': 'Numpad1',
-      'y': 'Numpad3',
-      'l': 'NumpadSubtract',
-      'r': 'NumpadAdd',
-      'start': 'NumpadEnter',
-      'select': 'Numpad0'
-    }
-
-    return buttonMap[button] || `F${playerIndex + 1}`
+    // Fallback if no config found
+    return `Key${button.toUpperCase()}`
   }
 
   resize({ height, width }: { height: number; width: number }) {
@@ -362,6 +366,11 @@ export class Emulator {
   }
 
   async setup() {
+    // Check if virtual gamepad was pre-installed (from ClientEmulator.svelte)
+    if ((window as any).__virtualGamepadP2) {
+      this.virtualGamepad = (window as any).__virtualGamepadP2
+    }
+
     await this.setupEmscripten()
     await this.setupFileSystem()
   }
@@ -375,10 +384,26 @@ export class Emulator {
 
   private fireKeyboardEvent(type: 'keydown' | 'keyup', code: string) {
     const { JSEvents } = this.getEmscripten()
+
+    // Create a more complete keyboard event object that RetroArch expects
+    const event = {
+      code,
+      key: code,
+      target: this.options.element,
+      type,
+      preventDefault: () => {},
+      stopPropagation: () => {},
+      repeat: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      metaKey: false,
+    }
+
     for (const { eventListenerFunc, eventTypeString } of JSEvents.eventHandlers) {
       if (eventTypeString === type) {
         try {
-          eventListenerFunc({ code, target: this.options.element })
+          eventListenerFunc(event)
         } catch {}
       }
     }
@@ -398,9 +423,11 @@ export class Emulator {
     const config = this.getCurrentRetroarchConfig()
     const configName = `input_player${player}_${button}`
     const key: string = config[configName]
+
     if (!key || key === 'nul') {
       return
     }
+
     const { length } = key
     // single letters
     if (length === 1) {
@@ -417,6 +444,7 @@ export class Emulator {
     if (length === 7 && key.startsWith('keypad')) {
       return `Digit${key.at(-1)}`
     }
+
     return keyboardCodeMap[key] || ''
   }
 
@@ -450,7 +478,7 @@ export class Emulator {
   private postRun() {
     this.resize(this.canvasInitialSize)
 
-    // tell retroarch that controllers are connected
+    // Tell retroarch that controllers are connected
     for (const gamepad of navigator.getGamepads?.() ?? []) {
       if (gamepad) {
         globalThis.dispatchEvent(new GamepadEvent('gamepadconnected', { gamepad }))
