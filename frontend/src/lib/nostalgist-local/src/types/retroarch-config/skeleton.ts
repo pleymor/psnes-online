@@ -646,7 +646,7 @@ export interface RetroArchSkeletonConfig {
   /**
    * Maximum amount of users supported by RetroArch.
    */
-  input_max_users: number
+  input_max_users: number | string
 
   /**
    * Keyboard layout for input driver if applicable (udev/evdev for now).
@@ -713,7 +713,7 @@ export interface RetroArchSkeletonConfig {
    * Justifier (SNES specific): 516
    * Justifiers (SNES specific): 772
    */
-  input_libretro_device_p1: number
+  input_libretro_device_p1: number | string
 
   /**
    * Sets which libretro device is used for a user.
@@ -732,7 +732,7 @@ export interface RetroArchSkeletonConfig {
    * Justifier (SNES specific): 516
    * Justifiers (SNES specific): 772
    */
-  input_libretro_device_p2: number
+  input_libretro_device_p2: number | string
 
   /**
    * Sets which libretro device is used for a user.
@@ -751,7 +751,7 @@ export interface RetroArchSkeletonConfig {
    * Justifier (SNES specific): 516
    * Justifiers (SNES specific): 772
    */
-  input_libretro_device_p3: number
+  input_libretro_device_p3: number | string
 
   /**
    * Sets which libretro device is used for a user.
@@ -770,7 +770,7 @@ export interface RetroArchSkeletonConfig {
    * Justifier (SNES specific): 516
    * Justifiers (SNES specific): 772
    */
-  input_libretro_device_p4: number
+  input_libretro_device_p4: number | string
 
   /**
    * Sets which libretro device is used for a user.
@@ -789,7 +789,7 @@ export interface RetroArchSkeletonConfig {
    * Justifier (SNES specific): 516
    * Justifiers (SNES specific): 772
    */
-  input_libretro_device_p5: number
+  input_libretro_device_p5: number | string
 
   /**
    * Sets which libretro device is used for a user.
@@ -808,7 +808,7 @@ export interface RetroArchSkeletonConfig {
    * Justifier (SNES specific): 516
    * Justifiers (SNES specific): 772
    */
-  input_libretro_device_p6: number
+  input_libretro_device_p6: number | string
 
   /**
    * Sets which libretro device is used for a user.
@@ -827,7 +827,7 @@ export interface RetroArchSkeletonConfig {
    * Justifier (SNES specific): 516
    * Justifiers (SNES specific): 772
    */
-  input_libretro_device_p7: number
+  input_libretro_device_p7: number | string
 
   /**
    * Sets which libretro device is used for a user.
@@ -846,7 +846,7 @@ export interface RetroArchSkeletonConfig {
    * Justifier (SNES specific): 516
    * Justifiers (SNES specific): 772
    */
-  input_libretro_device_p8: number
+  input_libretro_device_p8: number | string
 
   /**
    * Keyboard input. Will recognize letters ("a" to "z") and the following special keys (where "kp_"
@@ -1204,49 +1204,49 @@ export interface RetroArchSkeletonConfig {
    * If desired, it is possible to override which joypads are being used for user 1 through 8.
    * First joypad available is 0.
    */
-  input_player1_joypad_index: number
+  input_player1_joypad_index: number | string
 
   /**
    * If desired, it is possible to override which joypads are being used for user 1 through 8.
    * First joypad available is 0.
    */
-  input_player2_joypad_index: number
+  input_player2_joypad_index: number | string
 
   /**
    * If desired, it is possible to override which joypads are being used for user 1 through 8.
    * First joypad available is 0.
    */
-  input_player3_joypad_index: number
+  input_player3_joypad_index: number | string
 
   /**
    * If desired, it is possible to override which joypads are being used for user 1 through 8.
    * First joypad available is 0.
    */
-  input_player4_joypad_index: number
+  input_player4_joypad_index: number | string
 
   /**
    * If desired, it is possible to override which joypads are being used for user 1 through 8.
    * First joypad available is 0.
    */
-  input_player5_joypad_index: number
+  input_player5_joypad_index: number | string
 
   /**
    * If desired, it is possible to override which joypads are being used for user 1 through 8.
    * First joypad available is 0.
    */
-  input_player6_joypad_index: number
+  input_player6_joypad_index: number | string
 
   /**
    * If desired, it is possible to override which joypads are being used for user 1 through 8.
    * First joypad available is 0.
    */
-  input_player7_joypad_index: number
+  input_player7_joypad_index: number | string
 
   /**
    * If desired, it is possible to override which joypads are being used for user 1 through 8.
    * First joypad available is 0.
    */
-  input_player8_joypad_index: number
+  input_player8_joypad_index: number | string
 
   /**
    * Input device buttons.

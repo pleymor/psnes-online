@@ -152,6 +152,35 @@
         virtualGamepad.releaseButton(nostalgistButton);
       }
       virtualGamepad.updateTimestamp();
+
+      // Debug: Check gamepad state
+      console.log('🎮 P2 Virtual Gamepad State:', {
+        index: virtualGamepad.index,
+        buttons: virtualGamepad.buttons.map((b: any, i: number) => b.pressed ? i : null).filter((x: any) => x !== null),
+        axes: virtualGamepad.axes
+      });
+
+      // Debug: Check if navigator.getGamepads() sees it
+      const gamepads = navigator.getGamepads();
+      console.log('🎮 Navigator gamepads:', Array.from(gamepads).map((gp, i) => {
+        if (gp) {
+          const pressedButtons = Array.from(gp.buttons).map((b, idx) => b.pressed ? idx : null).filter(x => x !== null);
+          return `${i}: ${gp.id} (pressed: [${pressedButtons}])`;
+        }
+        return `${i}: null`;
+      }));
+
+      // Also check gamepad at index 1 specifically
+      const gp1 = gamepads[1];
+      if (gp1) {
+        console.log('🎮 Gamepad[1] detailed state:', {
+          id: gp1.id,
+          index: gp1.index,
+          connected: gp1.connected,
+          buttons: Array.from(gp1.buttons).map((b, i) => b.pressed ? `${i}:pressed` : null).filter(x => x),
+          timestamp: gp1.timestamp
+        });
+      }
     } else {
       console.error('❌ Virtual gamepad not found on window');
     }
