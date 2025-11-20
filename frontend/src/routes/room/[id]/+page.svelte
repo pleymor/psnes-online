@@ -212,6 +212,12 @@
       return;
     }
 
+    // IMPORTANT: Only poll gamepad when THIS window has focus
+    // This prevents both host and guest from polling the same physical gamepad
+    if (!document.hasFocus()) {
+      return;
+    }
+
     const gamepads = navigator.getGamepads();
     let physicalGamepadIndex = 0; // Remap physical gamepads to start from index 0
 
@@ -345,7 +351,6 @@
     });
 
     $socket.on('game:started', async () => {
-
       // Set gameStarted first so video element renders
       gameStarted = true;
 

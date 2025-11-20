@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-  import { Nostalgist } from '$lib/nostalgist-local/src';
+  import { Nostalgist } from '$lib/emulator';
   import type { KeyConfig } from '$lib/types';
 
   export let romData: ArrayBuffer;
@@ -54,7 +54,7 @@
       // Install virtual gamepads for BOTH players BEFORE creating emulator
       // Use indices 0 and 1 (standard player positions)
       // Physical gamepads will be hidden from RetroArch
-      const { VirtualGamepad, installVirtualGamepad } = await import('$lib/nostalgist-local/src/libs/virtual-gamepad');
+      const { VirtualGamepad, installVirtualGamepad } = await import('$lib/emulator/libs/virtual-gamepad');
 
       // Player 1 (local/host) at gamepad index 0
       const virtualGamepadP1 = new VirtualGamepad(0);
@@ -156,7 +156,7 @@
       return;
     }
 
-    // Translate keyboard input to virtual gamepad for Player 1
+    // Translate keyboard input to virtual gamepad for Player 1 ONLY
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
@@ -164,7 +164,8 @@
         const nostalgistButton = keyMapping[button as keyof KeyConfig];
         const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
-        if (virtualGamepadP1 && nostalgistButton) {
+        // DEFENSIVE: Only update P1, never P2
+        if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
           virtualGamepadP1.pressButton(nostalgistButton);
           virtualGamepadP1.updateTimestamp();
         }
@@ -176,7 +177,7 @@
   function handleKeyUp(e: KeyboardEvent) {
     if (!isHost || !emulator) return;
 
-    // Translate keyboard input to virtual gamepad for Player 1
+    // Translate keyboard input to virtual gamepad for Player 1 ONLY
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
@@ -184,7 +185,8 @@
         const nostalgistButton = keyMapping[button as keyof KeyConfig];
         const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
-        if (virtualGamepadP1 && nostalgistButton) {
+        // DEFENSIVE: Only update P1, never P2
+        if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
           virtualGamepadP1.releaseButton(nostalgistButton);
           virtualGamepadP1.updateTimestamp();
         }
@@ -195,6 +197,12 @@
 
   function pollGamepad() {
     if (!isHost || !emulator || !originalGetGamepads) return;
+
+    // IMPORTANT: Only poll gamepad when THIS window has focus
+    // This prevents both host and guest from polling the same physical gamepad
+    if (!document.hasFocus()) {
+      return;
+    }
 
     // Use original getGamepads to see physical controllers
     // (navigator.getGamepads is overridden to hide them from RetroArch)
@@ -229,7 +237,8 @@
               const nostalgistButton = keyMapping[button as keyof KeyConfig];
               const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
-              if (virtualGamepadP1 && nostalgistButton) {
+              // DEFENSIVE: Only update P1, never P2
+              if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
                 if (isPressed) {
                   virtualGamepadP1.pressButton(nostalgistButton);
                 } else {
@@ -260,7 +269,8 @@
               const nostalgistButton = keyMapping[button as keyof KeyConfig];
               const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
-              if (virtualGamepadP1 && nostalgistButton) {
+              // DEFENSIVE: Only update P1, never P2
+              if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
                 if (isPressedPlus) {
                   virtualGamepadP1.pressButton(nostalgistButton);
                 } else {
@@ -286,7 +296,8 @@
               const nostalgistButton = keyMapping[button as keyof KeyConfig];
               const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
-              if (virtualGamepadP1 && nostalgistButton) {
+              // DEFENSIVE: Only update P1, never P2
+              if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
                 if (isPressedMinus) {
                   virtualGamepadP1.pressButton(nostalgistButton);
                 } else {
@@ -336,18 +347,16 @@
     if (!isHost) return;
 
     const nostalgistButton = keyMapping[button as keyof KeyConfig];
+    const virtualGamepadP2 = (window as any).__virtualGamepadP2;
 
-    // Use the pre-installed virtual gamepad directly
-    const virtualGamepad = (window as any).__virtualGamepadP2;
-    if (virtualGamepad) {
+    // DEFENSIVE: Only update P2, never P1
+    if (virtualGamepadP2 && virtualGamepadP2.index === 1) {
       if (pressed) {
-        virtualGamepad.pressButton(nostalgistButton);
+        virtualGamepadP2.pressButton(nostalgistButton);
       } else {
-        virtualGamepad.releaseButton(nostalgistButton);
+        virtualGamepadP2.releaseButton(nostalgistButton);
       }
-      virtualGamepad.updateTimestamp();
-    } else {
-      console.error('❌ Virtual gamepad not found on window');
+      virtualGamepadP2.updateTimestamp();
     }
   }
 
@@ -448,6 +457,7 @@
       initEmulator();
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('keyup', handleKeyUp);
+      // Re-enable gamepad polling for host, but only when window has focus
       startGamepadPolling();
     }
     document.addEventListener('fullscreenchange', handleFullscreenChange);
