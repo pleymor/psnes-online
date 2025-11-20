@@ -201,6 +201,7 @@
 
         if (isPressedPlus !== wasPressedPlus) {
           lastGamepadState[inputCodePlus] = isPressedPlus;
+          console.log('🎮 P1 gamepad axis state change:', inputCodePlus, 'value:', axisValue.toFixed(2), 'pressed:', isPressedPlus);
 
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodePlus) {
@@ -228,6 +229,7 @@
 
         if (isPressedMinus !== wasPressedMinus) {
           lastGamepadState[inputCodeMinus] = isPressedMinus;
+          console.log('🎮 P1 gamepad axis state change:', inputCodeMinus, 'value:', axisValue.toFixed(2), 'pressed:', isPressedMinus);
 
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodeMinus) {
