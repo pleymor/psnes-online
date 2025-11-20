@@ -502,12 +502,18 @@ export class Emulator {
   private postRun() {
     this.resize(this.canvasInitialSize)
 
-    // Log available gamepads (don't dispatch events - let physical gamepads work naturally)
+    // Tell RetroArch that controllers are connected by dispatching gamepadconnected events
+    // This is critical for virtual gamepads to be recognized
     const gamepads = navigator.getGamepads?.() ?? [];
     console.log('🎮 Gamepads available for RetroArch:', gamepads.length);
     for (const gamepad of gamepads) {
       if (gamepad) {
         console.log(`  - [${gamepad.index}] ${gamepad.id} (connected: ${gamepad.connected})`);
+        // Dispatch gamepadconnected event so RetroArch registers this gamepad
+        // Use custom event approach since GamepadEvent constructor is strict
+        const event = new Event('gamepadconnected') as any;
+        event.gamepad = gamepad;
+        globalThis.dispatchEvent(event);
       }
     }
 
