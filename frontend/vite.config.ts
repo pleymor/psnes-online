@@ -5,13 +5,15 @@ import { SvelteKitPWA } from '@vite-pwa/sveltekit';
 export default defineConfig({
   define: {
     global: 'globalThis', // Polyfill for Node.js global
+    'process.env': {},
   },
   resolve: {
     alias: {
       buffer: 'buffer/',
       stream: 'stream-browserify',
       events: 'events',
-      util: 'util',
+      util: 'util/',
+      path: 'path-browserify',
     },
   },
   optimizeDeps: {
@@ -19,6 +21,7 @@ export default defineConfig({
     esbuildOptions: {
       define: {
         global: 'globalThis',
+        'process.env': '{}',
       },
     },
   },

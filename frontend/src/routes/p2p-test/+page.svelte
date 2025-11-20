@@ -4,6 +4,10 @@
   import { user } from '$lib/stores/user';
   import P2PRoom from '$lib/components/P2PRoom.svelte';
 
+  // Accept props from SvelteKit (even if unused)
+  export let data: any = {};
+  export let params: any = {};
+
   let isHost = true;
   let roomId = 'test-room-' + Math.random().toString(36).substr(2, 9);
   let gameId = '';
@@ -11,6 +15,41 @@
   let selectedGameId = '';
   let started = false;
   let keyConfig: any = null;
+  let settingsLoaded = false;
+
+  // Load settings from local storage
+  function loadSettings() {
+    if (typeof localStorage !== 'undefined') {
+      const savedIsHost = localStorage.getItem('p2p-test-isHost');
+      const savedRoomId = localStorage.getItem('p2p-test-roomId');
+      const savedGameId = localStorage.getItem('p2p-test-gameId');
+
+      if (savedIsHost !== null) {
+        isHost = savedIsHost === 'true';
+      }
+      if (savedRoomId) {
+        roomId = savedRoomId;
+      }
+      if (savedGameId) {
+        selectedGameId = savedGameId;
+      }
+    }
+    settingsLoaded = true;
+  }
+
+  // Save settings to local storage
+  function saveSettings() {
+    if (settingsLoaded && typeof localStorage !== 'undefined') {
+      localStorage.setItem('p2p-test-isHost', String(isHost));
+      localStorage.setItem('p2p-test-roomId', roomId);
+      localStorage.setItem('p2p-test-gameId', selectedGameId);
+    }
+  }
+
+  // Save whenever settings change (after initial load)
+  $: if (isHost !== undefined) saveSettings();
+  $: if (roomId) saveSettings();
+  $: if (selectedGameId) saveSettings();
 
   async function loadKeyConfig() {
     try {
@@ -51,7 +90,8 @@
       const response = await fetch('/api/games', { credentials: 'include' });
       if (response.ok) {
         games = await response.json();
-        if (games.length > 0) {
+        // Only set default if no game is already selected (from localStorage or otherwise)
+        if (games.length > 0 && !selectedGameId) {
           selectedGameId = games[0].id;
         }
       }
@@ -75,6 +115,7 @@
     //   goto('/');
     //   return;
     // }
+    loadSettings();
     await loadKeyConfig();
     await loadGames();
   });

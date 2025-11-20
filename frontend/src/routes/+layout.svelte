@@ -4,6 +4,10 @@
   import { user, userLoading } from '$lib/stores/user';
   import { socket, initializeSocket } from '$lib/api/socket';
 
+  // Accept props from SvelteKit (even if unused)
+  export let data: any = {};
+  export let params: any = {};
+
   let socketInitialized = false;
 
   onMount(async () => {
