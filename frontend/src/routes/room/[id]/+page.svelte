@@ -975,13 +975,11 @@
   }
 
   .guest-stream video {
-    /* Maintain fixed aspect ratio and prevent size variations */
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: 100%;
+    /* Fill available space while maintaining aspect ratio */
+    width: 100%;
+    height: 100%;
 
-    /* Force specific dimensions to prevent resizing */
+    /* Contain to maintain aspect ratio without cropping */
     object-fit: contain;
 
     /* SNES native aspect ratio (8:7 pixel aspect ratio) */
