@@ -167,6 +167,10 @@
         onData: (data) => {
           // Handle remote input (for host receiving guest input)
           if (data.type === 'input' && playerPort === 1) {
+            const receivedAt = performance.now();
+            const transitTime = receivedAt - data.timestamp;
+            console.log(`🎮 [HOST] Received guest input "${data.button}" - Transit time: ${transitTime.toFixed(2)}ms`);
+
             emulatorComponent?.handleRemoteInput(data.button, data.pressed);
 
             // Send ACK back to guest with timestamp
@@ -174,7 +178,8 @@
               p2pManager.sendData({
                 type: 'input_ack',
                 inputId: data.inputId,
-                timestamp: data.timestamp
+                timestamp: data.timestamp,
+                receivedAt // Add when host received it
               });
             }
           }
@@ -184,6 +189,18 @@
             const now = performance.now();
             const sendTime = data.timestamp;
             const latency = now - sendTime;
+
+            // Calculate one-way trip and host processing time
+            const oneWay = latency / 2;
+            const hostReceivedAt = data.receivedAt;
+            const transitToHost = hostReceivedAt - sendTime;
+            const ackTransitBack = now - hostReceivedAt;
+
+            console.log(`📊 [GUEST] Input ACK received:`);
+            console.log(`   - Total RTT: ${latency.toFixed(2)}ms`);
+            console.log(`   - Transit to host: ${transitToHost.toFixed(2)}ms`);
+            console.log(`   - ACK transit back: ${ackTransitBack.toFixed(2)}ms`);
+            console.log(`   - Est. one-way: ${oneWay.toFixed(2)}ms`);
 
             // Update input latency (round-trip time)
             latencyHistoryInput.push(latency);
@@ -199,6 +216,8 @@
             const frameTime = data.timestamp;
             const vidLatency = now - frameTime;
 
+            console.log(`📹 [GUEST] Video latency: ${vidLatency.toFixed(2)}ms (frame sent at ${frameTime.toFixed(2)}, received at ${now.toFixed(2)})`);
+
             // Update video latency
             latencyHistoryVideo.push(vidLatency);
             if (latencyHistoryVideo.length > LATENCY_HISTORY_SIZE) {
@@ -206,6 +225,8 @@
             }
             videoLatency = latencyHistoryVideo.reduce((a, b) => a + b, 0) / latencyHistoryVideo.length;
             totalLatency = inputLatency + videoLatency;
+
+            console.log(`📊 [GUEST] Total latency: ${totalLatency.toFixed(2)}ms (input: ${inputLatency.toFixed(2)}ms + video: ${videoLatency.toFixed(2)}ms)`);
           }
         },
         onConnect: async () => {
@@ -329,6 +350,7 @@
         e.preventDefault();
         const timestamp = performance.now();
         const inputId = `${button}_${timestamp}`;
+        console.log(`⌨️  [GUEST] Sending input "${button}" (pressed) at ${timestamp.toFixed(2)}ms`);
         p2pManager.sendData({
           type: 'input',
           button,
