@@ -7,6 +7,20 @@ services:
       - redis-data:/data
     command: redis-server --appendonly yes
 
+  db-migration:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    environment:
+      - DATABASE_URL=file:/app/data/dev.db
+    volumes:
+      - backend-data:/app/data
+    command: npx prisma migrate deploy
+    restart: "no"
+    depends_on:
+      - backend
+
   backend:
     build:
       context: ./backend
