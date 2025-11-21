@@ -12,5 +12,8 @@
     "prod": "docker-compose -f docker-compose.prod.yml up --build",
     "build": "npm run build --workspaces",
     "clean": "npm run clean --workspaces"
+  },
+  "devDependencies": {
+    "@types/simple-peer": "^9.11.9"
   }
 }

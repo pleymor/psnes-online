@@ -45,15 +45,12 @@ export class P2PManager {
           stream: localStream,     // Host sends video/audio stream
           trickle: true,           // Use trickle ICE for faster connection
           channelName: 'input',    // Explicitly name the data channel
-          // channelConfig: {
-          //   // Optimize data channel for low-latency input
-          //   ordered: true,         // Keep ordered for reliability
-          //   maxPacketLifeTime: 100 // Drop packets older than 100ms (prefer fresh data)
-          // },
           offerOptions: {
             // Ensure data channel is created even with media stream
             offerToReceiveAudio: true,
             offerToReceiveVideo: true,
+            // Optimize for low latency
+            voiceActivityDetection: false,
             iceRestart: false
           },
           answerOptions: {
@@ -115,7 +112,9 @@ export class P2PManager {
         // Debug: Monitor data channel state directly
         // @ts-ignore - Access internal peer connection and data channel
         setTimeout(() => {
+          // @ts-ignore SimplePeer private members for advanced handling
           const pc = this.peer?._pc;
+          // @ts-ignore SimplePeer private members for advanced handling
           const channel = this.peer?._channel;
 
           if (pc) {
@@ -140,7 +139,7 @@ export class P2PManager {
                   resolve();
                 }
               });
-              channel.addEventListener('error', (err) => {
+              channel.addEventListener('error', (err: any) => {
                 console.error('[P2PManager] Host data channel ERROR:', err);
               });
             }
