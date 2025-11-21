@@ -33,6 +33,7 @@ services:
       - DATABASE_URL=file:/app/data/dev.db
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - AUTH_MODE=dev
     env_file:
       - ./backend/.env
     volumes:

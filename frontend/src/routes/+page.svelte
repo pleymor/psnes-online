@@ -174,8 +174,46 @@
     }
   }
 
+  let authMode: 'google' | 'dev' = 'google';
+  let isLoadingAuthMode = true;
+
+  async function loadAuthMode() {
+    try {
+      const res = await fetch('/auth/mode', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        authMode = data.mode;
+      }
+    } catch (error) {
+      console.error('Failed to load auth mode:', error);
+    } finally {
+      isLoadingAuthMode = false;
+    }
+  }
+
   function login() {
     window.location.href = '/auth/google';
+  }
+
+  async function loginDev(userId: string) {
+    try {
+      const res = await fetch('/auth/dev/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ userId })
+      });
+
+      if (res.ok) {
+        const userData = await res.json();
+        user.set(userData);
+        goto('/');
+      } else {
+        console.error('Dev login failed');
+      }
+    } catch (error) {
+      console.error('Dev login error:', error);
+    }
   }
 
   async function logout() {
@@ -187,6 +225,10 @@
     user.set(null);
     goto('/');
   }
+
+  onMount(() => {
+    loadAuthMode();
+  });
 
   function handleControlsSaved(event: CustomEvent<{ config: any }>) {
     userKeyConfig = { ...event.detail.config };
@@ -207,9 +249,28 @@
 
       <div class="login-section">
         <LanguageSelector />
-        <button on:click={login} class="login-btn">
-          {t($language, 'signInWithGoogle')}
-        </button>
+
+        {#if isLoadingAuthMode}
+          <div class="loading">Loading...</div>
+        {:else if authMode === 'dev'}
+          <div class="dev-login">
+            <p class="dev-mode-label">🛠️ Development Mode</p>
+            <div class="dev-users">
+              <button on:click={() => loginDev('1')} class="dev-user-btn">
+                <span class="dev-user-avatar">👤</span>
+                <span class="dev-user-name">Dev User 1</span>
+              </button>
+              <button on:click={() => loginDev('2')} class="dev-user-btn">
+                <span class="dev-user-avatar">🎮</span>
+                <span class="dev-user-name">Dev User 2</span>
+              </button>
+            </div>
+          </div>
+        {:else}
+          <button on:click={login} class="login-btn">
+            {t($language, 'signInWithGoogle')}
+          </button>
+        {/if}
       </div>
     </div>
   </div>
@@ -435,6 +496,65 @@
     flex-direction: column;
     align-items: center;
     gap: 1rem;
+  }
+
+  .loading {
+    color: #888;
+    font-size: 1rem;
+  }
+
+  .dev-login {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    align-items: center;
+    width: 100%;
+    max-width: 400px;
+  }
+
+  .dev-mode-label {
+    font-size: 1rem;
+    color: #ff9800;
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .dev-users {
+    display: flex;
+    gap: 1rem;
+    width: 100%;
+  }
+
+  .dev-user-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    background: rgba(42, 42, 42, 0.95);
+    border: 2px solid rgba(102, 126, 234, 0.3);
+    padding: 1.5rem 1rem;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: white;
+  }
+
+  .dev-user-btn:hover {
+    border-color: rgba(102, 126, 234, 0.8);
+    background: rgba(102, 126, 234, 0.1);
+    transform: translateY(-4px);
+    box-shadow: 0 8px 16px rgba(102, 126, 234, 0.2);
+  }
+
+  .dev-user-avatar {
+    font-size: 3rem;
+    display: block;
+  }
+
+  .dev-user-name {
+    font-size: 1rem;
+    font-weight: 600;
   }
 
   .login-btn {

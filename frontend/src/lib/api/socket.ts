@@ -7,7 +7,7 @@ export function initializeSocket() {
   // In development, connect directly to backend to avoid Vite proxy issues with binary data
   // In production, use relative path (nginx handles proxy)
   const isDev = import.meta.env.DEV;
-  const socketUrl = isDev ? 'http://localhost:3000' : '/';
+  const socketUrl = isDev ? `http://${window.location.hostname}:3000` : '/';
 
   const socketInstance = io(socketUrl, {
     withCredentials: true,
