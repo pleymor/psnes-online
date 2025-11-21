@@ -45,12 +45,15 @@ export class P2PManager {
           stream: localStream,     // Host sends video/audio stream
           trickle: true,           // Use trickle ICE for faster connection
           channelName: 'input',    // Explicitly name the data channel
+          // channelConfig: {
+          //   // Optimize data channel for low-latency input
+          //   ordered: true,         // Keep ordered for reliability
+          //   maxPacketLifeTime: 100 // Drop packets older than 100ms (prefer fresh data)
+          // },
           offerOptions: {
             // Ensure data channel is created even with media stream
             offerToReceiveAudio: true,
             offerToReceiveVideo: true,
-            // Optimize for low latency
-            voiceActivityDetection: false,
             iceRestart: false
           },
           answerOptions: {

@@ -501,7 +501,7 @@
   function startGamepadPolling() {
     if (gamepadPollInterval !== null) return; // Already polling
 
-    gamepadPollInterval = window.setInterval(pollGamepad, 16); // Poll at ~60Hz
+    gamepadPollInterval = window.setInterval(pollGamepad, 8); // Poll at ~120Hz for lower input latency
   }
 
   function stopGamepadPolling() {
