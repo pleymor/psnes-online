@@ -2,6 +2,7 @@
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { Nostalgist } from '$lib/emulator';
   import type { KeyConfig } from '$lib/types';
+  import { DEBUG } from '$lib/config/debug';
 
   export let romData: ArrayBuffer;
   export let keyConfig: KeyConfig;
@@ -564,7 +565,9 @@
       // Log FPS every 2 seconds (less spam)
       if (now - lastLogTime >= 2000) {
         currentFPS = Math.round((frameCount * 1000) / (now - lastLogTime));
-        console.log(`📊 Emulator FPS: ${currentFPS}`);
+        if (DEBUG) {
+          console.log(`📊 Emulator FPS: ${currentFPS}`);
+        }
         frameCount = 0;
         lastLogTime = now;
       }

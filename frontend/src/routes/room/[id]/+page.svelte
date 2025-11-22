@@ -12,24 +12,7 @@
   import { P2PManager, captureCanvasStream } from '$lib/webrtc/p2p-manager';
   import { initializeAudioCapture, getAudioStream } from '$lib/emulator/audio-capture';
   import type { Room, KeyConfig } from '$lib/types';
-
-  /**
-   * Debug mode - Controls verbose logging for development and troubleshooting
-   *
-   * Set to `true` to enable detailed performance and diagnostic logs:
-   * - Input latency measurements (guest → host round-trip)
-   * - Video frame latency tracking (host → guest)
-   * - WebRTC connection metrics and canvas configuration
-   * - Real-time input event logging (~60 events/second)
-   *
-   * Set to `false` (default) for production to improve performance by:
-   * - Eliminating ~60+ console.log() calls per second
-   * - Reducing string formatting and .toFixed() calculations
-   * - Minimizing garbage collection from temporary string objects
-   *
-   * Note: console.warn() and console.error() remain active regardless of this setting
-   */
-  const DEBUG = false;
+  import { DEBUG } from '$lib/config/debug';
 
   export let data;
 

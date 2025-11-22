@@ -15,6 +15,7 @@
   import ControlsModal from '$lib/components/ControlsModal.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import type { KeyConfig } from '$lib/types';
+  import { DEBUG } from '$lib/config/debug';
 
   // Accept params prop from SvelteKit (unused but prevents warnings)
   export let params = {};
@@ -75,7 +76,7 @@
       if (res.ok) {
         const rooms = await res.json();
         activeRooms = rooms;
-        console.log('Active rooms:', activeRooms);
+        if (DEBUG) console.log('Active rooms:', activeRooms);
       }
     } catch (error) {
       console.error('Failed to load rooms:', error);
