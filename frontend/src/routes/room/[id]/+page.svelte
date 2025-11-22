@@ -13,6 +13,24 @@
   import { initializeAudioCapture, getAudioStream } from '$lib/emulator/audio-capture';
   import type { Room, KeyConfig } from '$lib/types';
 
+  /**
+   * Debug mode - Controls verbose logging for development and troubleshooting
+   *
+   * Set to `true` to enable detailed performance and diagnostic logs:
+   * - Input latency measurements (guest → host round-trip)
+   * - Video frame latency tracking (host → guest)
+   * - WebRTC connection metrics and canvas configuration
+   * - Real-time input event logging (~60 events/second)
+   *
+   * Set to `false` (default) for production to improve performance by:
+   * - Eliminating ~60+ console.log() calls per second
+   * - Reducing string formatting and .toFixed() calculations
+   * - Minimizing garbage collection from temporary string objects
+   *
+   * Note: console.warn() and console.error() remain active regardless of this setting
+   */
+  const DEBUG = false;
+
   export let data;
 
   let room: Room | null = null;
@@ -97,7 +115,7 @@
     try {
       // @ts-ignore - Experimental API for low latency
       if ('requestVideoFrameCallback' in guestVideoElement) {
-        console.log('✅ Video frame callback available - minimal latency mode');
+        if (DEBUG) console.log('✅ Video frame callback available - minimal latency mode');
       }
 
       // Disable preload to reduce buffer
@@ -106,6 +124,7 @@
       // Set very low latency hint (experimental)
       // @ts-ignore
       if (guestVideoElement.mozPreservesPitch !== undefined) {
+        // @ts-ignore
         guestVideoElement.mozPreservesPitch = false;
       }
 
@@ -169,7 +188,7 @@
           if (data.type === 'input' && playerPort === 1) {
             const receivedAt = performance.now();
             const transitTime = receivedAt - data.timestamp;
-            console.log(`🎮 [HOST] Received guest input "${data.button}" - Transit time: ${transitTime.toFixed(2)}ms`);
+            if (DEBUG) console.log(`🎮 [HOST] Received guest input "${data.button}" - Transit time: ${transitTime.toFixed(2)}ms`);
 
             emulatorComponent?.handleRemoteInput(data.button, data.pressed);
 
@@ -196,11 +215,13 @@
             const transitToHost = hostReceivedAt - sendTime;
             const ackTransitBack = now - hostReceivedAt;
 
-            console.log(`📊 [GUEST] Input ACK received:`);
-            console.log(`   - Total RTT: ${latency.toFixed(2)}ms`);
-            console.log(`   - Transit to host: ${transitToHost.toFixed(2)}ms`);
-            console.log(`   - ACK transit back: ${ackTransitBack.toFixed(2)}ms`);
-            console.log(`   - Est. one-way: ${oneWay.toFixed(2)}ms`);
+            if (DEBUG) {
+              console.log(`📊 [GUEST] Input ACK received:`);
+              console.log(`   - Total RTT: ${latency.toFixed(2)}ms`);
+              console.log(`   - Transit to host: ${transitToHost.toFixed(2)}ms`);
+              console.log(`   - ACK transit back: ${ackTransitBack.toFixed(2)}ms`);
+              console.log(`   - Est. one-way: ${oneWay.toFixed(2)}ms`);
+            }
 
             // Update input latency (round-trip time)
             latencyHistoryInput.push(latency);
@@ -212,11 +233,11 @@
 
           // Handle frame timestamp from host (for guest measuring video latency)
           if (data.type === 'frame_timestamp' && playerPort === 2) {
-            const now = performance.now();
+            const now = Date.now();
             const frameTime = data.timestamp;
             const vidLatency = now - frameTime;
 
-            console.log(`📹 [GUEST] Video latency: ${vidLatency.toFixed(2)}ms (frame sent at ${frameTime.toFixed(2)}, received at ${now.toFixed(2)})`);
+            if (DEBUG) console.log(`📹 [GUEST] Video latency: ${vidLatency.toFixed(2)}ms (frame sent at ${frameTime.toFixed(2)}, received at ${now.toFixed(2)})`);
 
             // Update video latency
             latencyHistoryVideo.push(vidLatency);
@@ -226,7 +247,7 @@
             videoLatency = latencyHistoryVideo.reduce((a, b) => a + b, 0) / latencyHistoryVideo.length;
             totalLatency = inputLatency + videoLatency;
 
-            console.log(`📊 [GUEST] Total latency: ${totalLatency.toFixed(2)}ms (input: ${inputLatency.toFixed(2)}ms + video: ${videoLatency.toFixed(2)}ms)`);
+            if (DEBUG) console.log(`📊 [GUEST] Total latency: ${totalLatency.toFixed(2)}ms (input: ${inputLatency.toFixed(2)}ms + video: ${videoLatency.toFixed(2)}ms)`);
           }
         },
         onConnect: async () => {
@@ -239,7 +260,7 @@
               if (metrics) {
                 connectionType = metrics.type;
                 connectionRTT = metrics.rtt;
-                console.log('📊 Connection metrics:', metrics);
+                if (DEBUG) console.log('📊 Connection metrics:', metrics);
               }
             }, 2000);
           }
@@ -251,11 +272,11 @@
               if (p2pManager && connectionStatus === 'connected') {
                 p2pManager.sendData({
                   type: 'frame_timestamp',
-                  timestamp: performance.now()
+                  timestamp: Date.now()
                 });
               }
             }, 250);
-            console.log('📹 Started sending frame timestamps for video latency measurement');
+            if (DEBUG) console.log('📹 Started sending frame timestamps for video latency measurement');
           }
         },
         onClose: () => {
@@ -282,25 +303,27 @@
 
         // Get canvas from emulator component
         const canvas = emulatorComponent?.getCanvas();
-        console.log('🎮 Got canvas:', canvas);
+        if (DEBUG) console.log('🎮 Got canvas:', canvas);
 
         if (canvas) {
-          console.log(`📐 Canvas resolution: ${canvas.width}x${canvas.height} (CSS: ${canvas.offsetWidth}x${canvas.offsetHeight})`);
-          console.log(`✅ Using natural canvas resolution for WebRTC streaming`);
+          if (DEBUG) {
+            console.log(`📐 Canvas resolution: ${canvas.width}x${canvas.height} (CSS: ${canvas.offsetWidth}x${canvas.offsetHeight})`);
+            console.log(`✅ Using natural canvas resolution for WebRTC streaming`);
+          }
 
           // Capture video from canvas
           const videoStream = captureCanvasStream(canvas, 60);
 
           // Lock canvas size to prevent resize issues during WebRTC streaming
           emulatorComponent.lockCanvasSize();
-          console.log('🔒 Canvas size locked at 256x224');
+          if (DEBUG) console.log('🔒 Canvas size locked at 256x224');
 
           // Try to add audio from the captured emulator audio
           const audioStream = getAudioStream();
           if (audioStream) {
             const audioTracks = audioStream.getAudioTracks();
             if (audioTracks.length > 0) {
-              console.log('✅ Adding audio tracks to video stream');
+              if (DEBUG) console.log('✅ Adding audio tracks to video stream');
               audioTracks.forEach(track => videoStream.addTrack(track));
             } else {
               console.warn('⚠️ No audio tracks in captured stream');
@@ -350,7 +373,7 @@
         e.preventDefault();
         const timestamp = performance.now();
         const inputId = `${button}_${timestamp}`;
-        console.log(`⌨️  [GUEST] Sending input "${button}" (pressed) at ${timestamp.toFixed(2)}ms`);
+        if (DEBUG) console.log(`⌨️  [GUEST] Sending input "${button}" (pressed) at ${timestamp.toFixed(2)}ms`);
         p2pManager.sendData({
           type: 'input',
           button,
@@ -661,7 +684,7 @@
       try {
         await document.documentElement.requestFullscreen();
       } catch (err) {
-        console.log('Could not enter fullscreen:', err);
+        if (DEBUG) console.log('Could not enter fullscreen:', err);
       }
     }
     $socket?.emit('game:start', { roomId });

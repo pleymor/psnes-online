@@ -8,7 +8,7 @@
     "frontend"
   ],
   "scripts": {
-    "dev": "docker-compose up",
+    "dev": "docker-compose up --build",
     "prod": "docker-compose -f docker-compose.prod.yml up --build",
     "build": "npm run build --workspaces",
     "clean": "npm run clean --workspaces"
