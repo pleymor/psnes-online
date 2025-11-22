@@ -300,25 +300,96 @@ export function initializeWebSocket(io: Server) {
     });
 
     // Save state (client-side emulation)
-    // TODO: Implement client-side save state management
-    socket.on('game:save', async (data: { roomId: string; slotNumber: number; name: string }) => {
+    socket.on('game:save', async (data: { roomId: string; slotNumber: number; name: string; saveData?: string }) => {
       const room = rooms.get(data.roomId);
       if (!room) return;
 
-      // Client-side emulation: Save state is handled on host client
-      // For now, just acknowledge - implement server-side save storage later if needed
-      socket.emit('game:saved', { slotNumber: data.slotNumber });
+      try {
+        // Check if a save already exists for this game and slot
+        const existingSave = await prisma.save.findFirst({
+          where: {
+            gameId: room.gameId,
+            slotNumber: data.slotNumber,
+            game: {
+              userId: user.id
+            }
+          }
+        });
+
+        // Convert saveData to Buffer (Bytes type in Prisma)
+        const saveDataBuffer = data.saveData
+          ? Buffer.from(data.saveData, 'base64')
+          : Buffer.alloc(0);
+
+        if (existingSave) {
+          // Update existing save
+          await prisma.save.update({
+            where: { id: existingSave.id },
+            data: {
+              name: data.name,
+              data: saveDataBuffer,
+              updatedAt: new Date()
+            }
+          });
+        } else {
+          // Create new save
+          await prisma.save.create({
+            data: {
+              gameId: room.gameId,
+              slotNumber: data.slotNumber,
+              name: data.name,
+              data: saveDataBuffer,
+              screenshot: null // TODO: Add screenshot support later
+            }
+          });
+        }
+
+        socket.emit('game:saved', { slotNumber: data.slotNumber });
+        console.log(`💾 Save created: ${data.name} (slot ${data.slotNumber}) for game ${room.gameId}`);
+      } catch (error) {
+        console.error('Error saving game state:', error);
+        socket.emit('error', { message: 'Failed to save game' });
+      }
     });
 
     // Load state (client-side emulation)
-    // TODO: Implement client-side save state management
     socket.on('game:load', async (data: { roomId: string; saveId: string }) => {
       const room = rooms.get(data.roomId);
       if (!room) return;
 
-      // Client-side emulation: Load state is handled on host client
-      // For now, just acknowledge - implement server-side save retrieval later if needed
-      io.to(data.roomId).emit('game:loaded', { saveId: data.saveId });
+      try {
+        // Retrieve save from database
+        const save = await prisma.save.findUnique({
+          where: { id: data.saveId },
+          include: { game: true }
+        });
+
+        if (!save) {
+          socket.emit('error', { message: 'Save not found' });
+          return;
+        }
+
+        // Verify user owns this save
+        if (save.game.userId !== user.id) {
+          socket.emit('error', { message: 'Not authorized to load this save' });
+          return;
+        }
+
+        // Convert Buffer to base64 string for transmission
+        const saveDataBase64 = save.data.toString('base64');
+
+        // Send save data to the room (host will apply it to emulator)
+        io.to(data.roomId).emit('game:loaded', {
+          saveId: data.saveId,
+          saveData: saveDataBase64,
+          slotNumber: save.slotNumber,
+          name: save.name
+        });
+        console.log(`📂 Save loaded: ${save.name} (slot ${save.slotNumber}) for game ${room.gameId}`);
+      } catch (error) {
+        console.error('Error loading game state:', error);
+        socket.emit('error', { message: 'Failed to load game' });
+      }
     });
 
     // Set emulation speed (client-side emulation)

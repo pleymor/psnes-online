@@ -490,7 +490,7 @@
     }
   }
 
-  export async function loadState(state: Uint8Array) {
+  export async function loadState(state: Uint8Array | Blob) {
     if (!emulator) return;
     try {
       await emulator.loadState(state);

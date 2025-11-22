@@ -606,6 +606,70 @@
       }
     });
 
+    $socket.on('game:loaded', async (data: { saveId: string; saveData: string; slotNumber: number; name: string }) => {
+      if (DEBUG()) console.log('📂 Received game:loaded event:', data);
+
+      // Check if save data exists
+      if (!data.saveData || data.saveData.length === 0) {
+        console.warn('⚠️ No save data available for this save. It may have been created before save state capture was implemented.');
+        showToast = true;
+        toastMessage = 'Cette sauvegarde ne contient pas de données d\'état';
+        toastType = 'error';
+        setTimeout(() => {
+          showToast = false;
+        }, 3000);
+        showPauseMenu = false;
+        return;
+      }
+
+      // Only host loads the save state into emulator
+      if (isRoomHost && emulatorComponent) {
+        try {
+          if (DEBUG()) console.log('📂 Loading save state into emulator:', data.name, 'Data length:', data.saveData.length);
+
+          // Convert base64 string back to Uint8Array
+          const saveDataBinary = Uint8Array.from(atob(data.saveData), c => c.charCodeAt(0));
+          if (DEBUG()) console.log('📂 Binary data size:', saveDataBinary.length, 'bytes');
+
+          // Convert to Blob (emulator expects a Blob)
+          const saveDataBlob = new Blob([saveDataBinary], { type: 'application/octet-stream' });
+          if (DEBUG()) console.log('📂 Blob size:', saveDataBlob.size, 'bytes');
+
+          await emulatorComponent.loadState(saveDataBlob);
+          if (DEBUG()) console.log('✅ Save state loaded successfully');
+
+          // Close pause menu first
+          showPauseMenu = false;
+
+          // Resume the emulator and game state after a small delay
+          setTimeout(() => {
+            emulatorComponent.resume();
+            $socket?.emit('game:resume', { roomId });
+            if (DEBUG()) console.log('✅ Emulator resumed');
+          }, 100);
+
+          showToast = true;
+          toastMessage = 'Sauvegarde chargée avec succès';
+          toastType = 'success';
+          setTimeout(() => {
+            showToast = false;
+          }, 3000);
+        } catch (error) {
+          console.error('❌ Failed to load save state:', error);
+          showToast = true;
+          toastMessage = 'Échec du chargement de la sauvegarde';
+          toastType = 'error';
+          setTimeout(() => {
+            showToast = false;
+          }, 3000);
+          showPauseMenu = false;
+        }
+      } else {
+        // Guest: just close the menu
+        showPauseMenu = false;
+      }
+    });
+
     // Handle Escape key for pause menu
     if (browser) {
       window.addEventListener('keydown', handleKeyDown);
@@ -619,6 +683,7 @@
       $socket.off('game:started');
       $socket.off('game:resumed');
       $socket.off('game:stopped');
+      $socket.off('game:loaded');
     }
 
     // Stop gamepad polling
@@ -826,6 +891,7 @@
         {roomId}
         gameId={room?.gameId || ''}
         {keyConfig}
+        emulator={isRoomHost ? emulatorComponent : null}
         on:resume={() => {
           if (isRoomHost && emulatorComponent) {
             emulatorComponent.resume();

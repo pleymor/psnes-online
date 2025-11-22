@@ -10,6 +10,7 @@
   export let roomId: string;
   export let gameId: string;
   export let keyConfig: KeyConfig;
+  export let emulator: any = null; // Reference to ClientEmulator component (host only)
 
   const dispatch = createEventDispatcher();
 
@@ -217,6 +218,7 @@
         <SavesManager
           {roomId}
           {gameId}
+          {emulator}
           on:notification={handleNotification}
           on:close={handleSaveClose}
         />

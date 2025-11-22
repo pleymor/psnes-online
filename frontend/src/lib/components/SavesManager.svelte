@@ -6,6 +6,7 @@
 
   export let roomId: string;
   export let gameId: string;
+  export let emulator: any = null; // Reference to ClientEmulator component (host only)
 
   const dispatch = createEventDispatcher();
 
@@ -53,10 +54,40 @@
 
     loading = true;
 
+    // Capture emulator state if available (host only)
+    let saveData: string | undefined;
+    if (emulator) {
+      try {
+        const stateData = await emulator.saveState();
+
+        if (stateData) {
+          // Extract the state Blob from the result object
+          const stateBlob = stateData.state || stateData;
+
+          if (stateBlob instanceof Blob) {
+            // Convert Blob to ArrayBuffer, then to Uint8Array, then to base64
+            const arrayBuffer = await stateBlob.arrayBuffer();
+            const uint8Array = new Uint8Array(arrayBuffer);
+
+            // Convert to base64
+            const binaryString = String.fromCharCode(...Array.from(uint8Array));
+            saveData = btoa(binaryString);
+          } else if (stateData instanceof Uint8Array) {
+            // Direct Uint8Array (fallback)
+            const binaryString = String.fromCharCode(...Array.from(stateData));
+            saveData = btoa(binaryString);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to capture emulator state:', error);
+      }
+    }
+
     $socket?.emit('game:save', {
       roomId,
       slotNumber: selectedSlot,
-      name: saveName
+      name: saveName,
+      saveData
     });
 
     // Listen for save confirmation
@@ -94,7 +125,7 @@
     });
 
     // Listen for load confirmation
-    const loadHandler = () => {
+    const loadHandler = (data: any) => {
       dispatch('notification', {
         message: t($language, 'saveLoaded'),
         type: 'success'
@@ -107,6 +138,7 @@
 
     // Handle errors
     const errorHandler = (error: any) => {
+      console.error('Error loading save:', error);
       dispatch('notification', {
         message: t($language, 'failedToLoad'),
         type: 'error'
@@ -170,6 +202,8 @@
           bind:value={saveName}
           placeholder="{t($language, 'slot')} {selectedSlot}"
           maxlength="50"
+          on:keydown={(e) => e.stopPropagation()}
+          on:keyup={(e) => e.stopPropagation()}
         />
       </div>
 
