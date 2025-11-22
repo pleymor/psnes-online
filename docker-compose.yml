@@ -38,7 +38,7 @@ services:
       - ./backend/.env
     volumes:
       - ./backend:/app
-      - /app/node_modules
+      - backend-node-modules:/app/node_modules
       - backend-data:/app/data
       - backend-roms:/app/roms
       - backend-saves:/app/saves
@@ -65,6 +65,7 @@ services:
 volumes:
   redis-data:
   backend-data:
+  backend-node-modules:
   backend-roms:
   backend-saves:
   backend-avatars:
