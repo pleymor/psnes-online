@@ -57,6 +57,7 @@ services:
       - /app/.svelte-kit
     environment:
       - VITE_API_URL=http://localhost:3000
+      - BACKEND_URL=http://backend:3000
     command: sh -c "npm install && npm run dev -- --host"
     depends_on:
       - backend

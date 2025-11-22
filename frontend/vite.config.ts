@@ -72,15 +72,15 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://backend:3000',
+        target: process.env.BACKEND_URL || 'http://localhost:3000',
         changeOrigin: true
       },
       '/auth': {
-        target: 'http://backend:3000',
+        target: process.env.BACKEND_URL || 'http://localhost:3000',
         changeOrigin: true
       },
       '/socket.io': {
-        target: 'http://backend:3000',
+        target: process.env.BACKEND_URL || 'http://localhost:3000',
         changeOrigin: true,
         ws: true
       }
