@@ -441,6 +441,7 @@
     gap: 0.75rem;
     flex: 1;
     cursor: pointer;
+    min-width: 0; /* Allow text truncation */
   }
 
   .friend-main:hover {
@@ -450,6 +451,8 @@
   .avatar {
     width: 40px;
     height: 40px;
+    min-width: 40px; /* Prevent shrinking */
+    min-height: 40px; /* Prevent shrinking */
     border-radius: 50%;
     background: #333;
     display: flex;
@@ -457,6 +460,7 @@
     align-items: center;
     font-size: 1.5rem;
     overflow: hidden;
+    flex-shrink: 0; /* Prevent avatar from shrinking */
   }
 
   .avatar img {
@@ -465,14 +469,26 @@
     object-fit: cover;
   }
 
+  .info {
+    min-width: 0; /* Allow text truncation */
+    flex: 1;
+  }
+
   .info strong {
     display: block;
     font-size: 0.875rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .info small {
     color: #888;
     font-size: 0.75rem;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .info .room-status {
@@ -500,6 +516,7 @@
     font-weight: 500;
     transition: all 0.2s;
     white-space: nowrap;
+    flex-shrink: 0; /* Prevent button from shrinking */
   }
 
   .btn-join:hover {
