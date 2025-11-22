@@ -31,6 +31,7 @@
   let gameToDelete: Game | null = null;
   let showControls = false;
   let showMobileSidebar = false;
+  let activeRooms: any[] = [];
   let userKeyConfig: KeyConfig = {
     up: 'ArrowUp',
     down: 'ArrowDown',
@@ -65,6 +66,19 @@
       }
     } catch (error) {
       console.error('Failed to load user controls:', error);
+    }
+  }
+
+  async function loadRooms() {
+    try {
+      const res = await fetch('/api/rooms', { credentials: 'include' });
+      if (res.ok) {
+        const rooms = await res.json();
+        activeRooms = rooms;
+        console.log('Active rooms:', activeRooms);
+      }
+    } catch (error) {
+      console.error('Failed to load rooms:', error);
     }
   }
 
@@ -156,7 +170,7 @@
     const unsubscribe = userLoading.subscribe(async (loading) => {
       if (!loading) {
         if ($user) {
-          await Promise.all([loadGames(), loadUserControls()]);
+          await Promise.all([loadGames(), loadUserControls(), loadRooms()]);
         }
         unsubscribe();
       }
@@ -165,7 +179,8 @@
 
   async function createRoom(gameId: string, gameTitle: string) {
     if ($socket) {
-      $socket.emit('room:create', { gameId, gameTitle });
+      // Create room and immediately start playing as player 1
+      $socket.emit('room:create', { gameId, gameTitle, autoStart: false });
 
       // Wait for room created event
       $socket.once('room:created', (room: any) => {
@@ -315,7 +330,7 @@
         </div>
 
         <div class="nav-section nav-section-friends">
-          <FriendsList bind:this={friendsListRef} on:friendClicked={handleFriendClicked} />
+          <FriendsList bind:this={friendsListRef} {activeRooms} on:friendClicked={handleFriendClicked} />
         </div>
 
         <div class="nav-section nav-section-bottom">

@@ -7,6 +7,7 @@
   import { t } from '$lib/i18n/translations';
 
   export let compact = false; // Compact mode for small screens
+  export let activeRooms: any[] = []; // List of active rooms from API
 
   const dispatch = createEventDispatcher();
 
@@ -16,6 +17,20 @@
   let friendEmail = '';
   let friendRooms = new Map<string, any>(); // userId -> room
   let onlineFriends = new Map<string, boolean>(); // userId -> online status
+
+  // Reactive statement to merge API rooms with WebSocket rooms
+  $: {
+    // Update friendRooms with rooms from API
+    if (activeRooms && activeRooms.length > 0) {
+      activeRooms.forEach(room => {
+        // Find the host of this room
+        if (room.hostId) {
+          friendRooms.set(room.hostId, room);
+        }
+      });
+      friendRooms = friendRooms; // Trigger reactivity
+    }
+  }
 
   onMount(async () => {
     // Load friends
@@ -250,8 +265,8 @@
               </div>
               <div class="info">
                 <strong>{friendData.friend.displayName}</strong>
-                {#if room && room.status !== 'playing'}
-                  <small class="room-status">{t($language, 'inRoom', { gameTitle: room.gameTitle })}</small>
+                {#if room}
+                  <small class="room-status">{ room.gameTitle }</small>
                 {:else if onlineFriends.get(friendData.friend.id)}
                   <small class="online-status">{t($language, 'online')}</small>
                 {:else}
@@ -259,9 +274,9 @@
                 {/if}
               </div>
             </div>
-            {#if room && room.status !== 'playing'}
+            {#if room?.status === 'waiting'}
               <button class="btn-join" on:click|stopPropagation={() => joinFriend(room.id)}>
-                {t($language, 'joinRoom')}
+                {t($language, 'joinGame')}
               </button>
             {/if}
           </div>
@@ -283,10 +298,10 @@
       {#each friends as friendData}
         {@const room = friendRooms.get(friendData.friend.id)}
         {@const isOnline = onlineFriends.get(friendData.friend.id)}
-        {@const inRoom = room && room.status !== 'playing'}
+        {@const isPlaying = room !== undefined}
         <div
           class="compact-badge-container"
-          on:click={() => inRoom ? joinFriend(room.id) : openFriendDetails(friendData)}
+          on:click={() => isPlaying ? joinFriend(room.id) : openFriendDetails(friendData)}
           title={friendData.friend.displayName}
         >
           <div class="compact-avatar">
@@ -295,7 +310,7 @@
             {:else}
               <span class="icon">👤</span>
             {/if}
-            {#if inRoom}
+            {#if isPlaying}
               <div class="badge-dot in-room"></div>
             {:else if isOnline}
               <div class="badge-dot online"></div>

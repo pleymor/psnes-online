@@ -19,6 +19,14 @@ export function getUserSocket(userId: string): string | undefined {
   return userSockets.get(userId);
 }
 
+export function getRoom(roomId: string): Room | undefined {
+  return rooms.get(roomId);
+}
+
+export function getRooms(): Map<string, Room> {
+  return rooms;
+}
+
 export function initializeWebSocket(io: Server) {
   ioInstance = io;
 
@@ -60,9 +68,12 @@ export function initializeWebSocket(io: Server) {
     });
 
     // Create room
-    socket.on('room:create', async (data: { gameId: string; gameTitle: string }) => {
+    socket.on('room:create', async (data: { gameId: string; gameTitle: string; autoStart?: boolean }) => {
       const roomId = randomUUID();
       const userKeyConfig = await getUserKeyConfig(user.id);
+
+      // If autoStart is true, host becomes player 1 immediately and game starts
+      const autoStart = data.autoStart ?? false;
 
       const room: Room = {
         id: roomId,
@@ -73,11 +84,11 @@ export function initializeWebSocket(io: Server) {
           userId: user.id,
           displayName: user.displayName,
           avatar: user.avatar ?? undefined,
-          port: null,
-          isReady: false,
+          port: autoStart ? 1 : null, // Auto-assign port 1 if autoStart
+          isReady: autoStart, // Auto-ready if autoStart
           keyConfig: userKeyConfig
         }],
-        status: 'waiting',
+        status: autoStart ? 'playing' : 'waiting', // Start playing immediately if autoStart
         createdAt: new Date()
       };
 
@@ -87,6 +98,16 @@ export function initializeWebSocket(io: Server) {
       socket.emit('room:created', room);
       broadcastRoomUpdate(io, room);
       notifyFriendsAboutRoom(io, user.id, room);
+
+      // If autoStart, notify clients to start the game immediately
+      if (autoStart) {
+        // Notify friends that the game started
+        await notifyFriendsRoomStatusChanged(io, user.id, room.id, 'playing');
+
+        // Start game for host
+        io.to(roomId).emit('game:started');
+        console.log(`✅ Game auto-started for room ${roomId} (host: ${user.displayName})`);
+      }
     });
 
     // Join room
@@ -104,6 +125,11 @@ export function initializeWebSocket(io: Server) {
         // User already in room (e.g., room creator), just send current state
         socket.join(data.roomId);
         socket.emit('room:updated', room);
+
+        // If game is already playing, notify this socket to start
+        if (room.status === 'playing') {
+          socket.emit('game:started');
+        }
         return;
       }
 
@@ -112,19 +138,18 @@ export function initializeWebSocket(io: Server) {
         return;
       }
 
-      if (room.status === 'playing') {
-        socket.emit('error', { message: 'Game already in progress' });
-        return;
-      }
-
+      // Allow joining even if game is in progress - guest becomes player 2 automatically
       const userKeyConfig = await getUserKeyConfig(user.id);
+
+      // Auto-assign port 2 if game is already playing
+      const autoAssignPort = room.status === 'playing' ? 2 : null;
 
       const player: RoomPlayer = {
         userId: user.id,
         displayName: user.displayName,
         avatar: user.avatar ?? undefined,
-        port: null,
-        isReady: false,
+        port: autoAssignPort, // Auto-assign port 2 if game is playing
+        isReady: autoAssignPort !== null, // Auto-ready if port is assigned
         keyConfig: userKeyConfig
       };
 
@@ -133,6 +158,12 @@ export function initializeWebSocket(io: Server) {
 
       io.to(data.roomId).emit('room:updated', room);
       broadcastRoomUpdate(io, room);
+
+      // If game is already playing, notify the new guest to start
+      if (room.status === 'playing') {
+        socket.emit('game:started');
+        console.log(`✅ Guest ${user.displayName} joined room ${room.id} as Player 2 (game in progress)`);
+      }
     });
 
     // Leave room
@@ -375,6 +406,8 @@ async function handleLeaveRoom(
   const user = socketUsers.get(socket.id);
   if (!user) return;
 
+  const wasHost = room.hostId === user.id;
+
   room.players = room.players.filter(p => p.userId !== user.id);
   socket.leave(roomId);
 
@@ -386,9 +419,23 @@ async function handleLeaveRoom(
     rooms.delete(roomId);
     io.emit('room:destroyed', { roomId });
   } else {
-    // If host left, assign new host
-    if (room.hostId === user.id) {
+    // Notify remaining players about who left
+    console.log(`📢 Emitting player:left to room ${roomId}:`, {
+      userId: user.id,
+      displayName: user.displayName,
+      wasHost
+    });
+    io.to(roomId).emit('player:left', {
+      userId: user.id,
+      displayName: user.displayName,
+      wasHost
+    });
+
+    // If host left, assign new host and notify everyone to redirect
+    if (wasHost) {
       room.hostId = room.players[0].userId;
+      // When host leaves, everyone should be redirected
+      io.to(roomId).emit('host:left');
     }
 
     io.to(roomId).emit('room:updated', room);

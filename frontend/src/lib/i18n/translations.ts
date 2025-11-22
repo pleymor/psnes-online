@@ -26,8 +26,7 @@ export const translations = {
     failedToSendRequest: 'Failed to send request',
     online: 'Online',
     offline: 'Offline',
-    joinRoom: 'Join',
-    inRoom: 'In room: {gameTitle}',
+    joinGame: 'Join',
 
     // Friend details
     friendDetails: 'Friend Details',
@@ -162,7 +161,6 @@ export const translations = {
     region: 'Region',
     saveStates: 'Save States',
     uploaded: 'Uploaded',
-    romFile: 'ROM File',
 
     // General
     close: 'Close',
@@ -199,8 +197,7 @@ export const translations = {
     failedToSendRequest: 'Échec de l\'envoi de la demande',
     online: 'En ligne',
     offline: 'Hors ligne',
-    joinRoom: 'Rejoindre',
-    inRoom: 'En room : {gameTitle}',
+    joinGame: 'Rejoindre',
 
     // Friend details
     friendDetails: 'Détails de l\'ami',
@@ -335,7 +332,6 @@ export const translations = {
     region: 'Région',
     saveStates: 'États de sauvegarde',
     uploaded: 'Uploadé',
-    romFile: 'Fichier ROM',
 
     // General
     close: 'Fermer',
