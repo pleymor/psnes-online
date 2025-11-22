@@ -1,4 +1,5 @@
 import type { RetroArchEmscriptenModuleOptions } from '../types/retroarch-emscripten.ts'
+import { DEBUG } from '$lib/config/debug';
 
 export function getEmscriptenModuleOverrides(overrides: RetroArchEmscriptenModuleOptions) {
   let resolveRunDependenciesPromise: () => void
@@ -24,9 +25,12 @@ export function getEmscriptenModuleOverrides(overrides: RetroArchEmscriptenModul
 
     print(...args: unknown[]) {
       // Filter out noisy RetroArch info messages
+      if (!DEBUG) {
+        return; // Suppress all emulator output in production
+      }
       const message = args.join(' ');
       if (message.includes('[INFO]')) {
-        return; // Suppress all [INFO] messages
+        return; // Suppress all [INFO] messages even in DEBUG mode
       }
       console.info(...args)
     },
@@ -37,7 +41,7 @@ export function getEmscriptenModuleOverrides(overrides: RetroArchEmscriptenModul
 
     // @ts-expect-error do not throw error when exit
     quit(status: unknown, toThrow: unknown) {
-      if (status) {
+      if (status && DEBUG) {
         console.info(status, toThrow)
       }
     },
