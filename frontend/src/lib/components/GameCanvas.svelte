@@ -197,11 +197,13 @@
     ctx.imageSmoothingEnabled = false;
 
     // Scale up from offscreen canvas to display canvas with 4:3 ratio
-    ctx.drawImage(
-      offscreenCanvas,
-      0, 0, frame.width, frame.height,
-      0, 0, scaledWidth, scaledHeight
-    );
+    if (offscreenCanvas) {
+      ctx.drawImage(
+        offscreenCanvas,
+        0, 0, frame.width, frame.height,
+        0, 0, scaledWidth, scaledHeight
+      );
+    }
 
     const renderTime = performance.now() - startTime;
     if (renderTime > 3) {
