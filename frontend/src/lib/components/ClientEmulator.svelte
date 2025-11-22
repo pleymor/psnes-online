@@ -565,7 +565,7 @@
       // Log FPS every 2 seconds (less spam)
       if (now - lastLogTime >= 2000) {
         currentFPS = Math.round((frameCount * 1000) / (now - lastLogTime));
-        if (DEBUG) {
+        if (DEBUG()) {
           console.log(`📊 Emulator FPS: ${currentFPS}`);
         }
         frameCount = 0;

@@ -29,7 +29,7 @@ export function initializeAudioCapture(): void {
 
       // Store the first AudioContext (likely from the emulator)
       if (!globalAudioContext) {
-        if (DEBUG) console.log('✅ Captured emulator AudioContext');
+        if (DEBUG()) console.log('✅ Captured emulator AudioContext');
         globalAudioContext = audioContext;
 
         // Create a MediaStreamDestination to capture audio
@@ -74,7 +74,7 @@ export function initializeAudioCapture(): void {
   window.AudioContext = AudioContextProxy as any;
   (window as any).webkitAudioContext = AudioContextProxy;
 
-  if (DEBUG) console.log('🎧 Audio capture initialized');
+  if (DEBUG()) console.log('🎧 Audio capture initialized');
 }
 
 /**

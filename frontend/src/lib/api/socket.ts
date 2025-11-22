@@ -22,11 +22,11 @@ export function initializeSocket() {
   });
 
   socketInstance.on('connect', () => {
-    if (DEBUG) console.log('Socket connected');
+    if (DEBUG()) console.log('Socket connected');
   });
 
   socketInstance.on('disconnect', () => {
-    if (DEBUG) console.log('Socket disconnected');
+    if (DEBUG()) console.log('Socket disconnected');
   });
 
   socketInstance.on('error', (error: any) => {

@@ -83,7 +83,7 @@ export class P2PManager {
         // Handle signaling data (offer/answer/ICE candidates)
         this.peer.on('signal', (data) => {
           // Log SDP to debug codec selection
-          if (DEBUG) {
+          if (DEBUG()) {
             if (data.type === 'offer' || data.type === 'answer') {
               console.log(`📡 WebRTC ${data.type}:`, data.sdp?.includes('H264') ? 'H264 present ✅' : 'H264 missing ⚠️');
             }
@@ -230,7 +230,7 @@ export class P2PManager {
    * Prefer H.264 codec for hardware acceleration
    */
   private preferH264Codec(sdp: string): string {
-    if (DEBUG) {
+    if (DEBUG()) {
       console.log('🔧 Attempting to prioritize H.264 codec...');
     }
 
@@ -243,7 +243,7 @@ export class P2PManager {
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].startsWith('m=video')) {
         mLineIndex = i;
-        if (DEBUG) {
+        if (DEBUG()) {
           console.log(`📍 Found m=video line at index ${i}: ${lines[i]}`);
         }
         break;
@@ -261,7 +261,7 @@ export class P2PManager {
         const match = lines[i].match(/rtpmap:(\d+)\s+H264/i);
         if (match) {
           h264PayloadType = match[1];
-          if (DEBUG) {
+          if (DEBUG()) {
             console.log(`📍 Found H.264 codec with payload type: ${h264PayloadType}`);
           }
           break;
@@ -271,7 +271,7 @@ export class P2PManager {
 
     if (!h264PayloadType) {
       console.warn('⚠️ H.264 codec not found in SDP, using default codec');
-      if (DEBUG) {
+      if (DEBUG()) {
         console.log('Available codecs in SDP:');
         lines.forEach(line => {
           if (line.includes('rtpmap:')) {
@@ -287,7 +287,7 @@ export class P2PManager {
     const parts = mLine.split(' ');
     const payloadTypes = parts.slice(3); // Skip 'm=video', port, protocol
 
-    if (DEBUG) {
+    if (DEBUG()) {
       console.log(`📍 Original codec order: ${payloadTypes.join(', ')}`);
     }
 
@@ -295,7 +295,7 @@ export class P2PManager {
     const reordered = [h264PayloadType, ...payloadTypes.filter(pt => pt !== h264PayloadType)];
     lines[mLineIndex] = parts.slice(0, 3).join(' ') + ' ' + reordered.join(' ');
 
-    if (DEBUG) {
+    if (DEBUG()) {
       console.log(`✅ H.264 codec prioritized! New order: ${reordered.join(', ')}`);
       console.log(`   Payload type ${h264PayloadType} moved to front`);
     }
@@ -362,16 +362,16 @@ export class P2PManager {
    */
   private async detectHardwareEncoding(sender: RTCRtpSender): Promise<void> {
     try {
-      if (DEBUG) {
+      if (DEBUG()) {
         console.log('⏳ Waiting 2s for encoding to start...');
       }
       await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for encoding to start
 
-      if (DEBUG) {
+      if (DEBUG()) {
         console.log('📊 Getting encoder stats...');
       }
       const stats = await sender.getStats();
-      if (DEBUG) {
+      if (DEBUG()) {
         console.log(`📊 Found ${stats.size} stats entries`);
       }
 
@@ -379,18 +379,18 @@ export class P2PManager {
       for (const [, stat] of stats) {
         if (stat.type === 'outbound-rtp' && stat.kind === 'video') {
           foundVideo = true;
-          if (DEBUG) {
+          if (DEBUG()) {
             console.log('✅ Found outbound-rtp video stat');
           }
           const codecId = stat.codecId;
-          if (DEBUG) {
+          if (DEBUG()) {
             console.log(`   Codec ID: ${codecId}`);
           }
 
           // Find codec info
           for (const [, codecStat] of stats) {
             if (codecStat.id === codecId) {
-              if (DEBUG) {
+              if (DEBUG()) {
                 console.log('✅ Found matching codec stat');
 
                 const mimeType = (codecStat as any).mimeType || '';
@@ -452,7 +452,7 @@ export class P2PManager {
           const localType = (localCandidate as any)?.candidateType || 'unknown';
           const remoteType = (remoteCandidate as any)?.candidateType || 'unknown';
 
-          if (DEBUG) {
+          if (DEBUG()) {
             console.log('🔗 P2P Connection established:');
             console.log(`   Local: ${localType} (${(localCandidate as any)?.protocol})`);
             console.log(`   Remote: ${remoteType} (${(remoteCandidate as any)?.protocol})`);
@@ -557,7 +557,7 @@ export function captureCanvasStream(
   frameRate: number = 60
 ): MediaStream {
   // Log canvas resolution for debugging
-  if (DEBUG) {
+  if (DEBUG()) {
     console.log(`📹 Capturing canvas stream: ${canvas.width}x${canvas.height} @ ${frameRate}fps`);
   }
 
@@ -623,7 +623,7 @@ export function captureCanvasWithAudio(
     if (audioStream) {
       const audioTracks = audioStream.getAudioTracks();
       if (audioTracks.length > 0) {
-        if (DEBUG) {
+        if (DEBUG()) {
           console.log('✅ Adding audio tracks to video stream');
         }
         audioTracks.forEach((track: MediaStreamTrack) => videoStream.addTrack(track));

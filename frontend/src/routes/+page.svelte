@@ -76,7 +76,7 @@
       if (res.ok) {
         const rooms = await res.json();
         activeRooms = rooms;
-        if (DEBUG) console.log('Active rooms:', activeRooms);
+        if (DEBUG()) console.log('Active rooms:', activeRooms);
       }
     } catch (error) {
       console.error('Failed to load rooms:', error);

@@ -25,7 +25,7 @@ export function getEmscriptenModuleOverrides(overrides: RetroArchEmscriptenModul
 
     print(...args: unknown[]) {
       // Filter out noisy RetroArch info messages
-      if (!DEBUG) {
+      if (!DEBUG()) {
         return; // Suppress all emulator output in production
       }
       const message = args.join(' ');
@@ -41,7 +41,7 @@ export function getEmscriptenModuleOverrides(overrides: RetroArchEmscriptenModul
 
     // @ts-expect-error do not throw error when exit
     quit(status: unknown, toThrow: unknown) {
-      if (status && DEBUG) {
+      if (status && DEBUG()) {
         console.info(status, toThrow)
       }
     },
