@@ -5,7 +5,7 @@
     language.set($language === 'en' ? 'fr' : 'en');
   }
 
-  $: currentFlag = $language === 'en' ? '🇬🇧' : '🇫🇷';
+  $: currentLang = $language === 'en' ? 'EN' : 'FR';
   $: currentTitle = $language === 'en' ? 'Switch to Français' : 'Switch to English';
 </script>
 
@@ -15,7 +15,7 @@
     on:click={toggleLanguage}
     title={currentTitle}
   >
-    {currentFlag}
+    {currentLang}
   </button>
 </div>
 
@@ -31,10 +31,13 @@
     border: 2px solid rgba(102, 126, 234, 0.3);
     border-radius: 8px;
     padding: 0.5rem 0.75rem;
-    font-size: 1.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
     line-height: 1;
+    color: white;
+    letter-spacing: 0.05em;
   }
 
   .lang-btn:hover {
