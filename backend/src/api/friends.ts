@@ -61,14 +61,81 @@ friendsRouter.get('/requests', async (req, res) => {
   res.json(requests);
 });
 
+// Search users (for friend suggestions)
+friendsRouter.get('/search', async (req, res) => {
+  const user = req.user as User;
+  const { query } = req.query;
+
+  if (!query || typeof query !== 'string' || query.trim().length < 2) {
+    return res.json([]);
+  }
+
+  const searchQuery = query.trim();
+
+  // Find users matching the query (by email or display name)
+  const users = await prisma.user.findMany({
+    where: {
+      AND: [
+        { id: { not: user.id } }, // Exclude current user
+        {
+          OR: [
+            { email: { contains: searchQuery } },
+            { displayName: { contains: searchQuery } }
+          ]
+        }
+      ]
+    },
+    select: {
+      id: true,
+      email: true,
+      displayName: true,
+      avatar: true
+    },
+    take: 10 // Limit to 10 results
+  });
+
+  // Get existing friendships to filter out already connected users
+  const friendships = await prisma.friendship.findMany({
+    where: {
+      OR: [
+        { initiatorId: user.id },
+        { receiverId: user.id }
+      ]
+    },
+    select: {
+      initiatorId: true,
+      receiverId: true,
+      status: true
+    }
+  });
+
+  const friendIds = new Set(
+    friendships.map(f => f.initiatorId === user.id ? f.receiverId : f.initiatorId)
+  );
+
+  // Filter out users who are already friends or have pending requests
+  const availableUsers = users.filter(u => !friendIds.has(u.id));
+
+  res.json(availableUsers);
+});
+
 // Send friend request
 friendsRouter.post('/request', async (req, res) => {
   const user = req.user as User;
-  const { friendEmail } = req.body;
+  const { friendEmail, friendId } = req.body;
 
-  const friend = await prisma.user.findUnique({
-    where: { email: friendEmail }
-  });
+  let friend;
+
+  // Search by ID first if provided, otherwise by email
+  if (friendId) {
+    friend = await prisma.user.findUnique({
+      where: { id: friendId }
+    });
+  } else if (friendEmail) {
+    friend = await prisma.user.findUnique({
+      where: { email: friendEmail }
+    });
+  }
 
   if (!friend) {
     return res.status(404).json({ error: 'User not found' });

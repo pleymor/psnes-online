@@ -15,6 +15,14 @@
   let friendRequests: any[] = [];
   let showAddFriend = false;
   let friendEmail = '';
+  let searchQuery = '';
+  let searchResults: any[] = [];
+  let isSearching = false;
+  let searchTimeout: any = null;
+  let isSending = false;
+  let errorMessage = '';
+  let successMessage = '';
+  let showDropdown = false;
   let friendRooms = new Map<string, any>(); // userId -> room
   let onlineFriends = new Map<string, boolean>(); // userId -> online status
 
@@ -134,23 +142,97 @@
     $socket?.off('friend:roomStatusChanged');
   });
 
-  async function sendFriendRequest() {
-    if (!friendEmail) return;
+  async function searchUsers() {
+    if (searchQuery.trim().length < 2) {
+      searchResults = [];
+      showDropdown = false;
+      return;
+    }
+
+    isSearching = true;
+    errorMessage = '';
+
+    try {
+      const res = await fetch(`/api/friends/search?query=${encodeURIComponent(searchQuery)}`, {
+        credentials: 'include'
+      });
+
+      if (res.ok) {
+        searchResults = await res.json();
+        showDropdown = searchResults.length > 0;
+      } else {
+        searchResults = [];
+        showDropdown = false;
+      }
+    } catch (error) {
+      console.error('Search error:', error);
+      searchResults = [];
+      showDropdown = false;
+    } finally {
+      isSearching = false;
+    }
+  }
+
+  function handleSearchInput() {
+    // Clear previous timeout
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+
+    // Debounce search
+    searchTimeout = setTimeout(() => {
+      searchUsers();
+    }, 300);
+  }
+
+  async function sendFriendRequest(friendId?: string) {
+    if (!friendId && !friendEmail) return;
+
+    isSending = true;
+    errorMessage = '';
+    successMessage = '';
+
+    const body = friendId ? { friendId } : { friendEmail };
 
     const res = await fetch('/api/friends/request', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ friendEmail })
+      body: JSON.stringify(body)
     });
 
+    isSending = false;
+
     if (res.ok) {
+      successMessage = t($language, 'friendRequestSent');
       friendEmail = '';
-      showAddFriend = false;
+      searchQuery = '';
+      searchResults = [];
+      showDropdown = false;
+      setTimeout(() => {
+        successMessage = '';
+        showAddFriend = false;
+      }, 2000);
     } else {
       const error = await res.json();
-      console.error('Failed to send friend request:', error.error || t($language, 'failedToSendRequest'));
+      errorMessage = error.error === 'User not found'
+        ? t($language, 'userNotFound')
+        : error.error === 'Friendship already exists'
+        ? t($language, 'alreadyFriends')
+        : error.error === 'Cannot add yourself as friend'
+        ? t($language, 'cannotAddYourself')
+        : t($language, 'failedToSendRequest');
     }
+  }
+
+  function selectUser(user: any) {
+    sendFriendRequest(user.id);
+  }
+
+  function closeDropdown() {
+    setTimeout(() => {
+      showDropdown = false;
+    }, 200);
   }
 
   async function acceptRequest(friendshipId: string) {
@@ -222,12 +304,47 @@
 
     {#if showAddFriend}
       <div class="add-friend">
-        <input
-          type="email"
-          bind:value={friendEmail}
-          placeholder={t($language, 'friendEmail')}
-        />
-        <button on:click={sendFriendRequest}>{t($language, 'send')}</button>
+        <div class="search-container">
+          <input
+            type="text"
+            bind:value={searchQuery}
+            on:input={handleSearchInput}
+            on:blur={closeDropdown}
+            placeholder={t($language, 'searchFriends')}
+            class="search-input"
+          />
+          {#if isSearching}
+            <div class="search-spinner"></div>
+          {/if}
+
+          {#if showDropdown && searchResults.length > 0}
+            <div class="search-dropdown">
+              {#each searchResults as user}
+                <div class="search-result" on:mousedown={() => selectUser(user)}>
+                  <div class="result-avatar">
+                    {#if user.avatar}
+                      <img src={user.avatar} alt={user.displayName} />
+                    {:else}
+                      👤
+                    {/if}
+                  </div>
+                  <div class="result-info">
+                    <strong>{user.displayName}</strong>
+                    <small>{user.email}</small>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        {#if errorMessage}
+          <div class="message error-message">{errorMessage}</div>
+        {/if}
+
+        {#if successMessage}
+          <div class="message success-message">{successMessage}</div>
+        {/if}
       </div>
     {/if}
 
@@ -355,27 +472,151 @@
   }
 
   .add-friend {
-    display: flex;
-    gap: 0.5rem;
     margin-bottom: 1rem;
   }
 
-  .add-friend input {
-    flex: 1;
-    padding: 0.5rem;
-    background: #1a1a1a;
-    border: 1px solid #444;
-    border-radius: 6px;
-    color: white;
+  .search-container {
+    position: relative;
   }
 
-  .add-friend button {
-    background: #667eea;
+  .search-input {
+    width: 100%;
+    padding: 0.75rem;
+    padding-right: 2.5rem;
+    background: #1a1a1a;
+    border: 2px solid #444;
+    border-radius: 8px;
     color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  }
+
+  .search-spinner {
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    border: 2px solid #444;
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: translateY(-50%) rotate(360deg); }
+  }
+
+  .search-dropdown {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    left: 0;
+    right: 0;
+    background: #1a1a1a;
+    border: 2px solid #667eea;
+    border-radius: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+
+  .search-result {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
     cursor: pointer;
+    transition: background 0.2s;
+    border-bottom: 1px solid #2a2a2a;
+  }
+
+  .search-result:last-child {
+    border-bottom: none;
+  }
+
+  .search-result:hover {
+    background: #252525;
+  }
+
+  .result-avatar {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    border-radius: 50%;
+    background: #333;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 1.25rem;
+    overflow: hidden;
+  }
+
+  .result-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .result-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .result-info strong {
+    display: block;
+    font-size: 0.875rem;
+    color: white;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .result-info small {
+    display: block;
+    font-size: 0.75rem;
+    color: #888;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .message {
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    animation: slideIn 0.3s ease-out;
+  }
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .error-message {
+    background: rgba(244, 67, 54, 0.1);
+    border: 1px solid #f44336;
+    color: #f44336;
+  }
+
+  .success-message {
+    background: rgba(76, 175, 80, 0.1);
+    border: 1px solid #4caf50;
+    color: #4caf50;
   }
 
   .section {
