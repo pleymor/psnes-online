@@ -424,6 +424,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 1rem;
     padding: 0.75rem;
     background: #1a1a1a;
     border-radius: 6px;
@@ -442,10 +443,6 @@
     flex: 1;
     cursor: pointer;
     min-width: 0; /* Allow text truncation */
-  }
-
-  .friend-main:hover {
-    transform: translateX(4px);
   }
 
   .avatar {
@@ -486,9 +483,6 @@
     color: #888;
     font-size: 0.75rem;
     display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .info .room-status {
