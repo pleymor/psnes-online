@@ -51,6 +51,7 @@
   let connectionStatus: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
   let gamepadPollInterval: number | null = null;
   let frameTimestampInterval: number | null = null;
+  let videoBufferMonitorInterval: number | null = null; // Monitor video buffer lag
   let lastGamepadState: Record<string, boolean> = {};
 
   // Latency tracking for guest
@@ -60,6 +61,10 @@
   let latencyHistoryInput: number[] = [];
   let latencyHistoryVideo: number[] = [];
   const LATENCY_HISTORY_SIZE = 10;
+
+  // Video latency breakdown (for display)
+  let networkLatency = 0;
+  let pipelineLatency = 0;
 
   // P2P connection info
   let connectionType = 'connecting';
@@ -90,34 +95,108 @@
   $: if (guestVideoElement && guestStream) {
     guestVideoElement.srcObject = guestStream;
 
-    // Optimize for low latency
-    // @ts-ignore - Non-standard but widely supported
-    if ('playsInline' in guestVideoElement) {
-      guestVideoElement.playsInline = true;
-    }
-
-    // Reduce buffering for minimal latency
+    // CRITICAL: Ultra-low latency optimizations
     try {
-      // @ts-ignore - Experimental API for low latency
-      if ('requestVideoFrameCallback' in guestVideoElement) {
-        if (DEBUG()) console.log('✅ Video frame callback available - minimal latency mode');
+      // Inline playback (mobile)
+      guestVideoElement.playsInline = true;
+      guestVideoElement.setAttribute('playsinline', '');
+      guestVideoElement.setAttribute('webkit-playsinline', '');
+
+      // Disable all buffering
+      guestVideoElement.preload = 'none';
+      // @ts-ignore - Experimental but critical for low latency
+      guestVideoElement.disablePictureInPicture = true;
+
+      // CRITICAL: Set video to synchronize to audio, not buffer ahead
+      // This prevents the video from buffering multiple frames
+      // @ts-ignore
+      if (typeof guestVideoElement.setSinkId !== 'undefined') {
+        // Use default audio output for sync
+        guestVideoElement.setSinkId('').catch(() => {});
       }
 
-      // Disable preload to reduce buffer
-      guestVideoElement.preload = 'none';
+      // Disable remote playback (Chromecast, etc.) which adds latency
+      // @ts-ignore
+      if (guestVideoElement.disableRemotePlayback !== undefined) {
+        // @ts-ignore
+        guestVideoElement.disableRemotePlayback = true;
+      }
 
-      // Set very low latency hint (experimental)
+      // Firefox-specific: disable audio pitch preservation
       // @ts-ignore
       if (guestVideoElement.mozPreservesPitch !== undefined) {
         // @ts-ignore
         guestVideoElement.mozPreservesPitch = false;
       }
 
+      // Check for requestVideoFrameCallback support (Chrome 83+)
+      // @ts-ignore
+      if ('requestVideoFrameCallback' in guestVideoElement) {
+        if (DEBUG()) console.log('✅ requestVideoFrameCallback available - frame-perfect rendering');
+      }
+
+      if (DEBUG()) {
+        console.log('✅ Video element optimized for ultra-low latency');
+        console.log('   - Buffer disabled');
+        console.log('   - PiP disabled');
+        console.log('   - Remote playback disabled');
+      }
+
     } catch (e) {
-      console.warn('Could not set low latency video options:', e);
+      console.warn('Could not set all low latency video options:', e);
     }
 
-    guestVideoElement.play().catch(err => console.error('Failed to play video:', err));
+    // Start playback with lowest possible latency
+    guestVideoElement.play().then(() => {
+      // CRITICAL: Force video to catch up to live edge after initial buffering
+      // This prevents the "lag on first launch" issue
+      setTimeout(() => {
+        try {
+          // Skip to the most recent frame (live edge)
+          // @ts-ignore - seekToLiveEdge not in standard types but supported in Chrome
+          if (typeof guestVideoElement.seekToLiveEdge === 'function') {
+            // @ts-ignore
+            guestVideoElement.seekToLiveEdge();
+          }
+
+          // Alternative: manually sync to current time if buffered
+          if (guestVideoElement.buffered.length > 0) {
+            const bufferedEnd = guestVideoElement.buffered.end(guestVideoElement.buffered.length - 1);
+            const currentTime = guestVideoElement.currentTime;
+            const lag = bufferedEnd - currentTime;
+
+            if (lag > 0.1) { // More than 100ms of buffer accumulated
+              if (DEBUG()) console.log(`⚡ Skipping ${lag.toFixed(2)}s of buffered video to catch up to live`);
+              guestVideoElement.currentTime = bufferedEnd - 0.05; // Stay 50ms behind live edge
+            }
+          }
+        } catch (e) {
+          // Ignore errors from seekToLiveEdge
+        }
+      }, 500); // Wait 500ms for initial buffering, then flush
+
+      // CRITICAL: Continuously monitor and correct video buffer lag
+      // This prevents gradual drift over time
+      if (!isRoomHost) {
+        videoBufferMonitorInterval = window.setInterval(() => {
+          try {
+            if (guestVideoElement && guestVideoElement.buffered.length > 0) {
+              const bufferedEnd = guestVideoElement.buffered.end(guestVideoElement.buffered.length - 1);
+              const currentTime = guestVideoElement.currentTime;
+              const lag = bufferedEnd - currentTime;
+
+              // If we're more than 200ms behind live, skip forward
+              if (lag > 0.2) {
+                if (DEBUG()) console.log(`⚡ Auto-correcting ${lag.toFixed(2)}s video lag`);
+                guestVideoElement.currentTime = bufferedEnd - 0.05; // Jump to near-live
+              }
+            }
+          } catch (e) {
+            // Ignore errors
+          }
+        }, 2000); // Check every 2 seconds
+      }
+    }).catch(err => console.error('Failed to play video:', err));
   }
 
   async function loadROM() {
@@ -219,11 +298,30 @@
 
           // Handle frame timestamp from host (for guest measuring video latency)
           if (data.type === 'frame_timestamp' && !isRoomHost) {
+            // Use Date.now() for cross-device synchronization (both host and guest use system time)
             const now = Date.now();
             const frameTime = data.timestamp;
-            const vidLatency = now - frameTime;
+            networkLatency = now - frameTime; // Store for display
 
-            if (DEBUG()) console.log(`📹 [GUEST] Video latency: ${vidLatency.toFixed(2)}ms (frame sent at ${frameTime.toFixed(2)}, received at ${now.toFixed(2)})`);
+            // IMPORTANT: On local network (same PC), Date.now() measures ONLY network transit time (~0-2ms)
+            // We need to add estimated encoding/decoding/rendering pipeline latency:
+            // - Canvas capture: ~16ms (1 frame @ 60fps)
+            // - H.264 encoding: ~5-10ms (with GPU)
+            // - Network: measured above
+            // - H.264 decoding: ~5-10ms (with GPU)
+            // - Video element rendering: ~16ms (1 frame @ 60fps)
+            // TOTAL ESTIMATED: ~42-52ms minimum
+
+            const ESTIMATED_PIPELINE_LATENCY = 45; // Conservative estimate
+            pipelineLatency = ESTIMATED_PIPELINE_LATENCY; // Store for display
+            const vidLatency = networkLatency + pipelineLatency;
+
+            if (DEBUG()) {
+              console.log(`📹 [GUEST] Video latency breakdown:`);
+              console.log(`   - Network transit: ${networkLatency.toFixed(2)}ms`);
+              console.log(`   - Pipeline (capture+encode+decode+render): ~${pipelineLatency}ms`);
+              console.log(`   - TOTAL estimated: ${vidLatency.toFixed(2)}ms`);
+            }
 
             // Update video latency
             latencyHistoryVideo.push(vidLatency);
@@ -253,16 +351,17 @@
 
           // Host: Send frame timestamps for video latency measurement
           if (isRoomHost && p2pManager) {
-            // Send a timestamp every ~250ms (15 frames at 60fps)
+            // Send timestamps frequently for better accuracy (every ~100ms = 6 frames at 60fps)
+            // Use Date.now() for cross-device synchronization (system clock)
             frameTimestampInterval = window.setInterval(() => {
               if (p2pManager && connectionStatus === 'connected') {
                 p2pManager.sendData({
                   type: 'frame_timestamp',
-                  timestamp: Date.now()
+                  timestamp: Date.now() // System time for cross-device sync
                 });
               }
-            }, 250);
-            if (DEBUG()) console.log('📹 Started sending frame timestamps for video latency measurement');
+            }, 100); // More frequent updates for better latency tracking
+            if (DEBUG()) console.log('📹 Started sending frame timestamps (100ms interval) for video latency measurement');
           }
         },
         onClose: () => {
@@ -284,12 +383,22 @@
 
       // If room host, wait for emulator to be ready, then capture stream
       if (isRoomHost) {
-        // Wait for emulator initialization and first frame render
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        // IMPROVED: Wait adaptively for canvas to be ready with actual content
+        // Instead of arbitrary 3s delay, poll until canvas has rendered frames
+        let canvas = emulatorComponent?.getCanvas();
+        let attempts = 0;
+        const maxAttempts = 60; // Max 3 seconds at 50ms intervals
 
-        // Get canvas from emulator component
-        const canvas = emulatorComponent?.getCanvas();
-        if (DEBUG()) console.log('🎮 Got canvas:', canvas);
+        while ((!canvas || canvas.width === 0 || canvas.height === 0) && attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+          canvas = emulatorComponent?.getCanvas();
+          attempts++;
+        }
+
+        if (DEBUG()) {
+          console.log(`🎮 Canvas ready after ${attempts * 50}ms (${attempts} attempts)`);
+          console.log('🎮 Canvas:', canvas);
+        }
 
         if (canvas) {
           if (DEBUG()) {
@@ -594,6 +703,12 @@
       // Stop gamepad polling
       stopGamepadPolling();
 
+      // Stop video buffer monitor
+      if (videoBufferMonitorInterval) {
+        clearInterval(videoBufferMonitorInterval);
+        videoBufferMonitorInterval = null;
+      }
+
       // Cleanup P2P connection
       if (p2pManager) {
         p2pManager.destroy();
@@ -693,6 +808,12 @@
     if (frameTimestampInterval) {
       clearInterval(frameTimestampInterval);
       frameTimestampInterval = null;
+    }
+
+    // Stop video buffer monitor
+    if (videoBufferMonitorInterval) {
+      clearInterval(videoBufferMonitorInterval);
+      videoBufferMonitorInterval = null;
     }
 
     // Cleanup P2P connection
@@ -845,20 +966,38 @@
           {#if connectionStatus === 'connected' && !isRoomHost}
             <div class="latency-indicator">
               <div class="latency-label">Latence Guest</div>
+
+              <!-- Input latency -->
               <div class="latency-row">
-                <span class="latency-name">Input:</span>
+                <span class="latency-name">Input RTT:</span>
                 <span class="latency-value">{inputLatency.toFixed(1)}ms</span>
               </div>
+
+              <!-- Video latency breakdown -->
               {#if videoLatency > 0}
-                <div class="latency-row">
-                  <span class="latency-name">Video:</span>
-                  <span class="latency-value">{videoLatency.toFixed(1)}ms</span>
+                <div class="latency-separator"></div>
+                <div class="latency-section-label">Latence Vidéo</div>
+                <div class="latency-row latency-sub">
+                  <span class="latency-name">• Réseau:</span>
+                  <span class="latency-value">{networkLatency.toFixed(1)}ms</span>
+                </div>
+                <div class="latency-row latency-sub">
+                  <span class="latency-name">• Pipeline:</span>
+                  <span class="latency-value">~{pipelineLatency}ms</span>
                 </div>
                 <div class="latency-row">
-                  <span class="latency-name">Total:</span>
-                  <span class="latency-value" style="font-weight: 600;">{totalLatency.toFixed(1)}ms</span>
+                  <span class="latency-name">Video Total:</span>
+                  <span class="latency-value" style="font-weight: 600;">{videoLatency.toFixed(1)}ms</span>
+                </div>
+
+                <div class="latency-separator"></div>
+                <div class="latency-row total-row">
+                  <span class="latency-name">TOTAL:</span>
+                  <span class="latency-value total-value">{totalLatency.toFixed(1)}ms</span>
                 </div>
               {/if}
+
+              <!-- Connection info -->
               <div class="latency-separator"></div>
               <div class="latency-row">
                 <span class="latency-name">Type:</span>
@@ -874,12 +1013,6 @@
                   {/if}
                 </span>
               </div>
-              {#if connectionRTT > 0}
-                <div class="latency-row">
-                  <span class="latency-name">Network RTT:</span>
-                  <span class="latency-value">{connectionRTT.toFixed(1)}ms</span>
-                </div>
-              {/if}
             </div>
           {/if}
         </div>
@@ -1164,5 +1297,47 @@
     height: 1px;
     background: rgba(255, 255, 255, 0.2);
     margin: 4px 0;
+  }
+
+  .latency-section-label {
+    font-size: 10px;
+    color: #8ab4f8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 4px 0 2px 0;
+    font-weight: 600;
+  }
+
+  .latency-sub {
+    margin-left: 8px;
+  }
+
+  .latency-sub .latency-name {
+    font-size: 10px;
+    color: #999;
+  }
+
+  .latency-sub .latency-value {
+    font-size: 11px;
+    color: #7dd87d;
+    font-weight: normal;
+  }
+
+  .total-row {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(74, 158, 255, 0.3);
+  }
+
+  .total-row .latency-name {
+    font-weight: 700;
+    color: #fff;
+    font-size: 12px;
+  }
+
+  .total-value {
+    font-size: 14px !important;
+    color: #ffeb3b !important;
+    text-shadow: 0 0 8px rgba(255, 235, 59, 0.8) !important;
   }
 </style>

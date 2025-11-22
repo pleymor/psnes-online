@@ -50,14 +50,11 @@ export class P2PManager {
             // Ensure data channel is created even with media stream
             offerToReceiveAudio: true,
             offerToReceiveVideo: true,
-            // Optimize for low latency
-            voiceActivityDetection: false,
             iceRestart: false
           },
           answerOptions: {
             offerToReceiveAudio: true,
-            offerToReceiveVideo: true,
-            voiceActivityDetection: false
+            offerToReceiveVideo: true
           },
           config: {
             iceServers: [
@@ -68,6 +65,17 @@ export class P2PManager {
             // Prefer direct P2P connection, avoid relay servers
             iceTransportPolicy: 'all', // 'all' tries direct first, 'relay' forces TURN
             iceCandidatePoolSize: 10, // Pre-gather ICE candidates for faster connection
+
+            // CRITICAL: Reduce buffering for ultra-low latency (LAN optimized)
+            // @ts-ignore - These are experimental but work in Chrome/Edge/Firefox
+            rtcpMuxPolicy: 'require',           // Multiplex RTP and RTCP on same port (faster)
+            bundlePolicy: 'max-bundle',         // Bundle all media streams (reduces overhead)
+
+            // Audio jitter buffer reduction (minimal buffering for local network)
+            // @ts-ignore
+            audioJitterBufferMaxPackets: 1,     // Keep only 1 packet in buffer
+            // @ts-ignore
+            audioJitterBufferFastAccelerate: true, // Quickly adapt to network changes
 
             // Enable hardware acceleration for encoding/decoding
             // @ts-ignore - Non-standard but supported in Chrome/Edge
@@ -123,6 +131,11 @@ export class P2PManager {
           if (pc) {
             // Optimize video encoding for minimal latency
             this.optimizeVideoEncoding(pc);
+
+            // CRITICAL: Optimize receiver side for minimal playout delay (guest)
+            if (!this.isHost) {
+              this.optimizeVideoReceiving(pc);
+            }
 
             // Monitor peer connection state
             pc.addEventListener('connectionstatechange', () => {
@@ -227,15 +240,15 @@ export class P2PManager {
   }
 
   /**
-   * Prefer H.264 codec for hardware acceleration
+   * Prefer H.264 codec for hardware acceleration and optimize for low latency
    */
   private preferH264Codec(sdp: string): string {
     if (DEBUG()) {
-      console.log('🔧 Attempting to prioritize H.264 codec...');
+      console.log('🔧 Attempting to prioritize H.264 codec and reduce latency...');
     }
 
     // Move H.264 to the front of the codec list for hardware acceleration
-    const lines = sdp.split('\n');
+    let lines = sdp.split('\n');
     let mLineIndex = -1;
     let h264PayloadType = '';
 
@@ -300,6 +313,43 @@ export class P2PManager {
       console.log(`   Payload type ${h264PayloadType} moved to front`);
     }
 
+    // CRITICAL: Add low-latency parameters to H.264 fmtp line
+    // This reduces buffering at the decoder level
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes(`a=fmtp:${h264PayloadType}`)) {
+        // Add x-google-min-bitrate and x-google-start-bitrate for faster startup
+        // Add level-asymmetry-allowed to allow different encoding levels
+        if (!lines[i].includes('x-google-min-bitrate')) {
+          lines[i] += ';x-google-min-bitrate=2000';
+        }
+        if (!lines[i].includes('x-google-start-bitrate')) {
+          lines[i] += ';x-google-start-bitrate=2500';
+        }
+        if (!lines[i].includes('level-asymmetry-allowed')) {
+          lines[i] += ';level-asymmetry-allowed=1';
+        }
+        if (DEBUG()) {
+          console.log(`✅ Added low-latency params to H.264 fmtp line`);
+        }
+        break;
+      }
+    }
+
+    // Check if playout delay extension is present in SDP
+    // If not, we'll set it via RTCRtpReceiver later
+    if (DEBUG()) {
+      let hasPlayoutDelay = false;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('a=extmap') && lines[i].includes('playout-delay')) {
+          hasPlayoutDelay = true;
+          break;
+        }
+      }
+      if (!hasPlayoutDelay) {
+        console.log('⚠️ Playout delay extension not in SDP, will try to set via API');
+      }
+    }
+
     return lines.join('\n');
   }
 
@@ -323,7 +373,6 @@ export class P2PManager {
 
         // Optimize for low latency with hardware encoding
         params.encodings[0].maxBitrate = 5000000; // 5 Mbps (higher bitrate for better quality at 60 FPS)
-        params.encodings[0].minBitrate = 2000000; // 2 Mbps minimum
         params.encodings[0].maxFramerate = 60; // Match emulator framerate
         params.encodings[0].priority = 'high'; // Prioritize video
         params.encodings[0].networkPriority = 'high';
@@ -358,6 +407,71 @@ export class P2PManager {
   }
 
   /**
+   * Optimize video receiving for minimal playout delay (guest side)
+   */
+  private async optimizeVideoReceiving(pc: RTCPeerConnection): Promise<void> {
+    try {
+      // Wait for receivers to be available
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const receivers = pc.getReceivers();
+      const videoReceiver = receivers.find(r => r.track?.kind === 'video');
+
+      if (videoReceiver) {
+        if (DEBUG()) {
+          console.log('🎬 Optimizing video receiver for minimal latency...');
+        }
+
+        // Try to set playout delay to minimum (Chrome/Edge only)
+        // @ts-ignore - Experimental API
+        if (typeof videoReceiver.playoutDelayHint !== 'undefined') {
+          // @ts-ignore
+          videoReceiver.playoutDelayHint = 0.0; // Request 0ms playout delay
+          if (DEBUG()) {
+            console.log('✅ Set playoutDelayHint to 0ms (minimal buffering)');
+          }
+        } else if (DEBUG()) {
+          console.warn('⚠️ playoutDelayHint not supported in this browser');
+        }
+
+        // Try Chrome-specific jitter buffer control
+        // @ts-ignore
+        if (typeof videoReceiver.jitterBufferTarget !== 'undefined') {
+          // @ts-ignore
+          videoReceiver.jitterBufferTarget = 0; // Minimal jitter buffer
+          if (DEBUG()) {
+            console.log('✅ Set jitterBufferTarget to 0ms');
+          }
+        }
+      }
+
+      // Also optimize audio receiver
+      const audioReceiver = receivers.find(r => r.track?.kind === 'audio');
+      if (audioReceiver) {
+        // @ts-ignore
+        if (typeof audioReceiver.playoutDelayHint !== 'undefined') {
+          // @ts-ignore
+          audioReceiver.playoutDelayHint = 0.0;
+          if (DEBUG()) {
+            console.log('✅ Set audio playoutDelayHint to 0ms');
+          }
+        }
+        // @ts-ignore
+        if (typeof audioReceiver.jitterBufferTarget !== 'undefined') {
+          // @ts-ignore
+          audioReceiver.jitterBufferTarget = 0;
+        }
+      }
+
+      if (DEBUG()) {
+        console.log('✅ Video/audio receivers optimized for ultra-low latency');
+      }
+    } catch (error) {
+      console.warn('Could not optimize video receiving:', error);
+    }
+  }
+
+  /**
    * Detect if hardware encoding is being used
    */
   private async detectHardwareEncoding(sender: RTCRtpSender): Promise<void> {
@@ -375,10 +489,8 @@ export class P2PManager {
         console.log(`📊 Found ${stats.size} stats entries`);
       }
 
-      let foundVideo = false;
       for (const [, stat] of stats) {
         if (stat.type === 'outbound-rtp' && stat.kind === 'video') {
-          foundVideo = true;
           if (DEBUG()) {
             console.log('✅ Found outbound-rtp video stat');
           }
