@@ -6,6 +6,7 @@
 
   export let romData: ArrayBuffer;
   export let keyConfig: KeyConfig;
+  export let playerPort: 1 | 2 | null = 1; // Which controller port this player is using (1 or 2, null for spectator)
   export let isHost: boolean = true; // true = host (runs emulator), false = guest (receives stream)
 
   const dispatch = createEventDispatcher();
@@ -222,7 +223,7 @@
       return;
     }
 
-    // Translate keyboard input to virtual gamepad for Player 1 ONLY
+    // Translate keyboard input to virtual gamepad based on player's selected port
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
@@ -231,12 +232,16 @@
         lastInputTimestamp = performance.now();
 
         const nostalgistButton = keyMapping[button as keyof KeyConfig];
-        const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
-        // DEFENSIVE: Only update P1, never P2
-        if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
-          virtualGamepadP1.pressButton(nostalgistButton);
-          virtualGamepadP1.updateTimestamp();
+        // Use the correct virtual gamepad based on playerPort
+        const virtualGamepad = playerPort === 1
+          ? (window as any).__virtualGamepadP1
+          : (window as any).__virtualGamepadP2;
+        const expectedIndex = playerPort === 1 ? 0 : 1;
+
+        if (virtualGamepad && nostalgistButton && virtualGamepad.index === expectedIndex) {
+          virtualGamepad.pressButton(nostalgistButton);
+          virtualGamepad.updateTimestamp();
 
           // Measure latency
           measureLatency();
@@ -249,18 +254,22 @@
   function handleKeyUp(e: KeyboardEvent) {
     if (!isHost || !emulator) return;
 
-    // Translate keyboard input to virtual gamepad for Player 1 ONLY
+    // Translate keyboard input to virtual gamepad based on player's selected port
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
 
         const nostalgistButton = keyMapping[button as keyof KeyConfig];
-        const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
-        // DEFENSIVE: Only update P1, never P2
-        if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
-          virtualGamepadP1.releaseButton(nostalgistButton);
-          virtualGamepadP1.updateTimestamp();
+        // Use the correct virtual gamepad based on playerPort
+        const virtualGamepad = playerPort === 1
+          ? (window as any).__virtualGamepadP1
+          : (window as any).__virtualGamepadP2;
+        const expectedIndex = playerPort === 1 ? 0 : 1;
+
+        if (virtualGamepad && nostalgistButton && virtualGamepad.index === expectedIndex) {
+          virtualGamepad.releaseButton(nostalgistButton);
+          virtualGamepad.updateTimestamp();
         }
         break;
       }
@@ -307,19 +316,23 @@
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCode) {
               const nostalgistButton = keyMapping[button as keyof KeyConfig];
-              const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
-              // DEFENSIVE: Only update P1, never P2
-              if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
+              // Use the correct virtual gamepad based on playerPort
+              const virtualGamepad = playerPort === 1
+                ? (window as any).__virtualGamepadP1
+                : (window as any).__virtualGamepadP2;
+              const expectedIndex = playerPort === 1 ? 0 : 1;
+
+              if (virtualGamepad && nostalgistButton && virtualGamepad.index === expectedIndex) {
                 if (isPressed) {
                   // Capture timestamp for latency measurement
                   lastInputTimestamp = performance.now();
-                  virtualGamepadP1.pressButton(nostalgistButton);
+                  virtualGamepad.pressButton(nostalgistButton);
                   measureLatency();
                 } else {
-                  virtualGamepadP1.releaseButton(nostalgistButton);
+                  virtualGamepad.releaseButton(nostalgistButton);
                 }
-                virtualGamepadP1.updateTimestamp();
+                virtualGamepad.updateTimestamp();
               }
               break;
             }
@@ -342,18 +355,22 @@
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodePlus) {
               const nostalgistButton = keyMapping[button as keyof KeyConfig];
-              const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
-              // DEFENSIVE: Only update P1, never P2
-              if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
+              // Use the correct virtual gamepad based on playerPort
+              const virtualGamepad = playerPort === 1
+                ? (window as any).__virtualGamepadP1
+                : (window as any).__virtualGamepadP2;
+              const expectedIndex = playerPort === 1 ? 0 : 1;
+
+              if (virtualGamepad && nostalgistButton && virtualGamepad.index === expectedIndex) {
                 if (isPressedPlus) {
                   lastInputTimestamp = performance.now();
-                  virtualGamepadP1.pressButton(nostalgistButton);
+                  virtualGamepad.pressButton(nostalgistButton);
                   measureLatency();
                 } else {
-                  virtualGamepadP1.releaseButton(nostalgistButton);
+                  virtualGamepad.releaseButton(nostalgistButton);
                 }
-                virtualGamepadP1.updateTimestamp();
+                virtualGamepad.updateTimestamp();
               }
               break;
             }
@@ -371,18 +388,22 @@
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodeMinus) {
               const nostalgistButton = keyMapping[button as keyof KeyConfig];
-              const virtualGamepadP1 = (window as any).__virtualGamepadP1;
 
-              // DEFENSIVE: Only update P1, never P2
-              if (virtualGamepadP1 && nostalgistButton && virtualGamepadP1.index === 0) {
+              // Use the correct virtual gamepad based on playerPort
+              const virtualGamepad = playerPort === 1
+                ? (window as any).__virtualGamepadP1
+                : (window as any).__virtualGamepadP2;
+              const expectedIndex = playerPort === 1 ? 0 : 1;
+
+              if (virtualGamepad && nostalgistButton && virtualGamepad.index === expectedIndex) {
                 if (isPressedMinus) {
                   lastInputTimestamp = performance.now();
-                  virtualGamepadP1.pressButton(nostalgistButton);
+                  virtualGamepad.pressButton(nostalgistButton);
                   measureLatency();
                 } else {
-                  virtualGamepadP1.releaseButton(nostalgistButton);
+                  virtualGamepad.releaseButton(nostalgistButton);
                 }
-                virtualGamepadP1.updateTimestamp();
+                virtualGamepad.updateTimestamp();
               }
               break;
             }
@@ -426,16 +447,22 @@
     if (!isHost) return;
 
     const nostalgistButton = keyMapping[button as keyof KeyConfig];
-    const virtualGamepadP2 = (window as any).__virtualGamepadP2;
 
-    // DEFENSIVE: Only update P2, never P1
-    if (virtualGamepadP2 && virtualGamepadP2.index === 1) {
+    // Remote inputs go to the OTHER port (not the one the host is using)
+    // If host is on port 1, remote inputs go to port 2
+    // If host is on port 2, remote inputs go to port 1
+    const remoteGamepad = playerPort === 1
+      ? (window as any).__virtualGamepadP2
+      : (window as any).__virtualGamepadP1;
+    const expectedIndex = playerPort === 1 ? 1 : 0;
+
+    if (remoteGamepad && remoteGamepad.index === expectedIndex) {
       if (pressed) {
-        virtualGamepadP2.pressButton(nostalgistButton);
+        remoteGamepad.pressButton(nostalgistButton);
       } else {
-        virtualGamepadP2.releaseButton(nostalgistButton);
+        remoteGamepad.releaseButton(nostalgistButton);
       }
-      virtualGamepadP2.updateTimestamp();
+      remoteGamepad.updateTimestamp();
     }
   }
 

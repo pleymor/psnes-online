@@ -77,9 +77,11 @@
   }
   $: playerPort = (currentPlayer?.port ?? null) as 1 | 2 | null; // Get player's selected port (null if spectator)
 
-  // Determine if current player is the host (Player 1)
-  $: isHost = playerPort === 1;
-  $: isGuest = playerPort === 2 || playerPort === null; // Player 2 or spectator
+  // Determine if current player is the room host (the one who runs the emulator)
+  // This is based on who created the room, NOT which controller port they chose
+  $: isRoomHost = room?.hostId === $user?.id;
+  $: isHost = isRoomHost; // Room host runs the emulator
+  $: isGuest = !isRoomHost; // Everyone else receives the stream
 
   // Check if at least one player is ready (has a port)
   $: canStartGame = room?.players.some(p => p.port !== null && p.isReady) ?? false;
@@ -160,15 +162,16 @@
       });
 
       // Initialize P2P manager
-      p2pManager = new P2PManager($socket, roomId, isHost, {
+      // isRoomHost determines who runs the emulator and sends the stream
+      p2pManager = new P2PManager($socket, roomId, isRoomHost, {
         onStream: (stream) => {
           // Store stream - reactive statement will attach it when video element is ready
           guestStream = stream;
           connectionStatus = 'connected';
         },
         onData: (data) => {
-          // Handle remote input (for host receiving guest input)
-          if (data.type === 'input' && playerPort === 1) {
+          // Handle remote input (for room host running the emulator)
+          if (data.type === 'input' && isRoomHost) {
             const receivedAt = performance.now();
             const transitTime = receivedAt - data.timestamp;
             if (DEBUG()) console.log(`🎮 [HOST] Received guest input "${data.button}" - Transit time: ${transitTime.toFixed(2)}ms`);
@@ -187,7 +190,7 @@
           }
 
           // Handle ACK from host (for guest measuring latency)
-          if (data.type === 'input_ack' && playerPort === 2) {
+          if (data.type === 'input_ack' && !isRoomHost) {
             const now = performance.now();
             const sendTime = data.timestamp;
             const latency = now - sendTime;
@@ -215,7 +218,7 @@
           }
 
           // Handle frame timestamp from host (for guest measuring video latency)
-          if (data.type === 'frame_timestamp' && playerPort === 2) {
+          if (data.type === 'frame_timestamp' && !isRoomHost) {
             const now = Date.now();
             const frameTime = data.timestamp;
             const vidLatency = now - frameTime;
@@ -236,8 +239,8 @@
         onConnect: async () => {
           connectionStatus = 'connected';
 
-          // Get connection metrics for display
-          if (playerPort === 2 && p2pManager) {
+          // Get connection metrics for display (for guests only)
+          if (!isRoomHost && p2pManager) {
             setTimeout(async () => {
               const metrics = await p2pManager!.getConnectionMetrics();
               if (metrics) {
@@ -249,7 +252,7 @@
           }
 
           // Host: Send frame timestamps for video latency measurement
-          if (playerPort === 1 && p2pManager) {
+          if (isRoomHost && p2pManager) {
             // Send a timestamp every ~250ms (15 frames at 60fps)
             frameTimestampInterval = window.setInterval(() => {
               if (p2pManager && connectionStatus === 'connected') {
@@ -279,8 +282,8 @@
         }
       });
 
-      // If host, wait for emulator to be ready, then capture stream
-      if (isHost) {
+      // If room host, wait for emulator to be ready, then capture stream
+      if (isRoomHost) {
         // Wait for emulator initialization and first frame render
         await new Promise(resolve => setTimeout(resolve, 3000));
 
@@ -333,8 +336,8 @@
   function handleEmulatorReady(event: CustomEvent) {
     emulatorInstance = event.detail.emulator;
 
-    // Setup P2P after emulator is ready (host only)
-    if (isHost) {
+    // Setup P2P after emulator is ready (room host only)
+    if (isRoomHost) {
       setupP2PConnection();
     } else {
     }
@@ -348,8 +351,8 @@
       return;
     }
 
-    // Guest sends their input to host via P2P
-    if (!isGuest || !p2pManager || playerPort !== 2) return;
+    // Guest sends their input to host via P2P (only if not the room host)
+    if (isRoomHost || !p2pManager) return;
 
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
@@ -370,7 +373,7 @@
   }
 
   function handleGuestKeyUp(e: KeyboardEvent) {
-    if (!isGuest || !p2pManager || playerPort !== 2) return;
+    if (isRoomHost || !p2pManager) return;
 
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
@@ -390,8 +393,8 @@
   }
 
   function pollGamepad() {
-    if (!isGuest || !p2pManager || playerPort !== 2) {
-      // Debug: log why we're not polling
+    if (isRoomHost || !p2pManager) {
+      // Room host doesn't send inputs via P2P
       return;
     }
 
@@ -557,18 +560,18 @@
       // Wait for DOM to update
       await tick();
 
-      if (isHost) {
+      if (isRoomHost) {
         // Initialize audio capture BEFORE loading emulator
         initializeAudioCapture();
 
-        // Host: Load ROM and run emulator
+        // Room host: Load ROM and run emulator
         await loadROM();
-      } else if (isGuest) {
+      } else {
         // Guest: Setup P2P to receive stream (no ROM needed)
         // Video element should now exist, so stream can be attached
         await setupP2PConnection();
 
-        // Listen for guest keyboard input (Player 2 only)
+        // Listen for guest keyboard input
         window.addEventListener('keydown', handleGuestKeyDown);
         window.addEventListener('keyup', handleGuestKeyUp);
 
@@ -578,7 +581,7 @@
     });
 
     $socket.on('game:resumed', () => {
-      if (isHost && emulatorComponent) {
+      if (isRoomHost && emulatorComponent) {
         emulatorComponent.resume();
       }
       showPauseMenu = false;
@@ -646,14 +649,14 @@
     if (e.key === 'Escape' && gameStarted) {
       if (!showPauseMenu) {
         // Pause the game
-        if (isHost && emulatorComponent) {
+        if (isRoomHost && emulatorComponent) {
           emulatorComponent.pause();
         }
         $socket?.emit('game:pause', { roomId });
         showPauseMenu = true;
       } else {
         // Resume the game
-        if (isHost && emulatorComponent) {
+        if (isRoomHost && emulatorComponent) {
           emulatorComponent.resume();
         }
         $socket?.emit('game:resume', { roomId });
@@ -741,16 +744,17 @@
         <div class="error-overlay">
           <p>❌ {error}</p>
         </div>
-      {:else if isHost && romData}
-        <!-- Host: Run emulator locally -->
+      {:else if isRoomHost && romData}
+        <!-- Room host: Run emulator locally -->
         <ClientEmulator
           {romData}
           {keyConfig}
-          {isHost}
+          {playerPort}
+          isHost={true}
           on:ready={handleEmulatorReady}
           bind:this={emulatorComponent}
         />
-      {:else if isGuest}
+      {:else if !isRoomHost}
         <!-- Guest: Receive video stream -->
         <div class="guest-stream" bind:this={guestContainerElement}>
           {#if connectionStatus === 'connecting'}
@@ -773,7 +777,7 @@
           </video>
 
           <!-- Latency indicator for guest -->
-          {#if connectionStatus === 'connected' && playerPort === 2}
+          {#if connectionStatus === 'connected' && !isRoomHost}
             <div class="latency-indicator">
               <div class="latency-label">Latence Guest</div>
               <div class="latency-row">
@@ -823,7 +827,7 @@
         gameId={room?.gameId || ''}
         {keyConfig}
         on:resume={() => {
-          if (isHost && emulatorComponent) {
+          if (isRoomHost && emulatorComponent) {
             emulatorComponent.resume();
           }
           $socket?.emit('game:resume', { roomId });
