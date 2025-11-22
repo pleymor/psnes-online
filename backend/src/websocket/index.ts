@@ -19,10 +19,6 @@ export function getUserSocket(userId: string): string | undefined {
   return userSockets.get(userId);
 }
 
-export function getRoom(roomId: string): Room | undefined {
-  return rooms.get(roomId);
-}
-
 export function getRooms(): Map<string, Room> {
   return rooms;
 }

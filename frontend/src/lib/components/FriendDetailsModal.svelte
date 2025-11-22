@@ -2,12 +2,15 @@
   import { createEventDispatcher } from 'svelte';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
+  import ConfirmModal from './ConfirmModal.svelte';
 
   export let friend: any;
   export let friendsSince: string;
   export let friendshipId: string;
 
   const dispatch = createEventDispatcher();
+
+  let showRemoveConfirm = false;
 
   function formatDate(dateString: string, lang: 'en' | 'fr'): string {
     const date = new Date(dateString);
@@ -31,9 +34,15 @@
   }
 
   function handleRemoveFriend() {
-    if (confirm(t($language, 'confirmRemoveFriend', { name: friend.displayName }))) {
-      dispatch('remove', { friendshipId });
-    }
+    console.log('handleRemoveFriend called');
+    showRemoveConfirm = true;
+    console.log('showRemoveConfirm set to:', showRemoveConfirm);
+  }
+
+  function handleRemoveConfirm() {
+    console.log('handleRemoveConfirm called');
+    showRemoveConfirm = false;
+    dispatch('remove', { friendshipId });
   }
 
   $: dateText = formatDate(friendsSince, $language);
@@ -279,3 +288,15 @@
     }
   }
 </style>
+
+{#if showRemoveConfirm}
+  <ConfirmModal
+    title={t($language, 'removeFriend')}
+    message={t($language, 'confirmRemoveFriend', { name: friend.displayName })}
+    confirmText={t($language, 'removeFriend')}
+    cancelText={t($language, 'cancel')}
+    danger={true}
+    on:confirm={handleRemoveConfirm}
+    on:cancel={() => showRemoveConfirm = false}
+  />
+{/if}

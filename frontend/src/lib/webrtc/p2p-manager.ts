@@ -604,12 +604,3 @@ export function captureCanvasWithAudio(
 
   return videoStream;
 }
-
-/**
- * Helper: Create audio stream from AudioContext
- */
-export function captureAudioStream(audioContext: AudioContext): MediaStream {
-  // @ts-ignore - createMediaStreamDestination is standard Web Audio API
-  const destination = audioContext.createMediaStreamDestination();
-  return destination.stream;
-}

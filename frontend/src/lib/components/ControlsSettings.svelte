@@ -4,6 +4,7 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import type { KeyConfig } from '$lib/types';
+  import ConfirmModal from './ConfirmModal.svelte';
 
   export let roomId: string = ''; // Optional - if empty, only saves to user profile
   export let currentConfig: KeyConfig;
@@ -16,6 +17,7 @@
   let isSaving = false;
   let errorMessage = '';
   let gamepadPollInterval: number | null = null;
+  let showResetConfirm = false;
 
   // Create a working copy of the config
   let workingConfig: KeyConfig = { ...currentConfig };
@@ -208,8 +210,11 @@
 
   // Reset to defaults
   async function resetToDefaults() {
-    if (!confirm(t($language, 'confirmResetControls'))) return;
+    showResetConfirm = true;
+  }
 
+  async function handleResetConfirm() {
+    showResetConfirm = false;
     isLoading = true;
     errorMessage = '';
 
@@ -533,3 +538,15 @@
     }
   }
 </style>
+
+{#if showResetConfirm}
+  <ConfirmModal
+    title={t($language, 'resetControls')}
+    message={t($language, 'confirmResetControls')}
+    confirmText={t($language, 'reset')}
+    cancelText={t($language, 'cancel')}
+    danger={true}
+    on:confirm={handleResetConfirm}
+    on:cancel={() => showResetConfirm = false}
+  />
+{/if}
