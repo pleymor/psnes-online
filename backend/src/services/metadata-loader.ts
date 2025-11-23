@@ -2,6 +2,9 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { prisma } from '../db/prisma.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('Metadata');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,7 +32,7 @@ export interface GameMetadataEntry {
  * This runs at backend startup to ensure metadata is available
  */
 export async function loadGameMetadata(): Promise<void> {
-  console.log('🎮 Loading SNES game metadata...');
+  logger.info('Loading SNES game metadata...');
 
   try {
     // Read metadata JSON file (from metadata directory, not data which is volume-mounted)
@@ -37,13 +40,13 @@ export async function loadGameMetadata(): Promise<void> {
     const metadataContent = await fs.readFile(metadataPath, 'utf-8');
     const metadata: GameMetadataEntry[] = JSON.parse(metadataContent);
 
-    console.log(`📚 Found ${metadata.length} games in metadata file`);
+    logger.info({ count: metadata.length }, 'Found games in metadata file');
 
     // Check if metadata already exists
     const existingCount = await prisma.gameMetadata.count();
 
     if (existingCount > 0) {
-      console.log(`✅ Metadata already loaded (${existingCount} entries), skipping...`);
+      logger.info({ count: existingCount }, 'Metadata already loaded, skipping');
       return;
     }
 
@@ -71,21 +74,21 @@ export async function loadGameMetadata(): Promise<void> {
         });
         successCount++;
       } catch (error) {
-        console.error(`❌ Failed to load metadata for "${entry.title}":`, error);
+        logger.error({ err: error, title: entry.title }, "Failed to load metadata");
         errorCount++;
       }
     }
 
-    console.log(`✅ Metadata loaded successfully: ${successCount} games, ${errorCount} errors`);
+    logger.info({ successCount, errorCount }, 'Metadata loaded successfully');
 
     // Load metadata into cache
     metadataCache = await prisma.gameMetadata.findMany();
-    console.log(`💾 Cached ${metadataCache.length} metadata entries in memory`);
+    logger.info({ count: metadataCache.length }, 'Cached metadata entries in memory');
   } catch (error: any) {
     if (error.code === 'ENOENT') {
-      console.log('ℹ️  No metadata file found, continuing without metadata...');
+      logger.warn('No metadata file found, continuing without metadata');
     } else {
-      console.error('❌ Failed to load game metadata:', error);
+      logger.error({ err: error }, 'Failed to load game metadata');
     }
     // Don't throw - allow app to continue without metadata
   }
@@ -195,11 +198,11 @@ export async function findGameMetadataByChecksum(checksum: string): Promise<any 
  * Refreshes/reloads metadata (useful for updates)
  */
 export async function refreshGameMetadata(): Promise<void> {
-  console.log('🔄 Refreshing game metadata...');
+  logger.info('Refreshing game metadata...');
 
   // Delete all existing metadata
   await prisma.gameMetadata.deleteMany({});
-  console.log('🗑️  Cleared existing metadata');
+  logger.info('Cleared existing metadata');
 
   // Clear cache
   metadataCache = null;

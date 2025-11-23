@@ -21,6 +21,7 @@ import { initializeWebSocket } from './websocket/index.js';
 import { refreshGameMetadata } from './services/metadata-loader.js';
 import { ensureAvatarsDir } from './utils/avatar.js';
 import { requestLogger } from './middleware/logger.js';
+import { logger } from './utils/logger.js';
 
 dotenv.config();
 
@@ -55,7 +56,7 @@ const redisClient = createClient({
   }
 });
 
-redisClient.on('error', (err) => console.error('Redis error:', err));
+redisClient.on('error', (err) => logger.error({ err }, 'Redis error'));
 await redisClient.connect();
 
 // Middleware
@@ -130,17 +131,17 @@ initializeWebSocket(io);
 const PORT = process.env.PORT || 3000;
 
 httpServer.listen(PORT, async () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`🎮 WebSocket ready for connections`);
+  logger.info(`🚀 Server running on http://localhost:${PORT}`);
+  logger.info('🎮 WebSocket ready for connections');
 
   // Ensure avatars directory exists
   await ensureAvatarsDir();
-  console.log('📁 Avatars directory ready');
+  logger.info('📁 Avatars directory ready');
 
   // Refresh game metadata at startup (reload from JSON file)
   try {
     await refreshGameMetadata();
   } catch (error) {
-    console.error('⚠️  Failed to refresh game metadata, but server is still running');
+    logger.warn('⚠️  Failed to refresh game metadata, but server is still running');
   }
 });

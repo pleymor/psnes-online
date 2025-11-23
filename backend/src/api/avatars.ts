@@ -1,6 +1,9 @@
 import express from 'express';
 import path from 'path';
 import { getAvatarsDir } from '../utils/avatar.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('Avatars');
 
 export const avatarsRouter = express.Router();
 
@@ -20,7 +23,7 @@ avatarsRouter.get('/:filename', (req, res) => {
 
   res.sendFile(filepath, (err) => {
     if (err) {
-      console.error('Error serving avatar:', err);
+      logger.error({ err, filename }, 'Error serving avatar');
       res.status(404).json({ error: 'Avatar not found' });
     }
   });

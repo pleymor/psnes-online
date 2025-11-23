@@ -1,7 +1,9 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { createLogger } from './logger.js';
 
+const logger = createLogger('Avatar');
 const AVATARS_DIR = path.join(process.cwd(), 'avatars');
 
 /**
@@ -11,7 +13,7 @@ export async function ensureAvatarsDir() {
   try {
     await fs.mkdir(AVATARS_DIR, { recursive: true });
   } catch (error) {
-    console.error('Failed to create avatars directory:', error);
+    logger.error({ err: error }, 'Failed to create avatars directory');
   }
 }
 
@@ -28,7 +30,7 @@ export async function downloadAvatar(url: string, userId: string): Promise<strin
     // Download the image
     const response = await fetch(url);
     if (!response.ok) {
-      console.error(`Failed to download avatar from ${url}: ${response.status}`);
+      logger.error({ url, status: response.status }, 'Failed to download avatar');
       return null;
     }
 
@@ -57,7 +59,7 @@ export async function downloadAvatar(url: string, userId: string): Promise<strin
     // Return the URL path (not filesystem path)
     return `/api/avatars/${filename}`;
   } catch (error) {
-    console.error('Error downloading avatar:', error);
+    logger.error({ err: error, url }, 'Error downloading avatar');
     return null;
   }
 }
@@ -72,7 +74,7 @@ export async function deleteAvatar(filename: string): Promise<void> {
     await fs.unlink(filepath);
   } catch (error) {
     // Ignore errors if file doesn't exist
-    console.error('Error deleting avatar:', error);
+    logger.debug({ err: error, filename }, 'Error deleting avatar');
   }
 }
 

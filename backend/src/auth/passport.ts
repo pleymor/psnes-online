@@ -2,6 +2,7 @@ import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { prisma } from '../db/prisma.js';
 import { downloadAvatar } from '../utils/avatar.js';
+import { logger } from '../utils/logger.js';
 
 const AUTH_MODE = process.env.AUTH_MODE || 'google';
 
@@ -71,11 +72,11 @@ export function initializeAuth() {
     try {
       const user = await prisma.user.findUnique({ where: { id } });
       if (!user) {
-        console.log('⚠️ deserializeUser: user not found for id:', id);
+        logger.warn({ userId: id }, 'deserializeUser: user not found');
       }
       done(null, user);
     } catch (error) {
-      console.error('❌ deserializeUser error:', error);
+      logger.error({ err: error }, 'deserializeUser error');
       done(error);
     }
   });

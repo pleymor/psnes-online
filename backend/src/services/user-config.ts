@@ -2,6 +2,9 @@ import { KeyConfig } from '../types/index.js';
 import { prisma } from '../db/prisma.js';
 import { cache } from '../utils/cache.js';
 import { getDefaultKeyConfig } from '../utils/key-config.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('UserConfig');
 
 export async function getUserKeyConfig(userId: string): Promise<KeyConfig> {
   const cacheKey = `keyconfig:${userId}`;
@@ -23,7 +26,7 @@ export async function getUserKeyConfig(userId: string): Promise<KeyConfig> {
       return parsedConfig;
     }
   } catch (error) {
-    console.error('Error loading user controls config:', error);
+    logger.error({ err: error, userId }, 'Error loading user controls config');
   }
 
   const defaultConfig = getDefaultKeyConfig();

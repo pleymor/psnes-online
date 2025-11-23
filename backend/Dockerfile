@@ -8,7 +8,7 @@ ENV NODE_ENV=build
 
 COPY package*.json ./
 
-RUN npm ci --omit=dev --skip-validate --prefer-offline
+RUN npm ci --omit=dev --prefer-offline
 
 
 ##
@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y \
     librsvg2-dev
 
 # Copy package files and install ALL dependencies (needed for build)
-RUN npm ci --skip-validate --prefer-offline
+RUN npm ci --prefer-offline
 
 # Copy source code and prisma schema
 COPY prisma ./prisma

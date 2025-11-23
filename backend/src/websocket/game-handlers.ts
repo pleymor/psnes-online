@@ -2,6 +2,9 @@ import { Server, Socket } from 'socket.io';
 import { Room, GameInput } from '../types/index.js';
 import { prisma } from '../db/prisma.js';
 import { notifyFriendsRoomStatusChanged } from '../services/friends.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('Game');
 
 export function registerGameHandlers(
   socket: Socket,
@@ -27,7 +30,7 @@ export function registerGameHandlers(
     await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'playing', getUserSocket);
 
     io.to(room.id).emit('game:started');
-    console.log(`✅ Game started for room ${room.id} (client-side emulation)`);
+    logger.info({ roomId: room.id }, 'Game started (client-side emulation)');
   });
 
   // Game input (no-op for client-side emulation)
@@ -68,7 +71,7 @@ export function registerGameHandlers(
     });
     io.to(data.roomId).emit('game:stopped');
     io.to(data.roomId).emit('room:updated', room);
-    console.log(`🛑 Game stopped for room ${room.id} (client-side emulation)`);
+    logger.info({ roomId: room.id }, 'Game stopped (client-side emulation)');
   });
 
   // Save state
@@ -113,9 +116,9 @@ export function registerGameHandlers(
       }
 
       socket.emit('game:saved', { slotNumber: data.slotNumber });
-      console.log(`💾 Save created: ${data.name} (slot ${data.slotNumber}) for game ${room.gameId}`);
+      logger.info({ saveName: data.name, slot: data.slotNumber, gameId: room.gameId }, 'Save created');
     } catch (error) {
-      console.error('Error saving game state:', error);
+      logger.error({ err: error }, 'Error saving game state');
       socket.emit('error', { message: 'Failed to save game' });
     }
   });
@@ -149,9 +152,9 @@ export function registerGameHandlers(
         slotNumber: save.slotNumber,
         name: save.name
       });
-      console.log(`📂 Save loaded: ${save.name} (slot ${save.slotNumber}) for game ${room.gameId}`);
+      logger.info({ saveName: save.name, slot: save.slotNumber, gameId: room.gameId }, 'Save loaded');
     } catch (error) {
-      console.error('Error loading game state:', error);
+      logger.error({ err: error }, 'Error loading game state');
       socket.emit('error', { message: 'Failed to load game' });
     }
   });

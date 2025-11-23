@@ -7,6 +7,9 @@ import { User } from '../types/index.js';
 import { findGameMetadata } from '../services/metadata-loader.js';
 import { prisma } from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('Games');
 
 export const gamesRouter = Router();
 
@@ -84,7 +87,7 @@ gamesRouter.post('/upload', upload.single('rom'), async (req, res) => {
     try {
       await fs.unlink(req.file.path);
     } catch (error) {
-      console.error('Failed to delete rejected ROM file:', error);
+      logger.error({ err: error }, 'Failed to delete rejected ROM file');
     }
     return res.status(400).json({ error: `Maximum number of games reached (${MAX_GAMES_PER_USER})` });
   }
@@ -107,7 +110,7 @@ gamesRouter.post('/upload', upload.single('rom'), async (req, res) => {
 
   // Add metadata fields if available
   if (metadata) {
-    console.log(`✅ Found metadata for "${metadata.title}"`);
+    logger.info({ title: metadata.title }, 'Found metadata for game');
     gameData.genre = metadata.genre;
     gameData.publisher = metadata.publisher;
     gameData.developer = metadata.developer;
@@ -117,7 +120,7 @@ gamesRouter.post('/upload', upload.single('rom'), async (req, res) => {
     gameData.description = metadata.description;
     gameData.coverUrl = metadata.coverUrl;
   } else {
-    console.log(`ℹ️  No metadata found for "${detectedTitle}"`);
+    logger.debug({ title: detectedTitle }, 'No metadata found for game');
   }
 
   const game = await prisma.game.create({
@@ -148,7 +151,7 @@ gamesRouter.delete('/:gameId', async (req, res) => {
   try {
     await fs.unlink(game.romPath);
   } catch (error) {
-    console.error('Failed to delete ROM file:', error);
+    logger.error({ err: error, romPath: game.romPath }, 'Failed to delete ROM file');
   }
 
   // Delete from database (cascade will delete saves)
@@ -244,10 +247,10 @@ gamesRouter.post('/refresh-metadata', async (req, res) => {
           }
         });
         updatedCount++;
-        console.log(`✅ Updated metadata for "${game.title}" -> "${metadata.title}"`);
+        logger.info({ oldTitle: game.title, newTitle: metadata.title }, 'Updated metadata');
       } else {
         skippedCount++;
-        console.log(`ℹ️  No metadata found for "${game.title}"`);
+        logger.debug({ title: game.title }, 'No metadata found');
       }
     }
 
@@ -258,7 +261,7 @@ gamesRouter.post('/refresh-metadata', async (req, res) => {
       skipped: skippedCount
     });
   } catch (error) {
-    console.error('Error refreshing metadata:', error);
+    logger.error({ err: error }, 'Error refreshing metadata');
     res.status(500).json({ error: 'Failed to refresh metadata' });
   }
 });

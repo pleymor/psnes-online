@@ -2,6 +2,9 @@ import { Router } from 'express';
 import passport from 'passport';
 import { getAuthMode } from '../auth/passport.js';
 import { prisma } from '../db/prisma.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('Auth');
 
 export const authRouter = Router();
 
@@ -70,7 +73,7 @@ if (AUTH_MODE === 'dev') {
         res.json(user);
       });
     } catch (error) {
-      console.error('Dev login error:', error);
+      logger.error({ err: error }, 'Dev login error');
       res.status(500).json({ error: 'Login failed' });
     }
   });

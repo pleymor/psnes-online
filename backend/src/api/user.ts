@@ -3,6 +3,9 @@ import type { KeyConfig } from '../types';
 import { prisma } from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getDefaultKeyConfig, isValidKeyConfig } from '../utils/key-config.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('User');
 
 export const userRouter = Router();
 
@@ -23,7 +26,7 @@ userRouter.get('/controls', requireAuth, async (req, res) => {
     const config = JSON.parse(user.controlsConfig);
     res.json(config);
   } catch (error) {
-    console.error('Error fetching controls config:', error);
+    logger.error({ err: error }, 'Error fetching controls config');
     res.status(500).json({ error: 'Failed to fetch controls configuration' });
   }
 });
@@ -46,7 +49,7 @@ userRouter.put('/controls', requireAuth, async (req, res) => {
 
     res.json({ message: 'Controls configuration updated successfully', config });
   } catch (error) {
-    console.error('Error updating controls config:', error);
+    logger.error({ err: error }, 'Error updating controls config');
     res.status(500).json({ error: 'Failed to update controls configuration' });
   }
 });
@@ -64,7 +67,7 @@ userRouter.post('/controls/reset', requireAuth, async (req, res) => {
 
     res.json({ message: 'Controls reset to defaults', config: defaultConfig });
   } catch (error) {
-    console.error('Error resetting controls config:', error);
+    logger.error({ err: error }, 'Error resetting controls config');
     res.status(500).json({ error: 'Failed to reset controls configuration' });
   }
 });

@@ -3,6 +3,9 @@ import { Room, RoomPlayer, User } from '../types/index.js';
 import { randomUUID } from 'crypto';
 import { getUserKeyConfig } from '../services/user-config.js';
 import { notifyFriendsAboutRoom, notifyFriendsRoomStatusChanged } from '../services/friends.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('Room');
 
 export function registerRoomHandlers(
   socket: Socket,
@@ -44,7 +47,7 @@ export function registerRoomHandlers(
     if (autoStart) {
       await notifyFriendsRoomStatusChanged(io, user.id, room.id, 'playing', getUserSocket);
       io.to(roomId).emit('game:started');
-      console.log(`✅ Game auto-started for room ${roomId} (host: ${user.displayName})`);
+      logger.info({ roomId, host: user.displayName }, 'Game auto-started');
     }
   });
 
@@ -93,7 +96,7 @@ export function registerRoomHandlers(
 
     if (room.status === 'playing') {
       socket.emit('game:started');
-      console.log(`✅ Guest ${user.displayName} joined room ${room.id} as Player 2 (game in progress)`);
+      logger.info({ roomId: room.id, guest: user.displayName }, 'Guest joined as Player 2 (game in progress)');
     }
   });
 
@@ -181,11 +184,7 @@ export async function handleLeaveRoom(
     rooms.delete(roomId);
     io.emit('room:destroyed', { roomId });
   } else {
-    console.log(`📢 Emitting player:left to room ${roomId}:`, {
-      userId: user.id,
-      displayName: user.displayName,
-      wasHost
-    });
+    logger.debug({ roomId, userId: user.id, displayName: user.displayName, wasHost }, 'Player left room');
     io.to(roomId).emit('player:left', {
       userId: user.id,
       displayName: user.displayName,

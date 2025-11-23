@@ -4,21 +4,17 @@ import { getIO, getUserSocket } from '../websocket/index.js';
 import { prisma } from '../db/prisma.js';
 import { cache } from '../utils/cache.js';
 import { requireAuth } from '../middleware/auth.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('Friends');
 
 export const friendsRouter = Router();
 
 friendsRouter.use(requireAuth);
 
-// Debug middleware to log all requests to friends routes
-friendsRouter.use((req, res, next) => {
-  console.log('📍 [FRIENDS ROUTER] Request:', req.method, req.path, 'Query:', req.query);
-  next();
-});
-
 // Get all friends (accepted friendships)
 friendsRouter.get('/', async (req, res) => {
   const user = req.user as User;
-  console.log('📍 [FRIENDS ROUTER] GET / - Fetching friends for user:', user.id);
 
   const friendships = await prisma.friendship.findMany({
     where: {
@@ -64,16 +60,12 @@ friendsRouter.get('/requests', async (req, res) => {
 
 // Search users (for friend suggestions)
 friendsRouter.get('/search', async (req, res) => {
-  console.log('🔍 [FRIENDS SEARCH] Route hit! Query:', req.query);
   const user = req.user as User;
   const { query } = req.query;
 
   if (!query || typeof query !== 'string' || query.trim().length < 2) {
-    console.log('🔍 [FRIENDS SEARCH] Query too short or invalid:', query);
     return res.json([]);
   }
-
-  console.log('🔍 [FRIENDS SEARCH] Searching for:', query);
 
   const searchQuery = query.trim();
 
@@ -121,7 +113,6 @@ friendsRouter.get('/search', async (req, res) => {
   // Filter out users who are already friends or have pending requests
   const availableUsers = users.filter(u => !friendIds.has(u.id));
 
-  console.log('🔍 [FRIENDS SEARCH] Found', availableUsers.length, 'available users');
   res.json(availableUsers);
 });
 

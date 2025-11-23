@@ -5,6 +5,9 @@ import { notifyFriendsStatusChanged, getOnlineFriends } from '../services/friend
 import { registerRoomHandlers, handleLeaveRoom } from './room-handlers.js';
 import { registerGameHandlers } from './game-handlers.js';
 import { registerP2PHandlers } from './p2p-handlers.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('WebSocket');
 
 const rooms = new Map<string, Room>();
 const userSockets = new Map<string, string>(); // userId -> socketId
@@ -29,7 +32,7 @@ export function initializeWebSocket(io: Server) {
   ioInstance = io;
 
   io.on('connection', async (socket: Socket) => {
-    console.log('Client connected:', socket.id);
+    logger.debug({ socketId: socket.id }, 'Client connected');
 
     const userId = (socket.request as any).session?.passport?.user;
     if (!userId) {
@@ -43,12 +46,12 @@ export function initializeWebSocket(io: Server) {
     });
 
     if (!user) {
-      console.error('User not found:', userId);
+      logger.error({ userId }, 'User not found');
       socket.disconnect();
       return;
     }
 
-    console.log('User connected:', user.displayName, user.email);
+    logger.info({ user: user.displayName, email: user.email }, 'User connected');
 
     socketUsers.set(socket.id, user);
     userSockets.set(user.id, socket.id);
@@ -72,7 +75,7 @@ export function initializeWebSocket(io: Server) {
 
     // Disconnect
     socket.on('disconnect', async () => {
-      console.log('Client disconnected:', socket.id);
+      logger.debug({ socketId: socket.id, user: user.displayName }, 'Client disconnected');
 
       await notifyFriendsStatusChanged(io, user.id, false, getUserSocket);
 
