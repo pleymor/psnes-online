@@ -2,6 +2,9 @@ import { checkIsAborted, delay } from '../libs/utils.ts'
 import { vendors } from '../libs/vendors.ts'
 import type { RetroArchEmscriptenModule } from '../types/retroarch-emscripten'
 import { ResolvableFile } from './resolvable-file.ts'
+import { createLogger } from '$lib/utils/logger'
+
+const logger = createLogger('EmulatorFileSystem')
 
 const { ini, path } = vendors
 
@@ -84,7 +87,7 @@ export class EmulatorFileSystem {
         }
         buffer = newBuffer
       } catch (error) {
-        console.warn(error)
+        logger.warn(error)
       }
       retryTimes += 1
     }

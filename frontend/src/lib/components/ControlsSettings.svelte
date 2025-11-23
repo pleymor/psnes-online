@@ -5,11 +5,13 @@
   import { t } from '$lib/i18n/translations';
   import type { KeyConfig } from '$lib/types';
   import ConfirmModal from './ConfirmModal.svelte';
+  import { createLogger } from '$lib/utils/logger';
 
   export let roomId: string = ''; // Optional - if empty, only saves to user profile
   export let currentConfig: KeyConfig;
 
   const dispatch = createEventDispatcher();
+  const logger = createLogger('ControlsSettings');
 
   let isListening = false;
   let currentButton: keyof KeyConfig | null = null;
@@ -201,7 +203,7 @@
       dispatch('saved', { config: workingConfig });
 
     } catch (error) {
-      console.error('Error saving controls:', error);
+      logger.error('Error saving controls:', error);
       errorMessage = t($language, 'failedToSaveControls');
     } finally {
       isSaving = false;
@@ -245,7 +247,7 @@
       dispatch('saved', { config: workingConfig });
 
     } catch (error) {
-      console.error('Error resetting controls:', error);
+      logger.error('Error resetting controls:', error);
       errorMessage = t($language, 'failedToResetControls');
     } finally {
       isLoading = false;

@@ -3,12 +3,14 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import ConfirmModal from './ConfirmModal.svelte';
+  import { createLogger } from '$lib/utils/logger';
 
   export let friend: any;
   export let friendsSince: string;
   export let friendshipId: string;
 
   const dispatch = createEventDispatcher();
+  const logger = createLogger('FriendDetailsModal');
 
   let showRemoveConfirm = false;
 
@@ -34,13 +36,13 @@
   }
 
   function handleRemoveFriend() {
-    console.log('handleRemoveFriend called');
+    logger.debug('handleRemoveFriend called');
     showRemoveConfirm = true;
-    console.log('showRemoveConfirm set to:', showRemoveConfirm);
+    logger.debug('showRemoveConfirm set to:', showRemoveConfirm);
   }
 
   function handleRemoveConfirm() {
-    console.log('handleRemoveConfirm called');
+    logger.debug('handleRemoveConfirm called');
     showRemoveConfirm = false;
     dispatch('remove', { friendshipId });
   }

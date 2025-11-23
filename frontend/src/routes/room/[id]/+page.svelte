@@ -12,7 +12,9 @@
   import { P2PManager, captureCanvasStream } from '$lib/webrtc/p2p-manager';
   import { initializeAudioCapture, getAudioStream } from '$lib/emulator/audio-capture';
   import type { Room, KeyConfig } from '$lib/types';
-  import { DEBUG } from '$lib/config/debug';
+  import { createLogger } from '$lib/utils/logger';
+
+  const logger = createLogger('RoomPage');
 
   export let data;
 
@@ -132,18 +134,16 @@
       // Check for requestVideoFrameCallback support (Chrome 83+)
       // @ts-ignore
       if ('requestVideoFrameCallback' in guestVideoElement) {
-        if (DEBUG()) console.log('✅ requestVideoFrameCallback available - frame-perfect rendering');
+        logger.debug('✅ requestVideoFrameCallback available - frame-perfect rendering');
       }
 
-      if (DEBUG()) {
-        console.log('✅ Video element optimized for ultra-low latency');
-        console.log('   - Buffer disabled');
-        console.log('   - PiP disabled');
-        console.log('   - Remote playback disabled');
-      }
+      logger.debug('✅ Video element optimized for ultra-low latency');
+      logger.debug('   - Buffer disabled');
+      logger.debug('   - PiP disabled');
+      logger.debug('   - Remote playback disabled');
 
     } catch (e) {
-      console.warn('Could not set all low latency video options:', e);
+      logger.warn('Could not set all low latency video options:', e);
     }
 
     // Start playback with lowest possible latency
@@ -166,7 +166,7 @@
             const lag = bufferedEnd - currentTime;
 
             if (lag > 0.1) { // More than 100ms of buffer accumulated
-              if (DEBUG()) console.log(`⚡ Skipping ${lag.toFixed(2)}s of buffered video to catch up to live`);
+              logger.debug(`⚡ Skipping ${lag.toFixed(2)}s of buffered video to catch up to live`);
               guestVideoElement.currentTime = bufferedEnd - 0.05; // Stay 50ms behind live edge
             }
           }
@@ -187,7 +187,7 @@
 
               // If we're more than 200ms behind live, skip forward
               if (lag > 0.2) {
-                if (DEBUG()) console.log(`⚡ Auto-correcting ${lag.toFixed(2)}s video lag`);
+                logger.debug(`⚡ Auto-correcting ${lag.toFixed(2)}s video lag`);
                 guestVideoElement.currentTime = bufferedEnd - 0.05; // Jump to near-live
               }
             }
@@ -196,7 +196,7 @@
           }
         }, 2000); // Check every 2 seconds
       }
-    }).catch(err => console.error('Failed to play video:', err));
+    }).catch(err => logger.error('Failed to play video:', err));
   }
 
   async function loadROM() {
@@ -216,7 +216,7 @@
       loading = false;
 
     } catch (err) {
-      console.error('Failed to load ROM:', err);
+      logger.error('Failed to load ROM:', err);
       error = 'Failed to load game';
       loading = false;
     }
@@ -224,7 +224,7 @@
 
   async function setupP2PConnection() {
     if (!$socket) {
-      console.error('❌ Cannot setup P2P: Socket not connected');
+      logger.error('❌ Cannot setup P2P: Socket not connected');
       error = 'Socket not connected';
       return;
     }
@@ -253,7 +253,7 @@
           if (data.type === 'input' && isRoomHost) {
             const receivedAt = performance.now();
             const transitTime = receivedAt - data.timestamp;
-            if (DEBUG()) console.log(`🎮 [HOST] Received guest input "${data.button}" - Transit time: ${transitTime.toFixed(2)}ms`);
+            logger.debug(`🎮 [HOST] Received guest input "${data.button}" - Transit time: ${transitTime.toFixed(2)}ms`);
 
             emulatorComponent?.handleRemoteInput(data.button, data.pressed);
 
@@ -280,13 +280,11 @@
             const transitToHost = hostReceivedAt - sendTime;
             const ackTransitBack = now - hostReceivedAt;
 
-            if (DEBUG()) {
-              console.log(`📊 [GUEST] Input ACK received:`);
-              console.log(`   - Total RTT: ${latency.toFixed(2)}ms`);
-              console.log(`   - Transit to host: ${transitToHost.toFixed(2)}ms`);
-              console.log(`   - ACK transit back: ${ackTransitBack.toFixed(2)}ms`);
-              console.log(`   - Est. one-way: ${oneWay.toFixed(2)}ms`);
-            }
+            logger.debug(`📊 [GUEST] Input ACK received:`);
+            logger.debug(`   - Total RTT: ${latency.toFixed(2)}ms`);
+            logger.debug(`   - Transit to host: ${transitToHost.toFixed(2)}ms`);
+            logger.debug(`   - ACK transit back: ${ackTransitBack.toFixed(2)}ms`);
+            logger.debug(`   - Est. one-way: ${oneWay.toFixed(2)}ms`);
 
             // Update input latency (round-trip time)
             latencyHistoryInput.push(latency);
@@ -316,12 +314,10 @@
             pipelineLatency = ESTIMATED_PIPELINE_LATENCY; // Store for display
             const vidLatency = networkLatency + pipelineLatency;
 
-            if (DEBUG()) {
-              console.log(`📹 [GUEST] Video latency breakdown:`);
-              console.log(`   - Network transit: ${networkLatency.toFixed(2)}ms`);
-              console.log(`   - Pipeline (capture+encode+decode+render): ~${pipelineLatency}ms`);
-              console.log(`   - TOTAL estimated: ${vidLatency.toFixed(2)}ms`);
-            }
+            logger.debug(`📹 [GUEST] Video latency breakdown:`);
+            logger.debug(`   - Network transit: ${networkLatency.toFixed(2)}ms`);
+            logger.debug(`   - Pipeline (capture+encode+decode+render): ~${pipelineLatency}ms`);
+            logger.debug(`   - TOTAL estimated: ${vidLatency.toFixed(2)}ms`);
 
             // Update video latency
             latencyHistoryVideo.push(vidLatency);
@@ -331,7 +327,7 @@
             videoLatency = latencyHistoryVideo.reduce((a, b) => a + b, 0) / latencyHistoryVideo.length;
             totalLatency = inputLatency + videoLatency;
 
-            if (DEBUG()) console.log(`📊 [GUEST] Total latency: ${totalLatency.toFixed(2)}ms (input: ${inputLatency.toFixed(2)}ms + video: ${videoLatency.toFixed(2)}ms)`);
+            logger.debug(`📊 [GUEST] Total latency: ${totalLatency.toFixed(2)}ms (input: ${inputLatency.toFixed(2)}ms + video: ${videoLatency.toFixed(2)}ms)`);
           }
         },
         onConnect: async () => {
@@ -344,7 +340,7 @@
               if (metrics) {
                 connectionType = metrics.type;
                 connectionRTT = metrics.rtt;
-                if (DEBUG()) console.log('📊 Connection metrics:', metrics);
+                logger.debug('📊 Connection metrics:', metrics);
               }
             }, 2000);
           }
@@ -361,7 +357,7 @@
                 });
               }
             }, 100); // More frequent updates for better latency tracking
-            if (DEBUG()) console.log('📹 Started sending frame timestamps (100ms interval) for video latency measurement');
+            logger.debug('📹 Started sending frame timestamps (100ms interval) for video latency measurement');
           }
         },
         onClose: () => {
@@ -372,7 +368,7 @@
           }
         },
         onError: (err) => {
-          console.error('P2P error:', err);
+          logger.error('P2P error:', err);
           connectionStatus = 'disconnected';
           if (frameTimestampInterval) {
             clearInterval(frameTimestampInterval);
@@ -395,36 +391,32 @@
           attempts++;
         }
 
-        if (DEBUG()) {
-          console.log(`🎮 Canvas ready after ${attempts * 50}ms (${attempts} attempts)`);
-          console.log('🎮 Canvas:', canvas);
-        }
+        logger.debug(`🎮 Canvas ready after ${attempts * 50}ms (${attempts} attempts)`);
+        logger.debug('🎮 Canvas:', canvas);
 
         if (canvas) {
-          if (DEBUG()) {
-            console.log(`📐 Canvas resolution: ${canvas.width}x${canvas.height} (CSS: ${canvas.offsetWidth}x${canvas.offsetHeight})`);
-            console.log(`✅ Using natural canvas resolution for WebRTC streaming`);
-          }
+          logger.debug(`📐 Canvas resolution: ${canvas.width}x${canvas.height} (CSS: ${canvas.offsetWidth}x${canvas.offsetHeight})`);
+          logger.debug(`✅ Using natural canvas resolution for WebRTC streaming`);
 
           // Capture video from canvas
           const videoStream = captureCanvasStream(canvas, 60);
 
           // Lock canvas size to prevent resize issues during WebRTC streaming
           emulatorComponent.lockCanvasSize();
-          if (DEBUG()) console.log('🔒 Canvas size locked at 256x224');
+          logger.debug('🔒 Canvas size locked at 256x224');
 
           // Try to add audio from the captured emulator audio
           const audioStream = getAudioStream();
           if (audioStream) {
             const audioTracks = audioStream.getAudioTracks();
             if (audioTracks.length > 0) {
-              if (DEBUG()) console.log('✅ Adding audio tracks to video stream');
+              logger.debug('✅ Adding audio tracks to video stream');
               audioTracks.forEach(track => videoStream.addTrack(track));
             } else {
-              console.warn('⚠️ No audio tracks in captured stream');
+              logger.warn('⚠️ No audio tracks in captured stream');
             }
           } else {
-            console.warn('⚠️ No audio stream available');
+            logger.warn('⚠️ No audio stream available');
           }
 
           await p2pManager.initConnection(videoStream);
@@ -437,7 +429,7 @@
       }
 
     } catch (err) {
-      console.error('Failed to setup P2P:', err);
+      logger.error('Failed to setup P2P:', err);
       error = 'Failed to establish peer connection';
     }
   }
@@ -468,7 +460,7 @@
         e.preventDefault();
         const timestamp = performance.now();
         const inputId = `${button}_${timestamp}`;
-        if (DEBUG()) console.log(`⌨️  [GUEST] Sending input "${button}" (pressed) at ${timestamp.toFixed(2)}ms`);
+        logger.debug(`⌨️  [GUEST] Sending input "${button}" (pressed) at ${timestamp.toFixed(2)}ms`);
         p2pManager.sendData({
           type: 'input',
           button,
@@ -644,7 +636,7 @@
         userKeyConfig = config;
       }
     } catch (error) {
-      console.error('Failed to load user controls:', error);
+      logger.error('Failed to load user controls:', error);
     }
 
     // Join room
@@ -722,11 +714,11 @@
     });
 
     $socket.on('game:loaded', async (data: { saveId: string; saveData: string; slotNumber: number; name: string }) => {
-      if (DEBUG()) console.log('📂 Received game:loaded event:', data);
+      logger.debug('📂 Received game:loaded event:', data);
 
       // Check if save data exists
       if (!data.saveData || data.saveData.length === 0) {
-        console.warn('⚠️ No save data available for this save. It may have been created before save state capture was implemented.');
+        logger.warn('⚠️ No save data available for this save. It may have been created before save state capture was implemented.');
         showToast = true;
         toastMessage = 'Cette sauvegarde ne contient pas de données d\'état';
         toastType = 'error';
@@ -740,18 +732,18 @@
       // Only host loads the save state into emulator
       if (isRoomHost && emulatorComponent) {
         try {
-          if (DEBUG()) console.log('📂 Loading save state into emulator:', data.name, 'Data length:', data.saveData.length);
+          logger.debug('📂 Loading save state into emulator:', data.name, 'Data length:', data.saveData.length);
 
           // Convert base64 string back to Uint8Array
           const saveDataBinary = Uint8Array.from(atob(data.saveData), c => c.charCodeAt(0));
-          if (DEBUG()) console.log('📂 Binary data size:', saveDataBinary.length, 'bytes');
+          logger.debug('📂 Binary data size:', saveDataBinary.length, 'bytes');
 
           // Convert to Blob (emulator expects a Blob)
           const saveDataBlob = new Blob([saveDataBinary], { type: 'application/octet-stream' });
-          if (DEBUG()) console.log('📂 Blob size:', saveDataBlob.size, 'bytes');
+          logger.debug('📂 Blob size:', saveDataBlob.size, 'bytes');
 
           await emulatorComponent.loadState(saveDataBlob);
-          if (DEBUG()) console.log('✅ Save state loaded successfully');
+          logger.debug('✅ Save state loaded successfully');
 
           // Close pause menu first
           showPauseMenu = false;
@@ -760,7 +752,7 @@
           setTimeout(() => {
             emulatorComponent.resume();
             $socket?.emit('game:resume', { roomId });
-            if (DEBUG()) console.log('✅ Emulator resumed');
+            logger.debug('✅ Emulator resumed');
           }, 100);
 
           showToast = true;
@@ -770,7 +762,7 @@
             showToast = false;
           }, 3000);
         } catch (error) {
-          console.error('❌ Failed to load save state:', error);
+          logger.error('❌ Failed to load save state:', error);
           showToast = true;
           toastMessage = 'Échec du chargement de la sauvegarde';
           toastType = 'error';
@@ -856,7 +848,7 @@
       try {
         await document.documentElement.requestFullscreen();
       } catch (err) {
-        if (DEBUG()) console.log('Could not enter fullscreen:', err);
+        logger.debug('Could not enter fullscreen:', err);
       }
     }
     $socket?.emit('game:start', { roomId });
@@ -872,7 +864,7 @@
     if (!document.fullscreenElement) {
       // Enter fullscreen
       guestContainerElement.requestFullscreen().catch(err => {
-        console.error('Error attempting to enable fullscreen:', err);
+        logger.error('Error attempting to enable fullscreen:', err);
       });
     } else {
       // Exit fullscreen

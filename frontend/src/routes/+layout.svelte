@@ -3,6 +3,9 @@
   import { onMount } from 'svelte';
   import { user, userLoading } from '$lib/stores/user';
   import { socket, initializeSocket } from '$lib/api/socket';
+  import { createLogger } from '$lib/utils/logger';
+
+  const logger = createLogger('AppLayout');
 
   // Accept props from SvelteKit (even if unused)
   export let data: any = {};
@@ -19,7 +22,7 @@
         user.set(userData);
       }
     } catch (error) {
-      console.error('Auth check failed:', error);
+      logger.error('Auth check failed:', error);
     } finally {
       userLoading.set(false);
     }

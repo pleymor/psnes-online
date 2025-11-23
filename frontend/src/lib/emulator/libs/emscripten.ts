@@ -1,5 +1,8 @@
 import type { RetroArchEmscriptenModuleOptions } from '../types/retroarch-emscripten.ts'
 import { DEBUG } from '$lib/config/debug';
+import { createLogger } from '$lib/utils/logger';
+
+const logger = createLogger('Emscripten');
 
 export function getEmscriptenModuleOverrides(overrides: RetroArchEmscriptenModuleOptions) {
   let resolveRunDependenciesPromise: () => void
@@ -32,17 +35,17 @@ export function getEmscriptenModuleOverrides(overrides: RetroArchEmscriptenModul
       if (message.includes('[INFO]')) {
         return; // Suppress all [INFO] messages even in DEBUG mode
       }
-      console.info(...args)
+      logger.info(String(args.join(' ')))
     },
 
     printErr(...args: unknown[]) {
-      console.error(...args)
+      logger.error(String(args.join(' ')))
     },
 
     // @ts-expect-error do not throw error when exit
     quit(status: unknown, toThrow: unknown) {
       if (status && DEBUG()) {
-        console.info(status, toThrow)
+        logger.info(String(status), String(toThrow))
       }
     },
 

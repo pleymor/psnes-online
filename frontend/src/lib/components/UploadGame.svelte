@@ -2,8 +2,10 @@
   import { createEventDispatcher } from 'svelte';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
+  import { createLogger } from '$lib/utils/logger';
 
   const dispatch = createEventDispatcher();
+  const logger = createLogger('UploadGame');
 
   let title = '';
   let file: File | null = null;
@@ -39,10 +41,10 @@
         dispatch('close');
         dispatch('uploaded'); // Notify parent to refresh games list
       } else {
-        console.error('Upload failed:', await res.text());
+        logger.error('Upload failed:', await res.text());
       }
     } catch (error) {
-      console.error('Upload error:', error);
+      logger.error('Upload error:', error);
     } finally {
       uploading = false;
     }

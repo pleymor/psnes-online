@@ -2,7 +2,9 @@
  * Audio capture utility for streaming emulator audio via WebRTC
  */
 
-import { DEBUG } from '$lib/config/debug';
+import { createLogger } from '$lib/utils/logger';
+
+const logger = createLogger('AudioCapture');
 
 let globalAudioStream: MediaStream | null = null;
 let globalAudioContext: AudioContext | null = null;
@@ -18,7 +20,7 @@ export function initializeAudioCapture(): void {
   const OriginalAudioContext = window.AudioContext || (window as any).webkitAudioContext;
 
   if (!OriginalAudioContext) {
-    console.warn('AudioContext not supported');
+    logger.warn('AudioContext not supported');
     return;
   }
 
@@ -29,7 +31,7 @@ export function initializeAudioCapture(): void {
 
       // Store the first AudioContext (likely from the emulator)
       if (!globalAudioContext) {
-        if (DEBUG()) console.log('✅ Captured emulator AudioContext');
+        logger.debug('✅ Captured emulator AudioContext');
         globalAudioContext = audioContext;
 
         // Create a MediaStreamDestination to capture audio
@@ -74,7 +76,7 @@ export function initializeAudioCapture(): void {
   window.AudioContext = AudioContextProxy as any;
   (window as any).webkitAudioContext = AudioContextProxy;
 
-  if (DEBUG()) console.log('🎧 Audio capture initialized');
+  logger.debug('🎧 Audio capture initialized');
 }
 
 /**

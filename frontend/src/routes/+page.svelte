@@ -15,7 +15,9 @@
   import ControlsModal from '$lib/components/ControlsModal.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import type { KeyConfig } from '$lib/types';
-  import { DEBUG } from '$lib/config/debug';
+  import { createLogger } from '$lib/utils/logger';
+
+  const logger = createLogger('HomePage');
 
   // Accept params prop from SvelteKit (unused but prevents warnings)
   export let params = {};
@@ -66,7 +68,7 @@
         userKeyConfig = config;
       }
     } catch (error) {
-      console.error('Failed to load user controls:', error);
+      logger.error('Failed to load user controls:', error);
     }
   }
 
@@ -76,10 +78,10 @@
       if (res.ok) {
         const rooms = await res.json();
         activeRooms = rooms;
-        if (DEBUG()) console.log('Active rooms:', activeRooms);
+        logger.debug('Active rooms:', activeRooms);
       }
     } catch (error) {
-      console.error('Failed to load rooms:', error);
+      logger.error('Failed to load rooms:', error);
     }
   }
 
@@ -104,7 +106,7 @@
         showNotification(t($language, 'failedToDeleteGame'), 'error');
       }
     } catch (error) {
-      console.error('Error deleting game:', error);
+      logger.error('Error deleting game:', error);
       showNotification(t($language, 'errorDeletingGame'), 'error');
     } finally {
       showDeleteConfirm = false;
@@ -159,7 +161,7 @@
         showNotification(t($language, 'failedToRefreshMetadata'), 'error');
       }
     } catch (error) {
-      console.error('Error refreshing metadata:', error);
+      logger.error('Error refreshing metadata:', error);
       showNotification(t($language, 'errorRefreshingMetadata'), 'error');
     } finally {
       isRefreshingMetadata = false;
@@ -201,7 +203,7 @@
         authMode = data.mode;
       }
     } catch (error) {
-      console.error('Failed to load auth mode:', error);
+      logger.error('Failed to load auth mode:', error);
     } finally {
       isLoadingAuthMode = false;
     }
@@ -225,10 +227,10 @@
         user.set(userData);
         goto('/');
       } else {
-        console.error('Dev login failed');
+        logger.error('Dev login failed');
       }
     } catch (error) {
-      console.error('Dev login error:', error);
+      logger.error('Dev login error:', error);
     }
   }
 

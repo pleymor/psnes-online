@@ -1,6 +1,8 @@
 import { writable } from 'svelte/store';
 import { io, Socket } from 'socket.io-client';
-import { DEBUG } from '$lib/config/debug';
+import { createLogger } from '$lib/utils/logger';
+
+const logger = createLogger('Socket');
 
 export const socket = writable<Socket | null>(null);
 
@@ -22,15 +24,15 @@ export function initializeSocket() {
   });
 
   socketInstance.on('connect', () => {
-    if (DEBUG()) console.log('Socket connected');
+    logger.debug('Socket connected');
   });
 
   socketInstance.on('disconnect', () => {
-    if (DEBUG()) console.log('Socket disconnected');
+    logger.debug('Socket disconnected');
   });
 
   socketInstance.on('error', (error: any) => {
-    console.error('Socket error:', error);
+    logger.error('Socket error:', error);
   });
 
   socket.set(socketInstance);

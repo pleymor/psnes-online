@@ -18,6 +18,9 @@ import type { RetroArchEmscriptenModule } from '../types/retroarch-emscripten'
 import { EmulatorFileSystem } from './emulator-file-system.ts'
 import type { EmulatorOptions } from './emulator-options'
 import type { ResolvableFile } from './resolvable-file.ts'
+import { createLogger } from '$lib/utils/logger'
+
+const logger = createLogger('Emulator')
 
 const { ini, path } = vendors
 
@@ -288,7 +291,7 @@ export class Emulator {
     }
 
     // Fallback if no config found
-    console.warn(`⚠️ No config for P${playerIndex + 1} ${button}`)
+    logger.warn(`⚠️ No config for P${playerIndex + 1} ${button}`)
     return `Key${button.toUpperCase()}`
   }
 
@@ -406,7 +409,7 @@ export class Emulator {
         try {
           eventListenerFunc(event)
         } catch (error) {
-          console.error(`❌ Keyboard event error:`, error)
+          logger.error(`❌ Keyboard event error:`, error)
         }
       }
     }

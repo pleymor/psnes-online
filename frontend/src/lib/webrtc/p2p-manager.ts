@@ -3,6 +3,9 @@ import '$lib/polyfills';
 import SimplePeer from 'simple-peer';
 import type { Socket } from 'socket.io-client';
 import { DEBUG } from '$lib/config/debug';
+import { createLogger } from '$lib/utils/logger';
+
+const logger = createLogger('P2PManager');
 
 export interface P2PConnectionCallbacks {
   onStream?: (stream: MediaStream) => void;
@@ -93,7 +96,7 @@ export class P2PManager {
           // Log SDP to debug codec selection
           if (DEBUG()) {
             if (data.type === 'offer' || data.type === 'answer') {
-              console.log(`📡 WebRTC ${data.type}:`, data.sdp?.includes('H264') ? 'H264 present ✅' : 'H264 missing ⚠️');
+              logger.debug(`📡 WebRTC ${data.type}:`, data.sdp?.includes('H264') ? 'H264 present ✅' : 'H264 missing ⚠️');
             }
           }
 
@@ -156,7 +159,7 @@ export class P2PManager {
                 }
               });
               channel.addEventListener('error', (err: any) => {
-                console.error('[P2PManager] Host data channel ERROR:', err);
+                logger.error('[P2PManager] Host data channel ERROR:', err);
               });
             }
 
@@ -180,13 +183,13 @@ export class P2PManager {
             const decoded = JSON.parse(data.toString());
             this.callbacks.onData?.(decoded);
           } catch (error) {
-            console.error('Failed to parse P2P data:', error);
+            logger.error('Failed to parse P2P data:', error);
           }
         });
 
         // Handle errors
         this.peer.on('error', (error: Error) => {
-          console.error('P2P error:', error);
+          logger.error('P2P error:', error);
           this.callbacks.onError?.(error);
           reject(error);
         });
@@ -211,12 +214,12 @@ export class P2PManager {
               }, 500);
             }
           } else {
-            console.warn('⚠️ Received signal but peer not ready');
+            logger.warn('⚠️ Received signal but peer not ready');
           }
         });
 
       } catch (error) {
-        console.error('Failed to initialize P2P:', error);
+        logger.error('Failed to initialize P2P:', error);
         reject(error);
       }
     });
@@ -227,7 +230,7 @@ export class P2PManager {
    */
   sendData(data: any): void {
     if (!this.peer || this.peer.destroyed) {
-      console.warn('⚠️ Cannot send data: peer not connected');
+      logger.warn('⚠️ Cannot send data: peer not connected');
       return;
     }
 
@@ -235,7 +238,7 @@ export class P2PManager {
       const jsonData = JSON.stringify(data);
       this.peer.send(jsonData);
     } catch (error) {
-      console.error('Failed to send P2P data:', error);
+      logger.error('Failed to send P2P data:', error);
     }
   }
 
@@ -244,7 +247,7 @@ export class P2PManager {
    */
   private preferH264Codec(sdp: string): string {
     if (DEBUG()) {
-      console.log('🔧 Attempting to prioritize H.264 codec and reduce latency...');
+      logger.debug('🔧 Attempting to prioritize H.264 codec and reduce latency...');
     }
 
     // Move H.264 to the front of the codec list for hardware acceleration
@@ -257,14 +260,14 @@ export class P2PManager {
       if (lines[i].startsWith('m=video')) {
         mLineIndex = i;
         if (DEBUG()) {
-          console.log(`📍 Found m=video line at index ${i}: ${lines[i]}`);
+          logger.debug(`📍 Found m=video line at index ${i}: ${lines[i]}`);
         }
         break;
       }
     }
 
     if (mLineIndex === -1) {
-      console.warn('⚠️ No m=video line found in SDP');
+      logger.warn('⚠️ No m=video line found in SDP');
       return sdp;
     }
 
@@ -275,7 +278,7 @@ export class P2PManager {
         if (match) {
           h264PayloadType = match[1];
           if (DEBUG()) {
-            console.log(`📍 Found H.264 codec with payload type: ${h264PayloadType}`);
+            logger.debug(`📍 Found H.264 codec with payload type: ${h264PayloadType}`);
           }
           break;
         }
@@ -283,12 +286,12 @@ export class P2PManager {
     }
 
     if (!h264PayloadType) {
-      console.warn('⚠️ H.264 codec not found in SDP, using default codec');
+      logger.warn('⚠️ H.264 codec not found in SDP, using default codec');
       if (DEBUG()) {
-        console.log('Available codecs in SDP:');
+        logger.debug('Available codecs in SDP:');
         lines.forEach(line => {
           if (line.includes('rtpmap:')) {
-            console.log(`   ${line}`);
+            logger.debug(`   ${line}`);
           }
         });
       }
@@ -301,7 +304,7 @@ export class P2PManager {
     const payloadTypes = parts.slice(3); // Skip 'm=video', port, protocol
 
     if (DEBUG()) {
-      console.log(`📍 Original codec order: ${payloadTypes.join(', ')}`);
+      logger.debug(`📍 Original codec order: ${payloadTypes.join(', ')}`);
     }
 
     // Move H.264 to front
@@ -309,8 +312,8 @@ export class P2PManager {
     lines[mLineIndex] = parts.slice(0, 3).join(' ') + ' ' + reordered.join(' ');
 
     if (DEBUG()) {
-      console.log(`✅ H.264 codec prioritized! New order: ${reordered.join(', ')}`);
-      console.log(`   Payload type ${h264PayloadType} moved to front`);
+      logger.debug(`✅ H.264 codec prioritized! New order: ${reordered.join(', ')}`);
+      logger.debug(`   Payload type ${h264PayloadType} moved to front`);
     }
 
     // CRITICAL: Add low-latency parameters to H.264 fmtp line
@@ -329,7 +332,7 @@ export class P2PManager {
           lines[i] += ';level-asymmetry-allowed=1';
         }
         if (DEBUG()) {
-          console.log(`✅ Added low-latency params to H.264 fmtp line`);
+          logger.debug(`✅ Added low-latency params to H.264 fmtp line`);
         }
         break;
       }
@@ -346,7 +349,7 @@ export class P2PManager {
         }
       }
       if (!hasPlayoutDelay) {
-        console.log('⚠️ Playout delay extension not in SDP, will try to set via API');
+        logger.debug('⚠️ Playout delay extension not in SDP, will try to set via API');
       }
     }
 
@@ -402,7 +405,7 @@ export class P2PManager {
       }
 
     } catch (error) {
-      console.warn('Could not optimize video encoding:', error);
+      logger.warn('Could not optimize video encoding:', error);
     }
   }
 
@@ -419,7 +422,7 @@ export class P2PManager {
 
       if (videoReceiver) {
         if (DEBUG()) {
-          console.log('🎬 Optimizing video receiver for minimal latency...');
+          logger.debug('🎬 Optimizing video receiver for minimal latency...');
         }
 
         // Try to set playout delay to minimum (Chrome/Edge only)
@@ -428,10 +431,10 @@ export class P2PManager {
           // @ts-ignore
           videoReceiver.playoutDelayHint = 0.0; // Request 0ms playout delay
           if (DEBUG()) {
-            console.log('✅ Set playoutDelayHint to 0ms (minimal buffering)');
+            logger.debug('✅ Set playoutDelayHint to 0ms (minimal buffering)');
           }
         } else if (DEBUG()) {
-          console.warn('⚠️ playoutDelayHint not supported in this browser');
+          logger.warn('⚠️ playoutDelayHint not supported in this browser');
         }
 
         // Try Chrome-specific jitter buffer control
@@ -440,7 +443,7 @@ export class P2PManager {
           // @ts-ignore
           videoReceiver.jitterBufferTarget = 0; // Minimal jitter buffer
           if (DEBUG()) {
-            console.log('✅ Set jitterBufferTarget to 0ms');
+            logger.debug('✅ Set jitterBufferTarget to 0ms');
           }
         }
       }
@@ -453,7 +456,7 @@ export class P2PManager {
           // @ts-ignore
           audioReceiver.playoutDelayHint = 0.0;
           if (DEBUG()) {
-            console.log('✅ Set audio playoutDelayHint to 0ms');
+            logger.debug('✅ Set audio playoutDelayHint to 0ms');
           }
         }
         // @ts-ignore
@@ -464,10 +467,10 @@ export class P2PManager {
       }
 
       if (DEBUG()) {
-        console.log('✅ Video/audio receivers optimized for ultra-low latency');
+        logger.debug('✅ Video/audio receivers optimized for ultra-low latency');
       }
     } catch (error) {
-      console.warn('Could not optimize video receiving:', error);
+      logger.warn('Could not optimize video receiving:', error);
     }
   }
 
@@ -477,60 +480,60 @@ export class P2PManager {
   private async detectHardwareEncoding(sender: RTCRtpSender): Promise<void> {
     try {
       if (DEBUG()) {
-        console.log('⏳ Waiting 2s for encoding to start...');
+        logger.debug('⏳ Waiting 2s for encoding to start...');
       }
       await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for encoding to start
 
       if (DEBUG()) {
-        console.log('📊 Getting encoder stats...');
+        logger.debug('📊 Getting encoder stats...');
       }
       const stats = await sender.getStats();
       if (DEBUG()) {
-        console.log(`📊 Found ${stats.size} stats entries`);
+        logger.debug(`📊 Found ${stats.size} stats entries`);
       }
 
       for (const [, stat] of stats) {
         if (stat.type === 'outbound-rtp' && stat.kind === 'video') {
           if (DEBUG()) {
-            console.log('✅ Found outbound-rtp video stat');
+            logger.debug('✅ Found outbound-rtp video stat');
           }
           const codecId = stat.codecId;
           if (DEBUG()) {
-            console.log(`   Codec ID: ${codecId}`);
+            logger.debug(`   Codec ID: ${codecId}`);
           }
 
           // Find codec info
           for (const [, codecStat] of stats) {
             if (codecStat.id === codecId) {
               if (DEBUG()) {
-                console.log('✅ Found matching codec stat');
+                logger.debug('✅ Found matching codec stat');
 
                 const mimeType = (codecStat as any).mimeType || '';
                 const implementation = (codecStat as any).implementation || 'unknown';
 
-                console.log('🎥 Video Encoder Info:');
-                console.log(`   Codec: ${mimeType}`);
-                console.log(`   Implementation: ${implementation}`);
-                console.log(`   Encoder ID: ${codecStat.id}`);
+                logger.debug('🎥 Video Encoder Info:');
+                logger.debug(`   Codec: ${mimeType}`);
+                logger.debug(`   Implementation: ${implementation}`);
+                logger.debug(`   Encoder ID: ${codecStat.id}`);
 
                 // Log all codec stats for debugging
-                console.log('   Full codec stats:', codecStat);
+                logger.debug('   Full codec stats:', codecStat);
 
                 // Hardware encoding typically shows as 'ExternalEncoder' or similar
                 if (implementation.toLowerCase().includes('external') ||
                     implementation.toLowerCase().includes('hardware') ||
                     mimeType.includes('H264')) {
-                  console.log('   ✅ Hardware encoding likely active!');
+                  logger.debug('   ✅ Hardware encoding likely active!');
                 } else {
-                  console.log('   ⚠️ Software encoding detected (GPU may not be used)');
+                  logger.debug('   ⚠️ Software encoding detected (GPU may not be used)');
                 }
 
                 // Log current resolution and framerate
                 if (stat.frameWidth && stat.frameHeight) {
-                  console.log(`   Resolution: ${stat.frameWidth}x${stat.frameHeight}`);
+                  logger.debug(`   Resolution: ${stat.frameWidth}x${stat.frameHeight}`);
                 }
                 if (stat.framesPerSecond) {
-                  console.log(`   FPS: ${stat.framesPerSecond}`);
+                  logger.debug(`   FPS: ${stat.framesPerSecond}`);
                 }
               }
             }
@@ -538,7 +541,7 @@ export class P2PManager {
         }
       }
     } catch (error) {
-      console.warn('Could not detect hardware encoding:', error);
+      logger.warn('Could not detect hardware encoding:', error);
     }
   }
 
@@ -565,26 +568,26 @@ export class P2PManager {
           const remoteType = (remoteCandidate as any)?.candidateType || 'unknown';
 
           if (DEBUG()) {
-            console.log('🔗 P2P Connection established:');
-            console.log(`   Local: ${localType} (${(localCandidate as any)?.protocol})`);
-            console.log(`   Remote: ${remoteType} (${(remoteCandidate as any)?.protocol})`);
+            logger.debug('🔗 P2P Connection established:');
+            logger.debug(`   Local: ${localType} (${(localCandidate as any)?.protocol})`);
+            logger.debug(`   Remote: ${remoteType} (${(remoteCandidate as any)?.protocol})`);
 
             // Check if it's a direct connection
             if (localType === 'host' || localType === 'srflx') {
-              console.log('   ✅ DIRECT P2P CONNECTION - Optimal latency!');
+              logger.debug('   ✅ DIRECT P2P CONNECTION - Optimal latency!');
             } else if (localType === 'relay') {
-              console.warn('   ⚠️ RELAYED CONNECTION - May have higher latency');
+              logger.warn('   ⚠️ RELAYED CONNECTION - May have higher latency');
             }
 
             // Log estimated RTT
             if (stat.currentRoundTripTime) {
-              console.log(`   RTT: ${(stat.currentRoundTripTime * 1000).toFixed(1)}ms`);
+              logger.debug(`   RTT: ${(stat.currentRoundTripTime * 1000).toFixed(1)}ms`);
             }
           }
         }
       }
     } catch (error) {
-      console.error('Failed to log connection type:', error);
+      logger.error('Failed to log connection type:', error);
     }
   }
 
@@ -601,7 +604,7 @@ export class P2PManager {
         return await pc.getStats();
       }
     } catch (error) {
-      console.error('Failed to get stats:', error);
+      logger.error('Failed to get stats:', error);
     }
 
     return null;
@@ -670,7 +673,7 @@ export function captureCanvasStream(
 ): MediaStream {
   // Log canvas resolution for debugging
   if (DEBUG()) {
-    console.log(`📹 Capturing canvas stream: ${canvas.width}x${canvas.height} @ ${frameRate}fps`);
+    logger.debug(`📹 Capturing canvas stream: ${canvas.width}x${canvas.height} @ ${frameRate}fps`);
   }
 
   // @ts-ignore - captureStream is supported in modern browsers
@@ -705,14 +708,14 @@ export function getEmulatorAudioStream(): MediaStream | null {
         try {
           audioNode.connect(destination);
         } catch (e) {
-          console.warn('Could not connect audio node:', e);
+          logger.warn('Could not connect audio node:', e);
         }
       }
 
       return destination.stream;
     }
   } catch (error) {
-    console.warn('Could not get emulator audio stream:', error);
+    logger.warn('Could not get emulator audio stream:', error);
   }
 
   return null;
@@ -736,15 +739,15 @@ export function captureCanvasWithAudio(
       const audioTracks = audioStream.getAudioTracks();
       if (audioTracks.length > 0) {
         if (DEBUG()) {
-          console.log('✅ Adding audio tracks to video stream');
+          logger.debug('✅ Adding audio tracks to video stream');
         }
         audioTracks.forEach((track: MediaStreamTrack) => videoStream.addTrack(track));
       }
     } else {
-      console.warn('⚠️ No audio stream available from emulator');
+      logger.warn('⚠️ No audio stream available from emulator');
     }
   } catch (error) {
-    console.warn('Could not add audio to stream:', error);
+    logger.warn('Could not add audio to stream:', error);
   }
 
   return videoStream;

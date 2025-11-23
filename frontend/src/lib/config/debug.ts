@@ -41,7 +41,7 @@ if (typeof window !== 'undefined') {
     return debugState.enabled;
   };
 
-  // Show available debug commands on page load
+  // Show available debug commands on page load (kept as console.log for user-facing commands)
   console.log('💡 Debug commands available:');
   console.log('  window.setDebug(true)   - Enable debug logs');
   console.log('  window.setDebug(false)  - Disable debug logs');

@@ -3,6 +3,9 @@
   import { Nostalgist } from '$lib/emulator';
   import type { KeyConfig } from '$lib/types';
   import { DEBUG } from '$lib/config/debug';
+  import { createLogger } from '$lib/utils/logger';
+
+  const logger = createLogger('ClientEmulator');
 
   export let romData: ArrayBuffer;
   export let keyConfig: KeyConfig;
@@ -201,7 +204,7 @@
       dispatch('ready', { emulator });
 
     } catch (error) {
-      console.error('Failed to initialize emulator:', error);
+      logger.error('Failed to initialize emulator:', error);
       dispatch('error', { message: 'Failed to initialize emulator' });
     }
   }
@@ -485,7 +488,7 @@
     try {
       return await emulator.saveState();
     } catch (error) {
-      console.error('Failed to save state:', error);
+      logger.error('Failed to save state:', error);
       return null;
     }
   }
@@ -495,7 +498,7 @@
     try {
       await emulator.loadState(state);
     } catch (error) {
-      console.error('Failed to load state:', error);
+      logger.error('Failed to load state:', error);
     }
   }
 
@@ -537,7 +540,7 @@
         isFullscreen = false;
       }
     } catch (error) {
-      console.error('Error toggling fullscreen:', error);
+      logger.error('Error toggling fullscreen:', error);
     }
   }
 
@@ -593,7 +596,7 @@
       if (now - lastLogTime >= 2000) {
         currentFPS = Math.round((frameCount * 1000) / (now - lastLogTime));
         if (DEBUG()) {
-          console.log(`📊 Emulator FPS: ${currentFPS}`);
+          logger.debug(`📊 Emulator FPS: ${currentFPS}`);
         }
         frameCount = 0;
         lastLogTime = now;
@@ -614,7 +617,7 @@
     resizeObserver = new ResizeObserver(() => {
       // Check if canvas internal resolution changed
       if (canvas.width !== 256 || canvas.height !== 224) {
-        console.warn(`⚠️ Canvas size changed to ${canvas.width}x${canvas.height}, forcing back to 256x224`);
+        logger.warn(`⚠️ Canvas size changed to ${canvas.width}x${canvas.height}, forcing back to 256x224`);
         if (emulator) {
           emulator.resize({ width: 256, height: 224 });
         }

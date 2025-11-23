@@ -5,11 +5,13 @@
   import { language } from '$lib/stores/language';
   import { goto } from '$app/navigation';
   import { t } from '$lib/i18n/translations';
+  import { createLogger } from '$lib/utils/logger';
 
   export let compact = false; // Compact mode for small screens
   export let activeRooms: any[] = []; // List of active rooms from API
 
   const dispatch = createEventDispatcher();
+  const logger = createLogger('FriendsList');
 
   let friends: any[] = [];
   let friendRequests: any[] = [];
@@ -165,7 +167,7 @@
         showDropdown = false;
       }
     } catch (error) {
-      console.error('Search error:', error);
+      logger.error('Search error:', error);
       searchResults = [];
       showDropdown = false;
     } finally {

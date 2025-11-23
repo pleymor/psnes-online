@@ -4,6 +4,9 @@
   import ClientEmulator from './ClientEmulator.svelte';
   import { P2PManager, captureCanvasStream } from '$lib/webrtc/p2p-manager';
   import type { KeyConfig } from '$lib/types';
+  import { createLogger } from '$lib/utils/logger';
+
+  const logger = createLogger('P2PRoom');
 
   export let roomId: string;
   export let gameId: string;
@@ -29,7 +32,7 @@
 
   async function loadROM() {
     try {
-      console.log('📥 Loading ROM...', gameId);
+      logger.debug('📥 Loading ROM...', gameId);
       const response = await fetch(`/api/games/${gameId}/download`, {
         credentials: 'include'
       });
@@ -39,11 +42,11 @@
       }
 
       romData = await response.arrayBuffer();
-      console.log(`✅ ROM loaded (${romData.byteLength} bytes)`);
+      logger.debug(`✅ ROM loaded (${romData.byteLength} bytes)`);
       loading = false;
 
     } catch (err) {
-      console.error('Failed to load ROM:', err);
+      logger.error('Failed to load ROM:', err);
       error = 'Failed to load game';
       loading = false;
     }
@@ -56,13 +59,13 @@
     }
 
     try {
-      console.log('🔗 Setting up P2P connection...');
+      logger.debug('🔗 Setting up P2P connection...');
 
       // First, join the Socket.IO room
       await new Promise<void>((resolve) => {
         $socket!.emit('p2p:join', { roomId });
         $socket!.once('p2p:joined', () => {
-          console.log('✅ Joined Socket.IO room:', roomId);
+          logger.debug('✅ Joined Socket.IO room:', roomId);
           resolve();
         });
       });
@@ -70,7 +73,7 @@
       // Initialize P2P manager
       p2pManager = new P2PManager($socket, roomId, isHost, {
         onStream: (stream) => {
-          console.log('📺 Received stream from host');
+          logger.debug('📺 Received stream from host');
           // Attach stream to video element (for guest)
           if (guestVideoElement) {
             guestVideoElement.srcObject = stream;
@@ -119,16 +122,16 @@
           }
         },
         onConnect: () => {
-          console.log('✅ P2P connected!');
+          logger.info('✅ P2P connected!');
           connectionStatus = 'connected';
         },
         onClose: () => {
-          console.log('❌ P2P connection closed');
+          logger.info('❌ P2P connection closed');
           connectionStatus = 'disconnected';
           error = 'Connection lost';
         },
         onError: (err) => {
-          console.error('P2P error:', err);
+          logger.error('P2P error:', err);
           error = `Connection error: ${err.message}`;
           connectionStatus = 'disconnected';
         }
@@ -153,14 +156,14 @@
       }
 
     } catch (err) {
-      console.error('Failed to setup P2P:', err);
+      logger.error('Failed to setup P2P:', err);
       error = 'Failed to establish peer connection';
     }
   }
 
   function handleEmulatorReady(event: CustomEvent) {
     emulatorInstance = event.detail.emulator;
-    console.log('✅ Emulator ready');
+    logger.info('✅ Emulator ready');
 
     // Setup P2P after emulator is ready
     setupP2PConnection();
@@ -213,12 +216,12 @@
 
     // For guest, setup P2P immediately after ROM is loaded
     if (!isHost) {
-      console.log('🎮 Guest mode - setting up P2P connection');
+      logger.debug('🎮 Guest mode - setting up P2P connection');
       await setupP2PConnection();
     }
 
     // Listen for keyboard (guest input)
-    console.log('⌨️ Adding keyboard event listeners');
+    logger.debug('⌨️ Adding keyboard event listeners');
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
   });

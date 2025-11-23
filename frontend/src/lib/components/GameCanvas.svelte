@@ -2,6 +2,9 @@
   import { onMount, onDestroy } from 'svelte';
   import { socket } from '$lib/api/socket';
   import type { KeyConfig } from '$lib/types';
+  import { createLogger } from '$lib/utils/logger';
+
+  const logger = createLogger('GameCanvas');
 
   export let roomId: string;
   export let keyConfig: KeyConfig;
@@ -81,7 +84,7 @@
 
     // Request low latency mode if available
     if ('baseLatency' in audioContext) {
-      console.log(`Audio base latency: ${audioContext.baseLatency * 1000}ms`);
+      logger.debug(`Audio base latency: ${audioContext.baseLatency * 1000}ms`);
     }
 
     // Start render loop
@@ -97,7 +100,7 @@
         averageLatency = latencyHistory.reduce((a, b) => a + b, 0) / latencyHistory.length;
 
         if (latency > 100) {
-          console.warn(`⚠️  HIGH LATENCY: ${latency.toFixed(1)}ms (avg: ${averageLatency.toFixed(1)}ms)`);
+          logger.warn(`⚠️  HIGH LATENCY: ${latency.toFixed(1)}ms (avg: ${averageLatency.toFixed(1)}ms)`);
         }
       }
 
@@ -207,7 +210,7 @@
 
     const renderTime = performance.now() - startTime;
     if (renderTime > 3) {
-      console.log(`⚠️  CLIENT RENDER: Took ${renderTime.toFixed(2)}ms`);
+      logger.debug(`⚠️  CLIENT RENDER: Took ${renderTime.toFixed(2)}ms`);
     }
   }
 
@@ -242,7 +245,7 @@
           const arr = Object.values(audio.data.data);
           audioData = new Float32Array(arr as number[]);
         } else {
-          console.warn('Unknown nested audio data format:', typeof audio.data.data, audio.data.data);
+          logger.warn('Unknown nested audio data format:', typeof audio.data.data, audio.data.data);
           return;
         }
       } else {
@@ -252,19 +255,19 @@
           const arr = Object.values(audio.data);
           audioData = new Float32Array(arr as number[]);
         } else {
-          console.warn('Unknown audio data object format:', audio.data);
+          logger.warn('Unknown audio data object format:', audio.data);
           return;
         }
       }
     } else {
-      console.warn('Unknown audio data format:', typeof audio.data, audio.data);
+      logger.warn('Unknown audio data format:', typeof audio.data, audio.data);
       return;
     }
 
     // Check if we have valid audio data
     const numFrames = audioData.length / audio.channels;
     if (numFrames <= 0 || !isFinite(numFrames)) {
-      console.warn('Invalid audio frame count:', numFrames, 'from', audioData.length, 'samples');
+      logger.warn('Invalid audio frame count:', numFrames, 'from', audioData.length, 'samples');
       return;
     }
 
@@ -371,7 +374,7 @@
         isFullscreen = false;
       }
     } catch (error) {
-      console.error('Erreur lors du changement de mode plein écran:', error);
+      logger.error('Erreur lors du changement de mode plein écran:', error);
     }
   }
 

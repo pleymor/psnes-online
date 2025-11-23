@@ -3,12 +3,14 @@
   import { socket } from '$lib/api/socket';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
+  import { createLogger } from '$lib/utils/logger';
 
   export let roomId: string;
   export let gameId: string;
   export let emulator: any = null; // Reference to ClientEmulator component (host only)
 
   const dispatch = createEventDispatcher();
+  const logger = createLogger('SavesManager');
 
   interface Save {
     id: string;
@@ -43,7 +45,7 @@
         saves = await res.json();
       }
     } catch (error) {
-      console.error('Failed to load saves:', error);
+      logger.error('Failed to load saves:', error);
     }
   }
 
@@ -79,7 +81,7 @@
           }
         }
       } catch (error) {
-        console.error('Failed to capture emulator state:', error);
+        logger.error('Failed to capture emulator state:', error);
       }
     }
 
@@ -107,6 +109,7 @@
 
     // Handle errors
     const errorHandler = (error: any) => {
+      logger.error('Error saving:', error);
       loading = false;
       dispatch('notification', {
         message: t($language, 'failedToSave'),
@@ -138,7 +141,7 @@
 
     // Handle errors
     const errorHandler = (error: any) => {
-      console.error('Error loading save:', error);
+      logger.error('Error loading save:', error);
       dispatch('notification', {
         message: t($language, 'failedToLoad'),
         type: 'error'
