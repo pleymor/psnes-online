@@ -20,6 +20,7 @@ import { avatarsRouter } from './api/avatars.js';
 import { initializeWebSocket } from './websocket/index.js';
 import { refreshGameMetadata } from './services/metadata-loader.js';
 import { ensureAvatarsDir } from './utils/avatar.js';
+import { requestLogger } from './middleware/logger.js';
 
 dotenv.config();
 
@@ -82,35 +83,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Routing logger middleware (only in development or for slow requests)
-app.use((req, res, next) => {
-  const start = Date.now();
-  const originalSend = res.send;
-
-  res.send = function (data) {
-    const duration = Date.now() - start;
-
-    // Always log auth errors (401/403)
-    if (res.statusCode === 401 || res.statusCode === 403) {
-      const user = (req as any).user;
-      console.warn(`⚠️  [${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms` +
-        (user ? ` - User: ${user.id || user.email}` : ' - Guest') +
-        (Object.keys(req.query).length > 0 ? ` - Query: ${JSON.stringify(req.query)}` : '') +
-        ` - IP: ${req.ip || req.socket.remoteAddress}`);
-    }
-    // Only log slow requests (> 100ms) or errors in production
-    else if (process.env.NODE_ENV === 'development' || duration > 100 || res.statusCode >= 400) {
-      const user = (req as any).user;
-      console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms` +
-        (user ? ` - User: ${user.id || user.email}` : ' - Guest') +
-        (Object.keys(req.query).length > 0 ? ` - Query: ${JSON.stringify(req.query)}` : ''));
-    }
-
-    return originalSend.call(this, data);
-  };
-
-  next();
-});
+app.use(requestLogger);
 
 // Session
 const sessionMiddleware = session({

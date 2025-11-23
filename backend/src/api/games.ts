@@ -4,18 +4,11 @@ import { randomUUID } from 'crypto';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { User } from '../types/index.js';
-import { findGameMetadata, refreshGameMetadata } from '../services/metadata-loader.js';
+import { findGameMetadata } from '../services/metadata-loader.js';
 import { prisma } from '../db/prisma.js';
+import { requireAuth } from '../middleware/auth.js';
 
 export const gamesRouter = Router();
-
-// Middleware to check authentication
-const requireAuth = (req: any, res: any, next: any) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  next();
-};
 
 // Configure multer for ROM uploads
 const storage = multer.diskStorage({

@@ -3,16 +3,9 @@ import { User } from '../types/index.js';
 import { getIO, getUserSocket } from '../websocket/index.js';
 import { prisma } from '../db/prisma.js';
 import { cache } from '../utils/cache.js';
+import { requireAuth } from '../middleware/auth.js';
 
 export const friendsRouter = Router();
-
-// Middleware to check authentication
-const requireAuth = (req: any, res: any, next: any) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  next();
-};
 
 friendsRouter.use(requireAuth);
 
