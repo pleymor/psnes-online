@@ -9,8 +9,8 @@ services:
 
   db-migration:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       target: production
     environment:
       - DATABASE_URL=file:/app/data/prod.db
@@ -21,8 +21,8 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       target: production
     ports:
       - "3000:3000"

@@ -6,7 +6,8 @@ FROM node:20 AS prod-deps
 WORKDIR /app
 ENV NODE_ENV=build
 
-COPY package*.json ./
+COPY backend/package*.json ./
+COPY package-lock.json ./
 
 RUN npm ci --omit=dev --prefer-offline
 
@@ -31,13 +32,13 @@ RUN apt-get update && apt-get install -y \
 RUN npm ci --prefer-offline
 
 # Copy source code and prisma schema
-COPY prisma ./prisma
+COPY backend/prisma ./prisma
 
 # Generate Prisma client
 RUN npx prisma generate
 
-COPY src ./src
-COPY tsconfig.json ./
+COPY backend/src ./src
+COPY backend/tsconfig.json ./
 
 # Build TypeScript to JavaScript
 RUN npm run build
@@ -78,10 +79,10 @@ RUN mkdir -p roms saves data avatars metadata && \
     chown -R node:node /app
 
 # Copy metadata file into image (not in /data to avoid volume shadowing)
-COPY data/snes-metadata.json ./metadata/
+COPY backend/data/snes-metadata.json ./metadata/
 
 # Copy and setup entrypoint script for permission handling
-COPY docker-entrypoint.sh /usr/local/bin/
+COPY backend/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3000
