@@ -1,0 +1,11 @@
+services:
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly no
+    tmpfs:
+      - /data
+
+volumes:
+  redis-test-data:

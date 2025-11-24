@@ -31,19 +31,31 @@ export function getRooms(): Map<string, Room> {
 export function initializeWebSocket(io: Server) {
   ioInstance = io;
 
+  // Increase max listeners to support many concurrent connections in tests
+  io.setMaxListeners(100);
+  io.engine.setMaxListeners(100);
+
   io.on('connection', async (socket: Socket) => {
     logger.debug({ socketId: socket.id }, 'Client connected');
 
     const userId = (socket.request as any).session?.passport?.user;
     if (!userId) {
+      logger.warn({ socketId: socket.id }, 'No userId in session, disconnecting');
       socket.disconnect();
       return;
     }
 
     // Load full user data from database (WebSocket doesn't run deserializeUser)
-    const user = await prisma.user.findUnique({
-      where: { id: userId }
-    });
+    let user;
+    try {
+      user = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+    } catch (error) {
+      logger.error({ userId, error }, 'Error loading user from database');
+      socket.disconnect();
+      return;
+    }
 
     if (!user) {
       logger.error({ userId }, 'User not found');
@@ -59,8 +71,10 @@ export function initializeWebSocket(io: Server) {
     // Send current rooms list
     socket.emit('rooms:list', Array.from(rooms.values()));
 
-    // Notify friends that this user is now online
-    await notifyFriendsStatusChanged(io, user.id, true, getUserSocket);
+    // Notify friends that this user is now online (don't await to not block)
+    notifyFriendsStatusChanged(io, user.id, true, getUserSocket).catch(err => {
+      logger.error({ userId: user.id, error: err }, 'Error notifying friends of status change');
+    });
 
     // Handle request for online friends status
     socket.on('friends:getOnlineStatus', async () => {
