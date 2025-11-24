@@ -86,9 +86,9 @@ This script will:
 - ✅ Test SSH connection
 - ✅ Sync files to VPS
 - ✅ Install Docker, Nginx, Certbot (if needed)
-- ✅ Configure Nginx reverse proxy
+- ✅ Configure Nginx reverse proxy with WebSocket/WebRTC support
 - ✅ Setup SSL with Let's Encrypt
-- ✅ Build and start containers
+- ✅ Build and start containers (Backend with WebRTC streaming)
 
 ## Step 5: Verify Deployment
 

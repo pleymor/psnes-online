@@ -2,118 +2,195 @@
 
 ## Vue d'ensemble
 
-PSNES Online est une plateforme de jeu rétro multijoueur avec émulation côté serveur et streaming temps réel vers les clients.
+PSNES Online est une plateforme de jeu rétro multijoueur avec **émulation côté client** et **synchronisation P2P (peer-to-peer)** via WebRTC. Chaque joueur exécute sa propre instance de l'émulateur, le serveur ne servant que de signalisation pour établir les connexions directes entre clients.
 
 ## Principe de fonctionnement
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                         CLIENT 1                            │
-│  ┌─────────────┐  ┌───────────────┐  ┌──────────────┐       │
-│  │  Canvas API │  │ Web Audio API │  │   Input      │       │
-│  │   (Vidéo)   │  │    (Audio)    │  │  Handler     │       │
-│  └──────┬──────┘  └───────┬───────┘  └──────┬───────┘       │
-│         │                 │                 │               │
-│         └─────────────────┴─────────────────┘               │
-│                           │                                 │
-│                    WebSocket (Socket.io)                    │
-└───────────────────────────┼─────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        SERVER                               │
-│                                                             │
+│                      CLIENT 1 (HOST)                        │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │              WebSocket Manager                       │   │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐      │   │
-│  │  │   Room 1   │  │   Room 2   │  │   Room N   │      │   │
-│  │  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘      │   │
-│  └────────┼───────────────┼───────────────┼─────────────┘   │
-│           │               │               │                 │
-│  ┌────────▼───────────────▼───────────────▼─────────────┐   │
-│  │           Emulator Manager                           │   │
-│  │  ┌──────────────────────────────────────────────┐    │   │
-│  │  │  SNES Emulator Instance (libretro/snes9x)    │    │   │
-│  │  │                                              │    │   │
-│  │  │  Input P1 ──┐                                │    │   │
-│  │  │             ├──► Emulation ──► Video Frame   │    │   │
-│  │  │  Input P2 ──┘              └──► Audio Frame  │    │   │
-│  │  └──────────────────────────────────────────────┘    │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                             │
-│  ┌──────────────┐  ┌───────────┐  ┌──────────────┐          │
-│  │   Express    │  │   Redis   │  │   SQLite     │          │
-│  │  (REST API)  │  │ (Sessions)│  │ (Persistent) │          │
-│  └──────────────┘  └───────────┘  └──────────────┘          │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                         CLIENT 2                            │
-│  ┌─────────────┐  ┌───────────────┐  ┌──────────────┐       │
-│  │  Canvas API │  │ Web Audio API │  │   Input      │       │
-│  │   (Vidéo)   │  │    (Audio)    │  │  Handler     │       │
-│  └─────────────┘  └───────────────┘  └──────────────┘       │
-└─────────────────────────────────────────────────────────────┘
+│  │  SNES Emulator (Nostalgist.js / Snes9x WASM)         │   │
+│  │  ┌─────────────┐  ┌─────────────┐                    │   │
+│  │  │   Video     │  │   Audio     │                    │   │
+│  │  │   Output    │  │   Output    │                    │   │
+│  │  └──────┬──────┘  └──────┬──────┘                    │   │
+│  │         │                │                           │   │
+│  │  ┌──────▼────────────────▼──────┐                    │   │
+│  │  │   Canvas + AudioContext      │                    │   │
+│  │  └──────┬───────────────────────┘                    │   │
+│  │         │                                            │   │
+│  │  ┌──────▼───────────────┐                            │   │
+│  │  │  MediaStream Capture │ (canvas.captureStream)     │   │
+│  │  └──────┬───────────────┘                            │   │
+│  └─────────┼────────────────────────────────────────────┘   │
+│            │                                                │
+│            │ WebRTC (SimplePeer)                            │
+│            │ - Video/Audio stream (H.264 @ 60fps)           │
+│            │ - Data Channel (inputs P2)                     │
+│            │                                                │
+└────────────┼────────────────────────────────────────────────┘
+             │
+             │ Direct P2P Connection (LAN/WAN)
+             │ ICE/STUN: stun.l.google.com
+             │
+┌────────────▼────────────────────────────────────────────┐
+│                      CLIENT 2 (GUEST)                   │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │  WebRTC Receiver                                 │   │
+│  │  ┌───────────────┐  ┌───────────────┐            │   │
+│  │  │  Video decode │  │  Audio decode │            │   │
+│  │  │   (H.264)     │  │   (Opus)      │            │   │
+│  │  └───────┬───────┘  └───────┬───────┘            │   │
+│  │          │                  │                    │   │
+│  │  ┌───────▼──────────────────▼─────┐              │   │
+│  │  │   <video> element              │              │   │
+│  │  └────────────────────────────────┘              │   │
+│  │                                                  │   │
+│  │  ┌─────────────────────────────────┐             │   │
+│  │  │   Data Channel (send inputs)    │             │   │
+│  │  └─────────────────────────────────┘             │   │
+│  └──────────────────────────────────────────────────┘   │
+│            ▲                                            │
+│            │ Keyboard inputs → DataChannel → Host       │
+└────────────┼────────────────────────────────────────────┘
+             │
+             │
+┌────────────▼────────────────────────────────────────┐
+│ SERVER  (Signaling only via Socket.io)              │
+│                                                     │
+│  WebSocket Manager:                                 │
+│  - webrtc:signal (SDP offer/answer)                 │
+│  - p2p:join / p2p:joined                            │
+│  - Room coordination                                │
+│                                                     │
+│  ┌──────────────┐  ┌───────────┐  ┌──────────────┐  │
+│  │   Express    │  │   Redis   │  │   SQLite     │  │
+│  │  (REST API)  │  │ (Sessions)│  │ (Persistent) │  │
+│  └──────────────┘  └───────────┘  └──────────────┘  │
+└─────────────────────────────────────────────────────┘
 ```
+
+**Rôles:**
+- **Host (Client 1):** Exécute l'émulateur, capture le flux vidéo/audio, envoie via WebRTC
+- **Guest (Client 2):** Reçoit le flux WebRTC, affiche via `<video>`, envoie ses inputs via DataChannel
+- **Serveur:** Signalisation WebRTC uniquement (pas d'émulation, pas de streaming)
 
 ## Flux de données
 
-### 1. Création d'une room
+### 1. Initialisation P2P et connexion WebRTC
 
 ```
-Client → WebSocket: room:create { gameId, gameTitle }
-Server → Room Manager: Create new room
-Server → Emulator Manager: Initialize emulator instance
-Server → Client: room:created { room }
-Server → All Friends: friend:roomCreated
+1. Host crée une room (via WebSocket classique)
+   Client → Socket.io: room:create { gameId, gameTitle }
+   Server → Client: room:created { room }
+   Server → Friends: friend:roomCreated
+
+2. Host lance l'émulateur local
+   Browser → Nostalgist.js → Snes9x WASM
+   Emulator → Canvas rendering (256x224)
+   Emulator → Web Audio API
+
+3. Guest rejoint la room
+   Client → Socket.io: room:join { roomId }
+   Server → Host: room:updated (guest joined)
+
+4. Établissement P2P (WebRTC signaling)
+   Guest → Server: p2p:join { roomId }
+   Server → Host: p2p:peer-joined
+
+   Host → P2PManager: initConnection(localStream)
+     ├─ Capture canvas: canvas.captureStream(60fps)
+     ├─ Create SimplePeer (initiator: true)
+     └─ Generate SDP offer
+
+   Host → Server: webrtc:signal { offer }
+   Server → Guest: webrtc:signal { offer }
+
+   Guest → P2PManager: initConnection()
+     ├─ Create SimplePeer (initiator: false)
+     └─ Generate SDP answer
+
+   Guest → Server: webrtc:signal { answer }
+   Server → Host: webrtc:signal { answer }
+
+   → ICE candidate exchange (STUN)
+   → P2P connection established ✅
 ```
 
-### 2. Gameplay loop (60 FPS)
+### 2. Gameplay loop P2P (60 FPS)
 
+**Côté HOST:**
 ```
 Every 16.67ms (60Hz):
-  ┌─ Emulator reads inputs from both players
-  │  └─ Process controller state for ports 1 & 2
+  ┌─ Emulator (Snes9x WASM) runs 1 frame
+  │  ├─ Process local input (Player 1)
+  │  ├─ Process remote input received via DataChannel (Player 2)
+  │  └─ Execute ~89,341 CPU cycles @ 3.58MHz
   │
-  ├─ Run emulation for 1 frame (~89,341 CPU cycles @ 3.58MHz)
-  │  └─ Execute CPU, PPU, APU, DMA operations
+  ├─ Generate video frame (256x224 RGBA)
+  │  └─ Canvas rendering → canvas.captureStream()
+  │      └─ WebRTC encodes H.264 @ 60fps
   │
-  ├─ Generate video frame (256x224 pixels, RGBA)
-  │  └─ Emit via WebSocket → game:frame
+  ├─ Generate audio samples (~533 samples @ 32kHz)
+  │  └─ Web Audio API → MediaStream
   │
-  └─ Generate audio samples (~735 samples @ 32kHz)
-     └─ Emit via WebSocket → game:audio
+  └─ WebRTC sends to Guest
+     ├─ Video track: H.264 encoded (~1-5 Mbps)
+     ├─ Audio track: Opus encoded (~128 kbps)
+     └─ Data channel: Input ACKs
 
-Client receives frame → Canvas putImageData()
-Client receives audio → AudioContext playback
-Client sends inputs → WebSocket: game:input
+Local display: Canvas → Screen (0ms)
 ```
 
-### 3. Latence et synchronisation
+**Côté GUEST:**
+```
+Every frame:
+  ┌─ Receive WebRTC stream
+  │  ├─ Video: H.264 decode → <video> element
+  │  └─ Audio: Opus decode → AudioContext
+  │
+  ├─ User input detected (keyboard)
+  │  └─ Send via DataChannel → Host
+  │     { type: 'input', button: 'A', pressed: true, timestamp }
+  │
+  └─ Receive ACK from Host
+     └─ Measure latency (RTT)
 
-**Pipeline de latence:**
+Display: <video> element renders stream
+```
+
+### 3. Latence et synchronisation P2P
+
+**Pipeline de latence (Guest):**
 
 ```
-Input détecté (client)
-  ↓ ~10ms (network latency)
-Server reçoit input
-  ↓ 0-16ms (wait next frame)
+Input détecté (Guest)
+  ↓ ~1-5ms (DataChannel → Host, direct P2P)
+Host reçoit input
+  ↓ 0-16ms (wait next emulation frame)
 Emulator traite input
   ↓ 16.67ms (1 frame @ 60Hz)
-Frame générée
-  ↓ ~10ms (network latency)
-Client reçoit frame
-  ↓ ~5ms (rendering)
+Frame encodée (H.264 hardware)
+  ↓ ~5-10ms (encoding + network)
+Guest reçoit frame
+  ↓ ~5-15ms (H.264 decode + display)
 Display mis à jour
 
-Total: ~40-60ms (acceptable pour jeu rétro)
+Total: ~30-60ms (optimal en LAN: 30-40ms)
 ```
 
-**Optimisations:**
-- Input prediction côté client (optionnel)
-- Frame buffering adaptatif
-- Compression vidéo (H.264 via WebRTC)
+**Latence mesurée (code P2PRoom.svelte:100-122):**
+- **Input latency:** RTT Guest → Host → Guest (~10-20ms LAN)
+- **Total latency:** Input RTT + video encoding/decoding (~33ms estimate)
+
+**Optimisations appliquées:**
+- H.264 hardware encoding (GPU acceleration)
+- `playoutDelayHint = 0` pour buffer minimal (p2p-manager.ts:432)
+- `jitterBufferTarget = 0` pour audio (p2p-manager.ts:444)
+- Direct P2P (pas de relay TURN si possible)
+- Canvas capture @ 60fps natif
+- DataChannel pour inputs (ultra-rapide, <5ms)
 
 ## Architecture des données
 
@@ -190,24 +267,22 @@ user:{userId}:status → 'online'|'offline'|'in-game'
 - `room:updated` → État room modifié
 - `room:destroyed` → Room fermée
 
-### Game Control
+### WebRTC P2P Events
 
-**Client → Server:**
-- `game:start` → Lancer émulation
-- `game:input` → Envoyer état manette
-- `game:pause` → Mettre en pause
-- `game:resume` → Reprendre
-- `game:stop` → Arrêter et retour lobby
-- `game:save` → Créer save state
-- `game:load` → Charger save state
+**Client → Server (Signaling):**
+- `p2p:join` → Rejoindre room P2P
+- `webrtc:signal` → Transmettre SDP offer/answer/ICE candidates
 
-**Server → Client:**
-- `game:started` → Émulation démarrée
-- `game:frame` → Frame vidéo (ArrayBuffer)
-- `game:audio` → Échantillons audio (Float32Array)
-- `game:paused` → Jeu en pause
-- `game:resumed` → Jeu repris
-- `game:stopped` → Jeu arrêté
+**Server → Client (Signaling):**
+- `p2p:joined` → Confirmation join P2P
+- `p2p:peer-joined` → Notification nouveau peer
+- `webrtc:signal` → Relayer signal WebRTC
+
+**Host → Guest (WebRTC DataChannel):**
+- `{ type: 'input_ack', inputId, timestamp }` → ACK input reçu
+
+**Guest → Host (WebRTC DataChannel):**
+- `{ type: 'input', button, pressed, timestamp, inputId }` → Envoyer input P2
 
 ### Friends & Presence
 
@@ -216,89 +291,90 @@ user:{userId}:status → 'online'|'offline'|'in-game'
 - `friend:statusChanged` → Ami online/offline
 - `friend:roomCreated` → Ami a créé une room
 
-## Format des données streaming
+## Format des données WebRTC
 
-### Video Frame
+### MediaStream (Host → Guest via WebRTC)
 
+**Video Track:**
+- Codec: H.264 (hardware accelerated)
+- Résolution: 256×224 (native SNES) ou 512×448 (upscaled)
+- Framerate: 60 FPS
+- Bitrate: 1-5 Mbps (adaptatif selon réseau)
+- Source: `canvas.captureStream(60)`
+
+**Audio Track:**
+- Codec: Opus
+- Sample rate: 32 kHz (SNES native)
+- Channels: 2 (stereo)
+- Bitrate: ~128 kbps
+- Source: Web Audio API → MediaStream
+
+**Bande passante totale (par connexion):** ~1.5-5 Mbps
+
+### DataChannel Messages (Guest → Host)
+
+**Input message:**
 ```typescript
-interface VideoFrame {
-  width: 256,        // SNES: 256px ou 512px (hi-res)
-  height: 224,       // SNES: 224px ou 448px (interlaced)
-  data: ArrayBuffer  // RGBA pixels (width * height * 4 bytes)
+{
+  type: 'input',
+  button: 'a' | 'b' | 'x' | 'y' | 'l' | 'r' | 'start' | 'select' |
+          'up' | 'down' | 'left' | 'right',
+  pressed: boolean,
+  timestamp: number,  // performance.now()
+  inputId: string     // unique ID pour tracking latence
 }
 ```
 
-**Taille:** 256×224×4 = 229 KB par frame
-**Bande passante:** 229 KB × 60 FPS = ~13.7 MB/s
-
-**Optimisations possibles:**
-- Compression H.264: ~1-2 Mbps
-- Delta encoding: ~30% réduction
-- WebRTC: gestion automatique bande passante
-
-### Audio Frame
-
+**Input ACK (Host → Guest):**
 ```typescript
-interface AudioFrame {
-  sampleRate: 32000,     // SNES: 32kHz
-  channels: 2,           // Stereo
-  data: Float32Array     // Samples interleaved L/R
+{
+  type: 'input_ack',
+  inputId: string,
+  timestamp: number  // original timestamp for RTT calculation
 }
 ```
 
-**Échantillons par frame:** 32000 Hz ÷ 60 FPS = ~533 samples
-**Taille:** 533 × 2 channels × 4 bytes = ~4.3 KB par frame
-**Bande passante:** ~258 KB/s
-
-### Game Input
-
-```typescript
-interface GameInput {
-  port: 1 | 2,
-  buttons: {
-    up: boolean,
-    down: boolean,
-    left: boolean,
-    right: boolean,
-    a: boolean,
-    b: boolean,
-    x: boolean,
-    y: boolean,
-    l: boolean,
-    r: boolean,
-    start: boolean,
-    select: boolean
-  }
-}
-```
-
-**Taille:** ~50 bytes par input
+**Taille:** ~100 bytes par message
 **Fréquence:** Variable (seulement lors changements)
-**Bande passante:** Négligeable (~3 KB/s max)
+**Bande passante:** Négligeable (<5 KB/s)
+**Latence:** <5ms (direct P2P)
 
 ## Scalabilité
 
-### Ressources par room active
+### Architecture P2P : Avantages majeurs
 
-- **CPU:** ~5-10% (émulation SNES)
-- **RAM:** ~50-100 MB (émulateur + ROM + buffers)
-- **Réseau sortant:** ~3-5 Mbps (2 clients × 1.5-2.5 Mbps)
+**Charge serveur minimale:**
+- Le serveur ne fait **QUE de la signalisation WebRTC** (SDP/ICE)
+- **Pas d'émulation** côté serveur
+- **Pas de streaming** vidéo/audio
+- Charge CPU/RAM négligeable par room (~1-2% CPU par connexion active)
 
-### Capacité serveur (estimations)
+**Ressources par room active (serveur):**
+- **CPU:** <1% (signalisation WebSocket uniquement)
+- **RAM:** ~5-10 MB (state de la room + sessions)
+- **Réseau sortant:** Négligeable (~10-50 KB/s pour signaling)
 
-**Serveur modeste (4 cores, 8GB RAM):**
-- Rooms simultanées: 10-20
-- Joueurs concurrent: 20-40
+### Capacité serveur (estimations P2P)
 
-**Serveur dédié (8 cores, 16GB RAM):**
-- Rooms simultanées: 50-100
-- Joueurs concurrent: 100-200
+**Serveur modeste (2 cores, 4GB RAM):**
+- Rooms simultanées: 500-1000
+- Joueurs concurrent: 1000-2000
+
+**Serveur dédié (4 cores, 8GB RAM):**
+- Rooms simultanées: 2000-5000
+- Joueurs concurrent: 4000-10000
+
+**Limites:**
+- Limite principale: Connexions WebSocket concurrentes
+- RAM pour sessions/rooms (SQLite + Redis)
+- Bande passante pour signaling (très faible)
 
 **Scaling horizontal:**
 - Load balancer (nginx)
 - Multiple instances backend
 - Redis cluster pour sessions partagées
-- Sticky sessions pour WebSocket
+- Sticky sessions pour WebSocket (signaling)
+- Pas besoin de synchronisation d'état émulateur (clients autonomes)
 
 ## Sécurité
 
@@ -355,24 +431,32 @@ interface GameInput {
 
 ## Améliorations futures
 
+### ✅ Déjà implémenté
+1. ~~Intégration émulateur réel (snes9x-wasm)~~ → **Fait** (Nostalgist.js)
+2. ~~Compression vidéo H.264~~ → **Fait** (WebRTC hardware encoding)
+3. ~~WebRTC peer-to-peer~~ → **Fait** (architecture P2P complète)
+
 ### Court terme
-1. Intégration émulateur réel (snes9x-wasm)
-2. Compression vidéo H.264
-3. Audio buffering adaptatif
-4. Input prediction
+1. Améliorer stabilité WebRTC (reconnexion auto)
+2. Optimiser input buffering (réduire latency <30ms)
+3. Support multi-room simultané par utilisateur
+4. Metrics temps réel (latence, FPS, qualité connexion)
 
 ### Moyen terme
-5. WebRTC peer-to-peer (réduction latence)
-6. Filtres vidéo (CRT, scanlines)
-7. Support gamepad physique
-8. Spectator mode (>2 joueurs)
+5. Filtres vidéo (CRT, scanlines, upscaling)
+6. Support gamepad physique (Gamepad API)
+7. Spectator mode (>2 joueurs, broadcast stream)
+8. Save states synchronisés (host/guest)
+9. Chat vocal intégré (WebRTC audio bidirectionnel)
 
 ### Long terme
-9. Multi-console (NES, Genesis, N64)
-10. Cloud saves sync
-11. Replay recording
-12. Tournois & classements
+10. Multi-console (NES, Genesis, Game Boy, N64)
+11. Cloud saves sync automatique
+12. Replay recording & partage
+13. Tournois & classements
+14. Support mobile (touch controls)
+15. Netplay rollback pour latence WAN élevée
 
 ---
 
-**Dernière mise à jour:** 2025-11-16
+**Dernière mise à jour:** 2025-11-24

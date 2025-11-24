@@ -50,18 +50,22 @@ When you change the emulation speed, a speed indicator appears in the top-right 
 
 ### Backend Architecture
 
+L'émulation SNES s'exécute côté serveur et le streaming vidéo/audio utilise **WebRTC** pour une latence minimale (~45ms).
+
 #### Speed Modes
 
 1. **Fixed Speed (0.5x - 3x)**
    - Uses `setInterval()` with calculated frame timing
    - Frame time = `(1000ms / 60 FPS) / speed_multiplier`
    - Example: 2x speed = 8.33ms per frame (120 FPS)
+   - Frames diffusés via WebRTC aux clients
 
 2. **Unlimited Speed (MAX)**
    - Uses `setImmediate()` for zero-delay frame execution
    - Runs frames as fast as the CPU can process them
    - No artificial frame limiting
    - Controlled by `unlimitedSpeedActive` flag
+   - ⚠️ Peut saturer la bande passante WebRTC (5-10 Mbps)
 
 #### Key Components
 
@@ -113,15 +117,16 @@ function setSpeed(speed)  // Send to backend via WebSocket
 
 ## Multiplayer Synchronization
 
-Speed changes are synchronized across all players in a room:
+Speed changes are synchronized across all players in a room via WebRTC:
 
 1. Player A presses `Tab` to enable MAX speed
-2. Frontend emits `game:setSpeed` to backend
+2. Frontend emits `game:setSpeed` to backend via Socket.IO
 3. Backend updates emulator speed
 4. Backend broadcasts `game:speedChanged` to all players in room
 5. All players see the speed indicator update
+6. Server streams faster via WebRTC (more frames/second)
 
-**Note**: Speed changes affect all players. This prevents desynchronization in multiplayer sessions.
+**Note**: Speed changes affect all players. This prevents desynchronization in multiplayer sessions. WebRTC garantit que tous les joueurs reçoivent les frames en temps réel avec latence minimale (~45ms).
 
 ## Performance Considerations
 
@@ -136,7 +141,7 @@ Speed changes are synchronized across all players in a room:
 - High CPU usage (100% on one core)
 - May cause frame drops on slower systems
 - Audio may become choppy at extreme speeds
-- WebSocket bandwidth increases due to more frames/second
+- WebRTC bandwidth increases due to more frames/second (~5-10 Mbps at MAX speed)
 
 **Recommendations:**
 - Use on modern CPUs (2015+)

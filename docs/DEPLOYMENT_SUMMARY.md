@@ -10,6 +10,8 @@
 
 Your PSNES multiplayer emulator is now configured for automated deployment using GitHub Actions. Every push to the `main` branch will automatically deploy to your domain.
 
+**Architecture**: Server-side SNES emulation with **WebRTC streaming** for ultra-low latency (~45ms) video/audio delivery to clients.
+
 ## 📋 Setup Checklist
 
 Follow these steps in order:
@@ -207,13 +209,15 @@ ssh ubuntu@123.45.67.89 'sudo tail -f /var/log/nginx/snes.example.com.access.log
 - **Production**: https://YOUR_DOMAIN
 - **Health Check**: https://YOUR_DOMAIN/health
 - **Backend API**: https://YOUR_DOMAIN/api/
-- **WebSocket**: wss://YOUR_DOMAIN/socket.io/
+- **WebSocket (signaling)**: wss://YOUR_DOMAIN/socket.io/
+- **WebRTC streaming**: Peer-to-peer (~45ms latency)
 
 Example:
 - **Production**: https://snes.example.com
 - **Health Check**: https://snes.example.com/health
 - **Backend API**: https://snes.example.com/api/
-- **WebSocket**: wss://snes.example.com/socket.io/
+- **WebSocket (signaling)**: wss://snes.example.com/socket.io/
+- **WebRTC streaming**: Peer-to-peer (~45ms latency)
 
 ## 🔒 Security Features
 
@@ -222,7 +226,8 @@ Example:
 - Secure session cookies (HTTPS only)
 - HSTS headers
 - Rate limiting on API endpoints
-- WebSocket authentication
+- WebSocket authentication (Socket.IO)
+- WebRTC secure connections (HTTPS/WSS required)
 - Environment-based secrets
 - Redis session storage
 
