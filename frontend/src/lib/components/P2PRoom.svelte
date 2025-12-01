@@ -11,6 +11,7 @@
   import { StreamingModeHandler } from '$lib/multiplayer/streaming-mode';
   import { SimpleSyncManager, destroyFrameController } from '$lib/netplay';
   import type { NetplayMessage } from '$lib/netplay';
+  import { createGamepadPoller, type GamepadInputCallback } from '$lib/services/gamepad';
 
   const logger = createLogger('P2PRoom');
 
@@ -53,6 +54,9 @@
   let dualHandler: DualModeHandler | null = null;
   let streamingHandler: StreamingModeHandler | null = null;
   let syncManager: SimpleSyncManager | null = null;
+
+  // Gamepad polling for streaming mode guest
+  let guestGamepadPoller = createGamepadPoller();
 
   // Sync stats (for debug display)
   let syncStats: { currentFrame: number; isRunning: boolean } | null = null;
@@ -559,6 +563,37 @@
     keyConfig = event.detail.config;
   }
 
+  // --- Gamepad Input (streaming mode guest) ---
+  // Map gamepad button index to SNES button using user's keyConfig
+  function mapGamepadInputToButton(buttonIndex: number, isAxis: boolean, axisDirection?: 'plus' | 'minus'): string | null {
+    // Build the expected keyConfig value format
+    // Button: "Gamepad0Button1"
+    // Axis: "Gamepad0Axis0Plus" or "Gamepad0Axis0Minus"
+    let pattern: string;
+    if (isAxis && axisDirection) {
+      pattern = `Gamepad0Axis${buttonIndex}${axisDirection === 'plus' ? 'Plus' : 'Minus'}`;
+    } else {
+      pattern = `Gamepad0Button${buttonIndex}`;
+    }
+
+    // Find which SNES button maps to this gamepad input
+    for (const [snesButton, configValue] of Object.entries(keyConfig)) {
+      if (configValue === pattern) {
+        return snesButton;
+      }
+    }
+    return null;
+  }
+
+  const handleGuestGamepadInput: GamepadInputCallback = (buttonIndex, pressed, isAxis?: boolean, axisDirection?: 'plus' | 'minus') => {
+    if (emulationMode !== EmulationMode.STREAMING || isHost) return;
+
+    const button = mapGamepadInputToButton(buttonIndex, isAxis ?? false, axisDirection);
+    if (button) {
+      streamingHandler?.sendInput(button, pressed);
+    }
+  };
+
   // --- Keyboard Input ---
   function handleKeyDown(e: KeyboardEvent): void {
     // Handle Alt+Enter for fullscreen toggle (don't trigger pause menu)
@@ -728,6 +763,12 @@
       }
     } else {
       await initStreamingMode();
+
+      // Start gamepad polling for streaming mode guest
+      if (!isHost) {
+        guestGamepadPoller.onInput(handleGuestGamepadInput);
+        guestGamepadPoller.start();
+      }
     }
   });
 
@@ -741,6 +782,10 @@
     // Cleanup sync manager
     syncManager?.destroy();
     syncManager = null;
+
+    // Cleanup gamepad polling for streaming guest
+    guestGamepadPoller.offInput(handleGuestGamepadInput);
+    guestGamepadPoller.stop();
 
     dualHandler?.destroy();
     streamingHandler?.destroy();

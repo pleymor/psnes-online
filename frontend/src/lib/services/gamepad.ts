@@ -4,9 +4,6 @@ import {
   GAMEPAD_AXIS_DEADZONE,
   GAMEPAD_BUTTON_THRESHOLD
 } from '$lib/config/performance';
-import { createLogger } from '$lib/utils/logger';
-
-const logger = createLogger('Gamepad');
 
 export interface GamepadState {
   connected: boolean;
@@ -15,12 +12,13 @@ export interface GamepadState {
 }
 
 export interface GamepadInputCallback {
-  (buttonIndex: number, pressed: boolean): void;
+  (buttonIndex: number, pressed: boolean, isAxis?: boolean, axisDirection?: 'plus' | 'minus'): void;
 }
 
 export class GamepadPoller {
   private pollInterval: number | null = null;
   private lastButtonStates: Map<number, boolean> = new Map();
+  private lastAxisStates: Map<string, boolean> = new Map(); // Track axis-based D-pad
   private callbacks: Set<GamepadInputCallback> = new Set();
   public state: Writable<GamepadState>;
 
@@ -37,7 +35,6 @@ export class GamepadPoller {
    */
   start(): void {
     if (this.pollInterval !== null) {
-      logger.warn('Gamepad polling already started');
       return;
     }
 
@@ -55,6 +52,7 @@ export class GamepadPoller {
       this.pollInterval = null;
     }
     this.lastButtonStates.clear();
+    this.lastAxisStates.clear();
     this.state.set({
       connected: false,
       buttons: [],
@@ -113,9 +111,33 @@ export class GamepadPoller {
 
       if (pressed !== lastPressed) {
         this.lastButtonStates.set(index, pressed);
-        this.callbacks.forEach((callback) => callback(index, pressed));
+        this.callbacks.forEach((callback) => callback(index, pressed, false));
       }
     });
+
+    // Handle axes (D-pad or analog sticks)
+    const axisThreshold = GAMEPAD_AXIS_DEADZONE;
+
+    for (let axis = 0; axis < gamepad.axes.length; axis++) {
+      const value = gamepad.axes[axis];
+      const negPressed = value < -axisThreshold;
+      const posPressed = value > axisThreshold;
+
+      const lastNegPressed = this.lastAxisStates.get(`${axis}-neg`) ?? false;
+      const lastPosPressed = this.lastAxisStates.get(`${axis}-pos`) ?? false;
+
+      if (negPressed !== lastNegPressed) {
+        this.lastAxisStates.set(`${axis}-neg`, negPressed);
+        // Pass axis index and direction for user config matching
+        this.callbacks.forEach((callback) => callback(axis, negPressed, true, 'minus'));
+      }
+
+      if (posPressed !== lastPosPressed) {
+        this.lastAxisStates.set(`${axis}-pos`, posPressed);
+        // Pass axis index and direction for user config matching
+        this.callbacks.forEach((callback) => callback(axis, posPressed, true, 'plus'));
+      }
+    }
   }
 
   /**
@@ -139,26 +161,4 @@ export class GamepadPoller {
  */
 export function createGamepadPoller(): GamepadPoller {
   return new GamepadPoller();
-}
-
-/**
- * Map gamepad button index to SNES button name
- */
-export function mapGamepadButtonToSNES(buttonIndex: number): string | null {
-  const mapping: Record<number, string> = {
-    0: 'b', // A button (cross on PlayStation)
-    1: 'a', // B button (circle on PlayStation)
-    2: 'y', // X button (square on PlayStation)
-    3: 'x', // Y button (triangle on PlayStation)
-    4: 'l', // L button
-    5: 'r', // R button
-    8: 'select', // Select button
-    9: 'start', // Start button
-    12: 'up', // D-pad up
-    13: 'down', // D-pad down
-    14: 'left', // D-pad left
-    15: 'right' // D-pad right
-  };
-
-  return mapping[buttonIndex] || null;
 }
