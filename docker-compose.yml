@@ -9,8 +9,8 @@ services:
 
   db-migration:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       target: production
     environment:
       - DATABASE_URL=file:/app/data/dev.db
@@ -23,8 +23,8 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: dev.Dockerfile
+      context: .
+      dockerfile: backend/dev.Dockerfile
     working_dir: /app
     ports:
       - "3000:3000"
@@ -43,6 +43,7 @@ services:
       - backend-roms:/app/roms
       - backend-saves:/app/saves
       - backend-avatars:/app/avatars
+      - ./backend/data/snes-metadata.json:/app/metadata/snes-metadata.json:ro
     depends_on:
       - redis
 
@@ -58,6 +59,8 @@ services:
     environment:
       - VITE_API_URL=http://localhost:3000
       - BACKEND_URL=http://backend:3000
+      - VITE_ENABLE_DUAL_MODE=true
+      - VITE_ENABLE_PERF_MONITORING=true
     command: sh -c "npm install && npm run dev -- --host"
     depends_on:
       - backend

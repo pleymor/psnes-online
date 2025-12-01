@@ -27,6 +27,10 @@ build/
 .svelte-kit/
 .vite/
 
+# Test outputs
+playwright-report/
+test-results/
+
 # OS
 .DS_Store
 Thumbs.db

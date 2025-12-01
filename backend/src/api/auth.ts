@@ -41,29 +41,25 @@ if (AUTH_MODE === 'dev') {
           email: 'user1@dev.local',
           displayName: 'Dev User 1',
           googleId: 'dev-google-id-1',
-          avatar: '👤'
+          avatar: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=DevUser1&backgroundColor=667eea'
         },
         {
           id: 'dev-user-2',
           email: 'user2@dev.local',
           displayName: 'Dev User 2',
           googleId: 'dev-google-id-2',
-          avatar: '🎮'
+          avatar: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=DevUser2&backgroundColor=764ba2'
         }
       ];
 
       const userData = devUsers[parseInt(userId) - 1];
 
-      // Upsert user in database
-      let user = await prisma.user.findUnique({
-        where: { id: userData.id }
+      // Upsert user in database (update avatar if user already exists)
+      const user = await prisma.user.upsert({
+        where: { id: userData.id },
+        update: { avatar: userData.avatar },
+        create: userData
       });
-
-      if (!user) {
-        user = await prisma.user.create({
-          data: userData
-        });
-      }
 
       // Login user
       req.login(user, (err) => {

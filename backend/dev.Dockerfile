@@ -9,11 +9,11 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy package files and install dependencies (cached until package.json changes)
-COPY package*.json ./
+COPY backend/package*.json ./
 RUN npm install
 
 # Copy prisma schema and generate client (cached until schema changes)
-COPY prisma ./prisma
+COPY backend/prisma ./prisma
 RUN npx prisma generate
 
 # Source code will be mounted as a volume, so we don't copy it here
