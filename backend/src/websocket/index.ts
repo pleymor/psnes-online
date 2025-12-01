@@ -5,6 +5,7 @@ import { notifyFriendsStatusChanged, getOnlineFriends } from '../services/friend
 import { registerRoomHandlers, handleLeaveRoom } from './room-handlers.js';
 import { registerGameHandlers } from './game-handlers.js';
 import { registerP2PHandlers } from './p2p-handlers.js';
+import { registerSyncHandlers } from './sync-handlers.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('WebSocket');
@@ -71,7 +72,8 @@ export function initializeWebSocket(io: Server) {
     // Register event handlers
     registerRoomHandlers(socket, io, user, rooms, getUserSocket);
     registerGameHandlers(socket, io, user.id, rooms, getUserSocket);
-    registerP2PHandlers(socket, user.displayName);
+    registerP2PHandlers(socket, user.displayName, io);
+    registerSyncHandlers(socket, io, user.id, rooms);
 
     // Disconnect
     socket.on('disconnect', async () => {

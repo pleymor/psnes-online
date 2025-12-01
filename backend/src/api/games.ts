@@ -8,6 +8,7 @@ import { findGameMetadata } from '../services/metadata-loader.js';
 import { prisma } from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
+import { getRooms } from '../websocket/index.js';
 
 const logger = createLogger('Games');
 
@@ -177,6 +178,47 @@ gamesRouter.get('/:gameId/download', async (req, res) => {
 
   if (game.userId !== user.id) {
     return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  // Check if ROM file exists
+  try {
+    await fs.access(game.romPath);
+  } catch (error) {
+    return res.status(404).json({ error: 'ROM file not found on server' });
+  }
+
+  // Send ROM file
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${game.filename}"`);
+  res.sendFile(path.resolve(game.romPath));
+});
+
+// Download ROM file for a room (allows guest to download if in room)
+gamesRouter.get('/room/:roomId/rom', async (req, res) => {
+  const user = req.user as User;
+  const { roomId } = req.params;
+
+  // Find the room
+  const rooms = getRooms();
+  const room = rooms.get(roomId);
+
+  if (!room) {
+    return res.status(404).json({ error: 'Room not found' });
+  }
+
+  // Check if user is in the room
+  const isInRoom = room.players.some(p => p.userId === user.id);
+  if (!isInRoom) {
+    return res.status(403).json({ error: 'Not authorized - not in room' });
+  }
+
+  // Get the game
+  const game = await prisma.game.findUnique({
+    where: { id: room.gameId }
+  });
+
+  if (!game) {
+    return res.status(404).json({ error: 'Game not found' });
   }
 
   // Check if ROM file exists

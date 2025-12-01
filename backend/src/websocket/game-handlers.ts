@@ -24,6 +24,11 @@ export function registerGameHandlers(
       return;
     }
 
+    // Reset emulationReady for all players when starting a new game
+    room.players.forEach(p => {
+      p.emulationReady = false;
+    });
+
     room.status = 'playing';
     io.to(data.roomId).emit('room:updated', room);
 
@@ -31,6 +36,27 @@ export function registerGameHandlers(
 
     io.to(room.id).emit('game:started');
     logger.info({ roomId: room.id }, 'Game started (client-side emulation)');
+  });
+
+  // Player signals their emulator is ready
+  socket.on('game:ready', (data: { roomId: string }) => {
+    const room = rooms.get(data.roomId);
+    if (!room) return;
+
+    const player = room.players.find(p => p.userId === userId);
+    if (!player) return;
+
+    player.emulationReady = true;
+    logger.info({ roomId: room.id, player: player.displayName }, 'Player emulator ready');
+
+    // Check if all players with ports are ready
+    const playersWithPorts = room.players.filter(p => p.port !== null);
+    const allReady = playersWithPorts.every(p => p.emulationReady);
+
+    if (allReady) {
+      logger.info({ roomId: room.id }, 'All players ready, sending game:go');
+      io.to(room.id).emit('game:go');
+    }
   });
 
   // Game input (no-op for client-side emulation)

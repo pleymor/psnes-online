@@ -2,13 +2,18 @@ import { User as PrismaUser } from '@prisma/client';
 
 export interface User extends PrismaUser {}
 
+export type EmulationMode = 'single' | 'streaming' | 'dual';
+
 export interface Room {
   id: string;
   gameId: string;
   gameTitle: string;
+  gameCoverUrl?: string;
   hostId: string;
+  createdBy: string; // Original creator of the room
   players: RoomPlayer[];
   status: 'waiting' | 'playing' | 'paused';
+  emulationMode: EmulationMode;
   createdAt: Date;
 }
 
@@ -18,6 +23,7 @@ export interface RoomPlayer {
   avatar?: string;
   port: 1 | 2 | null; // null = spectator
   isReady: boolean;
+  emulationReady: boolean; // true when player's emulator is ready to start
   keyConfig: KeyConfig;
 }
 
