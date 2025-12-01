@@ -22,12 +22,38 @@ export interface RoomPlayer {
   keyConfig: KeyConfig;
 }
 
+// Emulation Mode types
+export enum EmulationMode {
+  SINGLE = 'single',          // Single player, simple local emulation
+  STREAMING = 'streaming',    // Host emulates, guest receives stream
+  DUAL = 'dual'               // Both emulate locally with input sync
+}
+
 export interface Room {
   id: string;
   gameId: string;
   gameTitle: string;
+  gameCoverUrl?: string;
   hostId: string;
+  createdBy: string; // Original creator of the room
   players: RoomPlayer[];
   status: 'waiting' | 'playing';
+  emulationMode: EmulationMode;
   createdAt: Date;
+}
+
+export interface InputState {
+  // SNES controller state
+  a: boolean;
+  b: boolean;
+  x: boolean;
+  y: boolean;
+  l: boolean;
+  r: boolean;
+  start: boolean;
+  select: boolean;
+  up: boolean;
+  down: boolean;
+  left: boolean;
+  right: boolean;
 }

@@ -1,5 +1,5 @@
 import type * as zip from '@zip.js/zip.js'
-import type { NostalgistOptions, NostalgistOptionsPartial } from '../types/nostalgist-options.ts'
+import type { WasmEmulatorOptions, WasmEmulatorOptionsPartial } from '../types/wasm-emulator-options.ts'
 import type { RetroArchConfig } from '../types/retroarch-config'
 import { isAbsoluteUrl, merge } from './utils.ts'
 import { vendors } from './vendors.ts'
@@ -107,7 +107,7 @@ async function extractCoreWithCache(core: string) {
 }
 
 export function getDefaultOptions() {
-  const defaultOptions: Omit<NostalgistOptions, 'core'> = {
+  const defaultOptions: Omit<WasmEmulatorOptions, 'core'> = {
     element: '',
     retroarchConfig: getDefaultRetroarchConfig(),
     retroarchCoreConfig: {},
@@ -184,12 +184,12 @@ export function getDefaultOptions() {
   return defaultOptions
 }
 
-let globalOptions: NostalgistOptionsPartial = getDefaultOptions()
+let globalOptions: WasmEmulatorOptionsPartial = getDefaultOptions()
 export function getGlobalOptions() {
   return globalOptions
 }
 
-export function updateGlobalOptions(options: NostalgistOptionsPartial) {
+export function updateGlobalOptions(options: WasmEmulatorOptionsPartial) {
   merge(globalOptions, options)
 }
 

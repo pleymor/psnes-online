@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-  import { Nostalgist } from '$lib/emulator';
-  import type { KeyConfig } from '$lib/types';
+  import { WasmEmulator } from '$lib/emulator';
+  import type { KeyConfig, InputState } from '$lib/types';
+  import { EmulationMode } from '$lib/types';
   import { DEBUG } from '$lib/config/debug';
   import { createLogger } from '$lib/utils/logger';
 
@@ -11,12 +12,25 @@
   export let keyConfig: KeyConfig;
   export let playerPort: 1 | 2 | null = 1; // Which controller port this player is using (1 or 2, null for spectator)
   export let isHost: boolean = true; // true = host (runs emulator), false = guest (receives stream)
+  export let emulationMode: EmulationMode = EmulationMode.STREAMING; // Mode d'émulation
+  export let startPaused: boolean = false; // Start emulator in paused state (for sync)
+  export let initialState: Blob | null = null; // Initial state to load (for guest sync)
+  export let runEmulatorManually: boolean = false; // For lockstep sync - allows frameAdvance() to work
+  export let syncedInputMode: boolean = false; // When true, inputs are NOT applied directly - only via applyInput()
+
+  // Local input state for synced mode - tracks raw keyboard/gamepad input
+  // This is read by getCurrentInputState() and only applied to virtualGamepad via applyInput()
+  let localInputState: InputState = {
+    a: false, b: false, x: false, y: false,
+    l: false, r: false, start: false, select: false,
+    up: false, down: false, left: false, right: false
+  };
 
   const dispatch = createEventDispatcher();
 
   let canvas: HTMLCanvasElement;
   let emulatorContainer: HTMLDivElement;
-  let emulator: Nostalgist;
+  let emulator: WasmEmulator;
   let running = false;
   let gamepadPollInterval: number | null = null;
   let lastGamepadState: Record<string, boolean> = {};
@@ -41,7 +55,7 @@
   let frameCount = 0;
   let fpsInterval: number | null = null;
 
-  // Key mapping from KeyConfig to Nostalgist format
+  // Key mapping from KeyConfig to WasmEmulator format
   const keyMapping: Record<keyof KeyConfig, string> = {
     up: 'up',
     down: 'down',
@@ -94,22 +108,29 @@
 
 
   async function initEmulator() {
-    if (!isHost) {
+    // MODE SINGLE: Single player, simple local emulation
+    // MODE DUAL: Les deux (host ET guest) exécutent l'émulateur
+    // MODE STREAMING: Seulement le host
+    const shouldRunEmulator = emulationMode === EmulationMode.SINGLE || isHost || emulationMode === EmulationMode.DUAL;
+
+    if (!shouldRunEmulator) {
+      logger.info('📹 Guest waiting for stream (STREAMING mode)');
       return;
     }
 
+    if (emulationMode === EmulationMode.SINGLE) {
+      logger.info('🎮 Initializing emulator in SINGLE player mode');
+    } else if (emulationMode === EmulationMode.DUAL) {
+      logger.info(`🎮 Initializing emulator in DUAL mode (${isHost ? 'HOST' : 'GUEST'})`);
+    } else {
+      logger.info('🎮 Initializing emulator in STREAMING mode (HOST)');
+    }
+
     try {
-      // Capture original getGamepads BEFORE installing virtual gamepads
-      // We'll use this to poll physical gamepads while hiding them from RetroArch
-      originalGetGamepads = navigator.getGamepads.bind(navigator);
-
-      // Store on window so ControlsSettings can also access it
-      (window as any).__originalGetGamepads = originalGetGamepads;
-
       // Install virtual gamepads for BOTH players BEFORE creating emulator
       // Use indices 0 and 1 (standard player positions)
       // Physical gamepads will be hidden from RetroArch
-      const { VirtualGamepad, installVirtualGamepad } = await import('$lib/emulator/libs/virtual-gamepad');
+      const { VirtualGamepad, installVirtualGamepad, getOriginalGetGamepads } = await import('$lib/emulator/libs/virtual-gamepad');
 
       // Player 1 (local/host) at gamepad index 0
       const virtualGamepadP1 = new VirtualGamepad(0);
@@ -125,10 +146,18 @@
       (window as any).__cleanupVirtualGamepadP1 = cleanupP1;
       (window as any).__cleanupVirtualGamepadP2 = cleanupP2;
 
+      // Get the REAL original getGamepads (captured before override in virtual-gamepad.ts)
+      originalGetGamepads = getOriginalGetGamepads();
+      (window as any).__originalGetGamepads = originalGetGamepads;
+
+      // NOTE: FrameController is installed AFTER emulator initialization
+      // We let the emulator run normally during init, then take control later
+      // See P2PRoom.svelte startRollbackEmulation() for when it's installed
+
       // Create emulator instance
       // Let RetroArch handle canvas sizing naturally
       // We'll force resize to 256x224 after init for WebRTC streaming
-      emulator = await Nostalgist.snes({
+      const emulatorOptions: any = {
         element: canvas,
         rom: new Uint8Array(romData),
         style: {
@@ -136,6 +165,21 @@
           height: '100%',
           imageRendering: 'pixelated'
         },
+        // For lockstep sync mode, we need manual control of frames
+        runEmulatorManually: runEmulatorManually,
+      };
+
+      // If initial state is provided (for guest sync), pass it to the emulator
+      logger.info(`initEmulator called with initialState: ${initialState ? `Blob(${initialState.size} bytes)` : 'null'}`);
+      if (initialState) {
+        logger.info(`Creating emulator with initial state (${initialState.size} bytes)`);
+        // Convert Blob to File object (nostalgist expects File, not Blob)
+        const stateFile = new File([initialState], 'initial.state', { type: 'application/octet-stream' });
+        emulatorOptions.state = stateFile;
+      }
+
+      emulator = await WasmEmulator.snes({
+        ...emulatorOptions,
         // Enable 2-player support
         // Both players use virtual gamepads for native gamepad API support
         retroarchConfig: {
@@ -200,7 +244,27 @@
         }
       });
 
-      running = true;
+      // If runEmulatorManually is true, we need to call start() explicitly
+      if (runEmulatorManually) {
+        logger.info('Manual emulator mode - calling start()');
+        await emulator.start();
+      }
+
+      // If startPaused is true, pause immediately before any frames can run
+      // This is crucial for multiplayer sync - guest must not run any frames
+      // before receiving the initial state from host
+      if (startPaused) {
+        emulator.pause();
+        running = false;
+        logger.info('Emulator started in paused state');
+      } else {
+        running = true;
+      }
+
+      // Note: If initialState was provided, nostalgist should load it automatically
+      // We can't verify here because saveState requires the emulator to be running
+      // The rollback manager will verify checksums at frame 0
+
       dispatch('ready', { emulator });
 
     } catch (error) {
@@ -217,7 +281,10 @@
       return;
     }
 
-    if (!isHost || !emulator) return;
+    // In SINGLE/DUAL mode, handle keyboard locally
+    // In STREAMING mode, only host handles keyboard (guest sends via P2P)
+    const shouldHandleKeyboard = emulationMode === EmulationMode.SINGLE || emulationMode === EmulationMode.DUAL || isHost;
+    if (!shouldHandleKeyboard || !emulator) return;
 
     // Speed control
     if (e.key === 'Tab') {
@@ -234,7 +301,17 @@
         // Capture timestamp for latency measurement
         lastInputTimestamp = performance.now();
 
-        const nostalgistButton = keyMapping[button as keyof KeyConfig];
+        // In synced input mode, only update localInputState - don't touch virtualGamepad directly
+        // The SimpleSyncManager will call applyInput() with synchronized inputs
+        // IMPORTANT: Stop propagation to prevent RetroArch from receiving the event directly!
+        if (syncedInputMode) {
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          localInputState[button as keyof InputState] = true;
+          break;
+        }
+
+        const mappedButton = keyMapping[button as keyof KeyConfig];
 
         // Use the correct virtual gamepad based on playerPort
         const virtualGamepad = playerPort === 1
@@ -242,8 +319,8 @@
           : (window as any).__virtualGamepadP2;
         const expectedIndex = playerPort === 1 ? 0 : 1;
 
-        if (virtualGamepad && nostalgistButton && virtualGamepad.index === expectedIndex) {
-          virtualGamepad.pressButton(nostalgistButton);
+        if (virtualGamepad && mappedButton && virtualGamepad.index === expectedIndex) {
+          virtualGamepad.pressButton(mappedButton);
           virtualGamepad.updateTimestamp();
 
           // Measure latency
@@ -255,14 +332,26 @@
   }
 
   function handleKeyUp(e: KeyboardEvent) {
-    if (!isHost || !emulator) return;
+    // In SINGLE/DUAL mode, handle keyboard locally
+    // In STREAMING mode, only host handles keyboard (guest sends via P2P)
+    const shouldHandleKeyboard = emulationMode === EmulationMode.SINGLE || emulationMode === EmulationMode.DUAL || isHost;
+    if (!shouldHandleKeyboard || !emulator) return;
 
     // Translate keyboard input to virtual gamepad based on player's selected port
     for (const [button, keyCode] of Object.entries(keyConfig)) {
       if (e.code === keyCode) {
         e.preventDefault();
 
-        const nostalgistButton = keyMapping[button as keyof KeyConfig];
+        // In synced input mode, only update localInputState - don't touch virtualGamepad directly
+        // IMPORTANT: Stop propagation to prevent RetroArch from receiving the event directly!
+        if (syncedInputMode) {
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          localInputState[button as keyof InputState] = false;
+          break;
+        }
+
+        const mappedButton = keyMapping[button as keyof KeyConfig];
 
         // Use the correct virtual gamepad based on playerPort
         const virtualGamepad = playerPort === 1
@@ -270,8 +359,8 @@
           : (window as any).__virtualGamepadP2;
         const expectedIndex = playerPort === 1 ? 0 : 1;
 
-        if (virtualGamepad && nostalgistButton && virtualGamepad.index === expectedIndex) {
-          virtualGamepad.releaseButton(nostalgistButton);
+        if (virtualGamepad && mappedButton && virtualGamepad.index === expectedIndex) {
+          virtualGamepad.releaseButton(mappedButton);
           virtualGamepad.updateTimestamp();
         }
         break;
@@ -279,18 +368,54 @@
     }
   }
 
-  function pollGamepad() {
-    if (!isHost || !emulator || !originalGetGamepads) return;
+  /**
+   * Helper to apply a button state change - either to localInputState (synced mode)
+   * or directly to virtualGamepad (normal mode)
+   */
+  function applyButtonChange(button: string, isPressed: boolean) {
+    // In synced input mode, only update localInputState
+    if (syncedInputMode) {
+      localInputState[button as keyof InputState] = isPressed;
+      return;
+    }
 
-    // IMPORTANT: Only poll gamepad when THIS window has focus
+    // Normal mode: apply directly to virtual gamepad
+    const mappedButton = keyMapping[button as keyof KeyConfig];
+    const virtualGamepad = playerPort === 1
+      ? (window as any).__virtualGamepadP1
+      : (window as any).__virtualGamepadP2;
+    const expectedIndex = playerPort === 1 ? 0 : 1;
+
+    if (virtualGamepad && mappedButton && virtualGamepad.index === expectedIndex) {
+      if (isPressed) {
+        lastInputTimestamp = performance.now();
+        virtualGamepad.pressButton(mappedButton);
+        measureLatency();
+      } else {
+        virtualGamepad.releaseButton(mappedButton);
+      }
+      virtualGamepad.updateTimestamp();
+    }
+  }
+
+  function pollGamepad() {
+    // In SINGLE/DUAL mode, poll gamepads locally
+    // In STREAMING mode, only host polls (guest sends inputs via P2P)
+    const shouldPoll = emulationMode === EmulationMode.SINGLE || emulationMode === EmulationMode.DUAL || isHost;
+    if (!shouldPoll || !emulator || !originalGetGamepads) return;
+
+    // In multiplayer modes (DUAL/STREAMING): Only poll gamepad when THIS window has focus
     // This prevents both host and guest from polling the same physical gamepad
-    if (!document.hasFocus()) {
+    // when testing on the same machine with two browser windows
+    // In SINGLE mode: Always poll - no conflict possible
+    if (emulationMode !== EmulationMode.SINGLE && !document.hasFocus()) {
       return;
     }
 
     // Use original getGamepads to see physical controllers
     // (navigator.getGamepads is overridden to hide them from RetroArch)
     const gamepads = originalGetGamepads();
+
     let physicalGamepadIndex = 0; // Remap physical gamepads to start from index 0
 
     for (let i = 0; i < gamepads.length; i++) {
@@ -318,25 +443,7 @@
           // Find which button this input is mapped to
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCode) {
-              const nostalgistButton = keyMapping[button as keyof KeyConfig];
-
-              // Use the correct virtual gamepad based on playerPort
-              const virtualGamepad = playerPort === 1
-                ? (window as any).__virtualGamepadP1
-                : (window as any).__virtualGamepadP2;
-              const expectedIndex = playerPort === 1 ? 0 : 1;
-
-              if (virtualGamepad && nostalgistButton && virtualGamepad.index === expectedIndex) {
-                if (isPressed) {
-                  // Capture timestamp for latency measurement
-                  lastInputTimestamp = performance.now();
-                  virtualGamepad.pressButton(nostalgistButton);
-                  measureLatency();
-                } else {
-                  virtualGamepad.releaseButton(nostalgistButton);
-                }
-                virtualGamepad.updateTimestamp();
-              }
+              applyButtonChange(button, isPressed);
               break;
             }
           }
@@ -357,24 +464,7 @@
 
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodePlus) {
-              const nostalgistButton = keyMapping[button as keyof KeyConfig];
-
-              // Use the correct virtual gamepad based on playerPort
-              const virtualGamepad = playerPort === 1
-                ? (window as any).__virtualGamepadP1
-                : (window as any).__virtualGamepadP2;
-              const expectedIndex = playerPort === 1 ? 0 : 1;
-
-              if (virtualGamepad && nostalgistButton && virtualGamepad.index === expectedIndex) {
-                if (isPressedPlus) {
-                  lastInputTimestamp = performance.now();
-                  virtualGamepad.pressButton(nostalgistButton);
-                  measureLatency();
-                } else {
-                  virtualGamepad.releaseButton(nostalgistButton);
-                }
-                virtualGamepad.updateTimestamp();
-              }
+              applyButtonChange(button, isPressedPlus);
               break;
             }
           }
@@ -390,24 +480,7 @@
 
           for (const [button, mappedInput] of Object.entries(keyConfig)) {
             if (mappedInput === inputCodeMinus) {
-              const nostalgistButton = keyMapping[button as keyof KeyConfig];
-
-              // Use the correct virtual gamepad based on playerPort
-              const virtualGamepad = playerPort === 1
-                ? (window as any).__virtualGamepadP1
-                : (window as any).__virtualGamepadP2;
-              const expectedIndex = playerPort === 1 ? 0 : 1;
-
-              if (virtualGamepad && nostalgistButton && virtualGamepad.index === expectedIndex) {
-                if (isPressedMinus) {
-                  lastInputTimestamp = performance.now();
-                  virtualGamepad.pressButton(nostalgistButton);
-                  measureLatency();
-                } else {
-                  virtualGamepad.releaseButton(nostalgistButton);
-                }
-                virtualGamepad.updateTimestamp();
-              }
+              applyButtonChange(button, isPressedMinus);
               break;
             }
           }
@@ -417,11 +490,11 @@
   }
 
   function handleGamepadConnected(e: GamepadEvent) {
-    // Physical gamepad connected
+    logger.debug(`🎮 Gamepad connected: ${e.gamepad.id} (index ${e.gamepad.index})`);
   }
 
   function handleGamepadDisconnected(e: GamepadEvent) {
-    // Physical gamepad disconnected
+    logger.debug(`🎮 Gamepad disconnected: ${e.gamepad.id} (index ${e.gamepad.index})`);
   }
 
   function startGamepadPolling() {
@@ -447,9 +520,9 @@
   }
 
   export function handleRemoteInput(button: string, pressed: boolean) {
-    if (!isHost) return;
+    if (!isHost && emulationMode !== EmulationMode.DUAL) return;
 
-    const nostalgistButton = keyMapping[button as keyof KeyConfig];
+    const mappedButton = keyMapping[button as keyof KeyConfig];
 
     // Remote inputs go to the OTHER port (not the one the host is using)
     // If host is on port 1, remote inputs go to port 2
@@ -461,25 +534,111 @@
 
     if (remoteGamepad && remoteGamepad.index === expectedIndex) {
       if (pressed) {
-        remoteGamepad.pressButton(nostalgistButton);
+        remoteGamepad.pressButton(mappedButton);
       } else {
-        remoteGamepad.releaseButton(nostalgistButton);
+        remoteGamepad.releaseButton(mappedButton);
       }
       remoteGamepad.updateTimestamp();
     }
   }
 
+  // Apply input from InputState (for dual mode)
+  export function applyInput(port: 1 | 2, input: InputState) {
+    const virtualGamepad = port === 1
+      ? (window as any).__virtualGamepadP1
+      : (window as any).__virtualGamepadP2;
+    const expectedIndex = port === 1 ? 0 : 1;
+
+    if (!virtualGamepad) {
+      logger.warn(`applyInput(${port}): virtualGamepad P${port} not found`);
+      return;
+    }
+
+    if (virtualGamepad.index !== expectedIndex) {
+      logger.warn(`applyInput(${port}): virtualGamepad index mismatch (got ${virtualGamepad.index}, expected ${expectedIndex})`);
+      return;
+    }
+
+    // Apply all buttons
+    const buttons: (keyof InputState)[] = ['a', 'b', 'x', 'y', 'l', 'r', 'start', 'select', 'up', 'down', 'left', 'right'];
+
+    for (const button of buttons) {
+      const mappedButton = keyMapping[button];
+      const pressed = input[button];
+
+      if (pressed) {
+        virtualGamepad.pressButton(mappedButton);
+      } else {
+        virtualGamepad.releaseButton(mappedButton);
+      }
+    }
+
+    virtualGamepad.updateTimestamp();
+  }
+
+  // Get current input state (for dual mode)
+  // In synced mode, returns localInputState (raw keyboard/gamepad state before sync)
+  // In normal mode, returns the current virtualGamepad state
+  export function getCurrentInputState(): InputState {
+    // In synced input mode, return the raw local input state
+    // This is what gets sent to the peer and then applied via applyInput()
+    if (syncedInputMode) {
+      return { ...localInputState };
+    }
+
+    // Normal mode: read from virtual gamepad
+    const virtualGamepad = playerPort === 1
+      ? (window as any).__virtualGamepadP1
+      : (window as any).__virtualGamepadP2;
+
+    if (!virtualGamepad) {
+      return {
+        a: false, b: false, x: false, y: false,
+        l: false, r: false, start: false, select: false,
+        up: false, down: false, left: false, right: false
+      };
+    }
+
+    // Read current state from virtual gamepad
+    // Indices must match buttonMap in virtual-gamepad.ts
+    const buttons = virtualGamepad.buttons;
+
+    return {
+      b: buttons[0]?.pressed || false,      // B = index 0
+      a: buttons[1]?.pressed || false,      // A = index 1
+      y: buttons[2]?.pressed || false,      // Y = index 2
+      x: buttons[3]?.pressed || false,      // X = index 3
+      l: buttons[4]?.pressed || false,      // L = index 4
+      r: buttons[5]?.pressed || false,      // R = index 5
+      select: buttons[8]?.pressed || false, // Select = index 8
+      start: buttons[9]?.pressed || false,  // Start = index 9
+      up: buttons[12]?.pressed || false,    // Up = index 12
+      down: buttons[13]?.pressed || false,  // Down = index 13
+      left: buttons[14]?.pressed || false,  // Left = index 14
+      right: buttons[15]?.pressed || false  // Right = index 15
+    };
+  }
+
+  // Get emulator instance (for SyncManager)
+  export function getEmulator(): WasmEmulator | null {
+    return emulator || null;
+  }
+
   export function pause() {
+    logger.debug('pause() called, emulator:', !!emulator);
     if (emulator) {
       emulator.pause();
       running = false;
+      logger.info('Emulator paused');
     }
   }
 
   export function resume() {
+    logger.debug('resume() called, emulator:', !!emulator);
     if (emulator) {
       emulator.resume();
       running = true;
+      logger.info('Emulator resumed');
     }
   }
 
@@ -549,12 +708,22 @@
   }
 
   function toggleSpeed() {
+    // Disable speed control in multiplayer modes to prevent desync and cheating
+    if (emulationMode !== EmulationMode.SINGLE) {
+      logger.debug('Speed control disabled in multiplayer mode');
+      return;
+    }
     // Toggle between normal and fast
     const newSpeed = currentSpeed === 'normal' ? 'fast' : 'normal';
     setSpeed(newSpeed);
   }
 
   function setSpeed(speed: 'normal' | 'fast' | 'slow') {
+    // Disable speed control in multiplayer modes to prevent desync and cheating
+    if (emulationMode !== EmulationMode.SINGLE) {
+      logger.debug('Speed control disabled in multiplayer mode');
+      return;
+    }
     if (!emulator || currentSpeed === speed) return;
 
     // Turn off current speed mode
@@ -595,9 +764,6 @@
       // Log FPS every 2 seconds (less spam)
       if (now - lastLogTime >= 2000) {
         currentFPS = Math.round((frameCount * 1000) / (now - lastLogTime));
-        if (DEBUG()) {
-          logger.debug(`📊 Emulator FPS: ${currentFPS}`);
-        }
         frameCount = 0;
         lastLogTime = now;
       }
@@ -610,6 +776,83 @@
 
   // Monitor canvas size and force it back to 256x224 if it changes
   let resizeObserver: ResizeObserver | null = null;
+
+  // Canvas freeze state (to prevent black screen during resync)
+  let freezeOverlay: HTMLDivElement | null = null;
+  let isFrozen = false;
+
+  /**
+   * Freeze the canvas display by capturing current frame to an overlay image.
+   * This prevents black screen during state loading.
+   */
+  export function freezeCanvas(): void {
+    if (isFrozen || !canvas || !emulatorContainer) {
+      logger.debug('freezeCanvas: already frozen or no canvas');
+      return;
+    }
+
+    try {
+      // Create overlay div
+      freezeOverlay = document.createElement('div');
+      freezeOverlay.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #000;
+        z-index: 10;
+        pointer-events: none;
+      `;
+
+      // Create image from canvas - use JPEG for faster encoding
+      const img = document.createElement('img');
+      img.src = canvas.toDataURL('image/jpeg', 0.9);
+      img.style.cssText = `
+        width: auto;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        aspect-ratio: 256 / 224;
+        object-fit: contain;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+      `;
+
+      freezeOverlay.appendChild(img);
+      emulatorContainer.appendChild(freezeOverlay);
+      isFrozen = true;
+
+      logger.info('Canvas frozen - overlay applied');
+    } catch (error) {
+      logger.error('Failed to freeze canvas:', error);
+    }
+  }
+
+  /**
+   * Unfreeze the canvas display by removing the overlay.
+   */
+  export function unfreezeCanvas(): void {
+    if (!isFrozen || !freezeOverlay) {
+      logger.debug('unfreezeCanvas: not frozen or no overlay');
+      return;
+    }
+
+    try {
+      if (freezeOverlay.parentNode) {
+        freezeOverlay.parentNode.removeChild(freezeOverlay);
+      }
+      freezeOverlay = null;
+      isFrozen = false;
+
+      logger.info('Canvas unfrozen - overlay removed');
+    } catch (error) {
+      logger.error('Failed to unfreeze canvas:', error);
+    }
+  }
 
   function startCanvasSizeMonitor() {
     if (!canvas || !canvasResizeLocked) return;
@@ -628,7 +871,10 @@
   }
 
   onMount(() => {
-    if (isHost) {
+    // In single/dual mode, init the emulator locally
+    const shouldInitEmulator = emulationMode === EmulationMode.SINGLE || isHost || emulationMode === EmulationMode.DUAL;
+
+    if (shouldInitEmulator) {
       initEmulator();
       window.addEventListener('keydown', handleKeyDown);
       window.addEventListener('keyup', handleKeyUp);
@@ -652,12 +898,20 @@
     if (cleanupP1) cleanupP1();
     if (cleanupP2) cleanupP2();
 
+    // FrameController cleanup is handled in P2PRoom.svelte
+
     if (speedIndicatorTimeout) clearTimeout(speedIndicatorTimeout);
 
     // Cleanup resize observer
     if (resizeObserver) {
       resizeObserver.disconnect();
       resizeObserver = null;
+    }
+
+    // Cleanup freeze overlay
+    if (freezeOverlay && freezeOverlay.parentNode) {
+      freezeOverlay.parentNode.removeChild(freezeOverlay);
+      freezeOverlay = null;
     }
 
     window.removeEventListener('keydown', handleKeyDown);
@@ -667,7 +921,7 @@
 </script>
 
 <div class="emulator-container" bind:this={emulatorContainer}>
-  {#if isHost}
+  {#if emulationMode === EmulationMode.SINGLE || isHost || emulationMode === EmulationMode.DUAL}
     <canvas bind:this={canvas} />
 
     <!-- Latency indicator (always visible) -->
@@ -711,14 +965,18 @@
   .emulator-container {
     width: 100%;
     height: 100%;
+    min-height: 0; /* Allow flex item to shrink */
     display: flex;
     justify-content: center;
     align-items: center;
     background: #000;
+    overflow: hidden;
+    position: relative;
   }
 
   .emulator-container:fullscreen {
     background: #000;
+    cursor: none;
   }
 
   .emulator-container:fullscreen canvas {
@@ -728,22 +986,20 @@
   }
 
   canvas {
-    /* Maintain stable size and aspect ratio */
+    /* Let height be constrained by container, width follows aspect ratio */
     width: auto;
-    height: auto;
+    height: 100%;
     max-width: 100%;
     max-height: 100%;
 
     /* SNES native aspect ratio */
     aspect-ratio: 256 / 224;
 
-    /* Prevent resizing */
     object-fit: contain;
 
     image-rendering: pixelated;
     image-rendering: crisp-edges;
 
-    /* Prevent layout shifts */
     display: block;
   }
 

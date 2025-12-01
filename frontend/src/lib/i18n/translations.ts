@@ -86,9 +86,18 @@ export const translations = {
     joiningRoom: 'Joining room...',
     controller1: 'Controller 1',
     controller2: 'Controller 2',
+    player1: 'Player 1',
+    player2: 'Player 2',
     joinAsPlayer1: 'Join as Player 1',
     joinAsPlayer2: 'Join as Player 2',
     ready: 'Ready',
+
+    // Emulation mode
+    emulationMode: 'Emulation Mode',
+    dualMode: 'Dual',
+    streamingMode: 'Streaming',
+    dualModeDesc: 'Both players run the emulator locally. Lower latency.',
+    streamingModeDesc: 'Host streams video to guest. More stable.',
 
     // Pause menu
     pauseMenu: 'Pause Menu',
@@ -261,9 +270,18 @@ export const translations = {
     joiningRoom: 'Connexion à la room...',
     controller1: 'Manette 1',
     controller2: 'Manette 2',
+    player1: 'Joueur 1',
+    player2: 'Joueur 2',
     joinAsPlayer1: 'Rejoindre comme Joueur 1',
     joinAsPlayer2: 'Rejoindre comme Joueur 2',
     ready: 'Prêt',
+
+    // Emulation mode
+    emulationMode: "Mode d'émulation",
+    dualMode: 'Dual',
+    streamingMode: 'Streaming',
+    dualModeDesc: "Les deux joueurs émulent localement. Moins de latence.",
+    streamingModeDesc: "L'hôte diffuse la vidéo. Plus stable.",
 
     // Pause menu
     pauseMenu: 'Menu Pause',

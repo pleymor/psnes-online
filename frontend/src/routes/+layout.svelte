@@ -67,4 +67,8 @@
   :global(*) {
     box-sizing: border-box;
   }
+
+  :global(:fullscreen) {
+    cursor: none;
+  }
 </style>
