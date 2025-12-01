@@ -398,6 +398,12 @@
           guestVideoElement.srcObject = stream;
           guestVideoElement.play();
         }
+        // Guest in streaming mode: emit game:ready when stream is received
+        // (since guest has no emulator, handleEmulatorReady is never called)
+        if (!isHost) {
+          $socket?.emit('game:ready', { roomId });
+          logger.info('Guest received stream, sent game:ready');
+        }
       },
       onRemoteInput: (button, pressed) => {
         emulatorComponent?.handleRemoteInput(button, pressed);
