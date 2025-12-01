@@ -59,8 +59,6 @@ services:
     environment:
       - VITE_API_URL=http://localhost:3000
       - BACKEND_URL=http://backend:3000
-      - VITE_ENABLE_DUAL_MODE=true
-      - VITE_ENABLE_PERF_MONITORING=true
     command: sh -c "npm install && npm run dev -- --host"
     depends_on:
       - backend

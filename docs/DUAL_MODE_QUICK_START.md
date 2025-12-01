@@ -1,31 +1,6 @@
 # ⚡ Dual Mode - Quick Start Guide
 
-## 🚀 Activer le Mode Dual (5 minutes)
-
-### 1. Configurer l'Environnement
-
-Créez un fichier `.env` à la racine du projet :
-
-```bash
-# Copier l'exemple
-cp .env.example .env
-
-# Éditer et activer le mode dual
-VITE_ENABLE_DUAL_MODE=true
-VITE_ENABLE_PERF_MONITORING=true
-```
-
-### 2. Redémarrer le Serveur
-
-```bash
-# Si le serveur tourne déjà
-npm run dev
-
-# Ou avec Docker
-docker-compose restart frontend
-```
-
-### 3. Tester le Mode Dual
+## 🚀 Tester le Mode Dual
 
 #### Option A : Mode Manuel (Recommandé pour Tests)
 
@@ -115,24 +90,6 @@ Console Guest :
 ---
 
 ## 🐛 Troubleshooting Rapide
-
-### Problème : Mode Dual ne démarre pas
-
-**Causes** :
-- Feature flag désactivé
-- `.env` mal configuré
-
-**Solutions** :
-```bash
-# Vérifier .env
-cat .env | grep DUAL_MODE
-
-# Doit afficher :
-VITE_ENABLE_DUAL_MODE=true
-
-# Redémarrer
-npm run dev
-```
 
 ### Problème : Désynchronisation immédiate
 
@@ -258,8 +215,6 @@ location.reload();
 
 ## 📋 Checklist Avant Tests
 
-- [ ] `.env` configuré avec `VITE_ENABLE_DUAL_MODE=true`
-- [ ] Serveur redémarré
 - [ ] Deux machines sur le même réseau (LAN recommandé)
 - [ ] Même ROM chargée des deux côtés
 - [ ] DevTools ouvert pour voir les logs

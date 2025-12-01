@@ -40,20 +40,6 @@
 - **Quality Badge** : Indicateur de qualité réseau (🟢🟡🟠🔴)
 - **Latency Gain Display** : Affichage du gain estimé en mode dual
 
-### ⚙️ Configuration
-
-#### Variables d'Environnement
-```env
-VITE_ENABLE_DUAL_MODE=true          # Active le mode dual (beta)
-VITE_ENABLE_INPUT_PREDICTION=false  # Active la prédiction d'inputs
-VITE_ENABLE_PERF_MONITORING=true    # Active le monitoring
-```
-
-#### Feature Flags
-- Système de rollout progressif par userId
-- Flags beta pour features expérimentales
-- Logging détaillé du statut des features
-
 ### 📊 Métriques & Performance
 
 #### Gains de Latence Mesurables

@@ -119,18 +119,11 @@
 
 ## 🎮 Comment Utiliser
 
-### 1. Activer le Mode Dual
-
-Dans `.env` :
-```bash
-VITE_ENABLE_DUAL_MODE=true
-```
-
-### 2. Créer une Room
+### 1. Créer une Room
 
 L'hôte démarre une room normalement.
 
-### 3. Choisir le Mode
+### 2. Choisir le Mode
 
 Dans l'interface, sélectionner :
 - **📹 Streaming** : Stable, latence normale

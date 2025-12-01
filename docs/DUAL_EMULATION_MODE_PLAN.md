@@ -1638,75 +1638,7 @@ A: Le mode dual exécute l'émulateur des deux côtés, ce qui consomme plus de 
 A: Oui, le fallback automatique permet de passer du mode dual au streaming. Le passage inverse nécessite de redémarrer la room.
 ```
 
-### 6.2 Feature flag pour rollout progressif
-
-```typescript
-// frontend/src/lib/config/features.ts
-export interface FeatureConfig {
-  enabled: boolean;
-  beta: boolean;
-  rolloutPercentage: number;
-}
-
-export const FEATURES = {
-  DUAL_EMULATION_MODE: {
-    enabled: import.meta.env.VITE_ENABLE_DUAL_MODE === 'true',
-    beta: true,
-    rolloutPercentage: 10 // 10% des utilisateurs pour commencer
-  } as FeatureConfig
-};
-
-// Vérifier si la feature est disponible pour cet utilisateur
-export function isFeatureEnabled(
-  featureName: keyof typeof FEATURES,
-  userId?: string
-): boolean {
-  const feature = FEATURES[featureName];
-
-  if (!feature.enabled) return false;
-
-  // Si rollout partiel, utiliser hash du userId
-  if (feature.rolloutPercentage < 100 && userId) {
-    const hash = simpleHash(userId);
-    const percentage = (hash % 100);
-    return percentage < feature.rolloutPercentage;
-  }
-
-  return true;
-}
-
-// Simple hash function
-function simpleHash(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i);
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  return Math.abs(hash);
-}
-```
-
-**Utilisation dans le code** :
-```typescript
-// Dans P2PRoom.svelte ou EmulationSettings.svelte
-import { FEATURES, isFeatureEnabled } from '$lib/config/features';
-import { user } from '$lib/stores/auth';
-
-$: dualModeAvailable = isFeatureEnabled('DUAL_EMULATION_MODE', $user?.id);
-
-{#if dualModeAvailable}
-  <EmulationSettings ... />
-{/if}
-```
-
-### 6.3 Variables d'environnement
-
-```bash
-# .env
-VITE_ENABLE_DUAL_MODE=true  # Enable dual emulation mode (beta)
-```
-
-### 6.4 Changelog
+### 6.2 Changelog
 
 Ajouter dans `CHANGELOG.md` :
 
@@ -1747,11 +1679,9 @@ Ajouter dans `CHANGELOG.md` :
 
 **Fichiers à créer** :
 - ✅ `docs/DUAL_EMULATION_MODE.md`
-- ✅ `frontend/src/lib/config/features.ts`
 
 **Fichiers à modifier** :
 - ✅ `CHANGELOG.md`
-- ✅ `.env` → Ajouter `VITE_ENABLE_DUAL_MODE`
 - ✅ `README.md` → Mention du mode dual
 
 ---

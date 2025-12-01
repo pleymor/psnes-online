@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dual WasmEmulator Sync Test</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Courier New', monospace;
+      background: #1a1a2e;
+      color: #eee;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 { color: #00ff88; margin-bottom: 10px; }
+    .subtitle { color: #888; margin-bottom: 20px; font-size: 14px; }
+    .container {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .emulator-box {
+      border: 2px solid #444;
+      padding: 10px;
+      border-radius: 8px;
+      background: #16213e;
+    }
+    .emulator-box h3 {
+      margin-top: 0;
+      color: #00d4ff;
+    }
+    canvas {
+      display: block;
+      width: 256px;
+      height: 224px;
+      background: #000;
+      image-rendering: pixelated;
+    }
+    .status {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #aaa;
+    }
+    .checksum {
+      font-family: monospace;
+      color: #ffaa00;
+      word-break: break-all;
+    }
+    .match { color: #00ff88; }
+    .mismatch { color: #ff4444; }
+    #log {
+      margin-top: 20px;
+      padding: 10px;
+      background: #0f0f23;
+      border: 1px solid #333;
+      border-radius: 4px;
+      height: 250px;
+      overflow-y: auto;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .log-info { color: #88ccff; }
+    .log-success { color: #00ff88; }
+    .log-error { color: #ff4444; }
+    .log-warn { color: #ffaa00; }
+    #controls {
+      margin-bottom: 20px;
+    }
+    button {
+      background: #0e4d92;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+    button:hover { background: #1565c0; }
+    button:disabled { background: #555; cursor: not-allowed; }
+    #stats {
+      margin-top: 20px;
+      padding: 10px;
+      background: #0f0f23;
+      border: 1px solid #333;
+      border-radius: 4px;
+    }
+    #stats h3 { margin-top: 0; color: #00d4ff; }
+    .stat-row { margin: 5px 0; }
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 20px;
+      background: #0f0f23;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #333;
+      border-top-color: #00ff88;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <h1>Dual WasmEmulator Sync Test</h1>
+  <p class="subtitle">Tests deterministic synchronization between two independent emulator instances</p>
+
+  <div id="loading" class="loading">
+    <div class="spinner"></div>
+    <span>Loading WasmEmulator and RetroArch core...</span>
+  </div>
+
+  <div id="controls" class="hidden">
+    <button id="btnStart" onclick="window.testHarness.startTest()">Start Full Test</button>
+    <button id="btnStop" onclick="window.testHarness.stopTest()" disabled>Stop</button>
+    <button id="btnCompare" onclick="window.testHarness.compareChecksums()">Compare Checksums</button>
+    <button id="btnAdvance1" onclick="window.testHarness.advanceFrames(1)">+1 Frame</button>
+    <button id="btnAdvance10" onclick="window.testHarness.advanceFrames(10)">+10 Frames</button>
+    <button id="btnAdvance60" onclick="window.testHarness.advanceFrames(60)">+60 Frames</button>
+    <button id="btnSyncB" onclick="window.testHarness.syncBtoA()">Sync B → A</button>
+  </div>
+
+  <div class="container">
+    <div class="emulator-box">
+      <h3>Emulator A (Primary)</h3>
+      <canvas id="canvasA" width="256" height="224"></canvas>
+      <div class="status">
+        <div>Status: <span id="statusA">Loading...</span></div>
+        <div>Frame: <span id="frameA">0</span></div>
+        <div>Checksum: <span id="checksumA" class="checksum">-</span></div>
+      </div>
+    </div>
+
+    <div class="emulator-box">
+      <h3>Emulator B (Synced Clone)</h3>
+      <canvas id="canvasB" width="256" height="224"></canvas>
+      <div class="status">
+        <div>Status: <span id="statusB">Loading...</span></div>
+        <div>Frame: <span id="frameB">0</span></div>
+        <div>Checksum: <span id="checksumB" class="checksum">-</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="stats">
+    <h3>Sync Statistics</h3>
+    <div class="stat-row">Total Frames: <span id="totalFrames">0</span></div>
+    <div class="stat-row">Sync Checks: <span id="syncChecks">0</span></div>
+    <div class="stat-row">Matches: <span id="syncMatches" class="match">0</span></div>
+    <div class="stat-row">Mismatches: <span id="syncMismatches" class="mismatch">0</span></div>
+    <div class="stat-row">Last Result: <span id="lastComparison">-</span></div>
+  </div>
+
+  <div id="log"></div>
+
+  <script type="module">
+    import { WasmEmulator } from '$lib/emulator/index.ts';
+
+    // Test configuration
+    const CONFIG = {
+      frameCheckInterval: 10,
+      totalTestFrames: 300,
+    };
+
+    // State
+    let emulatorA = null;
+    let emulatorB = null;
+    let frameCountA = 0;
+    let frameCountB = 0;
+    let syncChecks = 0;
+    let syncMatches = 0;
+    let syncMismatches = 0;
+    let isRunning = false;
+    let testLogs = [];
+
+    // Logging
+    function log(message, type = 'info') {
+      const logEl = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.className = `log-${type}`;
+      const timestamp = new Date().toISOString().substr(11, 12);
+      entry.textContent = `[${timestamp}] ${message}`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+
+      const logEntry = { time: Date.now(), type, message };
+      testLogs.push(logEntry);
+      console.log(`[${type.toUpperCase()}]`, message);
+    }
+
+    function updateUI() {
+      document.getElementById('frameA').textContent = frameCountA;
+      document.getElementById('frameB').textContent = frameCountB;
+      document.getElementById('totalFrames').textContent = Math.max(frameCountA, frameCountB);
+      document.getElementById('syncChecks').textContent = syncChecks;
+      document.getElementById('syncMatches').textContent = syncMatches;
+      document.getElementById('syncMismatches').textContent = syncMismatches;
+    }
+
+    // Create minimal test ROM
+    function createMinimalRom() {
+      const rom = new Uint8Array(32768);
+      const headerOffset = 0x7FC0;
+
+      // Title
+      const title = 'SYNC TEST        ';
+      for (let i = 0; i < 21; i++) {
+        rom[headerOffset + i] = title.charCodeAt(i);
+      }
+
+      // Header fields
+      rom[headerOffset + 0x15] = 0x20; // LoROM
+      rom[headerOffset + 0x16] = 0x00; // ROM type
+      rom[headerOffset + 0x17] = 0x08; // 32KB
+      rom[headerOffset + 0x18] = 0x00; // No SRAM
+      rom[headerOffset + 0x19] = 0x01; // NTSC
+      rom[headerOffset + 0x1A] = 0x33; // Developer
+      rom[headerOffset + 0x1B] = 0x00; // Version
+
+      // Reset vectors
+      rom[0x7FFC] = 0x00;
+      rom[0x7FFD] = 0x80;
+      rom[0x7FFE] = 0x00;
+      rom[0x7FFF] = 0x80;
+
+      // Code at entry point
+      rom[0x0000] = 0x78; // SEI
+      rom[0x0001] = 0x18; // CLC
+      rom[0x0002] = 0xFB; // XCE
+      rom[0x0003] = 0xC2; // REP #$30
+      rom[0x0004] = 0x30;
+      rom[0x0005] = 0xA9; // LDA #$0000
+      rom[0x0006] = 0x00;
+      rom[0x0007] = 0x00;
+      // Infinite NOP loop
+      rom[0x0008] = 0xEA; // NOP
+      rom[0x0009] = 0xEA; // NOP
+      rom[0x000A] = 0x4C; // JMP $8008
+      rom[0x000B] = 0x08;
+      rom[0x000C] = 0x80;
+
+      // Compute checksum
+      let sum = 0;
+      for (let i = 0; i < rom.length; i++) {
+        if (i < headerOffset + 0x1C || i > headerOffset + 0x1F) {
+          sum += rom[i];
+        }
+      }
+      sum = sum & 0xFFFF;
+      const complement = (~sum) & 0xFFFF;
+      rom[headerOffset + 0x1C] = complement & 0xFF;
+      rom[headerOffset + 0x1D] = (complement >> 8) & 0xFF;
+      rom[headerOffset + 0x1E] = sum & 0xFF;
+      rom[headerOffset + 0x1F] = (sum >> 8) & 0xFF;
+
+      return rom;
+    }
+
+    async function computeChecksum(emulator) {
+      try {
+        // Advance one frame to process any pending commands (like SAVE_STATE)
+        emulator.frameAdvance();
+        await new Promise(r => setTimeout(r, 50));
+
+        const { state } = await emulator.saveState();
+        const arrayBuffer = await state.arrayBuffer();
+        const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+        return Array.from(new Uint8Array(hashBuffer.slice(0, 8)))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+      } catch (error) {
+        log(`Checksum error: ${error.message}`, 'error');
+        return null;
+      }
+    }
+
+    async function compareChecksums() {
+      if (!emulatorA || !emulatorB) {
+        log('Emulators not ready', 'error');
+        return null;
+      }
+
+      const [checksumA, checksumB] = await Promise.all([
+        computeChecksum(emulatorA),
+        computeChecksum(emulatorB)
+      ]);
+
+      document.getElementById('checksumA').textContent = checksumA || 'error';
+      document.getElementById('checksumB').textContent = checksumB || 'error';
+
+      syncChecks++;
+      const match = checksumA && checksumB && checksumA === checksumB;
+
+      if (match) {
+        syncMatches++;
+        document.getElementById('lastComparison').textContent = 'MATCH';
+        document.getElementById('lastComparison').className = 'match';
+        log(`Frame ${frameCountA}: MATCH (${checksumA})`, 'success');
+      } else {
+        syncMismatches++;
+        document.getElementById('lastComparison').textContent = 'MISMATCH';
+        document.getElementById('lastComparison').className = 'mismatch';
+        log(`Frame ${frameCountA}: MISMATCH! A=${checksumA}, B=${checksumB}`, 'error');
+      }
+
+      updateUI();
+      return { match, checksumA, checksumB, frame: frameCountA };
+    }
+
+    async function advanceFrames(count) {
+      if (!emulatorA || !emulatorB) return;
+
+      // Pause both emulators
+      emulatorA.pause();
+      emulatorB.pause();
+
+      // Advance frames manually
+      for (let i = 0; i < count; i++) {
+        emulatorA.frameAdvance();
+        emulatorB.frameAdvance();
+        frameCountA++;
+        frameCountB++;
+      }
+      updateUI();
+      log(`Advanced ${count} frame(s) → Frame ${frameCountA}`, 'info');
+
+      // Keep them paused so we can compare checksums
+    }
+
+    async function syncBtoA() {
+      if (!emulatorA || !emulatorB) return;
+
+      log('Syncing B to A state...', 'info');
+
+      // Pause emulator A to ensure consistent state
+      emulatorA.pause();
+
+      // Wait a bit for the pause to take effect, then advance one frame to process
+      await new Promise(r => setTimeout(r, 50));
+      emulatorA.frameAdvance();
+      await new Promise(r => setTimeout(r, 50));
+
+      const { state } = await emulatorA.saveState();
+
+      // Pause B and load state
+      emulatorB.pause();
+      await new Promise(r => setTimeout(r, 50));
+      emulatorB.frameAdvance();
+      await new Promise(r => setTimeout(r, 50));
+
+      await emulatorB.loadState(state);
+      frameCountB = frameCountA;
+
+      // Wait for state to load
+      await new Promise(r => setTimeout(r, 200));
+
+      log('Sync complete, verifying...', 'info');
+      await compareChecksums();
+    }
+
+    async function runFullTest() {
+      log('=== Starting Full Sync Test ===', 'info');
+      isRunning = true;
+
+      document.getElementById('btnStart').disabled = true;
+      document.getElementById('btnStop').disabled = false;
+
+      // First sync B to A's initial state
+      await syncBtoA();
+
+      const batchSize = 10;
+      const batches = Math.ceil(CONFIG.totalTestFrames / batchSize);
+
+      for (let i = 0; i < batches && isRunning; i++) {
+        await advanceFrames(batchSize);
+
+        // Check sync every interval
+        if (frameCountA % CONFIG.frameCheckInterval === 0) {
+          const result = await compareChecksums();
+          if (!result.match) {
+            log('Desync detected! Stopping test.', 'error');
+            break;
+          }
+        }
+
+        // Allow UI to update
+        await new Promise(r => setTimeout(r, 1));
+      }
+
+      document.getElementById('btnStart').disabled = false;
+      document.getElementById('btnStop').disabled = true;
+      isRunning = false;
+
+      // Final summary
+      log('=== Test Complete ===', 'info');
+      log(`Frames: ${frameCountA} | Checks: ${syncChecks} | Matches: ${syncMatches} | Mismatches: ${syncMismatches}`,
+          syncMismatches === 0 ? 'success' : 'error');
+
+      // Expose results
+      window.__testResults = {
+        complete: true,
+        totalFrames: frameCountA,
+        syncChecks,
+        syncMatches,
+        syncMismatches,
+        passed: syncMismatches === 0,
+        logs: testLogs
+      };
+
+      return window.__testResults;
+    }
+
+    function stopTest() {
+      isRunning = false;
+      document.getElementById('btnStart').disabled = false;
+      document.getElementById('btnStop').disabled = true;
+      log('Test stopped by user', 'warn');
+    }
+
+    async function initialize() {
+      log('Initializing test harness...', 'info');
+
+      try {
+        // Configure WasmEmulator with minimal settings (use default core loading)
+        WasmEmulator.configure({
+          style: { width: '256px', height: '224px' },
+          retroarchConfig: {
+            rewind_enable: false,
+            savestate_auto_save: false,
+            savestate_auto_load: false,
+            video_vsync: false,
+            audio_enable: false,
+            fastforward_ratio: 0,
+            video_frame_delay: 0,
+            run_ahead_enabled: false,
+          }
+        });
+
+        const rom = createMinimalRom();
+        const romBlob = new Blob([rom], { type: 'application/octet-stream' });
+        log(`Created test ROM (${rom.length} bytes)`, 'info');
+
+        const canvasA = document.getElementById('canvasA');
+        const canvasB = document.getElementById('canvasB');
+
+        log('Loading Emulator A...', 'info');
+        document.getElementById('statusA').textContent = 'Loading...';
+
+        emulatorA = await WasmEmulator.launch({
+          element: canvasA,
+          core: 'snes9x',
+          rom: romBlob,
+          runEmulatorManually: false,
+        });
+        document.getElementById('statusA').textContent = 'Ready';
+        log('Emulator A ready', 'success');
+
+        log('Loading Emulator B...', 'info');
+        document.getElementById('statusB').textContent = 'Loading...';
+
+        emulatorB = await WasmEmulator.launch({
+          element: canvasB,
+          core: 'snes9x',
+          rom: romBlob,
+          runEmulatorManually: false,
+        });
+        document.getElementById('statusB').textContent = 'Ready';
+        log('Emulator B ready', 'success');
+
+        // Hide loading, show controls
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('controls').classList.remove('hidden');
+
+        log('Both emulators initialized! Ready to test.', 'success');
+
+        // Expose test harness
+        window.testHarness = {
+          startTest: runFullTest,
+          stopTest,
+          compareChecksums,
+          advanceFrames,
+          syncBtoA,
+          getState: () => ({
+            frameCountA,
+            frameCountB,
+            syncChecks,
+            syncMatches,
+            syncMismatches,
+            isRunning
+          }),
+          getLogs: () => testLogs
+        };
+
+        window.__emulatorsReady = true;
+
+      } catch (error) {
+        log(`Initialization failed: ${error.message}`, 'error');
+        console.error(error);
+        document.getElementById('loading').innerHTML = `
+          <span style="color: #ff4444;">Failed to initialize: ${error.message}</span>
+        `;
+      }
+    }
+
+    // Start initialization
+    initialize();
+  </script>
+</body>
+</html>
