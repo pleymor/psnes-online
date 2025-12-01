@@ -186,10 +186,37 @@ export function getDefaultOptions() {
         return []
       }
 
-      const preset = `${cdnBaseUrl}/${shaderRepo}@${shaderVersion}/${name}.glslp`
+      const base = `${cdnBaseUrl}/${shaderRepo}@${shaderVersion}`
+
+      // Special handling for multi-file shaders with different names
+      // Note: xbrz-freescale removed due to WebGL framebuffer errors with viewport scaling
+      const specialShaders: Record<string, string[]> = {
+        'xbrz/6xbrz-linear': [
+          `${base}/xbrz/6xbrz-linear.glslp`,
+          `${base}/xbrz/shaders/6xbrz.glsl`,
+          `${base}/stock.glsl`,
+        ],
+        'xbrz/5xbrz-linear': [
+          `${base}/xbrz/5xbrz-linear.glslp`,
+          `${base}/xbrz/shaders/5xbrz.glsl`,
+          `${base}/stock.glsl`,
+        ],
+        'xbrz/4xbrz-linear': [
+          `${base}/xbrz/4xbrz-linear.glslp`,
+          `${base}/xbrz/shaders/4xbrz.glsl`,
+          `${base}/stock.glsl`,
+        ],
+      }
+
+      if (specialShaders[name]) {
+        return specialShaders[name]
+      }
+
+      // Default: assume matching names
+      const preset = `${base}/${name}.glslp`
       const segments = name.split(path.sep)
       segments.splice(-1, 0, 'shaders')
-      const shader = `${cdnBaseUrl}/${shaderRepo}@${shaderVersion}/${segments.join(path.sep)}.glsl`
+      const shader = `${base}/${segments.join(path.sep)}.glsl`
       return [preset, shader]
     },
   }

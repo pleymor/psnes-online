@@ -178,6 +178,17 @@ export const translations = {
     saveStates: 'Save States',
     uploaded: 'Uploaded',
 
+    // Shaders
+    display: 'Display',
+    shader: 'Shader',
+    shaderNone: 'None (Raw pixels)',
+    shaderXbrz6x: 'xBRZ 6x',
+    shaderXbrz5x: 'xBRZ 5x',
+    shaderXbrz4x: 'xBRZ 4x',
+    shaderCrtEasymode: 'CRT Easymode',
+    shaderSharpBilinear: 'Sharp Bilinear',
+    shaderFxaa: 'FXAA (Anti-aliasing)',
+
     // General
     close: 'Close',
     yes: 'Yes',
@@ -364,6 +375,17 @@ export const translations = {
     region: 'Région',
     saveStates: 'États de sauvegarde',
     uploaded: 'Uploadé',
+
+    // Shaders
+    display: 'Affichage',
+    shader: 'Shader',
+    shaderNone: 'Aucun (Pixels bruts)',
+    shaderXbrz6x: 'xBRZ 6x',
+    shaderXbrz5x: 'xBRZ 5x',
+    shaderXbrz4x: 'xBRZ 4x',
+    shaderCrtEasymode: 'CRT Easymode',
+    shaderSharpBilinear: 'Sharp Bilinear',
+    shaderFxaa: 'FXAA (Anti-crénelage)',
 
     // General
     close: 'Fermer',

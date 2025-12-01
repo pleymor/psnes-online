@@ -14,6 +14,7 @@
   export let isHost: boolean = true;
   export let startPaused: boolean = false;
   export let initialState: Blob | null = null;
+  export let shader: string = ''; // Shader to apply (e.g., 'xbrz/6xbrz-linear')
 
   // Local input state for synced mode
   let localInputState: InputState = {
@@ -70,6 +71,8 @@
           imageRendering: 'pixelated'
         },
         runEmulatorManually: true,
+        // Shader for upscaling (e.g., 'xbrz/6xbrz-linear')
+        ...(shader ? { shader } : {}),
         retroarchConfig: {
           input_max_users: 2,
           video_vsync: 'false',

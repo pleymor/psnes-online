@@ -13,6 +13,7 @@
   import FriendsList from '$lib/components/FriendsList.svelte';
   import FriendDetailsModal from '$lib/components/FriendDetailsModal.svelte';
   import ControlsModal from '$lib/components/ControlsModal.svelte';
+  import ShaderSelector, { VALID_SHADER_IDS } from '$lib/components/ShaderSelector.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import type { KeyConfig } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
@@ -33,8 +34,35 @@
   let showDeleteConfirm = false;
   let gameToDelete: Game | null = null;
   let showControls = false;
+  let showShaderSelector = false;
   let showMobileSidebar = false;
   let activeRooms: any[] = [];
+
+  let currentShader = '';
+
+  function loadShaderPreference() {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem('psnes-shader') || '';
+      if (stored && !VALID_SHADER_IDS.includes(stored)) {
+        localStorage.removeItem('psnes-shader');
+        currentShader = '';
+      } else {
+        currentShader = stored;
+      }
+    }
+  }
+
+  function handleShaderSelect(event: CustomEvent<{ shader: string }>) {
+    const { shader } = event.detail;
+    currentShader = shader;
+    if (typeof localStorage !== 'undefined') {
+      if (shader) {
+        localStorage.setItem('psnes-shader', shader);
+      } else {
+        localStorage.removeItem('psnes-shader');
+      }
+    }
+  }
   let userKeyConfig: KeyConfig = {
     up: 'ArrowUp',
     down: 'ArrowDown',
@@ -169,6 +197,7 @@
   }
 
   onMount(async () => {
+    loadShaderPreference();
     // Wait for auth check to complete
     const unsubscribe = userLoading.subscribe(async (loading) => {
       if (!loading) {
@@ -326,6 +355,11 @@
             <span class="label">{t($language, 'controls')}</span>
           </button>
 
+          <button on:click={() => showShaderSelector = true} class="nav-button">
+            <span class="icon">🖼️</span>
+            <span class="label">{t($language, 'display')}</span>
+          </button>
+
           <button on:click={refreshMetadata} class="nav-button" disabled={isRefreshingMetadata}>
             <span class="icon">{isRefreshingMetadata ? '⏳' : '🔄'}</span>
             <span class="label">{isRefreshingMetadata ? t($language, 'updating') : t($language, 'updateMetadata')}</span>
@@ -439,6 +473,21 @@
     on:close={() => showControls = false}
     on:saved={handleControlsSaved}
   />
+
+  {#if showShaderSelector}
+    <div class="modal-overlay" on:click={() => showShaderSelector = false}>
+      <div class="shader-modal" on:click|stopPropagation>
+        <h3>{t($language, 'display')}</h3>
+        <ShaderSelector
+          {currentShader}
+          on:select={handleShaderSelect}
+        />
+        <button on:click={() => showShaderSelector = false} class="btn-cancel">
+          {t($language, 'close')}
+        </button>
+      </div>
+    </div>
+  {/if}
 
   {#if showToast}
     <div class="toast toast-{toastType}">
@@ -1022,6 +1071,28 @@
   .btn-confirm-delete:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
+  }
+
+  .shader-modal {
+    background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
+    border-radius: 16px;
+    padding: 2rem;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .shader-modal h3 {
+    margin: 0 0 1.5rem 0;
+    font-size: 1.5rem;
+    color: #fff;
+  }
+
+  .shader-modal .btn-cancel {
+    width: 100%;
+    margin-top: 1.5rem;
   }
 
   /* Burger menu button */

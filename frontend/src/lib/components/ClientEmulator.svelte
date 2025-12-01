@@ -17,6 +17,7 @@
   export let initialState: Blob | null = null; // Initial state to load (for guest sync)
   export let runEmulatorManually: boolean = false; // For lockstep sync - allows frameAdvance() to work
   export let syncedInputMode: boolean = false; // When true, inputs are NOT applied directly - only via applyInput()
+  export let shader: string = ''; // Shader to apply (e.g., 'xbrz/6xbrz-linear')
 
   // Local input state for synced mode - tracks raw keyboard/gamepad input
   // This is read by getCurrentInputState() and only applied to virtualGamepad via applyInput()
@@ -167,6 +168,8 @@
         },
         // For lockstep sync mode, we need manual control of frames
         runEmulatorManually: runEmulatorManually,
+        // Shader for upscaling (e.g., 'xbrz/6xbrz-linear')
+        ...(shader ? { shader } : {}),
       };
 
       // If initial state is provided (for guest sync), pass it to the emulator

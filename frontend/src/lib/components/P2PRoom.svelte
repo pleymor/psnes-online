@@ -4,6 +4,7 @@
   import ClientEmulator from './ClientEmulator.svelte';
   import DualClientEmulator from './DualClientEmulator.svelte';
   import PauseMenu from './PauseMenu.svelte';
+  import { VALID_SHADER_IDS } from './ShaderSelector.svelte';
   import type { KeyConfig } from '$lib/types';
   import { EmulationMode } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
@@ -65,6 +66,19 @@
   // Desync tracking - only resync after 3 consecutive desyncs
   let consecutiveDesyncs = 0;
   const DESYNC_THRESHOLD = 3;
+
+  function getShaderPreference(): string {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem('psnes-shader') || '';
+      if (stored && !VALID_SHADER_IDS.includes(stored)) {
+        localStorage.removeItem('psnes-shader');
+        return '';
+      }
+      return stored;
+    }
+    return '';
+  }
+  let shader = getShaderPreference();
 
   // --- ROM Loading ---
   async function loadROM(): Promise<void> {
@@ -817,6 +831,7 @@
         <ClientEmulator
           {romData}
           {keyConfig}
+          {shader}
           isHost={true}
           playerPort={1}
           {emulationMode}
@@ -832,6 +847,7 @@
           <ClientEmulator
             {romData}
             {keyConfig}
+            {shader}
             {isHost}
             playerPort={1}
             {emulationMode}
@@ -874,6 +890,7 @@
           <DualClientEmulator
             {romData}
             {keyConfig}
+            {shader}
             {isHost}
             playerPort={2}
             startPaused={true}
@@ -886,6 +903,7 @@
           <ClientEmulator
             {romData}
             {keyConfig}
+            {shader}
             {isHost}
             playerPort={isHost ? 1 : 2}
             {emulationMode}

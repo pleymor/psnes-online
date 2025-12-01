@@ -683,12 +683,14 @@ export class Emulator {
   private async setupRaShaderFiles() {
     const { shader } = this.options
     if (shader.length === 0) {
+      console.info('[Emulator] No shader configured')
       return
     }
     const glslpFiles = shader.filter((file) => file.name.endsWith('.glslp'))
     if (glslpFiles.length === 0) {
       return
     }
+    console.info(`[Emulator] Loading shader: ${glslpFiles.map(f => f.name).join(', ')}`)
 
     for (const { name } of shader) {
       if (!name) {
@@ -704,10 +706,15 @@ export class Emulator {
 
     await Promise.all(
       shader.map(async (resolvable) => {
-        const directory =
-          resolvable.extension === '.glslp'
-            ? EmulatorFileSystem.shaderDirectory
-            : path.join(EmulatorFileSystem.shaderDirectory, 'shaders')
+        let directory: string
+        if (resolvable.extension === '.glslp') {
+          directory = EmulatorFileSystem.shaderDirectory
+        } else if (resolvable.name === 'stock.glsl') {
+          // stock.glsl is referenced as ../stock.glsl from presets, so it goes in parent directory
+          directory = path.join(EmulatorFileSystem.shaderDirectory, '..')
+        } else {
+          directory = path.join(EmulatorFileSystem.shaderDirectory, 'shaders')
+        }
         await this.fs.writeFile(path.join(directory, resolvable.name), resolvable)
       }),
     )
