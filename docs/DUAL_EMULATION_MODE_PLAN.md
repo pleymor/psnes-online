@@ -269,18 +269,18 @@ export class InputManager {
 #### C. Créer un `SyncManager` pour vérifier la synchronisation
 ```typescript
 // frontend/src/lib/emulator/sync-manager.ts
-import type { Nostalgist } from '$lib/emulator';
+import type { WasmEmulator } from '$lib/emulator';
 import { createLogger } from '$lib/utils/logger';
 
 const logger = createLogger('SyncManager');
 
 export class SyncManager {
-  private emulator: Nostalgist;
+  private emulator: WasmEmulator;
   private checkInterval: number;
   private currentFrame: number = 0;
   private lastChecksum: string | null = null;
 
-  constructor(emulator: Nostalgist, checkInterval: number = 60) {
+  constructor(emulator: WasmEmulator, checkInterval: number = 60) {
     this.emulator = emulator;
     this.checkInterval = checkInterval;
   }

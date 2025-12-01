@@ -6,10 +6,10 @@ Cette documentation décrit l'architecture P2P client-side actuellement en produ
 
 ## Vue d'ensemble
 
-L'émulation s'exécute **côté client dans le navigateur du host** (via WebAssembly/Nostalgist) et le streaming vidéo/audio vers le guest utilise **WebRTC peer-to-peer direct** pour minimiser la latence.
+L'émulation s'exécute **côté client dans le navigateur du host** (via WebAssembly/WasmEmulator) et le streaming vidéo/audio vers le guest utilise **WebRTC peer-to-peer direct** pour minimiser la latence.
 
 **Architecture actuelle** :
-- **Host** : Exécute l'émulateur SNES (Nostalgist WebAssembly), streame via WebRTC
+- **Host** : Exécute l'émulateur SNES (WasmEmulator WebAssembly), streame via WebRTC
 - **Guest** : Reçoit le stream vidéo/audio WebRTC P2P, envoie ses inputs au host
 - **Serveur (VPS)** : Signaling WebRTC uniquement (Socket.IO), pas d'émulation !
 
@@ -45,7 +45,7 @@ L'émulation s'exécute **côté client dans le navigateur du host** (via WebAss
 │ ┌──────────────┐ │    │                  │
 │ │  Émulateur   │ │    │  ┌────────────┐ │
 │ │  SNES        │ │    │  │   Video    │ │
-│ │  (Nostalgist │ │    │  │   Canvas   │ │
+│ │  (WasmEmu    │ │    │  │   Canvas   │ │
 │ │  WebAssembly)│ │    │  │            │ │
 │ │              │ │    │  └────────────┘ │
 │ │  - Input P1  │ │    │  ┌────────────┐ │
@@ -80,7 +80,7 @@ L'émulation s'exécute **côté client dans le navigateur du host** (via WebAss
 1. Host: POST /api/rooms/create { gameId }
 2. Server: Create room in DB, return roomId
 3. Host: Download ROM from server (authenticated)
-4. Host: Load ROM + Initialize Nostalgist emulator (WebAssembly)
+4. Host: Load ROM + Initialize WasmEmulator (WebAssembly)
 5. Host: Start emulation loop @60Hz in browser
 6. Host: Ready to stream
 ```
@@ -114,7 +114,7 @@ HOST BROWSER:
   │
   ├─> Receive input P2 via WebRTC Data Channel ◄─────┐
   │                                                    │
-  ├─> Run emulator frame (Nostalgist @60 Hz)          │
+  ├─> Run emulator frame (WasmEmulator @60 Hz)        │
   │   (Processing happens in browser WebAssembly)     │
   │                                                    │
   ├─> Render to canvas (local display)                │
@@ -149,15 +149,15 @@ GUEST BROWSER:                                         │
 ```json
 {
   "dependencies": {
-    "nostalgist": "local copy",          // Émulateur SNES WebAssembly
+    "wasm-emulator": "local fork",       // Émulateur SNES WebAssembly (forked from Nostalgist.js)
     "socket.io-client": "^4.7.2",        // Signaling WebRTC
     // WebRTC natif du navigateur (RTCPeerConnection API)
   }
 }
 ```
 
-**Nostalgist (local customized)** :
-- Fork local de Nostalgist.js
+**WasmEmulator (forked from Nostalgist.js)** :
+- Fork local renamed to WasmEmulator
 - Émulateur SNES en WebAssembly (RetroArch/snes9x-next core)
 - Système de virtual gamepads pour input routing
 - Customisé pour multiplayer 2 joueurs
@@ -265,7 +265,7 @@ if (fps < 50) {
 
 ### Phase 1 : Émulateur Client-Side ✅ COMPLÉTÉ
 
-- ✅ Nostalgist.js intégré et customisé localement
+- ✅ WasmEmulator (forked from Nostalgist.js) intégré et customisé
 - ✅ ROM loading depuis serveur (authenticated)
 - ✅ Émulation SNES fonctionnelle @60 FPS dans navigateur
 - ✅ Rendering sur Canvas
@@ -314,7 +314,7 @@ if (fps < 50) {
 
 **Complexité** : ⚠️ Élevée
 - Virtual gamepads = 3 jours de debug
-- Nostalgist customization nécessaire
+- WasmEmulator customization nécessaire
 - Input routing complexe
 - Mais... ça marche ! 🎉
 

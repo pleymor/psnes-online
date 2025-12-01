@@ -111,7 +111,7 @@ The project starts with a simple vision: create an online multiplayer SNES emula
 **Big idea**: What if emulation ran in the host's browser?
 
 **P2P POC**: `Add P2P client-side emulation POC`
-- SNES emulator in WebAssembly (Nostalgist.js)
+- SNES emulator in WebAssembly (WasmEmulator, forked from Nostalgist.js)
 - WebRTC peer-to-peer between host and guests
 - Signaling via Socket.IO
 - Test route: `/p2p-test`
@@ -123,7 +123,7 @@ The project starts with a simple vision: create an online multiplayer SNES emula
 - ✅ Cost: €3/month (vs €20/month)
 
 **Implementation**: `Add P2P multiplayer browser-based emulation POC`
-- ClientEmulator component (Nostalgist)
+- ClientEmulator component (WasmEmulator)
 - P2PManager (WebRTC)
 - P2PRoom component
 - Video streaming host → guest
@@ -131,10 +131,11 @@ The project starts with a simple vision: create an online multiplayer SNES emula
 
 ### Down the Rabbit Hole
 
-**Nostalgist customization**:
-- `Copy Nostalgist library locally`: Library clone
+**Nostalgist fork → WasmEmulator**:
+- `Copy Nostalgist library locally`: Library fork
 - `Clean up unnecessary Nostalgist files`: Cleanup
 - `Remove nostalgist npm dependency`: Local version only
+- Later renamed to `WasmEmulator` to reflect it's no longer the original library
 
 **Why?** Need to control input routing for 2 players!
 
@@ -175,7 +176,7 @@ The project starts with a simple vision: create an online multiplayer SNES emula
 **Cleanup**:
 - `Remove debug console logs`
 - `Remove P2P proof-of-concept test page`: POC validated, integrated
-- `Simplify nostalgist-local RetroArch config types`: -3126 lines!
+- `Simplify WasmEmulator RetroArch config types`: -3126 lines!
 - `Remove non-SNES cores`: -232 lines (kept only SNES)
 
 ### UX Improvements
@@ -204,7 +205,7 @@ The project starts with a simple vision: create an online multiplayer SNES emula
 ### Finalizing the P2P Architecture
 
 **Architecture chosen**:
-- Client-side emulation in host browser (Nostalgist WebAssembly)
+- Client-side emulation in host browser (WasmEmulator WebAssembly)
 - WebRTC P2P direct streaming (host → guest)
 - WebSocket for signaling only (no emulation on server)
 
@@ -258,7 +259,7 @@ VPS Server:
   - Auth & database
 
 Host Browser:
-  - SNES emulation (Nostalgist WebAssembly)
+  - SNES emulation (WasmEmulator WebAssembly)
   - Renders locally @60 FPS
   - Captures canvas → MediaStream
   - Streams via WebRTC → Guest
@@ -385,7 +386,7 @@ Guest Browser:
 - **Lines of code**:
   - Backend: ~5000 lines (TypeScript)
   - Frontend: ~8000 lines (Svelte/TypeScript)
-  - Nostalgist local: ~3000 lines (after cleanup)
+  - WasmEmulator: ~3000 lines (after cleanup)
 
 ### Final Performance
 - **Host latency**: ~0ms ✅ (local emulation in browser!)
@@ -397,7 +398,7 @@ Guest Browser:
 ### Architecture
 - **Backend**: Node.js, Express, Socket.IO (signaling only), Prisma, Redis
 - **Frontend**: SvelteKit, WebRTC P2P, Canvas API, Web Audio API
-- **Emulation**: Nostalgist (local fork) - snes9x-next core in WebAssembly
+- **Emulation**: WasmEmulator (forked from Nostalgist.js) - snes9x-next core in WebAssembly
 - **Streaming**: WebRTC P2P direct (browser-to-browser) with ICE/STUN
 - **Database**: SQLite + Prisma ORM
 - **Auth**: Google OAuth 2.0
@@ -423,7 +424,7 @@ Guest Browser:
 **P2P POC challenges**:
 - ❌ Enormous complexity (virtual gamepads, input routing)
 - ❌ 3 days debugging virtual gamepad system
-- ❌ Nostalgist customization required
+- ❌ WasmEmulator customization required
 - ❌ Client CPU dependency
 
 **But the benefits won**:
@@ -450,13 +451,13 @@ Guest Browser:
 **Lesson**: "Premature optimization is the root of all evil" - Donald Knuth
 
 ### 4. Don't reinvent the wheel... unless necessary
-**Nostalgist**:
-- Copied locally for customization
+**WasmEmulator (forked from Nostalgist.js)**:
+- Forked locally for customization, later renamed to WasmEmulator
 - Went from 3135 lines of types to 9 lines
 - Removed all non-SNES cores (-232 lines)
 - Virtual gamepads = necessary custom solution
 
-**Lesson**: Fork when justified, but clean aggressively.
+**Lesson**: Fork when justified, but clean aggressively. Rename when it's no longer the original.
 
 ### 5. WebRTC P2P is powerful but requires understanding
 **Challenges**:
@@ -480,7 +481,7 @@ Guest Browser:
 ### ✅ Implemented Features
 
 **Core**:
-- Real SNES emulation (Nostalgist/snes9x-next in WebAssembly)
+- Real SNES emulation (WasmEmulator/snes9x-next in WebAssembly)
 - Client-side emulation (runs in host browser)
 - 2-player simultaneous multiplayer
 - WebRTC P2P direct streaming (50-150ms guest latency)
@@ -603,7 +604,7 @@ It wasn't a single commit, but the culmination of:
 
 ### Open Source
 This project uses and thanks:
-- Nostalgist.js (browser emulator)
+- Nostalgist.js (original library, now forked as WasmEmulator)
 - simple-peer (WebRTC wrapper)
 - libretro team (emulation cores)
 - All npm/docker dependencies
@@ -632,7 +633,7 @@ The journey included:
 6. **Modern experience**: PWA, OAuth, real-time
 7. **Complex but working**: Virtual gamepads, input routing, all solved
 
-**The truth**: P2P client-side architecture is complex (virtual gamepads, Nostalgist customization, WebRTC P2P), but it's the RIGHT solution:
+**The truth**: P2P client-side architecture is complex (virtual gamepads, WasmEmulator customization, WebRTC P2P), but it's the RIGHT solution:
 - Host gets 0ms latency (local emulation)
 - Guest gets 50-150ms (peer-to-peer direct)
 - Server costs nothing (signaling only)

@@ -10,7 +10,7 @@ PSNES Online est une plateforme de jeu rétro multijoueur avec **émulation côt
 ┌─────────────────────────────────────────────────────────────┐
 │                      CLIENT 1 (HOST)                        │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │  SNES Emulator (Nostalgist.js / Snes9x WASM)         │   │
+│  │  SNES Emulator (WasmEmulator / Snes9x WASM)          │   │
 │  │  ┌─────────────┐  ┌─────────────┐                    │   │
 │  │  │   Video     │  │   Audio     │                    │   │
 │  │  │   Output    │  │   Output    │                    │   │
@@ -87,7 +87,7 @@ PSNES Online est une plateforme de jeu rétro multijoueur avec **émulation côt
    Server → Friends: friend:roomCreated
 
 2. Host lance l'émulateur local
-   Browser → Nostalgist.js → Snes9x WASM
+   Browser → WasmEmulator → Snes9x WASM
    Emulator → Canvas rendering (256x224)
    Emulator → Web Audio API
 
@@ -432,7 +432,7 @@ user:{userId}:status → 'online'|'offline'|'in-game'
 ## Améliorations futures
 
 ### ✅ Déjà implémenté
-1. ~~Intégration émulateur réel (snes9x-wasm)~~ → **Fait** (Nostalgist.js)
+1. ~~Intégration émulateur réel (snes9x-wasm)~~ → **Fait** (WasmEmulator, forked from Nostalgist.js)
 2. ~~Compression vidéo H.264~~ → **Fait** (WebRTC hardware encoding)
 3. ~~WebRTC peer-to-peer~~ → **Fait** (architecture P2P complète)
 
