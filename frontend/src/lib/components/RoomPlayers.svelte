@@ -12,161 +12,135 @@
   $: currentPlayer = room?.players?.find((p: any) => p.userId === $user?.id);
   $: currentPlayerPort = currentPlayer?.port;
 
+  // Check if only 1 player in the room (single-player mode)
+  $: isSinglePlayer = room?.players?.length === 1;
+
   function handlePortClick(port: 1 | 2) {
-    // If clicking on your own port, release it
-    if (currentPlayerPort === port) {
-      $socket?.emit('room:unselectPort', { roomId });
-    } else {
-      // Otherwise, select/switch to that port
-      $socket?.emit('room:selectPort', { roomId, port });
+    // In single-player mode, controller 2 is disabled
+    if (isSinglePlayer && port === 2) {
+      return;
     }
+
+    // If already on this port, do nothing (no unselecting)
+    if (currentPlayerPort === port) {
+      return;
+    }
+
+    // Select/switch to that port
+    $socket?.emit('room:selectPort', { roomId, port });
   }
 </script>
 
-<div class="players-container">
-  <div class="ports">
-    <div class="port" class:selected={currentPlayerPort === 1}>
-      <h3>🎮 {t($language, 'controller1')}</h3>
-      <button
-        on:click={() => handlePortClick(1)}
-        class="player-slot"
-        class:filled={player1}
-        class:mine={player1?.userId === $user?.id}
-      >
-        <span class="icon">🎮</span>
-        <span class="player-name">{player1?.displayName || t($language, 'joinAsPlayer1')}</span>
-        {#if player1}
-          <span class="ready-badge">✓ {t($language, 'ready')}</span>
-        {/if}
-      </button>
-    </div>
+<div class="players">
+  <button
+    class="player"
+    class:mine={player1?.userId === $user?.id}
+    class:occupied={player1 && player1?.userId !== $user?.id}
+    on:click={() => handlePortClick(1)}
+  >
+    <span class="port-label">{t($language, 'player1')}</span>
+    {#if player1?.avatar}
+      <img src={player1.avatar} alt="" class="avatar" />
+    {/if}
+    <span class="player-name">{player1?.displayName || '—'}</span>
+  </button>
 
-    <div class="port" class:selected={currentPlayerPort === 2}>
-      <h3>🎮 {t($language, 'controller2')}</h3>
-      <button
-        on:click={() => handlePortClick(2)}
-        class="player-slot"
-        class:filled={player2}
-        class:mine={player2?.userId === $user?.id}
-      >
-        <span class="icon">🎮</span>
-        <span class="player-name">{player2?.displayName || t($language, 'joinAsPlayer2')}</span>
-        {#if player2}
-          <span class="ready-badge">✓ {t($language, 'ready')}</span>
-        {/if}
-      </button>
-    </div>
-  </div>
+  <button
+    class="player"
+    class:mine={player2?.userId === $user?.id}
+    class:occupied={player2 && player2?.userId !== $user?.id}
+    class:disabled={isSinglePlayer}
+    disabled={isSinglePlayer}
+    on:click={() => handlePortClick(2)}
+  >
+    <span class="port-label">{t($language, 'player2')}</span>
+    {#if player2?.avatar}
+      <img src={player2.avatar} alt="" class="avatar" />
+    {/if}
+    <span class="player-name">{player2?.displayName || '—'}</span>
+  </button>
 </div>
 
 <style>
-  .players-container {
-    margin: 2rem 0;
-  }
-
-  .ports {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+  .players {
+    display: flex;
     gap: 2rem;
+    justify-content: center;
+    margin: 1rem 0;
   }
 
-  .port {
-    text-align: center;
-    border-radius: 16px;
-    padding: 1rem;
-    transition: all 0.3s;
-  }
-
-  .port.selected {
-    background: rgba(102, 126, 234, 0.1);
-    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.5);
-  }
-
-  h3 {
-    font-size: 1.25rem;
-    margin-bottom: 1rem;
-    color: #aaa;
-    font-weight: 600;
-  }
-
-  .port.selected h3 {
-    color: #667eea;
-  }
-
-  .player-slot {
-    width: 100%;
-    background: #2a2a2a;
-    border-radius: 12px;
-    padding: 2rem 1rem;
-    min-height: 160px;
+  .player {
     display: flex;
     flex-direction: column;
-    justify-content: center;
     align-items: center;
-    gap: 0.75rem;
-    border: 2px dashed #444;
-    cursor: pointer;
+    gap: 1rem;
+    padding: 1.5rem 2rem;
+    background: #2a2a2a;
+    border: 2px solid #444;
+    border-radius: 12px;
     color: #888;
     font-size: 1rem;
-    font-weight: 500;
+    cursor: pointer;
     transition: all 0.2s;
+    min-width: 180px;
   }
 
-  .player-slot:hover {
+  .player:hover:not(:disabled) {
     border-color: #667eea;
-    background: rgba(102, 126, 234, 0.05);
-    color: #667eea;
-    transform: translateY(-2px);
-  }
-
-  .player-slot.filled {
-    border: 2px solid #4caf50;
-    background: rgba(76, 175, 80, 0.05);
     color: #fff;
   }
 
-  .player-slot.filled:hover {
-    border-color: #4caf50;
-    background: rgba(76, 175, 80, 0.08);
-  }
-
-  .player-slot.mine {
+  .player.mine {
     border-color: #667eea;
-    background: rgba(102, 126, 234, 0.1);
+    background: rgba(102, 126, 234, 0.15);
+    color: #fff;
   }
 
-  .player-slot.mine:hover {
-    border-color: #ff8a80;
-    background: rgba(211, 47, 47, 0.1);
+  .player.occupied {
+    border-color: #4caf50;
+    color: #fff;
   }
 
-  .icon {
-    font-size: 2.5rem;
-    display: block;
+  .player:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .port-label {
+    font-weight: 700;
+    font-size: 1rem;
+    padding: 0.35rem 0.75rem;
+    background: #444;
+    border-radius: 6px;
+    color: #aaa;
+  }
+
+  .player.mine .port-label {
+    background: #667eea;
+    color: #fff;
+  }
+
+  .player.occupied .port-label {
+    background: #4caf50;
+    color: #fff;
+  }
+
+  .avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
   }
 
   .player-name {
-    font-size: 1.125rem;
     font-weight: 600;
+    font-size: 1.1rem;
   }
 
-  .ready-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    color: #4caf50;
-    font-weight: 600;
-    font-size: 0.85rem;
-    padding: 0.25rem 0.75rem;
-    background: rgba(76, 175, 80, 0.15);
-    border-radius: 12px;
-    border: 1px solid rgba(76, 175, 80, 0.3);
-  }
-
-  @media (max-width: 768px) {
-    .ports {
-      grid-template-columns: 1fr;
-      gap: 1.5rem;
+  @media (max-width: 480px) {
+    .players {
+      flex-direction: column;
+      align-items: center;
     }
   }
 </style>

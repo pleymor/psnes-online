@@ -11,6 +11,7 @@
   export let gameId: string;
   export let keyConfig: KeyConfig;
   export let emulator: any = null; // Reference to ClientEmulator component (host only)
+  export let restoreFullscreen: boolean = false; // Whether to restore fullscreen on resume
 
   const dispatch = createEventDispatcher();
 
@@ -31,7 +32,7 @@
   }
 
   $: menuItems = [
-    { label: t($language, 'resume'), action: () => dispatch('resume') },
+    { label: t($language, 'resume'), action: () => handleResumeWithFullscreen() },
     { label: t($language, 'controls'), action: () => showKeyConfig = true },
     { label: t($language, 'saves'), action: () => showSaveLoad = true },
     { label: t($language, 'quit'), action: () => dispatch('quit'), danger: true }
@@ -65,11 +66,21 @@
       e.preventDefault();
       menuButtons[selectedIndex]?.click();
     }
-    // Handle B button or Escape to resume
-    else if (button === 'b' || e.key === 'Escape') {
+    // Handle B button to resume (Escape handled in keyup to work with fullscreen)
+    else if (button === 'b') {
       e.preventDefault();
-      dispatch('resume');
+      e.stopPropagation();
+      handleResumeWithFullscreen();
     }
+  }
+
+
+  function handleResumeWithFullscreen() {
+    // Request fullscreen (must be in user gesture handler)
+    if (restoreFullscreen && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+    dispatch('resume');
   }
 
   function handleBackFromSubmenu() {
@@ -122,7 +133,7 @@
             } else if (button === 'a' || button === 'start') {
               menuButtons[selectedIndex]?.click();
             } else if (button === 'b') {
-              dispatch('resume');
+              handleResumeWithFullscreen();
             }
           }
 

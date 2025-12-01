@@ -180,10 +180,10 @@
     });
   });
 
-  async function createRoom(gameId: string, gameTitle: string) {
+  async function createRoom(gameId: string, gameTitle: string, gameCoverUrl?: string) {
     if ($socket) {
       // Create room and immediately start playing as player 1
-      $socket.emit('room:create', { gameId, gameTitle, autoStart: false });
+      $socket.emit('room:create', { gameId, gameTitle, gameCoverUrl, autoStart: false });
 
       // Wait for room created event
       $socket.once('room:created', (room: any) => {
@@ -384,7 +384,7 @@
             {#each $games as game}
               <GameCard
                 {game}
-                on:play={() => createRoom(game.id, game.title)}
+                on:play={() => createRoom(game.id, game.title, game.coverUrl)}
                 on:details={() => selectedGame = game}
                 on:delete={() => handleDeleteRequest(game)}
               />

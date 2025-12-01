@@ -3,6 +3,10 @@
  * Creates a fake gamepad that RetroArch will recognize as a real controller
  */
 
+import { createLogger } from '$lib/utils/logger';
+
+const logger = createLogger('VirtualGamepad');
+
 export class VirtualGamepad implements Gamepad {
   public readonly id: string
   public readonly index: number
@@ -25,6 +29,8 @@ export class VirtualGamepad implements Gamepad {
       touched: false,
       value: 0,
     })) as any
+
+    logger.debug(`Created virtual gamepad P${index + 1} (index=${index})`);
   }
 
   /**
@@ -78,8 +84,8 @@ export class VirtualGamepad implements Gamepad {
       else if (button === 'up') this.axes[1] = -1
       else if (button === 'down') this.axes[1] = 1
 
-      // Dispatch gamepad event to trigger RetroArch polling
-      this.dispatchGamepadEvent()
+      // Update timestamp so RetroArch sees fresh input
+      this.timestamp = performance.now()
     }
   }
 
@@ -99,8 +105,8 @@ export class VirtualGamepad implements Gamepad {
       if (button === 'left' || button === 'right') this.axes[0] = 0
       else if (button === 'up' || button === 'down') this.axes[1] = 0
 
-      // Dispatch gamepad event to trigger RetroArch polling
-      this.dispatchGamepadEvent()
+      // Update timestamp so RetroArch sees fresh input
+      this.timestamp = performance.now()
     }
   }
 
@@ -115,6 +121,14 @@ export class VirtualGamepad implements Gamepad {
 // Store all installed gamepads globally
 const installedGamepads = new Map<number, VirtualGamepad>();
 let originalGetGamepads: typeof navigator.getGamepads | null = null;
+
+/**
+ * Get the original getGamepads function (before virtual gamepad override)
+ * Use this to poll physical gamepads
+ */
+export function getOriginalGetGamepads(): typeof navigator.getGamepads | null {
+  return originalGetGamepads;
+}
 
 /**
  * Install virtual gamepad into the browser's gamepad API

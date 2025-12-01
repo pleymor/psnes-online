@@ -30,12 +30,13 @@
 
   // Reactive statement to merge API rooms with WebSocket rooms
   $: {
-    // Update friendRooms with rooms from API
+    // Update friendRooms with rooms from API (indexed by creator, not current host)
     if (activeRooms && activeRooms.length > 0) {
       activeRooms.forEach(room => {
-        // Find the host of this room
-        if (room.hostId) {
-          friendRooms.set(room.hostId, room);
+        // Use createdBy to track original creator, fallback to hostId for compatibility
+        const creatorId = room.createdBy || room.hostId;
+        if (creatorId) {
+          friendRooms.set(creatorId, room);
         }
       });
       friendRooms = friendRooms; // Trigger reactivity
@@ -393,7 +394,7 @@
                 {/if}
               </div>
             </div>
-            {#if room?.status === 'waiting'}
+            {#if room?.status === 'waiting' && (room.createdBy || room.hostId) === friendData.friend.id}
               <button class="btn-join" on:click|stopPropagation={() => joinFriend(room.id)}>
                 {t($language, 'joinGame')}
               </button>
@@ -417,10 +418,12 @@
       {#each friends as friendData}
         {@const room = friendRooms.get(friendData.friend.id)}
         {@const isOnline = onlineFriends.get(friendData.friend.id)}
+        {@const isCreator = room && (room.createdBy || room.hostId) === friendData.friend.id}
+        {@const canJoin = isCreator && room?.status === 'waiting'}
         {@const isPlaying = room !== undefined}
         <div
           class="compact-badge-container"
-          on:click={() => isPlaying ? joinFriend(room.id) : openFriendDetails(friendData)}
+          on:click={() => canJoin ? joinFriend(room.id) : openFriendDetails(friendData)}
           title={friendData.friend.displayName}
         >
           <div class="compact-avatar">
