@@ -708,20 +708,17 @@
   }
 
   function toggleSpeed() {
-    // Disable speed control in multiplayer modes to prevent desync and cheating
-    if (emulationMode !== EmulationMode.SINGLE) {
-      logger.debug('Speed control disabled in multiplayer mode');
-      return;
-    }
     // Toggle between normal and fast
+    // setSpeed() handles mode restrictions
     const newSpeed = currentSpeed === 'normal' ? 'fast' : 'normal';
     setSpeed(newSpeed);
   }
 
   function setSpeed(speed: 'normal' | 'fast' | 'slow') {
-    // Disable speed control in multiplayer modes to prevent desync and cheating
-    if (emulationMode !== EmulationMode.SINGLE) {
-      logger.debug('Speed control disabled in multiplayer mode');
+    // Disable speed control in dual mode to prevent desync
+    // Allow in single player and streaming mode (host only runs emulator)
+    if (emulationMode === EmulationMode.DUAL) {
+      logger.debug('Speed control disabled in dual mode');
       return;
     }
     if (!emulator || currentSpeed === speed) return;

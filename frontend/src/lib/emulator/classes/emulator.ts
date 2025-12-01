@@ -414,11 +414,12 @@ export class Emulator {
       SCREENSHOT: '_cmd_take_screenshot',
     }
     const { Module } = this.getEmscripten()
-    const cmdFunc = exportedCommand[msg]
-
-
-    if (cmdFunc && cmdFunc in Module) {
-      this.callCommand(cmdFunc)
+    if (exportedCommand[msg] && exportedCommand[msg]! in Module) {
+      this.callCommand(exportedCommand[msg]!)
+    } else {
+      // Send command via stdin command interface (for FAST_FORWARD, etc.)
+      const bytes = textEncoder.encode(`${msg}\n`)
+      this.messageQueue.push([bytes, 0])
     }
   }
 
