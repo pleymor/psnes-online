@@ -1,9 +1,9 @@
-import type { Nostalgist } from '..'
+import type { WasmEmulator } from '..'
 import type { ResolvableFileInput, ResolvableFileInputs } from '../classes/resolvable-file'
 import type { RetroArchConfig } from './retroarch-config'
 import type { RetroArchEmscriptenModuleOptions } from './retroarch-emscripten'
 
-export interface NostalgistCoreDict {
+export interface WasmEmulatorCoreDict {
   /** the name of core */
   name: string
 
@@ -14,9 +14,9 @@ export interface NostalgistCoreDict {
   wasm: ResolvableFileInput
 }
 
-export type NostalgistResolveFileFunction = (file: string, options: NostalgistOptions) => ResolvableFileInput
+export type WasmEmulatorResolveFileFunction = (file: string, options: WasmEmulatorOptions) => ResolvableFileInput
 
-export interface NostalgistOptions {
+export interface WasmEmulatorOptions {
   /**
    * The canvas element to use.
    * @defaultValue '' an empty string
@@ -51,7 +51,7 @@ export interface NostalgistOptions {
    */
   size?: 'auto' | { height: number; width: number }
 
-  core: NostalgistCoreDict | string
+  core: WasmEmulatorCoreDict | string
 
   /**
    * The rom needs to be launched.
@@ -65,15 +65,15 @@ export interface NostalgistOptions {
    * @example
    * If it's a url, that's saying, it starts with `"http://"` or `"https://"`, a request will be sent to grab its content.
    * ```js
-   * const nostalgist = await Nostalgist.launch({
+   * const emulator = await WasmEmulator.launch({
    *   rom: 'https://example.com/contra.nes'
    * })
    * ```
    *
    * @example
-   * If it's a normal string, it will be passed to `options.resolveRom`, another function option that should return a [resolvable file](https://nostalgist.js.org/apis/resolvable-file).
+   * If it's a normal string, it will be passed to `options.resolveRom`, another function option that should return a resolvable file.
    * ```js
-   * const nostalgist = await Nostalgist.launch({
+   * const emulator = await WasmEmulator.launch({
    *   rom: 'contra.nes',
    *   resolveRom({ file }) {
    *     return `https://example.com/roms/${file}`
@@ -87,7 +87,7 @@ export interface NostalgistOptions {
    * If it's a `File` object, its content and file name will be directly used for emulation.
    * ```js
    * const rom = await showFilePicker()
-   * const nostalgist = await Nostalgist.launch({
+   * const emulator = await WasmEmulator.launch({
    *   rom,
    * })
    *
@@ -97,7 +97,7 @@ export interface NostalgistOptions {
    * If it's an plain object, here is an example.
    * ```js
    * const fileContent = await fetch('http://example.com/contra.nes')
-   * const nostalgist = await Nostalgist.launch({
+   * const emulator = await WasmEmulator.launch({
    *   rom: {
    *     fileName: 'contra.nes',
    *     fileContent,
@@ -110,7 +110,7 @@ export interface NostalgistOptions {
    * ```js
    * const blob = await showFilePicker()
    * const fileContent = await fetch('http://example.com/contra.nes')
-   * const nostalgist = await Nostalgist.launch({
+   * const emulator = await WasmEmulator.launch({
    *   rom: ['rom1.bin', blob, {
    *     fileName: 'rom2.bin',
    *     fileContent,
@@ -169,7 +169,7 @@ export interface NostalgistOptions {
 
   /**
    * If this is set to true, emulator will not run automatically.
-   * To run the emulator, `nostalgist.launchEmulator` should be called later.
+   * To run the emulator, `emulator.launchEmulator` should be called later.
    * Default value is `false`.
    */
   runEmulatorManually: boolean
@@ -188,27 +188,27 @@ export interface NostalgistOptions {
 
   cache?: { bios?: boolean; core?: boolean; rom?: boolean; shader?: boolean; sram?: boolean; state?: boolean } | boolean
 
-  beforeLaunch?: (nostalgist: Nostalgist) => Promise<void> | void
-  onLaunch?: (nostalgist: Nostalgist) => Promise<void> | void
-  resolveBios: NostalgistResolveFileFunction
-  resolveCoreJs: (core: NostalgistOptions['core'], options: NostalgistOptions) => ResolvableFileInput
-  resolveCoreWasm: (core: NostalgistOptions['core'], options: NostalgistOptions) => ResolvableFileInput
-  resolveRom: NostalgistResolveFileFunction
+  beforeLaunch?: (emulator: WasmEmulator) => Promise<void> | void
+  onLaunch?: (emulator: WasmEmulator) => Promise<void> | void
+  resolveBios: WasmEmulatorResolveFileFunction
+  resolveCoreJs: (core: WasmEmulatorOptions['core'], options: WasmEmulatorOptions) => ResolvableFileInput
+  resolveCoreWasm: (core: WasmEmulatorOptions['core'], options: WasmEmulatorOptions) => ResolvableFileInput
+  resolveRom: WasmEmulatorResolveFileFunction
   resolveShader: (
-    shader: NostalgistOptions['shader'],
-    options: NostalgistOptions,
+    shader: WasmEmulatorOptions['shader'],
+    options: WasmEmulatorOptions,
   ) => ResolvableFileInput | ResolvableFileInputs
 
   /**
-   * @deprecated Use `Nostalgist.prepare` instead.
+   * @deprecated Use `WasmEmulator.prepare` instead.
    */
   waitForInteraction?: (params: { done: () => void }) => void
 }
 
-export type NostalgistOptionsPartial = Partial<NostalgistOptions>
+export type WasmEmulatorOptionsPartial = Partial<WasmEmulatorOptions>
 
-export type NostalgistLaunchOptions = NostalgistOptionsPartial & Pick<NostalgistOptions, 'core'>
-interface NostalgistLaunchRomObjectOptions extends Omit<NostalgistOptionsPartial, 'core'> {
+export type WasmEmulatorLaunchOptions = WasmEmulatorOptionsPartial & Pick<WasmEmulatorOptions, 'core'>
+interface WasmEmulatorLaunchRomObjectOptions extends Omit<WasmEmulatorOptionsPartial, 'core'> {
   rom: ResolvableFileInput | ResolvableFileInputs
 }
-export type NostalgistLaunchRomOptions = NostalgistLaunchRomObjectOptions | ResolvableFileInput | ResolvableFileInputs
+export type WasmEmulatorLaunchRomOptions = WasmEmulatorLaunchRomObjectOptions | ResolvableFileInput | ResolvableFileInputs

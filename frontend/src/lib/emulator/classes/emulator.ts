@@ -150,6 +150,43 @@ export class Emulator {
     return this.emscripten
   }
 
+  /**
+   * Get a fast checksum of WASM memory without saveState()
+   * This is much faster than saveState() + hash
+   */
+  getMemoryChecksum(): string {
+    const { Module } = this.getEmscripten()
+    const heap = (Module as any).HEAPU8 as Uint8Array | undefined
+
+    if (!heap) {
+      return 'no-heap'
+    }
+
+    // Hash a portion of memory - full heap is too large
+    // SNES has 128KB of RAM, typically in the first few MB of WASM memory
+    const len = Math.min(heap.length, 2 * 1024 * 1024) // First 2MB
+
+    // Fast XOR-based checksum with position mixing
+    let h1 = 0, h2 = 0, h3 = 0, h4 = 0
+    let h5 = 0, h6 = 0, h7 = 0, h8 = 0
+
+    // Sample every 64th byte for speed (still covers 32KB of data)
+    for (let i = 0; i < len; i += 64) {
+      h1 ^= heap[i] ^ (i & 0xFF)
+      h2 ^= heap[i + 1] ^ ((i >> 8) & 0xFF)
+      h3 ^= heap[i + 2] ^ ((i >> 16) & 0xFF)
+      h4 ^= heap[i + 3] ^ (i & 0xFF)
+      h5 ^= heap[i + 4] ^ ((i >> 8) & 0xFF)
+      h6 ^= heap[i + 5] ^ ((i >> 16) & 0xFF)
+      h7 ^= heap[i + 6] ^ (i & 0xFF)
+      h8 ^= heap[i + 7] ^ ((i >> 8) & 0xFF)
+    }
+
+    return [h7, h8]
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+  }
+
   getOptions() {
     return this.options
   }
@@ -209,10 +246,22 @@ export class Emulator {
   }
 
   async loadState(state: ResolvableFile) {
+    // Write to both .state (for LOAD_STATE command) and .state.auto (for auto-load)
+    const autoStatePath = `${this.stateFilePath}.auto`
     this.clearStateFile()
-    await this.fs.writeFile(this.stateFilePath, state)
-    await this.fs.waitForFile(this.stateFilePath)
+
+    logger.info(`loadState: writing to ${this.stateFilePath} AND ${autoStatePath}`)
+    await Promise.all([
+      this.fs.writeFile(this.stateFilePath, state),
+      this.fs.writeFile(autoStatePath, state)
+    ])
+
+    const written = await this.fs.waitForFile(this.stateFilePath)
+    logger.info(`loadState: files written (${written?.byteLength} bytes), sending LOAD_STATE command`)
+
+    // Use direct call to _cmd_load_state
     this.sendCommand('LOAD_STATE')
+    logger.info(`loadState: command sent`)
   }
 
   on(event: EmulatorEvent, callback: (...args: unknown[]) => unknown) {
@@ -221,8 +270,10 @@ export class Emulator {
   }
 
   pause() {
+    logger.debug('Emulator.pause() called, gameStatus:', this.gameStatus)
     if (this.gameStatus === 'running') {
       this.sendCommand('PAUSE_TOGGLE')
+      logger.info('PAUSE_TOGGLE command sent')
     }
     this.gameStatus = 'paused'
   }
@@ -308,8 +359,10 @@ export class Emulator {
   }
 
   resume() {
+    logger.debug('Emulator.resume() called, gameStatus:', this.gameStatus)
     if (this.gameStatus === 'paused') {
       this.sendCommand('PAUSE_TOGGLE')
+      logger.info('PAUSE_TOGGLE (resume) command sent')
     }
     this.gameStatus = 'running'
   }
@@ -361,11 +414,11 @@ export class Emulator {
       SCREENSHOT: '_cmd_take_screenshot',
     }
     const { Module } = this.getEmscripten()
-    if (exportedCommand[msg] && exportedCommand[msg] in Module) {
-      this.callCommand(exportedCommand[msg])
-    } else {
-      const bytes = textEncoder.encode(`${msg}\n`)
-      this.messageQueue.push([bytes, 0])
+    const cmdFunc = exportedCommand[msg]
+
+
+    if (cmdFunc && cmdFunc in Module) {
+      this.callCommand(cmdFunc)
     }
   }
 
