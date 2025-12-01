@@ -15,7 +15,7 @@ export class VirtualGamepad implements Gamepad {
   public readonly mapping: GamepadMappingType = 'standard'
   public axes: number[] = [0, 0, 0, 0]
   public buttons: GamepadButton[]
-  public readonly vibrationActuator: null = null
+  public readonly vibrationActuator: GamepadHapticActuator = null as unknown as GamepadHapticActuator
   public readonly hapticActuators: readonly GamepadHapticActuator[] = []
 
   constructor(index: number = 1) {

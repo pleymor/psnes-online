@@ -1057,7 +1057,9 @@ export class SimpleSyncManager {
       this.callbacks.onSendMessage({
         type: 'sync_check',
         frame,
-        checksum
+        checksum,
+        timestamp: performance.now(),
+        epoch: 0
       });
 
       logger.debug(`Sync check at frame ${frame}: ${checksum}`);

@@ -27,6 +27,7 @@
   let showDropdown = false;
   let friendRooms = new Map<string, any>(); // userId -> room
   let onlineFriends = new Map<string, boolean>(); // userId -> online status
+  let selectedFriend: any = null;
 
   // Reactive statement to merge API rooms with WebSocket rooms
   $: {

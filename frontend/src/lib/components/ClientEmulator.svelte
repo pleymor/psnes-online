@@ -642,7 +642,7 @@
     }
   }
 
-  export async function saveState(): Promise<Uint8Array | null> {
+  export async function saveState(): Promise<{ state: Blob; thumbnail?: Blob } | null> {
     if (!emulator) return null;
     try {
       return await emulator.saveState();

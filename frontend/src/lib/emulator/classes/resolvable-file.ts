@@ -6,8 +6,8 @@ import {
   isResolvableFileContent,
   isZip,
   type Resolvable,
-} from '../libs/utils.ts'
-import { vendors } from '../libs/vendors.ts'
+} from '../libs/utils'
+import { vendors } from '../libs/vendors'
 
 const { path } = vendors
 

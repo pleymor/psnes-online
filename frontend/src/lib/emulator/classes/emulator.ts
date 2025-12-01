@@ -1,6 +1,6 @@
-import { coreInfoMap } from '../constants/core-info.ts'
-import { keyboardCodeMap } from '../constants/keyboard-code-map.ts'
-import { getEmscriptenModuleOverrides } from '../libs/emscripten.ts'
+import { coreInfoMap } from '../constants/core-info'
+import { keyboardCodeMap } from '../constants/keyboard-code-map'
+import { getEmscriptenModuleOverrides } from '../libs/emscripten'
 import {
   checkIsAborted,
   delay,
@@ -10,14 +10,14 @@ import {
   textEncoder,
   uninstallSetImmediatePolyfill,
   updateStyle,
-} from '../libs/utils.ts'
-import { vendors } from '../libs/vendors.ts'
-import { VirtualGamepad, installVirtualGamepad } from '../libs/virtual-gamepad.ts'
-import type { RetroArchCommand } from '../types/retroarch-command.ts'
+} from '../libs/utils'
+import { vendors } from '../libs/vendors'
+import { VirtualGamepad, installVirtualGamepad } from '../libs/virtual-gamepad'
+import type { RetroArchCommand } from '../types/retroarch-command'
 import type { RetroArchEmscriptenModule } from '../types/retroarch-emscripten'
-import { EmulatorFileSystem } from './emulator-file-system.ts'
+import { EmulatorFileSystem } from './emulator-file-system'
 import type { EmulatorOptions } from './emulator-options'
-import type { ResolvableFile } from './resolvable-file.ts'
+import type { ResolvableFile } from './resolvable-file'
 import { createLogger } from '$lib/utils/logger'
 
 const logger = createLogger('Emulator')

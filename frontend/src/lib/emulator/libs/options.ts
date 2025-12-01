@@ -1,8 +1,20 @@
-import type * as zip from '@zip.js/zip.js'
-import type { WasmEmulatorOptions, WasmEmulatorOptionsPartial } from '../types/wasm-emulator-options.ts'
+import type { WasmEmulatorOptions, WasmEmulatorOptionsPartial } from '../types/wasm-emulator-options'
 import type { RetroArchConfig } from '../types/retroarch-config'
-import { isAbsoluteUrl, merge } from './utils.ts'
-import { vendors } from './vendors.ts'
+import { isAbsoluteUrl, merge } from './utils'
+import { vendors } from './vendors'
+
+// Types for zip.js (dynamically imported)
+interface ZipEntry {
+  filename: string;
+  directory: boolean;
+  getData?: (writer: unknown) => Promise<Blob>;
+}
+
+interface ZipModule {
+  BlobReader: new (blob: Blob) => unknown;
+  BlobWriter: new (mimeType: string) => unknown;
+  ZipReader: new (reader: unknown) => { getEntries: () => Promise<ZipEntry[]> };
+}
 
 const { path } = vendors
 
@@ -70,7 +82,7 @@ const extractCache = new Map<string, ReturnType<typeof extractCore>>()
 async function extractCore(core: string) {
   const url = `${cdnBaseUrl}/${coreRepo}@${coreVersion}/${coreDirectory}/${core}_libretro.zip`
   const [{ BlobReader, BlobWriter, ZipReader }, response] = await Promise.all([
-    import(/* @vite-ignore */ /* webpackIgnore: true */ zipjsURL) as Promise<typeof zip>,
+    import(/* @vite-ignore */ /* webpackIgnore: true */ zipjsURL) as Promise<ZipModule>,
     fetch(url),
   ])
   const blob = await response.blob()
@@ -79,7 +91,7 @@ async function extractCore(core: string) {
   const entries = await zipReader.getEntries()
   const result: { js?: Blob; wasm?: Blob } = {}
   await Promise.all(
-    entries.map(async (entry) => {
+    entries.map(async (entry: ZipEntry) => {
       if (entry && !entry.directory) {
         if (entry.filename.endsWith('.js')) {
           result.js = await entry.getData?.(new BlobWriter('application/octet-stream'))

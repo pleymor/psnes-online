@@ -1,1 +1,1 @@
-export { WasmEmulator } from './classes/wasm-emulator.ts'
+export { WasmEmulator } from './classes/wasm-emulator'

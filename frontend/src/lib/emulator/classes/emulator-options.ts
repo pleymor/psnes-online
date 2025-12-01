@@ -1,8 +1,8 @@
-import { getGlobalOptions } from '../libs/options.ts'
-import { generateValidFileName, getResult, merge } from '../libs/utils.ts'
-import type { WasmEmulatorOptions } from '../types/wasm-emulator-options.ts'
-import type { RetroArchEmscriptenModuleOptions } from '../types/retroarch-emscripten.ts'
-import { ResolvableFile } from './resolvable-file.ts'
+import { getGlobalOptions } from '../libs/options'
+import { generateValidFileName, getResult, merge } from '../libs/utils'
+import type { WasmEmulatorOptions } from '../types/wasm-emulator-options'
+import type { RetroArchEmscriptenModuleOptions } from '../types/retroarch-emscripten'
+import { ResolvableFile } from './resolvable-file'
 
 // Copied from https://github.com/sindresorhus/is-plain-obj/blob/main/index.js
 function isPlainObject(value: unknown) {

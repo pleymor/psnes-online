@@ -817,7 +817,9 @@ export class RollbackManager {
       this.callbacks.onSendMessage({
         type: 'sync_check',
         frame: this.currentFrame,
-        checksum
+        checksum,
+        timestamp: performance.now(),
+        epoch: 0
       });
 
       logger.debug(`Sync check at frame ${this.currentFrame}: ${checksum}`);

@@ -158,7 +158,7 @@ export class NetworkDetector {
   async getRecommendation(guestCPU: number = 50): Promise<{
     mode: EmulationMode;
     quality: NetworkQuality;
-    latencyGain: ReturnType<typeof this.estimateLatencyGain>;
+    latencyGain: { streaming: number; dual: number; gain: number; gainPercent: number };
     reason: string;
   }> {
     const quality = await this.measureQuality();

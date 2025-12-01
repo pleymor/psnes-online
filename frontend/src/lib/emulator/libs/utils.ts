@@ -1,5 +1,5 @@
-import { ResolvableFile } from '../classes/resolvable-file.ts'
-import { vendors } from './vendors.ts'
+import { ResolvableFile } from '../classes/resolvable-file'
+import { vendors } from './vendors'
 
 const { path } = vendors
 

@@ -156,7 +156,7 @@
               class="mode-toggle"
               class:disabled={!isRoomCreator}
               disabled={!isRoomCreator}
-              on:click={() => setEmulationMode(room.emulationMode === EmulationMode.DUAL ? EmulationMode.STREAMING : EmulationMode.DUAL)}
+              on:click={() => setEmulationMode(room?.emulationMode === EmulationMode.DUAL ? EmulationMode.STREAMING : EmulationMode.DUAL)}
             >
               <span class="mode-label" class:active={room.emulationMode === EmulationMode.DUAL}>
                 {t($language, 'dualMode')} <span class="alpha-badge">Alpha</span>

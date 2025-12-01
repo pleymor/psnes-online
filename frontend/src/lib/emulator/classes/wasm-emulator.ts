@@ -1,7 +1,7 @@
-import { systemCoreMap } from '../constants/system.ts'
-import { getGlobalOptions, resetGlobalOptions, updateGlobalOptions } from '../libs/options.ts'
-import { checkIsAborted, getResult, isResolvableFileInput, merge } from '../libs/utils.ts'
-import { vendors } from '../libs/vendors.ts'
+import { systemCoreMap } from '../constants/system'
+import { getGlobalOptions, resetGlobalOptions, updateGlobalOptions } from '../libs/options'
+import { checkIsAborted, getResult, isResolvableFileInput, merge } from '../libs/utils'
+import { vendors } from '../libs/vendors'
 import type {
   WasmEmulatorLaunchOptions,
   WasmEmulatorLaunchRomOptions,
@@ -9,9 +9,9 @@ import type {
   WasmEmulatorOptionsPartial,
 } from '../types/wasm-emulator-options'
 import type { RetroArchCommand } from '../types/retroarch-command'
-import { EmulatorOptions } from './emulator-options.ts'
-import { Emulator } from './emulator.ts'
-import { ResolvableFile, type ResolvableFileInput } from './resolvable-file.ts'
+import { EmulatorOptions } from './emulator-options'
+import { Emulator } from './emulator'
+import { ResolvableFile, type ResolvableFileInput } from './resolvable-file'
 
 export class WasmEmulator {
   static readonly WasmEmulator = WasmEmulator

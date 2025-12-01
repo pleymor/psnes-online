@@ -104,9 +104,7 @@
     try {
       logger.debug('📥 Loading ROM...', gameId);
       // Use room-based endpoint for multiplayer (allows guest to download)
-      const endpoint = emulationMode === EmulationMode.SINGLE
-        ? `/api/games/${gameId}/download`
-        : `/api/games/room/${roomId}/rom`;
+      const endpoint = `/api/games/room/${roomId}/rom`;
 
       const response = await fetch(endpoint, {
         credentials: 'include'
