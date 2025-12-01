@@ -24,7 +24,6 @@ export class FrameController {
   private frameCompleteResolver: (() => void) | null = null;
   private installed = false;
   private frameCount = 0;
-  private lastFrameTime = 0;
 
   constructor() {
     this.originalRAF = window.requestAnimationFrame.bind(window);
@@ -66,7 +65,6 @@ export class FrameController {
 
     this.installed = true;
     this.frameCount = 0;
-    this.lastFrameTime = performance.now();
   }
 
   /**
@@ -151,10 +149,7 @@ export class FrameController {
     this.pendingCallback = null;
     this.frameReady = false;
 
-    // Calculate time for the callback
     const now = performance.now();
-    const deltaTime = now - this.lastFrameTime;
-    this.lastFrameTime = now;
 
     // Execute the frame callback via a microtask to allow proper async behavior
     // This is important because the emulator expects RAF to be asynchronous
