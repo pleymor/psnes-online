@@ -3,26 +3,26 @@ import { getGlobalOptions, resetGlobalOptions, updateGlobalOptions } from '../li
 import { checkIsAborted, getResult, isResolvableFileInput, merge } from '../libs/utils.ts'
 import { vendors } from '../libs/vendors.ts'
 import type {
-  NostalgistLaunchOptions,
-  NostalgistLaunchRomOptions,
-  NostalgistOptions,
-  NostalgistOptionsPartial,
-} from '../types/nostalgist-options'
+  WasmEmulatorLaunchOptions,
+  WasmEmulatorLaunchRomOptions,
+  WasmEmulatorOptions,
+  WasmEmulatorOptionsPartial,
+} from '../types/wasm-emulator-options'
 import type { RetroArchCommand } from '../types/retroarch-command'
 import { EmulatorOptions } from './emulator-options.ts'
 import { Emulator } from './emulator.ts'
 import { ResolvableFile, type ResolvableFileInput } from './resolvable-file.ts'
 
-export class Nostalgist {
-  static readonly Nostalgist = Nostalgist
+export class WasmEmulator {
+  static readonly WasmEmulator = WasmEmulator
   static readonly vendors = vendors
 
   private emulator: Emulator | undefined
   private emulatorOptions: EmulatorOptions | undefined
-  private options: NostalgistOptions
+  private options: WasmEmulatorOptions
 
-  private constructor(options: NostalgistLaunchOptions) {
-    const mergedOptions = {} as unknown as NostalgistOptions
+  private constructor(options: WasmEmulatorLaunchOptions) {
+    const mergedOptions = {} as unknown as WasmEmulatorOptions
     merge(mergedOptions, getGlobalOptions(), options)
     this.options = mergedOptions
   }
@@ -32,15 +32,13 @@ export class Nostalgist {
   }
 
   /**
-   * Update the global options for `Nostalgist`, so everytime the `Nostalgist.launch` method or shortcuts like `Nostalgist.nes` is called, the default options specified here will be used.
+   * Update the global options for `WasmEmulator`, so everytime the `WasmEmulator.launch` method or shortcuts like `WasmEmulator.nes` is called, the default options specified here will be used.
    *
    * You may want to specify how to resolve ROMs and RetroArch cores here.
    *
-   * @see {@link https://nostalgist.js.org/apis/configure/}
-   *
    * @example
    * ```js
-   * Nostalgist.configure({
+   * WasmEmulator.configure({
    *   resolveRom({ file }) {
    *     return `https://example.com/roms/${file}`
    *   },
@@ -48,52 +46,44 @@ export class Nostalgist {
    * })
    * ```
    */
-  static configure(options: NostalgistOptionsPartial) {
+  static configure(options: WasmEmulatorOptionsPartial) {
     updateGlobalOptions(options)
   }
 
   /**
-   * A shortcut method for Nostalgist.launch method, with some additional default options for GB emulation.
+   * A shortcut method for WasmEmulator.launch method, with some additional default options for GB emulation.
    *
    * It will use mgba as the default core for emulation.
-   *
-   * @see {@link https://nostalgist.js.org/apis/gb/}
    */
-  static async gb(options: NostalgistLaunchRomOptions) {
-    return await Nostalgist.launchSystem('gb', options)
+  static async gb(options: WasmEmulatorLaunchRomOptions) {
+    return await WasmEmulator.launchSystem('gb', options)
   }
 
   /**
-   * A shortcut method for Nostalgist.launch method, with some additional default options for GBA emulation.
+   * A shortcut method for WasmEmulator.launch method, with some additional default options for GBA emulation.
    *
    * It will use mgba as the default core for emulation.
-   *
-   * @see {@link https://nostalgist.js.org/apis/gba/}
    */
-  static async gba(options: NostalgistLaunchRomOptions) {
-    return await Nostalgist.launchSystem('gba', options)
+  static async gba(options: WasmEmulatorLaunchRomOptions) {
+    return await WasmEmulator.launchSystem('gba', options)
   }
 
   /**
-   * A shortcut method for Nostalgist.launch method, with some additional default options for GBC emulation.
+   * A shortcut method for WasmEmulator.launch method, with some additional default options for GBC emulation.
    *
    * It will use mgba as the default core for emulation.
-   *
-   * @see {@link https://nostalgist.js.org/apis/gbc/}
    */
-  static async gbc(options: NostalgistLaunchRomOptions) {
-    return await Nostalgist.launchSystem('gbc', options)
+  static async gbc(options: WasmEmulatorLaunchRomOptions) {
+    return await WasmEmulator.launchSystem('gbc', options)
   }
 
   /**
    * Launch an emulator and return a `Promise` of the instance of the emulator.
    *
-   * @see {@link https://nostalgist.js.org/apis/launch/}
-   *
    * @example
    * A simple example:
    * ```js
-   * const nostalgist = await Nostalgist.launch({
+   * const emulator = await WasmEmulator.launch({
    *   core: 'fceumm',
    *   rom: 'flappybird.nes',
    * })
@@ -102,7 +92,7 @@ export class Nostalgist {
    * @example
    * A more complex one:
    * ```js
-   * const nostalgist = await Nostalgist.launch({
+   * const emulator = await WasmEmulator.launch({
    *   element: document.querySelector('.emulator-canvas'),
    *   core: 'fbneo',
    *   rom: ['mslug.zip'],
@@ -127,82 +117,72 @@ export class Nostalgist {
    * })
    * ```
    */
-  static async launch(options: NostalgistLaunchOptions) {
-    const nostalgist = new Nostalgist(options)
-    await nostalgist.load()
-    return nostalgist
+  static async launch(options: WasmEmulatorLaunchOptions) {
+    const instance = new WasmEmulator(options)
+    await instance.load()
+    return instance
   }
 
   /**
-   * A shortcut method for Nostalgist.launch method, with some additional default options for Sega Genesis / Megadrive emulation.
+   * A shortcut method for WasmEmulator.launch method, with some additional default options for Sega Genesis / Megadrive emulation.
    *
    * It will use genesis_plus_gx as the default core for emulation.
-   *
-   * @see {@link https://nostalgist.js.org/apis/megadrive/}
    */
-  static async megadrive(options: NostalgistLaunchRomOptions) {
-    return await Nostalgist.launchSystem('megadrive', options)
+  static async megadrive(options: WasmEmulatorLaunchRomOptions) {
+    return await WasmEmulator.launchSystem('megadrive', options)
   }
 
   /**
-   * A shortcut method for Nostalgist.launch method, with some additional default options for NES emulation.
+   * A shortcut method for WasmEmulator.launch method, with some additional default options for NES emulation.
    *
    * It will use fceumm as the default core for emulation.
-   *
-   * @see {@link https://nostalgist.js.org/apis/nes/}
    */
-  static async nes(options: NostalgistLaunchRomOptions) {
-    return await Nostalgist.launchSystem('nes', options)
+  static async nes(options: WasmEmulatorLaunchRomOptions) {
+    return await WasmEmulator.launchSystem('nes', options)
   }
 
-  static async prepare(options: NostalgistLaunchOptions) {
-    const nostalgist = new Nostalgist({ ...options, runEmulatorManually: true })
-    await nostalgist.load()
-    return nostalgist
+  static async prepare(options: WasmEmulatorLaunchOptions) {
+    const instance = new WasmEmulator({ ...options, runEmulatorManually: true })
+    await instance.load()
+    return instance
   }
 
   /**
-   * Reset the global configuation set by `Nostalgist.configure` to default.
-   *
-   * @see {@link https://nostalgist.js.org/apis/reset-to-default/}
+   * Reset the global configuation set by `WasmEmulator.configure` to default.
    */
   static resetToDefault() {
     resetGlobalOptions()
   }
 
   /**
-   * A shortcut method for Nostalgist.launch method, with some additional default options for SNES emulation.
+   * A shortcut method for WasmEmulator.launch method, with some additional default options for SNES emulation.
    *
    * It will use snes9x as the default core for emulation.
-   *
-   * @see {@link https://nostalgist.js.org/apis/snes/}
    */
-  static async snes(options: NostalgistLaunchRomOptions) {
-    return await Nostalgist.launchSystem('snes', options)
+  static async snes(options: WasmEmulatorLaunchRomOptions) {
+    return await WasmEmulator.launchSystem('snes', options)
   }
 
-  private static async launchSystem(system: string, options: NostalgistLaunchRomOptions) {
+  private static async launchSystem(system: string, options: WasmEmulatorLaunchRomOptions) {
     const optionsResult = await getResult(options as any)
     const launchOptions = isResolvableFileInput(optionsResult) ? { rom: optionsResult } : optionsResult
-    return await Nostalgist.launch({ ...launchOptions, core: systemCoreMap[system] })
+    return await WasmEmulator.launch({ ...launchOptions, core: systemCoreMap[system] })
   }
 
   /**
    * Exit the current running game and the emulator. Remove the canvas element used by the emulator if needed.
    *
-   * @see {@link https://nostalgist.js.org/apis/exit/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
-   * nostalgist.exit()
+   * emulator.exit()
    * ```
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
    * // the canvas element will not be removed
-   * nostalgist.exit({ removeCanvas: false })
+   * emulator.exit({ removeCanvas: false })
    * ```
    */
   exit({ removeCanvas = true }: { removeCanvas?: boolean } = {}) {
@@ -214,8 +194,6 @@ export class Nostalgist {
 
   /**
    * Get the canvas DOM element that the current emulator is using.
-   *
-   * @see {@link https://nostalgist.js.org/apis/get-canvas/}
    */
   getCanvas() {
     return this.getEmulatorOptions().element
@@ -223,8 +201,6 @@ export class Nostalgist {
 
   /**
    * Get the Emscripten object exposed by RetroArch.
-   *
-   * @see {@link https://nostalgist.js.org/apis/get-emscripten-module/}
    */
   getEmscripten(): any {
     const emulator = this.getEmulator()
@@ -233,8 +209,6 @@ export class Nostalgist {
 
   /**
    * Get the Emscripten AL object exposed by RetroArch.
-   *
-   * @see {@link https://nostalgist.js.org/apis/get-emscripten-module/}
    */
   getEmscriptenAL() {
     const emulator = this.getEmulator()
@@ -243,8 +217,6 @@ export class Nostalgist {
 
   /**
    * Get the Emscripten FS object of the current running emulator.
-   *
-   * @see {@link https://nostalgist.js.org/apis/get-emscripten-fs/}
    */
   getEmscriptenFS() {
     const emulator = this.getEmulator()
@@ -254,8 +226,6 @@ export class Nostalgist {
 
   /**
    * Get the Emscripten Module object of the current running emulator.
-   *
-   * @see {@link https://nostalgist.js.org/apis/get-emscripten-module/}
    */
   getEmscriptenModule() {
     const emulator = this.getEmulator()
@@ -285,22 +255,20 @@ export class Nostalgist {
   /**
    * Get the status of current emulation.
    *
-   * @see {@link https://nostalgist.js.org/apis/get-status/}
-   *
    * @returns One of 'initial' | 'paused' | 'running' | 'terminated'
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.prepare('flappybird.nes')
-   * console.log(nostalgist.getStatus()) // 'initial'
-
-   * await nostalgist.launch()
-   * console.log(nostalgist.getStatus()) // 'running'
-
-   * await nostalgist.pause()
-   * console.log(nostalgist.getStatus()) // 'paused'
-
-   * nostalgist.exit()
-   * console.log(nostalgist.getStatus()) // 'terminated'
+   * const emulator = await WasmEmulator.prepare('flappybird.nes')
+   * console.log(emulator.getStatus()) // 'initial'
+   *
+   * await emulator.launch()
+   * console.log(emulator.getStatus()) // 'running'
+   *
+   * await emulator.pause()
+   * console.log(emulator.getStatus()) // 'paused'
+   *
+   * emulator.exit()
+   * console.log(emulator.getStatus()) // 'terminated'
    * ```
    */
   getStatus() {
@@ -310,7 +278,6 @@ export class Nostalgist {
   /**
    * Launch the emulator, if it's not launched, because of the launch option `runEmulatorManually` being set to `true`.
    * @deprecated Use the `start` method instead.
-   * @see {@link https://nostalgist.js.org/apis/launch-emulator/}
    */
   async launchEmulator() {
     return await this.start()
@@ -319,17 +286,15 @@ export class Nostalgist {
   /**
    * Load a state for the current running emulator and game.
    *
-   * @see {@link https://nostalgist.js.org/apis/load-state/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
    * // save the state
-   * const { state } = await nostalgist.saveState()
+   * const { state } = await emulator.saveState()
    *
    * // load the state
-   * await nostalgist.loadState(state)
+   * await emulator.loadState(state)
    * ```
    */
   async loadState(state: ResolvableFileInput) {
@@ -340,13 +305,11 @@ export class Nostalgist {
   /**
    * Pause the current running game.
    *
-   * @see {@link https://nostalgist.js.org/apis/pause/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
-   * nostalgist.pause()
+   * emulator.pause()
    * ```
    */
   pause() {
@@ -356,13 +319,11 @@ export class Nostalgist {
   /**
    * Press a button and then release it programmatically. Analog Joysticks are not supported by now.
    *
-   * @see {@link https://nostalgist.js.org/apis/press/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
-   * await nostalgist.press('start')
+   * await emulator.press('start')
    * ```
    */
   async press(options: { button: string; player?: number; time?: number } | string) {
@@ -375,13 +336,11 @@ export class Nostalgist {
   /**
    * Press a button programmatically. Analog Joysticks are not supported by now.
    *
-   * @see {@link https://nostalgist.js.org/apis/press-down/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
-   * nostalgist.pressDown('start')
+   * emulator.pressDown('start')
    * ```
    */
   pressDown(options: { button: string; player?: number } | string) {
@@ -395,13 +354,11 @@ export class Nostalgist {
   /**
    * Release it programmatically. Analog Joysticks are not supported by now.
    *
-   * @see {@link https://nostalgist.js.org/apis/press-up/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
-   * nostalgist.pressUp('start')
+   * emulator.pressUp('start')
    * ```
    */
   pressUp(options: { button: string; player?: number } | string) {
@@ -415,13 +372,11 @@ export class Nostalgist {
   /**
    * Resize the canvas element of the emulator.
    *
-   * @see {@link https://nostalgist.js.org/apis/resize/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
-   * nostalgist.resize({ width: 1000, height: 800 })
+   * emulator.resize({ width: 1000, height: 800 })
    * ```
    */
   resize(size: { height: number; width: number }) {
@@ -431,13 +386,11 @@ export class Nostalgist {
   /**
    * Restart the current running game.
    *
-   * @see {@link https://nostalgist.js.org/apis/restart/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
-   * nostalgist.restart()
+   * emulator.restart()
    * ```
    */
   restart() {
@@ -447,15 +400,13 @@ export class Nostalgist {
   /**
    * Resume the current running game, if it has been paused by `pause`.
    *
-   * @see {@link https://nostalgist.js.org/apis/resume/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
-   * nostalgist.pause()
+   * emulator.pause()
    * await new Promise(resolve => setTimeout(resolve, 1000))
-   * nostalgist.resume()
+   * emulator.resume()
    * ```
    */
   resume() {
@@ -465,13 +416,11 @@ export class Nostalgist {
   /**
    * Save the SRAM of the current running game.
    *
-   * @see {@link https://nostalgist.js.org/apis/save-sram/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
-   * const sram = await nostalgist.saveSRAM()
+   * const sram = await emulator.saveSRAM()
    * ```
    */
   async saveSRAM() {
@@ -482,24 +431,22 @@ export class Nostalgist {
   /**
    * Save the state of the current running game.
    *
-   * @see {@link https://nostalgist.js.org/apis/save-state/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
    * // save the state
-   * const { state } = await nostalgist.saveState()
+   * const { state } = await emulator.saveState()
    *
    * // load the state
-   * await nostalgist.loadState(state)
+   * await emulator.loadState(state)
    * ```
    * @returns
    * A Promise of the state of the current running game.
    *
    * Its type is like `Promise<{ state: Blob, thumbnail: Blob | undefined }>`.
    *
-   * If RetroArch is launched with the option `savestate_thumbnail_enable` set to `true`, which is the default value inside Nostalgist.js, then the `thumbnail` will be a `Blob`. Otherwise the `thumbnail` will be `undefined`.
+   * If RetroArch is launched with the option `savestate_thumbnail_enable` set to `true`, which is the default value, then the `thumbnail` will be a `Blob`. Otherwise the `thumbnail` will be `undefined`.
    */
   async saveState() {
     return await this.getEmulator().saveState()
@@ -508,13 +455,11 @@ export class Nostalgist {
   /**
    * Take a screenshot for the current running game.
    *
-   * @see {@link https://nostalgist.js.org/apis/screenshot/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
-   * const blob = await nostalgist.screenshot()
+   * const blob = await emulator.screenshot()
    * ```
    */
   async screenshot() {
@@ -527,13 +472,11 @@ export class Nostalgist {
    * The commands are listed here: https://docs.libretro.com/development/retroarch/network-control-interface/#commands .
    * But not all of them are supported inside a browser.
    *
-   * @see {@link https://nostalgist.js.org/apis/send-command/}
-   *
    * @example
    * ```js
-   * const nostalgist = await Nostalgist.nes('flappybird.nes')
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
    *
-   * nostalgist.sendCommand('FAST_FORWARD')
+   * emulator.sendCommand('FAST_FORWARD')
    * ```
    */
   sendCommand(command: RetroArchCommand) {
@@ -542,9 +485,39 @@ export class Nostalgist {
   }
 
   /**
-   * Start the emulator if it's not started because of the instance is returned by `Nostalgist.prepare` rather than `Nostalgist.launch`, or the option `runEmulatorManually` for `Nostalgist.launch` being set to `true`.
+   * Advance the emulator by exactly one frame.
+   * The emulator must be paused for this to work.
+   * This is useful for frame-perfect netplay synchronization.
    *
-   * @see {@link https://nostalgist.js.org/apis/start/}
+   * @example
+   * ```js
+   * const emulator = await WasmEmulator.nes('flappybird.nes')
+   *
+   * emulator.pause()
+   * emulator.frameAdvance() // Execute one frame
+   * ```
+   */
+  frameAdvance() {
+    this.sendCommand('FRAMEADVANCE')
+  }
+
+  /**
+   * Get a fast checksum of WASM memory without saveState().
+   * Useful for netplay desync detection without blocking the main thread.
+   */
+  getMemoryChecksum(): string {
+    return this.getEmulator().getMemoryChecksum()
+  }
+
+  /**
+   * Check if the emulator is currently paused.
+   */
+  isPaused(): boolean {
+    return this.getStatus() === 'paused'
+  }
+
+  /**
+   * Start the emulator if it's not started because of the instance is returned by `WasmEmulator.prepare` rather than `WasmEmulator.launch`, or the option `runEmulatorManually` for `WasmEmulator.launch` being set to `true`.
    */
   async start() {
     return await this.getEmulator().launch()

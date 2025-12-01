@@ -1,6 +1,6 @@
 import { getGlobalOptions } from '../libs/options.ts'
 import { generateValidFileName, getResult, merge } from '../libs/utils.ts'
-import type { NostalgistOptions } from '../types/nostalgist-options.ts'
+import type { WasmEmulatorOptions } from '../types/wasm-emulator-options.ts'
 import type { RetroArchEmscriptenModuleOptions } from '../types/retroarch-emscripten.ts'
 import { ResolvableFile } from './resolvable-file.ts'
 
@@ -24,12 +24,12 @@ function isValidCacheKey(cacheKey: unknown) {
 
 function getCacheStore() {
   return {
-    bios: new Map<NonNullable<NostalgistOptions['bios']>, EmulatorOptions['bios']>(),
-    core: new Map<NonNullable<NostalgistOptions['core']>, EmulatorOptions['core']>(),
-    rom: new Map<NonNullable<NostalgistOptions['rom']>, EmulatorOptions['rom']>(),
-    shader: new Map<NonNullable<NostalgistOptions['shader']>, EmulatorOptions['shader']>(),
-    sram: new Map<NonNullable<NostalgistOptions['sram']>, EmulatorOptions['sram']>(),
-    state: new Map<NonNullable<NostalgistOptions['state']>, EmulatorOptions['state']>(),
+    bios: new Map<NonNullable<WasmEmulatorOptions['bios']>, EmulatorOptions['bios']>(),
+    core: new Map<NonNullable<WasmEmulatorOptions['core']>, EmulatorOptions['core']>(),
+    rom: new Map<NonNullable<WasmEmulatorOptions['rom']>, EmulatorOptions['rom']>(),
+    shader: new Map<NonNullable<WasmEmulatorOptions['shader']>, EmulatorOptions['shader']>(),
+    sram: new Map<NonNullable<WasmEmulatorOptions['sram']>, EmulatorOptions['sram']>(),
+    state: new Map<NonNullable<WasmEmulatorOptions['state']>, EmulatorOptions['state']>(),
   }
 }
 
@@ -78,8 +78,8 @@ export class EmulatorOptions {
    */
   get retroarchConfig() {
     const options = {}
-    merge(options, getGlobalOptions().retroarchConfig, this.nostalgistOptions.retroarchConfig)
-    return options as typeof this.nostalgistOptions.retroarchConfig
+    merge(options, getGlobalOptions().retroarchConfig, this.wasmEmulatorOptions.retroarchConfig)
+    return options as typeof this.wasmEmulatorOptions.retroarchConfig
   }
 
   /**
@@ -88,12 +88,12 @@ export class EmulatorOptions {
    */
   get retroarchCoreConfig() {
     const options = {}
-    merge(options, getGlobalOptions().retroarchCoreConfig, this.nostalgistOptions.retroarchCoreConfig)
-    return options as typeof this.nostalgistOptions.retroarchCoreConfig
+    merge(options, getGlobalOptions().retroarchCoreConfig, this.wasmEmulatorOptions.retroarchCoreConfig)
+    return options as typeof this.wasmEmulatorOptions.retroarchCoreConfig
   }
 
   get style() {
-    const { element, style } = this.nostalgistOptions
+    const { element, style } = this.wasmEmulatorOptions
     const defaultAppearanceStyle: Partial<CSSStyleDeclaration> = {
       backgroundColor: 'black',
       imageRendering: 'pixelated',
@@ -118,10 +118,10 @@ export class EmulatorOptions {
 
   private loadPromises: Promise<void>[] = []
 
-  private nostalgistOptions: NostalgistOptions
+  private wasmEmulatorOptions: WasmEmulatorOptions
 
-  private constructor(options: NostalgistOptions) {
-    this.nostalgistOptions = options
+  private constructor(options: WasmEmulatorOptions) {
+    this.wasmEmulatorOptions = options
 
     this.emscriptenModule = options.emscriptenModule ?? {}
     this.respondToGlobalEvents = options.respondToGlobalEvents ?? true
@@ -139,7 +139,7 @@ export class EmulatorOptions {
     }
   }
 
-  static async create(options: NostalgistOptions) {
+  static async create(options: WasmEmulatorOptions) {
     const emulatorOptions = new EmulatorOptions(options)
     await emulatorOptions.load()
     return emulatorOptions
@@ -169,7 +169,7 @@ export class EmulatorOptions {
       const field = key as keyof typeof this.cache
       if (this.cache[field]) {
         const cache = EmulatorOptions.cacheStorage[field]
-        const cacheKey: any = this.nostalgistOptions[field]
+        const cacheKey: any = this.wasmEmulatorOptions[field]
         if (isValidCacheKey(cacheKey)) {
           const cacheValue = cache.get(cacheKey)
           if (cacheValue) {
@@ -190,7 +190,7 @@ export class EmulatorOptions {
       const field = key as keyof typeof this.cache
       if (this.cache[field]) {
         const cache = EmulatorOptions.cacheStorage[field]
-        const cacheKey: any = this.nostalgistOptions[field]
+        const cacheKey: any = this.wasmEmulatorOptions[field]
         const cacheValue: any = this[field]
         if (isValidCacheKey(cacheKey) && cacheValue) {
           cache.set(cacheKey, cacheValue)
@@ -200,14 +200,14 @@ export class EmulatorOptions {
   }
 
   async updateSRAM() {
-    if (this.nostalgistOptions.sram) {
-      this.sram = await ResolvableFile.create(this.nostalgistOptions.sram)
+    if (this.wasmEmulatorOptions.sram) {
+      this.sram = await ResolvableFile.create(this.wasmEmulatorOptions.sram)
     }
   }
 
   async updateState() {
-    if (this.nostalgistOptions.state) {
-      this.state = await ResolvableFile.create(this.nostalgistOptions.state)
+    if (this.wasmEmulatorOptions.state) {
+      this.state = await ResolvableFile.create(this.wasmEmulatorOptions.state)
     }
   }
 
@@ -215,7 +215,7 @@ export class EmulatorOptions {
     if (typeof document !== 'object') {
       throw new TypeError('document must be an object')
     }
-    let { element } = this.nostalgistOptions
+    let { element } = this.wasmEmulatorOptions
     if (typeof element === 'string' && element) {
       const canvas = document.body.querySelector(element)
       if (!canvas) {
@@ -239,7 +239,7 @@ export class EmulatorOptions {
   }
 
   private async updateBios() {
-    let { bios, resolveBios } = this.nostalgistOptions
+    let { bios, resolveBios } = this.wasmEmulatorOptions
     if (!bios) {
       return
     }
@@ -253,7 +253,7 @@ export class EmulatorOptions {
       biosFiles.map((raw) =>
         ResolvableFile.create(
           typeof raw === 'string'
-            ? { raw, signal: this.signal, urlResolver: () => resolveBios(raw, this.nostalgistOptions) }
+            ? { raw, signal: this.signal, urlResolver: () => resolveBios(raw, this.wasmEmulatorOptions) }
             : { raw, signal: this.signal },
         ),
       ),
@@ -261,7 +261,7 @@ export class EmulatorOptions {
   }
 
   private async updateCore() {
-    const { core, resolveCoreJs, resolveCoreWasm } = this.nostalgistOptions
+    const { core, resolveCoreJs, resolveCoreWasm } = this.wasmEmulatorOptions
 
     if (typeof core === 'object' && 'js' in core && 'name' in core && 'wasm' in core) {
       const [js, wasm] = await Promise.all([ResolvableFile.create(core.js), ResolvableFile.create(core.wasm)])
@@ -274,7 +274,7 @@ export class EmulatorOptions {
         ResolvableFile.create({
           raw: core,
           signal: this.signal,
-          urlResolver: () => resolver(core, this.nostalgistOptions),
+          urlResolver: () => resolver(core, this.wasmEmulatorOptions),
         }),
       ),
     )
@@ -285,7 +285,7 @@ export class EmulatorOptions {
   }
 
   private async updateRom() {
-    let { resolveRom, rom } = this.nostalgistOptions
+    let { resolveRom, rom } = this.wasmEmulatorOptions
     if (!rom) {
       return
     }
@@ -300,7 +300,7 @@ export class EmulatorOptions {
       romFiles.map((romFile) =>
         ResolvableFile.create(
           typeof romFile === 'string'
-            ? { raw: romFile, signal: this.signal, urlResolver: () => resolveRom(romFile, this.nostalgistOptions) }
+            ? { raw: romFile, signal: this.signal, urlResolver: () => resolveRom(romFile, this.wasmEmulatorOptions) }
             : { raw: romFile, signal: this.signal },
         ),
       ),
@@ -311,7 +311,7 @@ export class EmulatorOptions {
   }
 
   private async updateShader() {
-    let { resolveShader, shader } = this.nostalgistOptions
+    let { resolveShader, shader } = this.wasmEmulatorOptions
     if (!shader) {
       return
     }
@@ -320,7 +320,7 @@ export class EmulatorOptions {
       return
     }
 
-    let rawShaderFile = await resolveShader(shader, this.nostalgistOptions)
+    let rawShaderFile = await resolveShader(shader, this.wasmEmulatorOptions)
     if (!rawShaderFile) {
       return
     }
