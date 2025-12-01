@@ -2,9 +2,7 @@
 
 ## ✅ Préparation Terminée
 
-J'ai activé le mode DUAL par défaut :
-- ✅ Fichier `.env` créé avec `VITE_ENABLE_DUAL_MODE=true`
-- ✅ `P2PRoom.svelte` modifié : mode DUAL activé par défaut
+Le mode DUAL est disponible via le toggle dans le lobby de la room.
 
 ---
 
