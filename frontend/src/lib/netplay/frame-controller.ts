@@ -151,9 +151,8 @@ export class FrameController {
     this.pendingCallback = null;
     this.frameReady = false;
 
-    // Calculate time for the callback
+    // Get current time for the callback
     const now = performance.now();
-    const deltaTime = now - this.lastFrameTime;
     this.lastFrameTime = now;
 
     // Execute the frame callback via a microtask to allow proper async behavior
