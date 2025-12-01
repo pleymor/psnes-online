@@ -235,10 +235,34 @@ export class P2PManager {
     }
 
     try {
+      // @ts-ignore - Check internal data channel state
+      const channel = this.peer._channel;
+      if (!channel || channel.readyState !== 'open') {
+        // Silently skip if channel not ready (can happen during connection setup)
+        return;
+      }
+
       const jsonData = JSON.stringify(data);
       this.peer.send(jsonData);
     } catch (error) {
       logger.error('Failed to send P2P data:', error);
+    }
+  }
+
+  /**
+   * Add a media stream to the existing peer connection (for dual mode fallback)
+   */
+  addStream(stream: MediaStream): void {
+    if (!this.peer || this.peer.destroyed) {
+      logger.warn('⚠️ Cannot add stream: peer not connected');
+      return;
+    }
+
+    try {
+      this.peer.addStream(stream);
+      logger.info('✅ Added media stream to P2P connection');
+    } catch (error) {
+      logger.error('Failed to add stream:', error);
     }
   }
 

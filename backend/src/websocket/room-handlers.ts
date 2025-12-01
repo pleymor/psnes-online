@@ -1,5 +1,5 @@
 import { Server, Socket } from 'socket.io';
-import { Room, RoomPlayer, User } from '../types/index.js';
+import { Room, RoomPlayer, User, EmulationMode } from '../types/index.js';
 import { randomUUID } from 'crypto';
 import { getUserKeyConfig } from '../services/user-config.js';
 import { notifyFriendsAboutRoom, notifyFriendsRoomStatusChanged } from '../services/friends.js';
@@ -15,7 +15,7 @@ export function registerRoomHandlers(
   getUserSocket: (id: string) => string | undefined
 ) {
   // Create room
-  socket.on('room:create', async (data: { gameId: string; gameTitle: string; autoStart?: boolean }) => {
+  socket.on('room:create', async (data: { gameId: string; gameTitle: string; gameCoverUrl?: string; autoStart?: boolean; emulationMode?: EmulationMode }) => {
     const roomId = randomUUID();
     const userKeyConfig = await getUserKeyConfig(user.id);
     const autoStart = data.autoStart ?? false;
@@ -24,16 +24,20 @@ export function registerRoomHandlers(
       id: roomId,
       gameId: data.gameId,
       gameTitle: data.gameTitle,
+      gameCoverUrl: data.gameCoverUrl,
       hostId: user.id,
+      createdBy: user.id,
       players: [{
         userId: user.id,
         displayName: user.displayName,
         avatar: user.avatar ?? undefined,
-        port: autoStart ? 1 : null,
-        isReady: autoStart,
+        port: 1, // Always assign creator to player 1
+        isReady: true, // Always ready by default
+        emulationReady: false,
         keyConfig: userKeyConfig
       }],
       status: autoStart ? 'playing' : 'waiting',
+      emulationMode: data.emulationMode ?? 'streaming',
       createdAt: new Date()
     };
 
@@ -77,14 +81,14 @@ export function registerRoomHandlers(
     }
 
     const userKeyConfig = await getUserKeyConfig(user.id);
-    const autoAssignPort = room.status === 'playing' ? 2 : null;
 
     const player: RoomPlayer = {
       userId: user.id,
       displayName: user.displayName,
       avatar: user.avatar ?? undefined,
-      port: autoAssignPort,
-      isReady: autoAssignPort !== null,
+      port: 2, // Guest always joins as player 2
+      isReady: true, // Always ready by default
+      emulationReady: false,
       keyConfig: userKeyConfig
     };
 
@@ -160,6 +164,22 @@ export function registerRoomHandlers(
 
     player.isReady = !player.isReady;
     io.to(data.roomId).emit('room:updated', room);
+  });
+
+  // Set emulation mode (only room creator can change)
+  socket.on('room:setEmulationMode', (data: { roomId: string; emulationMode: EmulationMode }) => {
+    const room = rooms.get(data.roomId);
+    if (!room) return;
+
+    // Only the room creator can change the mode
+    if (room.createdBy !== user.id) return;
+
+    // Only allow changes in waiting status
+    if (room.status !== 'waiting') return;
+
+    room.emulationMode = data.emulationMode;
+    io.to(data.roomId).emit('room:updated', room);
+    logger.info({ roomId: room.id, mode: data.emulationMode }, 'Emulation mode changed');
   });
 }
 
