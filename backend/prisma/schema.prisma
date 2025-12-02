@@ -18,6 +18,11 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // Google OAuth tokens for Drive access
+  googleAccessToken  String?
+  googleRefreshToken String?
+  googleTokenExpiry  DateTime?
+
   // Relations
   games         Game[]
   friendshipsInitiated Friendship[] @relation("FriendshipInitiator")
@@ -65,9 +70,12 @@ model Game {
   id          String   @id @default(uuid())
   title       String
   filename    String
-  romPath     String
   coverUrl    String?
   uploadedAt  DateTime @default(now())
+
+  // Google Drive reference
+  driveFileId   String
+  driveFileName String
 
   // Metadata fields
   genre       String?
@@ -77,7 +85,7 @@ model Game {
   players     String?
   region      String?
   description String?
-  crc32       String?  // Calculated on upload for matching
+  crc32       String?
 
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)

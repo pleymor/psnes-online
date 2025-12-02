@@ -9,7 +9,7 @@
   import { t } from '$lib/i18n/translations';
   import GameCard from '$lib/components/GameCard.svelte';
   import GameDetailsModal from '$lib/components/GameDetailsModal.svelte';
-  import UploadGame from '$lib/components/UploadGame.svelte';
+  import AddFromDrive from '$lib/components/AddFromDrive.svelte';
   import FriendsList from '$lib/components/FriendsList.svelte';
   import FriendDetailsModal from '$lib/components/FriendDetailsModal.svelte';
   import ControlsModal from '$lib/components/ControlsModal.svelte';
@@ -347,7 +347,7 @@
         <div class="nav-section">
           <button on:click={() => showUpload = true} class="nav-button nav-button-primary">
             <span class="icon">+</span>
-            <span class="label">{t($language, 'uploadROM')}</span>
+            <span class="label">{t($language, 'addFromDrive')}</span>
           </button>
 
           <button on:click={() => showControls = true} class="nav-button">
@@ -410,7 +410,7 @@
             <h2>{t($language, 'emptyLibrary')}</h2>
             <p>{t($language, 'startUploading')}</p>
             <button on:click={() => showUpload = true} class="btn-upload-large">
-              + {t($language, 'uploadROM')}
+              + {t($language, 'addFromDrive')}
             </button>
           </div>
         {:else}
@@ -430,9 +430,9 @@
   </div>
 
   {#if showUpload}
-    <UploadGame
+    <AddFromDrive
       on:close={() => showUpload = false}
-      on:uploaded={() => { showUpload = false; loadGames(); }}
+      on:added={() => { showUpload = false; loadGames(); }}
     />
   {/if}
 

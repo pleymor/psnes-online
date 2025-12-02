@@ -46,7 +46,16 @@ export const translations = {
     yearsAgo: '{count} years ago',
     yearAgo: '1 year ago',
 
-    // Upload game
+    // Google Drive
+    addFromDrive: 'Add from Drive',
+    driveInfo: 'Select a ROM file from your Google Drive. Your ROMs stay in your Drive - we only store a reference.',
+    selectRomFromDrive: 'Select a SNES ROM from your Google Drive',
+    openDrivePicker: 'Open Google Drive',
+    changeFile: 'Change',
+    addToLibrary: 'Add to Library',
+    adding: 'Adding...',
+
+    // Upload game (legacy)
     uploadROM: 'Upload ROM',
     gameTitle: 'Game Title',
     romFile: 'ROM File',
@@ -64,7 +73,7 @@ export const translations = {
     clickForDetails: 'Click for details',
     saveStatesCount: '{count} save states',
     emptyLibrary: 'Your library is empty',
-    startUploading: 'Start by uploading your first SNES ROM',
+    startUploading: 'Start by adding your first SNES ROM from Google Drive',
     updateMetadata: 'Update Metadata',
     updating: 'Updating...',
     metadataUpdated: 'Metadata updated! {updated} game(s) matched, {skipped} skipped.',
@@ -244,7 +253,16 @@ export const translations = {
     yearsAgo: 'Il y a {count} ans',
     yearAgo: 'Il y a 1 an',
 
-    // Upload game
+    // Google Drive
+    addFromDrive: 'Ajouter depuis Drive',
+    driveInfo: 'Sélectionnez un fichier ROM depuis votre Google Drive. Vos ROMs restent sur votre Drive - nous ne stockons qu\'une référence.',
+    selectRomFromDrive: 'Sélectionnez une ROM SNES depuis votre Google Drive',
+    openDrivePicker: 'Ouvrir Google Drive',
+    changeFile: 'Changer',
+    addToLibrary: 'Ajouter à la bibliothèque',
+    adding: 'Ajout en cours...',
+
+    // Upload game (legacy)
     uploadROM: 'Upload ROM',
     gameTitle: 'Titre du jeu',
     romFile: 'Fichier ROM',
@@ -262,7 +280,7 @@ export const translations = {
     clickForDetails: 'Cliquez pour les détails',
     saveStatesCount: '{count} sauvegardes',
     emptyLibrary: 'Votre bibliothèque est vide',
-    startUploading: 'Commencez par uploader votre première ROM SNES',
+    startUploading: 'Commencez par ajouter votre première ROM SNES depuis Google Drive',
     updateMetadata: 'Mettre à jour les métadonnées',
     updating: 'Mise à jour...',
     metadataUpdated: 'Métadonnées mises à jour ! {updated} jeu(x) trouvé(s), {skipped} ignoré(s).',

@@ -33,17 +33,18 @@ services:
       - DATABASE_URL=file:/app/data/dev.db
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - AUTH_MODE=dev
+      - AUTH_MODE=google
     env_file:
       - ./backend/.env
     volumes:
       - ./backend:/app
       - backend-node-modules:/app/node_modules
       - backend-data:/app/data
-      - backend-roms:/app/roms
+      - backend-rom-cache:/app/rom-cache
       - backend-saves:/app/saves
       - backend-avatars:/app/avatars
       - ./backend/data/snes-metadata.json:/app/metadata/snes-metadata.json:ro
+    command: sh -c "npm install && npx prisma generate && npm run dev"
     depends_on:
       - redis
 
@@ -67,6 +68,6 @@ volumes:
   redis-data:
   backend-data:
   backend-node-modules:
-  backend-roms:
+  backend-rom-cache:
   backend-saves:
   backend-avatars:

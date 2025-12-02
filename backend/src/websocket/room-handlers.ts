@@ -4,6 +4,8 @@ import { randomUUID } from 'crypto';
 import { getUserKeyConfig } from '../services/user-config.js';
 import { notifyFriendsAboutRoom, notifyFriendsRoomStatusChanged } from '../services/friends.js';
 import { createLogger } from '../utils/logger.js';
+import { cacheRomForRoom, cleanupRoomCache } from '../services/rom-cache.js';
+import { prisma } from '../db/prisma.js';
 
 const logger = createLogger('Room');
 
@@ -43,6 +45,18 @@ export function registerRoomHandlers(
 
     rooms.set(roomId, room);
     socket.join(roomId);
+
+    // Cache ROM for multiplayer access
+    try {
+      const game = await prisma.game.findUnique({ where: { id: data.gameId } });
+      if (game) {
+        await cacheRomForRoom(roomId, user.id, game.driveFileId);
+        logger.info({ roomId, gameId: data.gameId }, 'ROM cached for room');
+      }
+    } catch (error) {
+      logger.error({ err: error, roomId, gameId: data.gameId }, 'Failed to cache ROM for room');
+      // Continue anyway - single player might still work
+    }
 
     socket.emit('room:created', room);
     broadcastRoomUpdate(io, room);
@@ -201,6 +215,8 @@ export async function handleLeaveRoom(
 
   if (room.players.length === 0) {
     await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'destroyed', getUserSocket);
+    // Clean up cached ROM
+    await cleanupRoomCache(roomId);
     rooms.delete(roomId);
     io.emit('room:destroyed', { roomId });
   } else {

@@ -3,6 +3,7 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { prisma } from '../db/prisma.js';
 import { downloadAvatar } from '../utils/avatar.js';
 import { logger } from '../utils/logger.js';
+import { encrypt } from '../utils/crypto.js';
 
 const AUTH_MODE = process.env.AUTH_MODE || 'google';
 
@@ -35,22 +36,33 @@ export function initializeAuth() {
               avatarUrl = downloadedAvatar || googleAvatarUrl; // Fallback to Google URL if download fails
             }
 
+            // Prepare token data
+            const tokenData = {
+              googleAccessToken: encrypt(accessToken),
+              googleRefreshToken: refreshToken ? encrypt(refreshToken) : undefined,
+              googleTokenExpiry: new Date(Date.now() + 3600 * 1000) // 1 hour
+            };
+
             if (!user) {
               user = await prisma.user.create({
                 data: {
                   googleId: profile.id,
                   email,
                   displayName: profile.displayName,
-                  avatar: avatarUrl
+                  avatar: avatarUrl,
+                  ...tokenData
                 }
               });
             } else {
-              // Update user info
+              // Update user info and tokens (keep existing refresh token if not provided)
               user = await prisma.user.update({
                 where: { id: user.id },
                 data: {
                   displayName: profile.displayName,
-                  avatar: avatarUrl
+                  avatar: avatarUrl,
+                  googleAccessToken: tokenData.googleAccessToken,
+                  googleTokenExpiry: tokenData.googleTokenExpiry,
+                  ...(refreshToken && { googleRefreshToken: tokenData.googleRefreshToken })
                 }
               });
             }

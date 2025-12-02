@@ -13,7 +13,9 @@ const AUTH_MODE = getAuthMode();
 // Google OAuth routes (only available in google mode)
 if (AUTH_MODE === 'google') {
   authRouter.get('/google', passport.authenticate('google', {
-    scope: ['profile', 'email']
+    scope: ['profile', 'email', 'https://www.googleapis.com/auth/drive.readonly'],
+    accessType: 'offline',
+    prompt: 'consent'
   }));
 
   authRouter.get('/google/callback',

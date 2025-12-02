@@ -4,10 +4,12 @@ export interface Game {
   id: string;
   title: string;
   filename: string;
-  romPath: string;
   coverUrl?: string;
   uploadedAt: string;
   saves: any[];
+  // Google Drive reference
+  driveFileId: string;
+  driveFileName: string;
   // Metadata fields
   genre?: string;
   publisher?: string;
