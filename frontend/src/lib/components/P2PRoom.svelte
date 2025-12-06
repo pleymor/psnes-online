@@ -30,6 +30,7 @@
   let dualEmulatorComponent: DualClientEmulator;
   let romData: ArrayBuffer | null = null;
   let romHash: string | null = null;
+  let initialSram: Blob | null = null;
   let loading = true;
   let error: string | null = null;
   let connectionStatus: 'connecting' | 'connected' | 'disconnected' = 'connecting';
@@ -96,6 +97,10 @@
 
         romData = await response.arrayBuffer();
         logger.debug(`✅ ROM loaded (${romData.byteLength} bytes)`);
+
+        // Load SRAM for single player mode
+        await loadSRAM();
+
         loading = false;
         connectionStatus = 'connected'; // No connection needed in single mode
       } catch (err) {
@@ -137,6 +142,9 @@
         logger.info(`🔐 ROM hash: ${romHash}`);
       }
 
+      // Load SRAM for multiplayer host
+      await loadSRAM();
+
       loading = false;
     } catch (err) {
       logger.error('Failed to load ROM:', err);
@@ -150,6 +158,82 @@
     return Array.from(new Uint8Array(hashBuffer))
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
+  }
+
+  // --- SRAM Loading ---
+  async function loadSRAM(): Promise<void> {
+    // Only host/single player loads SRAM
+    if (emulationMode === EmulationMode.STREAMING && !isHost) {
+      return;
+    }
+    if (emulationMode === EmulationMode.DUAL && !isHost) {
+      return;
+    }
+
+    return new Promise((resolve) => {
+      const handleSramLoaded = (data: { sramData: string | null; updatedAt?: string }) => {
+        $socket?.off('game:sramLoaded', handleSramLoaded);
+
+        if (data.sramData) {
+          // Convert base64 to Blob
+          const binaryString = atob(data.sramData);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          initialSram = new Blob([bytes], { type: 'application/octet-stream' });
+          logger.info(`SRAM loaded (${bytes.length} bytes, updated: ${data.updatedAt})`);
+        } else {
+          logger.info('No SRAM data found for this game');
+        }
+        resolve();
+      };
+
+      $socket?.on('game:sramLoaded', handleSramLoaded);
+      $socket?.emit('game:loadSram', { roomId });
+
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        $socket?.off('game:sramLoaded', handleSramLoaded);
+        resolve();
+      }, 5000);
+    });
+  }
+
+  // --- SRAM Saving ---
+  async function saveSRAM(): Promise<void> {
+    // Only host/single player saves SRAM
+    if (emulationMode === EmulationMode.STREAMING && !isHost) {
+      return;
+    }
+    if (emulationMode === EmulationMode.DUAL && !isHost) {
+      return;
+    }
+
+    const emulator = useSeamlessResync && emulationMode === EmulationMode.DUAL && !isHost
+      ? dualEmulatorComponent
+      : emulatorComponent;
+
+    if (!emulator) return;
+
+    try {
+      const sramBlob = await emulator.saveSRAM();
+      if (!sramBlob || sramBlob.size === 0) {
+        logger.debug('No SRAM data to save');
+        return;
+      }
+
+      // Convert Blob to base64
+      const arrayBuffer = await sramBlob.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      const binaryString = String.fromCharCode(...Array.from(uint8Array));
+      const sramData = btoa(binaryString);
+
+      $socket?.emit('game:saveSram', { roomId, sramData });
+      logger.info(`SRAM saved (${uint8Array.length} bytes)`);
+    } catch (err) {
+      logger.error('Failed to save SRAM:', err);
+    }
   }
 
   // --- Dual Mode Setup ---
@@ -548,6 +632,9 @@
     showPauseMenu = true;
     // Notify other players via server
     $socket?.emit('game:pause', { roomId });
+
+    // Auto-save SRAM on pause
+    saveSRAM();
   }
 
   function handleResume(): void {
@@ -566,7 +653,9 @@
     $socket?.emit('game:resume', { roomId });
   }
 
-  function handleQuit(): void {
+  async function handleQuit(): Promise<void> {
+    // Save SRAM before quitting
+    await saveSRAM();
     $socket?.emit('game:stop', { roomId });
   }
 
@@ -785,6 +874,9 @@
   });
 
   onDestroy(() => {
+    // Save SRAM before destroying (fire and forget - can't await in onDestroy)
+    saveSRAM();
+
     // Stop stats loop
     stopStatsLoop();
 
@@ -832,6 +924,7 @@
           {romData}
           {keyConfig}
           {shader}
+          {initialSram}
           isHost={true}
           playerPort={1}
           {emulationMode}
@@ -848,6 +941,7 @@
             {romData}
             {keyConfig}
             {shader}
+            {initialSram}
             {isHost}
             playerPort={1}
             {emulationMode}
@@ -905,6 +999,7 @@
             {keyConfig}
             {shader}
             {isHost}
+            initialSram={isHost ? initialSram : null}
             playerPort={isHost ? 1 : 2}
             {emulationMode}
             startPaused={true}

@@ -15,6 +15,7 @@
   export let emulationMode: EmulationMode = EmulationMode.STREAMING; // Mode d'émulation
   export let startPaused: boolean = false; // Start emulator in paused state (for sync)
   export let initialState: Blob | null = null; // Initial state to load (for guest sync)
+  export let initialSram: Blob | null = null; // Initial SRAM to load (battery save / in-game save)
   export let runEmulatorManually: boolean = false; // For lockstep sync - allows frameAdvance() to work
   export let syncedInputMode: boolean = false; // When true, inputs are NOT applied directly - only via applyInput()
   export let shader: string = ''; // Shader to apply (e.g., 'xbrz/6xbrz-linear')
@@ -179,6 +180,13 @@
         // Convert Blob to File object (nostalgist expects File, not Blob)
         const stateFile = new File([initialState], 'initial.state', { type: 'application/octet-stream' });
         emulatorOptions.state = stateFile;
+      }
+
+      // If initial SRAM is provided (battery save / in-game save), pass it to the emulator
+      if (initialSram) {
+        logger.info(`Creating emulator with initial SRAM (${initialSram.size} bytes)`);
+        const sramFile = new File([initialSram], 'game.srm', { type: 'application/octet-stream' });
+        emulatorOptions.sram = sramFile;
       }
 
       emulator = await WasmEmulator.snes({
@@ -661,6 +669,16 @@
       await emulator.loadState(state);
     } catch (error) {
       logger.error('Failed to load state:', error);
+    }
+  }
+
+  export async function saveSRAM(): Promise<Blob | null> {
+    if (!emulator) return null;
+    try {
+      return await emulator.saveSRAM();
+    } catch (error) {
+      logger.error('Failed to save SRAM:', error);
+      return null;
     }
   }
 

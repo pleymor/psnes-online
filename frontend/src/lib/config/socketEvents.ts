@@ -33,7 +33,11 @@ export const GAME_EVENTS = {
   SET_SPEED: 'game:setSpeed',
   SPEED_CHANGED: 'game:speedChanged',
   SET_TARGET_FPS: 'game:setTargetFPS',
-  TARGET_FPS_CHANGED: 'game:targetFPSChanged'
+  TARGET_FPS_CHANGED: 'game:targetFPSChanged',
+  SAVE_SRAM: 'game:saveSram',
+  SRAM_SAVED: 'game:sramSaved',
+  LOAD_SRAM: 'game:loadSram',
+  SRAM_LOADED: 'game:sramLoaded'
 } as const;
 
 // Friend events

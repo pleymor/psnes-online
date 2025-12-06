@@ -200,4 +200,65 @@ export function registerGameHandlers(
 
     io.to(data.roomId).emit('game:targetFPSChanged', { targetFPS: data.targetFPS });
   });
+
+  // Save SRAM (battery save / in-game save)
+  socket.on('game:saveSram', async (data: { roomId: string; sramData: string }) => {
+    const room = rooms.get(data.roomId);
+    if (!room) return;
+
+    try {
+      const sramBuffer = Buffer.from(data.sramData, 'base64');
+
+      await prisma.game.update({
+        where: {
+          id: room.gameId,
+          userId: userId // Ensure user owns the game
+        },
+        data: {
+          sram: sramBuffer,
+          sramUpdatedAt: new Date()
+        }
+      });
+
+      socket.emit('game:sramSaved');
+      logger.info({ gameId: room.gameId, size: sramBuffer.length }, 'SRAM saved');
+    } catch (error) {
+      logger.error({ err: error }, 'Error saving SRAM');
+      socket.emit('error', { message: 'Failed to save SRAM' });
+    }
+  });
+
+  // Load SRAM (battery save / in-game save)
+  socket.on('game:loadSram', async (data: { roomId: string }) => {
+    const room = rooms.get(data.roomId);
+    if (!room) return;
+
+    try {
+      const game = await prisma.game.findFirst({
+        where: {
+          id: room.gameId,
+          userId: userId // Ensure user owns the game
+        },
+        select: {
+          sram: true,
+          sramUpdatedAt: true
+        }
+      });
+
+      if (!game || !game.sram) {
+        socket.emit('game:sramLoaded', { sramData: null });
+        return;
+      }
+
+      const sramDataBase64 = game.sram.toString('base64');
+      socket.emit('game:sramLoaded', {
+        sramData: sramDataBase64,
+        updatedAt: game.sramUpdatedAt
+      });
+      logger.info({ gameId: room.gameId, size: game.sram.length }, 'SRAM loaded');
+    } catch (error) {
+      logger.error({ err: error }, 'Error loading SRAM');
+      socket.emit('error', { message: 'Failed to load SRAM' });
+    }
+  });
 }

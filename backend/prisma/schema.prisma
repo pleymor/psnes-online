@@ -87,6 +87,10 @@ model Game {
   description String?
   crc32       String?
 
+  // SRAM (battery save / in-game save data)
+  sram        Bytes?
+  sramUpdatedAt DateTime?
+
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
