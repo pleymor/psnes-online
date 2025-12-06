@@ -90,6 +90,14 @@ gamesRouter.post('/add-from-drive', async (req, res) => {
     return res.status(400).json({ error: `Maximum number of games reached (${MAX_GAMES_PER_USER})` });
   }
 
+  // Check for duplicate
+  const existingGame = await prisma.game.findFirst({
+    where: { userId: user.id, driveFileId }
+  });
+  if (existingGame) {
+    return res.status(400).json({ error: 'This ROM is already in your library' });
+  }
+
   // Verify file exists and is accessible
   try {
     await getDriveFileMetadata(user.id, driveFileId);
