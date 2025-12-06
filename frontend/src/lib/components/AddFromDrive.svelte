@@ -84,9 +84,9 @@
   <div class="modal" role="dialog" aria-modal="true" on:click|stopPropagation>
     <h2>{t($language, 'addFromDrive')}</h2>
 
-    <div class="info-notice">
-      <strong>Google Drive</strong>
-      <p>{t($language, 'driveInfo')}</p>
+    <div class="legal-warning">
+      <p><strong>{t($language, 'legalWarning')}</strong></p>
+      <p>{t($language, 'legalUploadWarning')}</p>
     </div>
 
     {#if error}
@@ -161,25 +161,27 @@
     margin-top: 0;
   }
 
-  .info-notice {
-    background: rgba(66, 133, 244, 0.15);
-    border: 1px solid rgba(66, 133, 244, 0.5);
+  .legal-warning {
+    background: rgba(255, 152, 0, 0.1);
+    border: 1px solid rgba(255, 152, 0, 0.3);
     border-radius: 8px;
     padding: 1rem;
     margin-bottom: 1.5rem;
   }
 
-  .info-notice strong {
-    color: #4285f4;
-    display: block;
-    margin-bottom: 0.5rem;
+  .legal-warning strong {
+    color: #ff9800;
   }
 
-  .info-notice p {
+  .legal-warning p {
     margin: 0;
     font-size: 0.85rem;
     color: #ddd;
     line-height: 1.5;
+  }
+
+  .legal-warning p:first-child {
+    margin-bottom: 0.5rem;
   }
 
   .error-message {

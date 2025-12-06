@@ -286,11 +286,6 @@
       <h1>🎮 PSNES Online</h1>
       <p>{t($language, 'playWithFriends')}</p>
 
-      <div class="legal-disclaimer">
-        <p><strong>⚠️ {t($language, 'legalWarning')}</strong></p>
-        <p>{t($language, 'legalText')}</p>
-      </div>
-
       <div class="login-section">
         <LanguageSelector />
 
@@ -526,36 +521,6 @@
     font-size: 1.25rem;
     color: #a0a0a0;
     margin-bottom: 2rem;
-  }
-
-  .legal-disclaimer {
-    background: rgba(255, 152, 0, 0.1);
-    border: 1px solid rgba(255, 152, 0, 0.3);
-    border-radius: 8px;
-    padding: 1.25rem;
-    margin: 2rem 0;
-    max-width: 700px;
-  }
-
-  .legal-disclaimer p {
-    font-size: 0.875rem;
-    color: #ddd;
-    margin-bottom: 0.75rem;
-    line-height: 1.6;
-  }
-
-  .legal-disclaimer p:first-child {
-    text-align: center;
-    font-size: 1rem;
-  }
-
-  .legal-disclaimer p:last-child {
-    margin-bottom: 0;
-  }
-
-  .legal-disclaimer strong {
-    color: #ff9800;
-    font-size: 1rem;
   }
 
   .login-section {
