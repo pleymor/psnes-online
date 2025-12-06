@@ -81,3 +81,37 @@ export async function getDriveFileMetadata(userId: string, fileId: string) {
 
   return response.data;
 }
+
+export interface DriveItem {
+  id: string;
+  name: string;
+  mimeType: string;
+  isFolder: boolean;
+}
+
+export async function listDriveFolder(userId: string, folderId?: string): Promise<DriveItem[]> {
+  const accessToken = await getValidAccessToken(userId);
+
+  oauth2Client.setCredentials({ access_token: accessToken });
+  const drive = google.drive({ version: 'v3', auth: oauth2Client });
+
+  // Query for files in folder (or root if no folderId)
+  const parent = folderId || 'root';
+  const query = `'${parent}' in parents and trashed = false`;
+
+  const response = await drive.files.list({
+    q: query,
+    fields: 'files(id, name, mimeType)',
+    orderBy: 'folder, name',
+    pageSize: 100
+  });
+
+  const items: DriveItem[] = (response.data.files || []).map(file => ({
+    id: file.id!,
+    name: file.name!,
+    mimeType: file.mimeType!,
+    isFolder: file.mimeType === 'application/vnd.google-apps.folder'
+  }));
+
+  return items;
+}

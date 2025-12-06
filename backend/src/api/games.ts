@@ -6,7 +6,7 @@ import { prisma } from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
 import { getRooms } from '../websocket/index.js';
-import { getValidAccessToken, downloadDriveFile, getDriveFileMetadata } from '../services/google-drive.js';
+import { getValidAccessToken, downloadDriveFile, getDriveFileMetadata, listDriveFolder } from '../services/google-drive.js';
 import { getCachedRom } from '../services/rom-cache.js';
 
 const logger = createLogger('Games');
@@ -52,6 +52,20 @@ gamesRouter.get('/drive-token', async (req, res) => {
   } catch (error: any) {
     logger.error({ err: error, userId: user.id }, 'Failed to get Drive token');
     res.status(401).json({ error: 'Drive not connected. Please re-authenticate.' });
+  }
+});
+
+// List contents of a Drive folder
+gamesRouter.get('/drive-folder/:folderId?', async (req, res) => {
+  const user = req.user as User;
+  const { folderId } = req.params;
+
+  try {
+    const items = await listDriveFolder(user.id, folderId === 'root' ? undefined : folderId);
+    res.json(items);
+  } catch (error: any) {
+    logger.error({ err: error, userId: user.id, folderId }, 'Failed to list Drive folder');
+    res.status(500).json({ error: 'Failed to list folder contents' });
   }
 });
 

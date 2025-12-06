@@ -3,7 +3,7 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { createLogger } from '$lib/utils/logger';
-  import { openDrivePicker, getAccessToken, type DriveFile } from '$lib/services/drive-picker';
+  import DriveFolderBrowser from './DriveFolderBrowser.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -17,30 +17,26 @@
   });
   const logger = createLogger('AddFromDrive');
 
+  interface DriveFile {
+    fileId: string;
+    fileName: string;
+    mimeType: string;
+  }
+
   let title = '';
   let selectedFile: DriveFile | null = null;
   let loading = false;
   let error = '';
 
-  async function handlePickFile() {
-    loading = true;
-    error = '';
-
-    try {
-      const accessToken = await getAccessToken();
-      const file = await openDrivePicker(accessToken);
-
-      if (file) {
-        selectedFile = file;
-        // Auto-fill title from filename
-        title = file.fileName.replace(/\.(smc|sfc|fig|swc|mgd|zip)$/i, '');
-      }
-    } catch (err: any) {
-      logger.error('Drive picker error:', err);
-      error = err.message || 'Failed to open Drive picker';
-    } finally {
-      loading = false;
-    }
+  function handleFileSelect(event: CustomEvent<{ fileId: string; fileName: string; mimeType: string }>) {
+    const file = event.detail;
+    selectedFile = {
+      fileId: file.fileId,
+      fileName: file.fileName,
+      mimeType: file.mimeType
+    };
+    // Auto-fill title from filename
+    title = file.fileName.replace(/\.(smc|sfc|fig|swc|mgd|zip)$/i, '');
   }
 
   async function handleSubmit() {
@@ -99,16 +95,13 @@
 
     <form on:submit|preventDefault={handleSubmit}>
       {#if !selectedFile}
-        <div class="picker-section">
-          <p>{t($language, 'selectRomFromDrive')}</p>
-          <button type="button" on:click={handlePickFile} disabled={loading} class="btn-pick">
-            {loading ? t($language, 'loading') : t($language, 'openDrivePicker')}
-          </button>
+        <div class="browser-section">
+          <DriveFolderBrowser on:select={handleFileSelect} />
         </div>
       {:else}
         <div class="selected-file">
           <div class="file-info">
-            <span class="file-icon">📁</span>
+            <span class="file-icon">🎮</span>
             <span class="file-name">{selectedFile.fileName}</span>
           </div>
           <button type="button" on:click={clearSelection} class="btn-change">
@@ -158,8 +151,10 @@
     background: #2a2a2a;
     padding: 2rem;
     border-radius: 12px;
-    max-width: 500px;
-    width: 90%;
+    max-width: 600px;
+    width: 95%;
+    max-height: 90vh;
+    overflow-y: auto;
   }
 
   h2 {
@@ -196,34 +191,8 @@
     color: #f44336;
   }
 
-  .picker-section {
-    text-align: center;
-    padding: 2rem 0;
-  }
-
-  .picker-section p {
-    color: #aaa;
-    margin-bottom: 1.5rem;
-  }
-
-  .btn-pick {
-    background: linear-gradient(135deg, #4285f4 0%, #34a853 100%);
-    color: white;
-    border: none;
-    padding: 1rem 2rem;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 1rem;
-    font-weight: 500;
-  }
-
-  .btn-pick:hover:not(:disabled) {
-    opacity: 0.9;
-  }
-
-  .btn-pick:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  .browser-section {
+    margin-bottom: 1rem;
   }
 
   .selected-file {
