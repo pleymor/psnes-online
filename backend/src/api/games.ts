@@ -7,7 +7,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
 import { getRooms } from '../websocket/index.js';
 import { getValidAccessToken, downloadDriveFile, getDriveFileMetadata, listDriveFolder } from '../services/google-drive.js';
-import { getCachedRom } from '../services/rom-cache.js';
+import { getCachedRom, cacheRomForRoom } from '../services/rom-cache.js';
 
 const logger = createLogger('Games');
 
@@ -206,18 +206,28 @@ gamesRouter.get('/room/:roomId/rom', async (req, res) => {
     return res.status(403).json({ error: 'Not authorized - not in room' });
   }
 
-  // Get cached ROM path
-  const cachedPath = await getCachedRom(roomId);
-  if (!cachedPath) {
-    return res.status(404).json({ error: 'ROM not cached. Room may need to be recreated.' });
-  }
-
   const game = await prisma.game.findUnique({
     where: { id: room.gameId }
   });
 
+  if (!game) {
+    return res.status(404).json({ error: 'Game not found' });
+  }
+
+  // Get cached ROM path, or cache on-demand if missing
+  let cachedPath = await getCachedRom(roomId);
+  if (!cachedPath) {
+    logger.info({ roomId, gameId: room.gameId }, 'ROM not cached, caching on-demand');
+    try {
+      cachedPath = await cacheRomForRoom(roomId, room.hostId, game.driveFileId);
+    } catch (error) {
+      logger.error({ err: error, roomId }, 'Failed to cache ROM on-demand');
+      return res.status(500).json({ error: 'Failed to load ROM from Google Drive' });
+    }
+  }
+
   res.setHeader('Content-Type', 'application/octet-stream');
-  res.setHeader('Content-Disposition', `attachment; filename="${game?.filename || 'rom.smc'}"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${game.filename || 'rom.smc'}"`);
   res.sendFile(path.resolve(cachedPath));
 });
 
