@@ -6,8 +6,10 @@
 {#if $notifications.length > 0}
   <div class="notification-container">
     {#each $notifications as notification (notification.id)}
+      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <div
         class="notification notification-{notification.type}"
+        role="alert"
         transition:fly={{ y: -20, duration: 300 }}
         on:click={() => notifications.dismiss(notification.id)}
       >

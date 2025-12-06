@@ -7,10 +7,6 @@
 
   const logger = createLogger('AppLayout');
 
-  // Accept props from SvelteKit (even if unused)
-  export let data: any = {};
-  export let params: any = {};
-
   let socketInitialized = false;
 
   onMount(async () => {

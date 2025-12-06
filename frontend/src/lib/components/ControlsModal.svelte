@@ -38,8 +38,9 @@
 <svelte:window on:keydown={handleKeyDown} />
 
 {#if show}
-  <div class="modal-overlay" on:click={handleBackdropClick}>
-    <div class="modal-content">
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+  <div class="modal-overlay" role="presentation" on:click={handleBackdropClick}>
+    <div class="modal-content" role="dialog" aria-modal="true">
       <div class="modal-header">
         <h2>🎮 {t($language, 'controllerSettings')}</h2>
         <button class="close-btn" on:click={close}>✕</button>

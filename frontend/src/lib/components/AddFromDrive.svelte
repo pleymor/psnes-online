@@ -1,11 +1,20 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { createLogger } from '$lib/utils/logger';
   import { openDrivePicker, getAccessToken, type DriveFile } from '$lib/services/drive-picker';
 
   const dispatch = createEventDispatcher();
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') dispatch('close');
+  }
+
+  onMount(() => {
+    window.addEventListener('keydown', handleKeydown);
+    return () => window.removeEventListener('keydown', handleKeydown);
+  });
   const logger = createLogger('AddFromDrive');
 
   let title = '';
@@ -74,8 +83,9 @@
   }
 </script>
 
-<div class="modal-backdrop" on:click={() => dispatch('close')} on:keydown={() => {}}>
-  <div class="modal" on:click|stopPropagation on:keydown|stopPropagation>
+<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+<div class="modal-backdrop" role="presentation" on:click={() => dispatch('close')}>
+  <div class="modal" role="dialog" aria-modal="true" on:click|stopPropagation>
     <h2>{t($language, 'addFromDrive')}</h2>
 
     <div class="info-notice">

@@ -33,8 +33,9 @@
 
 <svelte:window on:keydown={handleKeyDown} />
 
-<div class="modal-backdrop" on:click={handleCancel}>
-  <div class="modal-content" on:click|stopPropagation>
+<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+<div class="modal-backdrop" role="presentation" on:click={handleCancel}>
+  <div class="modal-content" role="alertdialog" aria-modal="true" on:click|stopPropagation>
     <h2 class="modal-title">{title}</h2>
     <p class="modal-message">{message}</p>
 

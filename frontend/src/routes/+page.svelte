@@ -20,9 +20,6 @@
 
   const logger = createLogger('HomePage');
 
-  // Accept params prop from SvelteKit (unused but prevents warnings)
-  export let params = {};
-
   let showUpload = false;
   let selectedGame: Game | null = null;
   let selectedFriend: any = null;
@@ -333,7 +330,8 @@
 
     <!-- Mobile overlay -->
     {#if showMobileSidebar}
-      <div class="mobile-overlay" on:click={() => showMobileSidebar = false}></div>
+      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+      <div class="mobile-overlay" role="presentation" on:click={() => showMobileSidebar = false}></div>
     {/if}
 
     <!-- Sidebar Menu -->
@@ -454,8 +452,9 @@
   {/if}
 
   {#if showDeleteConfirm && gameToDelete}
-    <div class="modal-overlay" on:click={cancelDelete}>
-      <div class="confirm-modal" on:click|stopPropagation>
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="modal-overlay" role="presentation" on:click={cancelDelete}>
+      <div class="confirm-modal" role="alertdialog" aria-modal="true" on:click|stopPropagation>
         <h3>{t($language, 'deleteGame')}</h3>
         <p>{t($language, 'confirmDeleteGame', { title: gameToDelete.title })}</p>
         <p class="warning">{t($language, 'actionCannotBeUndone')}</p>
@@ -475,8 +474,9 @@
   />
 
   {#if showShaderSelector}
-    <div class="modal-overlay" on:click={() => showShaderSelector = false}>
-      <div class="shader-modal" on:click|stopPropagation>
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="modal-overlay" role="presentation" on:click={() => showShaderSelector = false}>
+      <div class="shader-modal" role="dialog" aria-modal="true" on:click|stopPropagation>
         <h3>{t($language, 'display')}</h3>
         <ShaderSelector
           {currentShader}

@@ -18,8 +18,6 @@
   $: isRoomCreator = room?.createdBy === $user?.id;
 
   export let data;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let params: { id: string } | undefined = undefined;
 
   let room: Room | null = null;
   let gameStarted = false;

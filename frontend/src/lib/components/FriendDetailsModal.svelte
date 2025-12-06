@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import ConfirmModal from './ConfirmModal.svelte';
@@ -10,6 +10,15 @@
   export let friendshipId: string;
 
   const dispatch = createEventDispatcher();
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') dispatch('close');
+  }
+
+  onMount(() => {
+    window.addEventListener('keydown', handleKeydown);
+    return () => window.removeEventListener('keydown', handleKeydown);
+  });
   const logger = createLogger('FriendDetailsModal');
 
   let showRemoveConfirm = false;
@@ -50,8 +59,9 @@
   $: dateText = formatDate(friendsSince, $language);
 </script>
 
-<div class="modal-backdrop" on:click={() => dispatch('close')}>
-  <div class="modal" on:click|stopPropagation>
+<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+<div class="modal-backdrop" role="presentation" on:click={() => dispatch('close')}>
+  <div class="modal" role="dialog" aria-modal="true" on:click|stopPropagation>
     <div class="header">
       <h2>{t($language, 'friendDetails')}</h2>
       <button class="close-btn" on:click={() => dispatch('close')}>×</button>

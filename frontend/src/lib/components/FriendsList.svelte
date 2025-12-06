@@ -324,7 +324,8 @@
           {#if showDropdown && searchResults.length > 0}
             <div class="search-dropdown">
               {#each searchResults as user}
-                <div class="search-result" on:mousedown={() => selectUser(user)}>
+                <!-- svelte-ignore a11y-no-static-element-interactions -->
+                <div class="search-result" role="option" on:mousedown={() => selectUser(user)}>
                   <div class="result-avatar">
                     {#if user.avatar}
                       <img src={user.avatar} alt={user.displayName} />
@@ -376,6 +377,7 @@
         {#each friends as friendData}
           {@const room = friendRooms.get(friendData.friend.id)}
           <div class="friend">
+            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
             <div class="friend-main" on:click={() => openFriendDetails(friendData)}>
               <div class="avatar">
                 {#if friendData.friend.avatar}
@@ -408,7 +410,8 @@
     <!-- Compact view: just avatars with status badges -->
     <div class="compact-friends">
       {#if friendRequests.length > 0}
-        <div class="compact-badge-container" title="{friendRequests.length} friend request(s)">
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="compact-badge-container" role="button" tabindex="0" title="{friendRequests.length} friend request(s)">
           <div class="compact-avatar notification-badge">
             <span class="icon">👥</span>
             <div class="badge-dot requests">{friendRequests.length}</div>
@@ -422,8 +425,11 @@
         {@const isCreator = room && (room.createdBy || room.hostId) === friendData.friend.id}
         {@const canJoin = isCreator && room?.status === 'waiting'}
         {@const isPlaying = room !== undefined}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         <div
           class="compact-badge-container"
+          role="button"
+          tabindex="0"
           on:click={() => canJoin ? joinFriend(room.id) : openFriendDetails(friendData)}
           title={friendData.friend.displayName}
         >

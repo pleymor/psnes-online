@@ -15,9 +15,6 @@ ENV VITE_WS_URL=$VITE_WS_URL
 ENV VITE_GOOGLE_API_KEY=$VITE_GOOGLE_API_KEY
 ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
 
-# Debug: verify build args are received
-RUN echo "DEBUG: VITE_GOOGLE_API_KEY is set: $(test -n \"$VITE_GOOGLE_API_KEY\" && echo 'YES' || echo 'NO')"
-
 # Copy package files and install all dependencies (including devDependencies for build)
 COPY package*.json ./
 RUN npm install && \
@@ -33,6 +30,9 @@ COPY static ./static
 # Update PWA configuration for production build
 RUN sed -i "s/mode: 'development'/mode: 'production'/" vite.config.ts && \
     sed -i "s/strategies: 'injectManifest'/strategies: 'generateSW'/" vite.config.ts
+
+# Generate SvelteKit types (fixes tsconfig warning)
+RUN npx svelte-kit sync
 
 # Build the SvelteKit app
 RUN npm run build

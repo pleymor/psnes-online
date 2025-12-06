@@ -60,6 +60,8 @@ services:
     environment:
       - VITE_API_URL=http://localhost:3000
       - BACKEND_URL=http://backend:3000
+      - VITE_GOOGLE_API_KEY=${VITE_GOOGLE_API_KEY}
+      - VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
     command: sh -c "npm install && npm run dev -- --host"
     depends_on:
       - backend
