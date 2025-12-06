@@ -17,12 +17,33 @@
   }
 
   const ROM_EXTENSIONS = ['.smc', '.sfc', '.fig', '.swc', '.mgd', '.zip'];
+  const STORAGE_KEY = 'psnes-drive-last-folder';
 
   let loading = true;
   let error = '';
   let breadcrumbs: { id: string; name: string }[] = [{ id: 'root', name: 'My Drive' }];
   let currentFolderId = 'root';
   let currentItems: DriveItem[] = [];
+
+  function saveLastFolder() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ breadcrumbs, currentFolderId }));
+    } catch (e) {
+      // Ignore storage errors
+    }
+  }
+
+  function loadLastFolder(): { breadcrumbs: { id: string; name: string }[]; currentFolderId: string } | null {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      // Ignore storage errors
+    }
+    return null;
+  }
 
   async function loadFolder(folderId: string): Promise<DriveItem[]> {
     try {
@@ -41,7 +62,7 @@
     }
   }
 
-  async function navigateToFolder(folderId: string, folderName: string) {
+  async function navigateToFolder(folderId: string, folderName: string, savedBreadcrumbs?: { id: string; name: string }[]) {
     loading = true;
     error = '';
 
@@ -51,7 +72,10 @@
       currentFolderId = folderId;
 
       // Update breadcrumbs
-      if (folderId === 'root') {
+      if (savedBreadcrumbs) {
+        // Restore saved breadcrumbs
+        breadcrumbs = savedBreadcrumbs;
+      } else if (folderId === 'root') {
         breadcrumbs = [{ id: 'root', name: 'My Drive' }];
       } else {
         const existingIndex = breadcrumbs.findIndex(b => b.id === folderId);
@@ -61,8 +85,15 @@
           breadcrumbs = [...breadcrumbs, { id: folderId, name: folderName }];
         }
       }
+
+      // Save to localStorage
+      saveLastFolder();
     } catch (err: any) {
       error = err.message || 'Failed to load folder';
+      // If saved folder fails, fallback to root
+      if (savedBreadcrumbs && folderId !== 'root') {
+        navigateToFolder('root', 'My Drive');
+      }
     } finally {
       loading = false;
     }
@@ -92,8 +123,13 @@
     return '📄';
   }
 
-  // Initialize
-  navigateToFolder('root', 'My Drive');
+  // Initialize - try to restore last folder or start at root
+  const lastFolder = loadLastFolder();
+  if (lastFolder) {
+    navigateToFolder(lastFolder.currentFolderId, '', lastFolder.breadcrumbs);
+  } else {
+    navigateToFolder('root', 'My Drive');
+  }
 </script>
 
 <div class="drive-browser">
