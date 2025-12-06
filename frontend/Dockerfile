@@ -3,6 +3,21 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Build arguments for Vite environment variables
+ARG VITE_API_URL
+ARG VITE_WS_URL
+ARG VITE_GOOGLE_API_KEY
+ARG VITE_GOOGLE_CLIENT_ID
+
+# Set as environment variables for build
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_WS_URL=$VITE_WS_URL
+ENV VITE_GOOGLE_API_KEY=$VITE_GOOGLE_API_KEY
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+
+# Debug: verify build args are received
+RUN echo "DEBUG: VITE_GOOGLE_API_KEY is set: $(test -n \"$VITE_GOOGLE_API_KEY\" && echo 'YES' || echo 'NO')"
+
 # Copy package files and install all dependencies (including devDependencies for build)
 COPY package*.json ./
 RUN npm install && \
