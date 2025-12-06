@@ -76,6 +76,9 @@
     transition: all 0.3s ease;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
   }
 
   .game-card:hover {
@@ -147,6 +150,7 @@
 
   .info {
     padding: 1.25rem;
+    flex-grow: 1;
   }
 
   h3 {
