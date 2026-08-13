@@ -1,6 +1,7 @@
 import { Server, Socket } from 'socket.io';
 import { Room } from '../types/index.js';
 import { createLogger } from '../utils/logger.js';
+import { getMemberRoom } from './guards.js';
 
 const logger = createLogger('Sync');
 
@@ -25,7 +26,7 @@ export function registerSyncHandlers(
 ) {
   // Player reports their checksum
   socket.on('sync:checksum', (data: { roomId: string; frame: number; checksum: string }) => {
-    const room = rooms.get(data.roomId);
+    const room = getMemberRoom(rooms, data?.roomId, userId, 'sync:checksum');
     if (!room) return;
 
     const isHost = room.hostId === userId;

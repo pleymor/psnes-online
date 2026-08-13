@@ -72,7 +72,7 @@ export function initializeWebSocket(io: Server) {
     // Register event handlers
     registerRoomHandlers(socket, io, user, rooms, getUserSocket);
     registerGameHandlers(socket, io, user.id, rooms, getUserSocket);
-    registerP2PHandlers(socket, user.displayName, io);
+    registerP2PHandlers(socket, user, io, rooms);
     registerSyncHandlers(socket, io, user.id, rooms);
 
     // Disconnect

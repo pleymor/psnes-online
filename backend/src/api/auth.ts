@@ -26,8 +26,10 @@ if (AUTH_MODE === 'google') {
   );
 }
 
-// Dev mode authentication routes
-if (AUTH_MODE === 'dev') {
+// Dev mode authentication routes.
+// `/dev/login` is an unauthenticated route that hands out a real session, so it
+// must never be reachable in production even if AUTH_MODE is misconfigured.
+if (AUTH_MODE === 'dev' && process.env.NODE_ENV !== 'production') {
   // Login as dev user
   authRouter.post('/dev/login', async (req, res) => {
     try {

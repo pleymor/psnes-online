@@ -3,6 +3,7 @@ import { Room, GameInput } from '../types/index.js';
 import { prisma } from '../db/prisma.js';
 import { notifyFriendsRoomStatusChanged } from '../services/friends.js';
 import { createLogger } from '../utils/logger.js';
+import { getMemberRoom } from './guards.js';
 
 const logger = createLogger('Game');
 
@@ -15,7 +16,7 @@ export function registerGameHandlers(
 ) {
   // Start game
   socket.on('game:start', async (data: { roomId: string }) => {
-    const room = rooms.get(data.roomId);
+    const room = getMemberRoom(rooms, data?.roomId, userId, 'game:start');
     if (!room) return;
 
     const playersWithPorts = room.players.filter(p => p.port !== null && p.isReady);
@@ -40,7 +41,7 @@ export function registerGameHandlers(
 
   // Player signals their emulator is ready
   socket.on('game:ready', (data: { roomId: string }) => {
-    const room = rooms.get(data.roomId);
+    const room = getMemberRoom(rooms, data?.roomId, userId, 'game:ready');
     if (!room) return;
 
     const player = room.players.find(p => p.userId === userId);
@@ -66,7 +67,7 @@ export function registerGameHandlers(
 
   // Pause game
   socket.on('game:pause', (data: { roomId: string }) => {
-    const room = rooms.get(data.roomId);
+    const room = getMemberRoom(rooms, data?.roomId, userId, 'game:pause');
     if (!room) return;
 
     room.status = 'paused';
@@ -75,7 +76,7 @@ export function registerGameHandlers(
 
   // Resume game
   socket.on('game:resume', (data: { roomId: string }) => {
-    const room = rooms.get(data.roomId);
+    const room = getMemberRoom(rooms, data?.roomId, userId, 'game:resume');
     if (!room) return;
 
     room.status = 'playing';
@@ -84,7 +85,7 @@ export function registerGameHandlers(
 
   // Stop game
   socket.on('game:stop', async (data: { roomId: string }) => {
-    const room = rooms.get(data.roomId);
+    const room = getMemberRoom(rooms, data?.roomId, userId, 'game:stop');
     if (!room) return;
 
     room.status = 'waiting';
@@ -102,10 +103,23 @@ export function registerGameHandlers(
 
   // Save state
   socket.on('game:save', async (data: { roomId: string; slotNumber: number; name: string; saveData?: string }) => {
-    const room = rooms.get(data.roomId);
+    const room = getMemberRoom(rooms, data?.roomId, userId, 'game:save');
     if (!room) return;
 
     try {
+      // Saves belong to the game's owner. Without this check a guest in the
+      // room would create Save rows against the host's game (mirrors the
+      // ownership check in game:load).
+      const ownedGame = await prisma.game.findFirst({
+        where: { id: room.gameId, userId },
+        select: { id: true }
+      });
+
+      if (!ownedGame) {
+        socket.emit('error', { message: 'Not authorized to save this game' });
+        return;
+      }
+
       const existingSave = await prisma.save.findFirst({
         where: {
           gameId: room.gameId,
@@ -151,7 +165,7 @@ export function registerGameHandlers(
 
   // Load state
   socket.on('game:load', async (data: { roomId: string; saveId: string }) => {
-    const room = rooms.get(data.roomId);
+    const room = getMemberRoom(rooms, data?.roomId, userId, 'game:load');
     if (!room) return;
 
     try {
@@ -187,7 +201,7 @@ export function registerGameHandlers(
 
   // Set emulation speed
   socket.on('game:setSpeed', (data: { roomId: string; speed: number }) => {
-    const room = rooms.get(data.roomId);
+    const room = getMemberRoom(rooms, data?.roomId, userId, 'game:setSpeed');
     if (!room) return;
 
     io.to(data.roomId).emit('game:speedChanged', { speed: data.speed });
@@ -195,7 +209,7 @@ export function registerGameHandlers(
 
   // Set target FPS
   socket.on('game:setTargetFPS', (data: { roomId: string; targetFPS: number }) => {
-    const room = rooms.get(data.roomId);
+    const room = getMemberRoom(rooms, data?.roomId, userId, 'game:setTargetFPS');
     if (!room) return;
 
     io.to(data.roomId).emit('game:targetFPSChanged', { targetFPS: data.targetFPS });
@@ -203,7 +217,7 @@ export function registerGameHandlers(
 
   // Save SRAM (battery save / in-game save)
   socket.on('game:saveSram', async (data: { roomId: string; sramData: string }) => {
-    const room = rooms.get(data.roomId);
+    const room = getMemberRoom(rooms, data?.roomId, userId, 'game:saveSram');
     if (!room) return;
 
     try {
@@ -230,7 +244,7 @@ export function registerGameHandlers(
 
   // Load SRAM (battery save / in-game save)
   socket.on('game:loadSram', async (data: { roomId: string }) => {
-    const room = rooms.get(data.roomId);
+    const room = getMemberRoom(rooms, data?.roomId, userId, 'game:loadSram');
     if (!room) return;
 
     try {

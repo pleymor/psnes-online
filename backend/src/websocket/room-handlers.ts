@@ -5,6 +5,8 @@ import { getUserKeyConfig } from '../services/user-config.js';
 import { notifyFriendsAboutRoom, notifyFriendsRoomStatusChanged } from '../services/friends.js';
 import { createLogger } from '../utils/logger.js';
 import { cacheRomForRoom, cleanupRoomCache } from '../services/rom-cache.js';
+import { cleanupRoomChecksums } from './sync-handlers.js';
+import { cleanupHostReady } from './p2p-handlers.js';
 import { prisma } from '../db/prisma.js';
 
 const logger = createLogger('Room');
@@ -215,8 +217,10 @@ export async function handleLeaveRoom(
 
   if (room.players.length === 0) {
     await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'destroyed', getUserSocket);
-    // Clean up cached ROM
+    // Clean up per-room state so nothing outlives the room itself
     await cleanupRoomCache(roomId);
+    cleanupRoomChecksums(roomId);
+    cleanupHostReady(roomId);
     rooms.delete(roomId);
     io.emit('room:destroyed', { roomId });
   } else {
