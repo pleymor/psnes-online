@@ -193,13 +193,17 @@
     }
   }
 
+  async function loadUserData() {
+    await Promise.all([loadGames(), loadUserControls(), loadRooms()]);
+  }
+
   onMount(async () => {
     loadShaderPreference();
     // Wait for auth check to complete
     const unsubscribe = userLoading.subscribe(async (loading) => {
       if (!loading) {
         if ($user) {
-          await Promise.all([loadGames(), loadUserControls(), loadRooms()]);
+          await loadUserData();
         }
         unsubscribe();
       }
@@ -251,6 +255,10 @@
       if (res.ok) {
         const userData = await res.json();
         user.set(userData);
+        // onMount already ran (and unsubscribed) while logged out, so the
+        // library/rooms/controls fetches have to be kicked off here — a
+        // client-side goto('/') does not remount this page.
+        await loadUserData();
         goto('/');
       } else {
         logger.error('Dev login failed');

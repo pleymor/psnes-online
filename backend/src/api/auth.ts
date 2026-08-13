@@ -3,6 +3,7 @@ import passport from 'passport';
 import { getAuthMode } from '../auth/passport.js';
 import { prisma } from '../db/prisma.js';
 import { createLogger } from '../utils/logger.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const logger = createLogger('Auth');
 
@@ -31,7 +32,7 @@ if (AUTH_MODE === 'google') {
 // must never be reachable in production even if AUTH_MODE is misconfigured.
 if (AUTH_MODE === 'dev' && process.env.NODE_ENV !== 'production') {
   // Login as dev user
-  authRouter.post('/dev/login', async (req, res) => {
+  authRouter.post('/dev/login', asyncHandler(async (req, res) => {
     try {
       const { userId } = req.body;
 
@@ -76,7 +77,7 @@ if (AUTH_MODE === 'dev' && process.env.NODE_ENV !== 'production') {
       logger.error({ err: error }, 'Dev login error');
       res.status(500).json({ error: 'Login failed' });
     }
-  });
+  }));
 }
 
 // Get auth mode

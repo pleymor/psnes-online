@@ -21,6 +21,7 @@ import { initializeWebSocket } from './websocket/index.js';
 import { refreshGameMetadata } from './services/metadata-loader.js';
 import { ensureAvatarsDir } from './utils/avatar.js';
 import { requestLogger } from './middleware/logger.js';
+import { errorHandler } from './middleware/error.js';
 import { logger } from './utils/logger.js';
 
 dotenv.config();
@@ -53,6 +54,20 @@ if (isProduction) {
     process.exit(1);
   }
 }
+
+// Last-resort safety nets. Route and socket handlers are wrapped so their
+// rejections are handled locally; these only catch what slipped through, and
+// exist so an isolated failure is logged instead of killing the server.
+process.on('unhandledRejection', reason => {
+  logger.error({ err: reason }, 'Unhandled promise rejection (server kept alive)');
+});
+
+process.on('uncaughtException', err => {
+  // State is unknown after an uncaught throw, so exit and let the restart
+  // policy take over rather than serving from a corrupted process.
+  logger.fatal({ err }, 'Uncaught exception, shutting down');
+  process.exit(1);
+});
 
 const app = express();
 
@@ -149,6 +164,9 @@ app.use('/api/avatars', avatarsRouter);
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
+
+// Terminal error handler: must come after all routes.
+app.use(errorHandler);
 
 // WebSocket - Share session with Socket.IO
 io.engine.use(sessionMiddleware);

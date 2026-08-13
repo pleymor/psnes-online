@@ -5,6 +5,7 @@ import { prisma } from '../db/prisma.js';
 import { cache } from '../utils/cache.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const logger = createLogger('Friends');
 
@@ -13,7 +14,7 @@ export const friendsRouter = Router();
 friendsRouter.use(requireAuth);
 
 // Get all friends (accepted friendships)
-friendsRouter.get('/', async (req, res) => {
+friendsRouter.get('/', asyncHandler(async (req, res) => {
   const user = req.user as User;
 
   const friendships = await prisma.friendship.findMany({
@@ -39,10 +40,10 @@ friendsRouter.get('/', async (req, res) => {
   }));
 
   res.json(friendsData);
-});
+}));
 
 // Get pending friend requests
-friendsRouter.get('/requests', async (req, res) => {
+friendsRouter.get('/requests', asyncHandler(async (req, res) => {
   const user = req.user as User;
 
   const requests = await prisma.friendship.findMany({
@@ -56,10 +57,10 @@ friendsRouter.get('/requests', async (req, res) => {
   });
 
   res.json(requests);
-});
+}));
 
 // Search users (for friend suggestions)
-friendsRouter.get('/search', async (req, res) => {
+friendsRouter.get('/search', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { query } = req.query;
 
@@ -114,10 +115,10 @@ friendsRouter.get('/search', async (req, res) => {
   const availableUsers = users.filter(u => !friendIds.has(u.id));
 
   res.json(availableUsers);
-});
+}));
 
 // Send friend request
-friendsRouter.post('/request', async (req, res) => {
+friendsRouter.post('/request', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { friendEmail, friendId } = req.body;
 
@@ -176,10 +177,10 @@ friendsRouter.post('/request', async (req, res) => {
   }
 
   res.json(friendship);
-});
+}));
 
 // Accept friend request
-friendsRouter.post('/accept/:friendshipId', async (req, res) => {
+friendsRouter.post('/accept/:friendshipId', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { friendshipId } = req.params;
 
@@ -229,10 +230,10 @@ friendsRouter.post('/accept/:friendshipId', async (req, res) => {
   }
 
   res.json(updated);
-});
+}));
 
 // Reject/Delete friend request or friendship
-friendsRouter.delete('/:friendshipId', async (req, res) => {
+friendsRouter.delete('/:friendshipId', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { friendshipId } = req.params;
 
@@ -252,6 +253,13 @@ friendsRouter.delete('/:friendshipId', async (req, res) => {
     where: { id: friendshipId }
   });
 
+  // Invalidate friendship cache for both users, as the accept path does.
+  // Without this, getFriendships() serves the deleted friendship for up to
+  // 30s, so an unfriended user keeps receiving room updates and keeps seeing
+  // the other's rooms in /api/rooms.
+  cache.delete(`friendships:${friendship.initiatorId}`);
+  cache.delete(`friendships:${friendship.receiverId}`);
+
   // Notify the other user via WebSocket
   const io = getIO();
   const otherUserId = friendship.initiatorId === user.id ? friendship.receiverId : friendship.initiatorId;
@@ -267,4 +275,4 @@ friendsRouter.delete('/:friendshipId', async (req, res) => {
   }
 
   res.json({ message: 'Friendship deleted' });
-});
+}));
