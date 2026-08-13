@@ -50,4 +50,9 @@ logs/
 docker-compose.override.yml
 
 # Prisma
-backend/prisma/migrations/
+# NOTE: backend/prisma/migrations/ is intentionally tracked. `prisma migrate
+# deploy` (see the db-migration service in docker-compose*.yml) needs the
+# migration history in the build context, so ignoring it breaks any fresh
+# clone and CI deploy.
+backend/prisma/*.db
+backend/prisma/*.db-journal
