@@ -11,9 +11,13 @@
     "dev": "docker-compose up --build",
     "prod": "docker-compose -f docker-compose.prod.yml up --build",
     "build": "npm run build --workspaces",
-    "clean": "npm run clean --workspaces"
+    "clean": "npm run clean --workspaces",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "test:e2e:ui": "playwright test --config e2e/playwright.config.ts --ui"
   },
   "devDependencies": {
-    "@types/simple-peer": "^9.11.9"
+    "@types/simple-peer": "^9.11.9",
+    "@playwright/test": "^1.57.0",
+    "socket.io-client": "^4.7.2"
   }
 }

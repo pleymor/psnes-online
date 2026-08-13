@@ -8,6 +8,7 @@ import { createLogger } from '../utils/logger.js';
 import { getRooms } from '../websocket/index.js';
 import { getValidAccessToken, downloadDriveFile, getDriveFileMetadata, listDriveFolder } from '../services/google-drive.js';
 import { getCachedRom, cacheRomForRoom } from '../services/rom-cache.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const logger = createLogger('Games');
 
@@ -19,7 +20,7 @@ const MAX_GAMES_PER_USER = 100;
 gamesRouter.use(requireAuth);
 
 // Get user's game library
-gamesRouter.get('/', async (req, res) => {
+gamesRouter.get('/', asyncHandler(async (req, res) => {
   const user = req.user as User;
 
   const games = await prisma.game.findMany({
@@ -40,10 +41,10 @@ gamesRouter.get('/', async (req, res) => {
   });
 
   res.json(games);
-});
+}));
 
 // Get access token for Google Drive Picker
-gamesRouter.get('/drive-token', async (req, res) => {
+gamesRouter.get('/drive-token', asyncHandler(async (req, res) => {
   const user = req.user as User;
 
   try {
@@ -53,10 +54,10 @@ gamesRouter.get('/drive-token', async (req, res) => {
     logger.error({ err: error, userId: user.id }, 'Failed to get Drive token');
     res.status(401).json({ error: 'Drive not connected. Please re-authenticate.' });
   }
-});
+}));
 
 // List contents of a Drive folder
-gamesRouter.get('/drive-folder/:folderId?', async (req, res) => {
+gamesRouter.get('/drive-folder/:folderId?', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { folderId } = req.params;
 
@@ -67,10 +68,10 @@ gamesRouter.get('/drive-folder/:folderId?', async (req, res) => {
     logger.error({ err: error, userId: user.id, folderId }, 'Failed to list Drive folder');
     res.status(500).json({ error: 'Failed to list folder contents' });
   }
-});
+}));
 
 // Add game from Google Drive
-gamesRouter.post('/add-from-drive', async (req, res) => {
+gamesRouter.post('/add-from-drive', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { driveFileId, driveFileName, title } = req.body;
 
@@ -132,10 +133,10 @@ gamesRouter.post('/add-from-drive', async (req, res) => {
   const game = await prisma.game.create({ data: gameData });
 
   res.json(game);
-});
+}));
 
 // Delete a game
-gamesRouter.delete('/:gameId', async (req, res) => {
+gamesRouter.delete('/:gameId', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { gameId } = req.params;
 
@@ -158,10 +159,10 @@ gamesRouter.delete('/:gameId', async (req, res) => {
   });
 
   res.json({ message: 'Game deleted' });
-});
+}));
 
 // Download ROM file from Google Drive (for single player)
-gamesRouter.get('/:gameId/download', async (req, res) => {
+gamesRouter.get('/:gameId/download', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { gameId } = req.params;
 
@@ -187,10 +188,10 @@ gamesRouter.get('/:gameId/download', async (req, res) => {
     logger.error({ err: error, gameId, driveFileId: game.driveFileId }, 'Failed to download ROM from Drive');
     res.status(500).json({ error: 'Failed to download ROM from Google Drive' });
   }
-});
+}));
 
 // Download ROM file for a room (from cache for multiplayer)
-gamesRouter.get('/room/:roomId/rom', async (req, res) => {
+gamesRouter.get('/room/:roomId/rom', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { roomId } = req.params;
 
@@ -229,10 +230,10 @@ gamesRouter.get('/room/:roomId/rom', async (req, res) => {
   res.setHeader('Content-Type', 'application/octet-stream');
   res.setHeader('Content-Disposition', `attachment; filename="${game.filename || 'rom.smc'}"`);
   res.sendFile(path.resolve(cachedPath));
-});
+}));
 
 // Get game saves
-gamesRouter.get('/:gameId/saves', async (req, res) => {
+gamesRouter.get('/:gameId/saves', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { gameId } = req.params;
 
@@ -250,10 +251,10 @@ gamesRouter.get('/:gameId/saves', async (req, res) => {
   }
 
   res.json(game.saves);
-});
+}));
 
 // Refresh metadata for all user's games
-gamesRouter.post('/refresh-metadata', async (req, res) => {
+gamesRouter.post('/refresh-metadata', asyncHandler(async (req, res) => {
   const user = req.user as User;
 
   try {
@@ -299,4 +300,4 @@ gamesRouter.post('/refresh-metadata', async (req, res) => {
     logger.error({ err: error }, 'Error refreshing metadata');
     res.status(500).json({ error: 'Failed to refresh metadata' });
   }
-});
+}));

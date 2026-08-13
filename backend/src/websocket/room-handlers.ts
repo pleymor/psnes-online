@@ -2,7 +2,8 @@ import { Server, Socket } from 'socket.io';
 import { Room, RoomPlayer, User, EmulationMode } from '../types/index.js';
 import { randomUUID } from 'crypto';
 import { getUserKeyConfig } from '../services/user-config.js';
-import { notifyFriendsAboutRoom, notifyFriendsRoomStatusChanged } from '../services/friends.js';
+import { notifyFriendsAboutRoom, notifyFriendsRoomStatusChanged, getFriendships } from '../services/friends.js';
+import { toPublicRoom } from './room-view.js';
 import { createLogger } from '../utils/logger.js';
 import { cacheRomForRoom, cleanupRoomCache } from '../services/rom-cache.js';
 import { cleanupRoomChecksums } from './sync-handlers.js';
@@ -61,7 +62,7 @@ export function registerRoomHandlers(
     }
 
     socket.emit('room:created', room);
-    broadcastRoomUpdate(io, room);
+    await broadcastRoomUpdate(io, room, getUserSocket);
     notifyFriendsAboutRoom(io, user.id, room, getUserSocket);
 
     if (autoStart) {
@@ -112,7 +113,7 @@ export function registerRoomHandlers(
     socket.join(data.roomId);
 
     io.to(data.roomId).emit('room:updated', room);
-    broadcastRoomUpdate(io, room);
+    await broadcastRoomUpdate(io, room, getUserSocket);
 
     if (room.status === 'playing') {
       socket.emit('game:started');
@@ -237,10 +238,31 @@ export async function handleLeaveRoom(
     }
 
     io.to(roomId).emit('room:updated', room);
-    broadcastRoomUpdate(io, room);
+    await broadcastRoomUpdate(io, room, getUserSocket);
   }
 }
 
-function broadcastRoomUpdate(io: Server, room: Room) {
-  io.emit('room:update', room);
+/**
+ * Publishes a room update to the people entitled to see it: the players in the
+ * room and the host's friends. This used to be an io.emit, which handed every
+ * connected user each room's id and every player's keyConfig.
+ */
+async function broadcastRoomUpdate(
+  io: Server,
+  room: Room,
+  getUserSocketId: (id: string) => string | undefined
+) {
+  const payload = toPublicRoom(room);
+  const recipients = new Set<string>(room.players.map(p => p.userId));
+
+  for (const friendship of await getFriendships(room.hostId)) {
+    recipients.add(
+      friendship.initiatorId === room.hostId ? friendship.receiverId : friendship.initiatorId
+    );
+  }
+
+  for (const userId of recipients) {
+    const socketId = getUserSocketId(userId);
+    if (socketId) io.to(socketId).emit('room:update', payload);
+  }
 }

@@ -4,13 +4,14 @@ import { prisma } from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getDefaultKeyConfig, isValidKeyConfig } from '../utils/key-config.js';
 import { createLogger } from '../utils/logger.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const logger = createLogger('User');
 
 export const userRouter = Router();
 
 // Get user's controls configuration
-userRouter.get('/controls', requireAuth, async (req, res) => {
+userRouter.get('/controls', requireAuth, asyncHandler(async (req, res) => {
   try {
     const userId = (req.user as any).id;
     const user = await prisma.user.findUnique({
@@ -29,10 +30,10 @@ userRouter.get('/controls', requireAuth, async (req, res) => {
     logger.error({ err: error }, 'Error fetching controls config');
     res.status(500).json({ error: 'Failed to fetch controls configuration' });
   }
-});
+}));
 
 // Update user's controls configuration
-userRouter.put('/controls', requireAuth, async (req, res) => {
+userRouter.put('/controls', requireAuth, asyncHandler(async (req, res) => {
   try {
     const userId = (req.user as any).id;
     const config: KeyConfig = req.body;
@@ -52,10 +53,10 @@ userRouter.put('/controls', requireAuth, async (req, res) => {
     logger.error({ err: error }, 'Error updating controls config');
     res.status(500).json({ error: 'Failed to update controls configuration' });
   }
-});
+}));
 
 // Reset user's controls to default
-userRouter.post('/controls/reset', requireAuth, async (req, res) => {
+userRouter.post('/controls/reset', requireAuth, asyncHandler(async (req, res) => {
   try {
     const userId = (req.user as any).id;
     const defaultConfig = getDefaultKeyConfig();
@@ -70,5 +71,5 @@ userRouter.post('/controls/reset', requireAuth, async (req, res) => {
     logger.error({ err: error }, 'Error resetting controls config');
     res.status(500).json({ error: 'Failed to reset controls configuration' });
   }
-});
+}));
 
