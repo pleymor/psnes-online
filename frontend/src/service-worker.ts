@@ -37,6 +37,12 @@ sw.addEventListener('activate', (event) => {
 });
 
 sw.addEventListener('fetch', (event) => {
+  // Note: SvelteKit does not register this worker in dev. It used to run there
+  // anyway, because @vite-pwa/sveltekit forced it on through devOptions - and
+  // it then intercepted the dev server's own navigations, turning any hiccup
+  // into a hard failure that reloaded the page and tore down a running game.
+  // That plugin is gone; see frontend/vite.config.ts.
+
   // ignore POST requests etc
   if (event.request.method !== 'GET') return;
 
@@ -71,7 +77,10 @@ sw.addEventListener('fetch', (event) => {
         throw new Error('invalid response from fetch');
       }
 
-      if (response.status === 200) {
+      // Only cache static assets. Caching navigations would store per-room
+      // HTML under a URL that never repeats, filling the cache with entries
+      // that can only ever be served stale.
+      if (response.status === 200 && event.request.mode !== 'navigate') {
         cache.put(event.request, response.clone());
       }
 
