@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { downloadDriveFile } from './google-drive.js';
+import { Game } from '@prisma/client';
+import { readRom } from './rom-source.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('RomCache');
@@ -19,14 +20,14 @@ const activeCaches = new Map<string, CacheEntry>();
 export async function cacheRomForRoom(
   roomId: string,
   hostUserId: string,
-  driveFileId: string
+  game: Game
 ): Promise<string> {
   await fs.mkdir(CACHE_DIR, { recursive: true });
 
   const filePath = path.join(CACHE_DIR, `${roomId}.rom`);
 
-  logger.info({ roomId, driveFileId }, 'Downloading ROM from Drive for room');
-  const romBuffer = await downloadDriveFile(hostUserId, driveFileId);
+  logger.info({ roomId, gameId: game.id }, 'Caching ROM for room');
+  const romBuffer = await readRom(game, hostUserId);
 
   await fs.writeFile(filePath, romBuffer);
 
