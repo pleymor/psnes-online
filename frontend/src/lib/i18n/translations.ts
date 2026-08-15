@@ -46,6 +46,14 @@ export const translations = {
     yearsAgo: '{count} years ago',
     yearAgo: '1 year ago',
 
+    // Adding ROMs
+    addGame: 'Add game',
+    addFromComputer: 'Add from your computer',
+    romDropHint: 'Drop a ROM here, or click to choose one',
+    romInvalidType: 'Not a SNES ROM. Accepted: .smc .sfc .fig .swc .mgd .zip',
+    romTooLarge: 'That file is larger than 8 MB, which no SNES cartridge is.',
+    chooseRomSource: 'Where is the ROM?',
+
     // Google Drive
     addFromDrive: 'Add from Drive',
     driveInfo: 'Select a ROM file from your Google Drive. Your ROMs stay in your Drive - we only store a reference.',
@@ -107,6 +115,8 @@ export const translations = {
     streamingMode: 'Streaming',
     dualModeDesc: 'Both players run the emulator locally. Lower latency.',
     streamingModeDesc: 'Host streams video to guest. More stable.',
+    lockstepMode: 'Lockstep',
+    lockstepModeDesc: 'ZSNES-style. Frame-perfect sync, never desyncs, but the picture waits when the network does.',
 
     // Pause menu
     pauseMenu: 'Pause Menu',
@@ -253,6 +263,14 @@ export const translations = {
     yearsAgo: 'Il y a {count} ans',
     yearAgo: 'Il y a 1 an',
 
+    // Ajout de ROMs
+    addGame: 'Ajouter le jeu',
+    addFromComputer: 'Ajouter depuis mon ordinateur',
+    romDropHint: 'Dépose une ROM ici, ou clique pour en choisir une',
+    romInvalidType: 'Ce n\'est pas une ROM SNES. Acceptés : .smc .sfc .fig .swc .mgd .zip',
+    romTooLarge: 'Ce fichier dépasse 8 Mo, ce qu\'aucune cartouche SNES ne fait.',
+    chooseRomSource: 'Où se trouve la ROM ?',
+
     // Google Drive
     addFromDrive: 'Ajouter depuis Drive',
     driveInfo: 'Sélectionnez un fichier ROM depuis votre Google Drive. Vos ROMs restent sur votre Drive - nous ne stockons qu\'une référence.',
@@ -314,6 +332,8 @@ export const translations = {
     streamingMode: 'Streaming',
     dualModeDesc: "Les deux joueurs émulent localement. Moins de latence.",
     streamingModeDesc: "L'hôte diffuse la vidéo. Plus stable.",
+    lockstepMode: 'Lockstep',
+    lockstepModeDesc: "Façon ZSNES. Synchro parfaite, jamais de désync, mais l'image attend quand le réseau attend.",
 
     // Pause menu
     pauseMenu: 'Menu Pause',

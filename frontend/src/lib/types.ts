@@ -26,7 +26,9 @@ export interface RoomPlayer {
 export enum EmulationMode {
   SINGLE = 'single',          // Single player, simple local emulation
   STREAMING = 'streaming',    // Host emulates, guest receives stream
-  DUAL = 'dual'               // Both emulate locally with input sync
+  DUAL = 'dual',              // Both emulate locally with input sync
+  LOCKSTEP = 'lockstep'       // ZSNES-style: deterministic core, no frame runs
+                              // until every player's pad for it has arrived
 }
 
 export interface Room {
