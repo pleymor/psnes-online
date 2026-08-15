@@ -10,6 +10,7 @@
   import GameCard from '$lib/components/GameCard.svelte';
   import GameDetailsModal from '$lib/components/GameDetailsModal.svelte';
   import AddFromDrive from '$lib/components/AddFromDrive.svelte';
+  import AddFromComputer from '$lib/components/AddFromComputer.svelte';
   import FriendsList from '$lib/components/FriendsList.svelte';
   import FriendDetailsModal from '$lib/components/FriendDetailsModal.svelte';
   import ControlsModal from '$lib/components/ControlsModal.svelte';
@@ -21,6 +22,14 @@
   const logger = createLogger('HomePage');
 
   let showUpload = false;
+  // Which source the player picked in the chooser. Drive used to be the only
+  // way in, which made the app unusable without a Google account.
+  let uploadSource: 'local' | 'drive' | null = null;
+
+  function closeUpload() {
+    showUpload = false;
+    uploadSource = null;
+  }
   let selectedGame: Game | null = null;
   let selectedFriend: any = null;
   let friendsListRef: FriendsList;
@@ -430,10 +439,30 @@
     </main>
   </div>
 
-  {#if showUpload}
+  {#if showUpload && !uploadSource}
+    <div class="source-backdrop" role="presentation" on:click={closeUpload}>
+      <div class="source-modal" role="dialog" aria-modal="true" on:click|stopPropagation>
+        <h2>{t($language, 'chooseRomSource')}</h2>
+        <button class="source-option" on:click={() => uploadSource = 'local'}>
+          <span class="source-icon">💾</span>
+          <span>{t($language, 'addFromComputer')}</span>
+        </button>
+        <button class="source-option" on:click={() => uploadSource = 'drive'}>
+          <span class="source-icon">☁️</span>
+          <span>{t($language, 'addFromDrive')}</span>
+        </button>
+        <button class="source-cancel" on:click={closeUpload}>{t($language, 'cancel')}</button>
+      </div>
+    </div>
+  {:else if uploadSource === 'local'}
+    <AddFromComputer
+      on:close={closeUpload}
+      on:added={() => { closeUpload(); loadGames(); }}
+    />
+  {:else if uploadSource === 'drive'}
     <AddFromDrive
-      on:close={() => showUpload = false}
-      on:added={() => { showUpload = false; loadGames(); }}
+      on:close={closeUpload}
+      on:added={() => { closeUpload(); loadGames(); }}
     />
   {/if}
 
@@ -1152,5 +1181,67 @@
       right: 1rem;
       bottom: 1rem;
     }
+  }
+
+  .source-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+  }
+
+  .source-modal {
+    background: #1b1b26;
+    border: 1px solid #2c2c3c;
+    border-radius: 12px;
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .source-modal h2 {
+    margin: 0 0 0.25rem;
+    font-size: 1.15rem;
+    color: #fff;
+  }
+
+  .source-option {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem;
+    background: #22222f;
+    border: 1px solid #33334a;
+    border-radius: 8px;
+    color: #e6e6f0;
+    font-size: 0.95rem;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .source-option:hover {
+    background: #2b2b3d;
+    border-color: #667eea;
+  }
+
+  .source-icon {
+    font-size: 1.3rem;
+  }
+
+  .source-cancel {
+    background: transparent;
+    border: none;
+    color: #8b8ba3;
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 0.4rem;
   }
 </style>

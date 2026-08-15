@@ -2,7 +2,7 @@ import { User as PrismaUser } from '@prisma/client';
 
 export interface User extends PrismaUser {}
 
-export type EmulationMode = 'single' | 'streaming' | 'dual';
+export type EmulationMode = 'single' | 'streaming' | 'dual' | 'lockstep';
 
 export interface Room {
   id: string;

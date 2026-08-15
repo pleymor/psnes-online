@@ -37,5 +37,11 @@ export function initializeSocket() {
 
   socket.set(socketInstance);
 
+  if (isDev) {
+    // Dev only: lets a probe script drive the lobby the way a player would,
+    // instead of reverse-engineering selectors for every button.
+    (window as unknown as Record<string, unknown>).__psnesSocket = socketInstance;
+  }
+
   return socketInstance;
 }

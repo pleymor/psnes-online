@@ -2,11 +2,13 @@
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { socket } from '$lib/api/socket';
+  import type { Socket } from 'socket.io-client';
   import { goto } from '$app/navigation';
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import P2PRoom from '$lib/components/P2PRoom.svelte';
+  import LockstepRoom from '$lib/components/LockstepRoom.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
   import type { Room, KeyConfig } from '$lib/types';
   import { EmulationMode } from '$lib/types';
@@ -58,11 +60,50 @@
   // Determine effective emulation mode for game start
   $: effectiveEmulationMode = isSinglePlayer ? EmulationMode.SINGLE : room?.emulationMode;
 
+  /**
+   * The mode the running game was started in, frozen at `game:started`.
+   *
+   * `effectiveEmulationMode` is derived from the live player count, so a single
+   * `room:updated` carrying one player - a socket.io reconnect is enough, and
+   * the emulator stalling the main thread makes those routine - flipped it to
+   * SINGLE mid-game. That swapped the rendered component, which destroyed the
+   * running emulator and mounted an independent single-player one; when the
+   * peer came back it was rebuilt from scratch and the game restarted. A game
+   * in progress keeps the mode it began with.
+   */
+  let activeEmulationMode: EmulationMode | null = null;
+
   // Check if at least one player is ready (has a port)
   $: canStartGame = room?.players.some(p => p.port !== null && p.isReady) ?? false;
 
+  /**
+   * Waits for the shared socket to exist.
+   *
+   * The layout creates it in its own onMount, after awaiting /auth/me - and a
+   * child's onMount runs before its parent's. Bailing out on a null socket
+   * therefore bounced every direct visit to a room URL back to the library,
+   * which is every shared invite link and every page refresh mid-lobby.
+   */
+  function waitForSocket(timeoutMs = 10000): Promise<Socket | null> {
+    if ($socket) return Promise.resolve($socket);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        unsubscribe();
+        resolve(null);
+      }, timeoutMs);
+      const unsubscribe = socket.subscribe((value) => {
+        if (!value) return;
+        clearTimeout(timer);
+        // Defer: subscribe fires synchronously, before `unsubscribe` is bound.
+        queueMicrotask(() => unsubscribe());
+        resolve(value);
+      });
+    });
+  }
+
   onMount(async () => {
-    if (!$socket) {
+    const sock = await waitForSocket();
+    if (!sock) {
       goto('/');
       return;
     }
@@ -79,16 +120,27 @@
     }
 
     // Join room
-    $socket.emit('room:join', { roomId });
+    sock.emit('room:join', { roomId });
+
+    // Rejoin after a reconnect. The server drops a player from the room when
+    // its socket disconnects, and socket.io reconnects on its own - but
+    // `room:join` only ran in onMount, so the player stayed dropped. The room
+    // then sat at one player permanently, which is also what pushed a running
+    // game into single-player mode.
+    sock.on('connect', () => {
+      logger.info('Socket reconnected, rejoining room');
+      sock.emit('room:join', { roomId });
+    });
 
     // Listen for room updates
-    $socket.on('room:updated', (updatedRoom: Room) => {
+    sock.on('room:updated', (updatedRoom: Room) => {
       if (updatedRoom.id === roomId) {
         room = updatedRoom;
       }
     });
 
-    $socket.on('game:started', async () => {
+    sock.on('game:started', async () => {
+      activeEmulationMode = effectiveEmulationMode ?? EmulationMode.SINGLE;
       gameStarted = true;
 
       // Prevent scrolling when game is active
@@ -97,7 +149,8 @@
       }
     });
 
-    $socket.on('game:stopped', () => {
+    sock.on('game:stopped', () => {
+      activeEmulationMode = null;
       // Restore scrolling
       if (browser) {
         document.body.style.overflow = '';
@@ -111,6 +164,7 @@
   onDestroy(() => {
     if ($socket) {
       $socket.emit('room:leave', { roomId });
+      $socket.off('connect');
       $socket.off('room:updated');
       $socket.off('game:started');
       $socket.off('game:stopped');
@@ -127,6 +181,18 @@
 
   function leaveRoom() {
     goto('/');
+  }
+
+  const modeOptions = [
+    { mode: EmulationMode.DUAL, label: 'dualMode', badge: 'Alpha' },
+    { mode: EmulationMode.LOCKSTEP, label: 'lockstepMode', badge: 'Beta' },
+    { mode: EmulationMode.STREAMING, label: 'streamingMode', badge: '' }
+  ] as const;
+
+  function modeDescriptionKey(mode: EmulationMode | undefined) {
+    if (mode === EmulationMode.DUAL) return 'dualModeDesc' as const;
+    if (mode === EmulationMode.LOCKSTEP) return 'lockstepModeDesc' as const;
+    return 'streamingModeDesc' as const;
   }
 
   function setEmulationMode(mode: EmulationMode) {
@@ -147,28 +213,27 @@
       {#if room}
         <RoomPlayers {room} {roomId} />
 
-        <!-- Emulation Mode Toggle (only shown when 2+ players) -->
+        <!-- Emulation Mode selector (only shown when 2+ players).
+             Three modes now rather than two, so a segmented control replaces
+             the old on/off toggle. -->
         {#if !isSinglePlayer}
           <div class="mode-toggle-container">
-            <button
-              class="mode-toggle"
-              class:disabled={!isRoomCreator}
-              disabled={!isRoomCreator}
-              on:click={() => setEmulationMode(room?.emulationMode === EmulationMode.DUAL ? EmulationMode.STREAMING : EmulationMode.DUAL)}
-            >
-              <span class="mode-label" class:active={room.emulationMode === EmulationMode.DUAL}>
-                {t($language, 'dualMode')} <span class="alpha-badge">Alpha</span>
-              </span>
-              <span class="toggle-track">
-                <span class="toggle-thumb" class:right={room.emulationMode === EmulationMode.STREAMING}></span>
-              </span>
-              <span class="mode-label" class:active={room.emulationMode === EmulationMode.STREAMING}>
-                {t($language, 'streamingMode')}
-              </span>
-            </button>
-            <p class="mode-description">
-              {room.emulationMode === EmulationMode.DUAL ? t($language, 'dualModeDesc') : t($language, 'streamingModeDesc')}
-            </p>
+            <div class="mode-segments" role="group" aria-label={t($language, 'emulationMode')}>
+              {#each modeOptions as option}
+                <button
+                  type="button"
+                  class="mode-segment"
+                  class:active={room.emulationMode === option.mode}
+                  disabled={!isRoomCreator}
+                  aria-pressed={room.emulationMode === option.mode}
+                  on:click={() => setEmulationMode(option.mode)}
+                >
+                  {t($language, option.label)}
+                  {#if option.badge}<span class="alpha-badge">{option.badge}</span>{/if}
+                </button>
+              {/each}
+            </div>
+            <p class="mode-description">{t($language, modeDescriptionKey(room.emulationMode))}</p>
           </div>
         {/if}
 
@@ -185,14 +250,20 @@
       {/if}
     </div>
   {:else if room}
-    <!-- Use P2PRoom component which handles all emulation modes -->
-    <P2PRoom
-      {roomId}
-      gameId={room.gameId}
-      isHost={isRoomHost}
-      {keyConfig}
-      emulationMode={effectiveEmulationMode ?? EmulationMode.SINGLE}
-    />
+    {#if activeEmulationMode === EmulationMode.LOCKSTEP}
+      <!-- Lockstep runs on its own deterministic core and its own relay, so it
+           shares nothing with the WebRTC path in P2PRoom. -->
+      <LockstepRoom {roomId} isHost={isRoomHost} {keyConfig} />
+    {:else}
+      <!-- P2PRoom handles the single, dual and streaming modes -->
+      <P2PRoom
+        {roomId}
+        gameId={room.gameId}
+        isHost={isRoomHost}
+        {keyConfig}
+        emulationMode={activeEmulationMode ?? EmulationMode.SINGLE}
+      />
+    {/if}
   {/if}
 
   {#if showToast}
@@ -250,31 +321,51 @@
     margin: 0;
   }
 
-  .mode-toggle {
-    display: flex;
+  .mode-segments {
+    display: inline-flex;
+    background: #2a2a3a;
+    border: 1px solid #3d3d52;
+    border-radius: 10px;
+    padding: 0.25rem;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .mode-segment {
+    display: inline-flex;
     align-items: center;
-    gap: 1rem;
-    padding: 0.5rem;
+    gap: 0.35rem;
     background: transparent;
     border: none;
-    cursor: pointer;
-    font-size: 1rem;
-  }
-
-  .mode-toggle:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-  }
-
-  .mode-label {
-    color: #666;
+    border-radius: 7px;
+    color: #8b8ba3;
+    font-size: 0.95rem;
     font-weight: 500;
-    transition: color 0.2s;
+    padding: 0.45rem 1rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
   }
 
-  .mode-label.active {
+  .mode-segment:hover:not(:disabled):not(.active) {
+    color: #d6d6e6;
+  }
+
+  .mode-segment.active {
+    background: #667eea;
     color: #fff;
     font-weight: 600;
+  }
+
+  .mode-segment:disabled {
+    cursor: not-allowed;
+  }
+
+  /* Only the creator can change the mode; everyone else still needs to read
+     which mode is selected, so dim the unselected options rather than the
+     whole control. */
+  .mode-segment:disabled:not(.active) {
+    opacity: 0.55;
   }
 
   .alpha-badge {
@@ -286,31 +377,6 @@
     font-weight: 700;
     text-transform: uppercase;
     vertical-align: middle;
-    margin-left: 0.25rem;
-  }
-
-  .toggle-track {
-    position: relative;
-    width: 50px;
-    height: 28px;
-    background: #444;
-    border-radius: 14px;
-    transition: background 0.2s;
-  }
-
-  .toggle-thumb {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 22px;
-    height: 22px;
-    background: #667eea;
-    border-radius: 50%;
-    transition: transform 0.2s;
-  }
-
-  .toggle-thumb.right {
-    transform: translateX(22px);
   }
 
   .actions {
