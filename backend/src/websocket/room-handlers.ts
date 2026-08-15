@@ -8,6 +8,7 @@ import { createLogger } from '../utils/logger.js';
 import { cacheRomForRoom, cleanupRoomCache } from '../services/rom-cache.js';
 import { cleanupRoomChecksums } from './sync-handlers.js';
 import { cleanupHostReady } from './p2p-handlers.js';
+import { cleanupZnetRoom } from './znet-handlers.js';
 import { prisma } from '../db/prisma.js';
 
 const logger = createLogger('Room');
@@ -53,7 +54,7 @@ export function registerRoomHandlers(
     try {
       const game = await prisma.game.findUnique({ where: { id: data.gameId } });
       if (game) {
-        await cacheRomForRoom(roomId, user.id, game.driveFileId);
+        await cacheRomForRoom(roomId, user.id, game);
         logger.info({ roomId, gameId: data.gameId }, 'ROM cached for room');
       }
     } catch (error) {
@@ -222,6 +223,7 @@ export async function handleLeaveRoom(
     await cleanupRoomCache(roomId);
     cleanupRoomChecksums(roomId);
     cleanupHostReady(roomId);
+    cleanupZnetRoom(roomId);
     rooms.delete(roomId);
     io.emit('room:destroyed', { roomId });
   } else {

@@ -6,6 +6,7 @@ import { registerRoomHandlers, handleLeaveRoom } from './room-handlers.js';
 import { registerGameHandlers } from './game-handlers.js';
 import { registerP2PHandlers } from './p2p-handlers.js';
 import { registerSyncHandlers } from './sync-handlers.js';
+import { registerZnetHandlers } from './znet-handlers.js';
 import { toPublicRoom, visibleRoomsFor } from './room-view.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -105,6 +106,7 @@ async function handleConnection(io: Server, socket: Socket) {
   registerGameHandlers(socket, io, user.id, rooms, getUserSocket);
   registerP2PHandlers(socket, user, io, rooms);
   registerSyncHandlers(socket, io, user.id, rooms);
+  registerZnetHandlers(socket, user, io, rooms);
 
   // Send current rooms list, scoped the same way as GET /api/rooms —
   // broadcasting every room here would hand out room ids (and previously
