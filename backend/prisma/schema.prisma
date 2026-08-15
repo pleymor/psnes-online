@@ -73,9 +73,12 @@ model Game {
   coverUrl    String?
   uploadedAt  DateTime @default(now())
 
-  // Google Drive reference
-  driveFileId   String
-  driveFileName String
+  // Where the ROM lives. Exactly one of these is set: a Drive reference for
+  // games added from Google Drive, or a filename under ROMS_DIR for games
+  // uploaded from the player's own machine.
+  driveFileId   String?
+  driveFileName String?
+  localPath     String?
 
   // Metadata fields
   genre       String?
