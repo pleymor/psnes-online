@@ -56,3 +56,18 @@ docker-compose.override.yml
 # clone and CI deploy.
 backend/prisma/*.db
 backend/prisma/*.db-journal
+
+# psnes deterministic core build.
+#
+# The wasm artefact under frontend/static/psnes-core/ IS committed: the
+# production image builds with `npm run build` and has no emscripten toolchain,
+# so an ignored artefact means lockstep mode ships with a missing core. It is
+# reproducible from a pinned snes9x commit - rerun core/build.sh and commit the
+# result whenever core/src or the pin changes.
+core/vendor/
+core/.emcache/
+core/build/
+core/dist/
+core/test/roms/
+
+core/build/
