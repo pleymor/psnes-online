@@ -45,6 +45,7 @@ Browser: the config reuses whichever chromium build is already in
 | `app.spec.ts` | Dev login renders the library and fetches `/api/rooms` without a reload; a friend's room badge appears |
 | `room-authz.spec.ts` | A non-member cannot act on a room; members (host *and* guest) still can; `/api/rooms` and `rooms:list` are scoped and never carry `keyConfig` |
 | `resilience.spec.ts` | A throwing socket handler does not terminate the backend; endpoints stay up and still require auth |
+| `znet-relay.spec.ts` | Lockstep netplay relay: the room host gets player slot 1, packets cross byte for byte, a stranger cannot join or inject, oversized packets are dropped |
 
 The suite runs serially (`workers: 1`): rooms live in the backend's memory, and
 the dev users are shared fixtures, so parallel runs would interfere.
