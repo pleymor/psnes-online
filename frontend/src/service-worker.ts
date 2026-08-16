@@ -23,17 +23,32 @@ sw.addEventListener('install', (event) => {
   }
 
   event.waitUntil(addFilesToCache());
+
+  /*
+   * Take over immediately instead of waiting for every tab to close.
+   *
+   * Assets are served cache-first and never revalidated, so whatever this
+   * cache holds is what visitors get until a new worker activates. A worker
+   * that waits means a deploy fixing a bad asset cannot reach anyone who
+   * already has the page open - which is exactly how a wrong Content-Type on
+   * the emulator core survived the deploy that fixed it, on every browser that
+   * had already cached it.
+   */
+  sw.skipWaiting();
 });
 
 sw.addEventListener('activate', (event) => {
-  // Remove previous cached data from disk
-  async function deleteOldCaches() {
+  // Remove previous cached data from disk, then drive the pages that are
+  // already open. Without claim() they would keep talking to the worker they
+  // loaded with, and the fresh cache would not be used until a reload.
+  async function takeOver() {
     for (const key of await caches.keys()) {
       if (key !== CACHE) await caches.delete(key);
     }
+    await sw.clients.claim();
   }
 
-  event.waitUntil(deleteOldCaches());
+  event.waitUntil(takeOver());
 });
 
 sw.addEventListener('fetch', (event) => {
