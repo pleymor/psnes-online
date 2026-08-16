@@ -267,9 +267,21 @@ export class NetplaySession {
 	pump(): void {
 		const now = this.now();
 
-		if (this._state === 'handshake' && !this.peerHello && now - this.helloSentAt >= this.opts.retryMs) {
-			// A lost HELLO would otherwise leave both peers waiting forever on
-			// each other, with no traffic to notice it.
+		if (this._state === 'handshake' && now - this.helloSentAt >= this.opts.retryMs) {
+			/*
+			 * Keep announcing until we are actually out of the handshake, even
+			 * once the peer has said hello to us.
+			 *
+			 * Hearing a HELLO says nothing about whether ours was heard. The two
+			 * players join the relay channel at different moments, and anything
+			 * sent before the other has joined is dropped by the server with no
+			 * error. Guarding this on "has the peer spoken" silenced precisely
+			 * the peer whose greeting had gone missing, and both then waited on
+			 * each other for ever.
+			 *
+			 * The host leaves this state as soon as a HELLO reaches it; the
+			 * guest leaves it when the state arrives. Neither can loop.
+			 */
 			this.sendHello();
 		}
 

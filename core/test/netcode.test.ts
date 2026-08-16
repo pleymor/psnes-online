@@ -549,3 +549,35 @@ test('a host never wedges forever waiting for an acknowledgement', async () => {
 
 	harness.dispose();
 });
+
+test('a peer whose first HELLO is lost still gets into the session', async () => {
+	// In production the two players joined the relay 1.9s apart, so the guest
+	// announced itself into a channel the host had not entered yet and its
+	// HELLO went nowhere. The host then announced itself, the guest heard it -
+	// and stopped re-announcing, because the retry was guarded on "has the peer
+	// said hello". The one peer that needed to keep talking was the one that
+	// went quiet, and both sat in handshake for ever.
+	const harness = await NetplayHarness.create(
+		harnessOptions(2000, { link: { latency: 30, seed: 41 }, inputDelay: 4, retryMs: 500 })
+	);
+
+	// Guest speaks first, into the void.
+	harness.link.setLoss(1);
+	harness.guest.session.start();
+	harness.run(1_000);
+
+	// Host arrives on a working link.
+	harness.link.setLoss(0);
+	harness.host.session.start();
+	harness.run(20_000, {
+		stopWhen: () =>
+			harness.host.session.state === 'running' && harness.guest.session.state === 'running'
+	});
+
+	assert.equal(harness.host.session.state, 'running', 'host must get past the handshake');
+	assert.equal(harness.guest.session.state, 'running', 'guest must get past the handshake');
+
+	harness.run(5_000);
+	assert.equal(harness.firstDivergence(), null);
+	harness.dispose();
+});
