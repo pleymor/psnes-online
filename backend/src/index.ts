@@ -34,7 +34,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 // values are rejected too, since the shipped .env.example values would
 // otherwise satisfy a mere presence check.
 if (isProduction) {
-  const REQUIRED_SECRETS = ['SESSION_SECRET', 'TOKEN_ENCRYPTION_KEY'];
+  const REQUIRED_SECRETS = ['SESSION_SECRET'];
   const PLACEHOLDER_PATTERN = /change|your-|example|secret-key|generate-with/i;
 
   const unusable = REQUIRED_SECRETS.filter(key => {

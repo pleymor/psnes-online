@@ -14,7 +14,10 @@ const AUTH_MODE = getAuthMode();
 // Google OAuth routes (only available in google mode)
 if (AUTH_MODE === 'google') {
   authRouter.get('/google', passport.authenticate('google', {
-    scope: ['profile', 'email', 'https://www.googleapis.com/auth/drive.readonly'],
+    // Identity only. The Drive scope is gone with Drive itself: asking a
+    // player for read access to their whole Drive was never proportionate to
+    // what it bought, and ROMs no longer leave their machine.
+    scope: ['profile', 'email'],
     accessType: 'offline',
     prompt: 'consent'
   }));
