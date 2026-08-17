@@ -82,7 +82,10 @@ export async function notifyFriendsStatusChanged(
   });
 }
 
-export async function getOnlineFriends(userId: string, userSockets: Map<string, string>): Promise<any[]> {
+export async function getOnlineFriends(
+  userId: string,
+  presence: { socketFor(userId: string): string | undefined }
+): Promise<any[]> {
   const friendships = await prisma.friendship.findMany({
     where: {
       OR: [
@@ -115,7 +118,7 @@ export async function getOnlineFriends(userId: string, userSockets: Map<string, 
     const friend = friendship.initiatorId === userId ? friendship.receiver : friendship.initiator;
     return {
       ...friend,
-      online: userSockets.has(friend.id)
+      online: presence.socketFor(friend.id) !== undefined
     };
   });
 }

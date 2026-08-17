@@ -9,12 +9,12 @@ import { registerSyncHandlers } from './sync-handlers.js';
 import { registerZnetHandlers } from './znet-handlers.js';
 import { toPublicRoom, visibleRoomsFor } from './room-view.js';
 import { createLogger } from '../utils/logger.js';
+import { Presence } from './presence.js';
 
 const logger = createLogger('WebSocket');
 
 const rooms = new Map<string, Room>();
-const userSockets = new Map<string, string>(); // userId -> socketId
-const socketUsers = new Map<string, User>(); // socketId -> User
+const presence = new Presence();
 
 // Export io instance for use in other modules
 let ioInstance: Server | null = null;
@@ -24,7 +24,7 @@ export function getIO(): Server | null {
 }
 
 export function getUserSocket(userId: string): string | undefined {
-  return userSockets.get(userId);
+  return presence.socketFor(userId);
 }
 
 export function getRooms(): Map<string, Room> {
@@ -91,14 +91,13 @@ async function handleConnection(io: Server, socket: Socket) {
 
   logger.info({ user: user.displayName, email: user.email }, 'User connected');
 
-  socketUsers.set(socket.id, user);
-  userSockets.set(user.id, socket.id);
+  presence.register(user, socket.id);
 
   // Register every handler before awaiting anything else. socket.io discards
   // events that arrive with no listener attached, so any await placed before
   // this point is a window in which a client's first emit is silently dropped.
   socket.on('friends:getOnlineStatus', async () => {
-    const onlineFriends = await getOnlineFriends(user.id, userSockets);
+    const onlineFriends = await getOnlineFriends(user.id, presence);
     socket.emit('friends:online', onlineFriends);
   });
 
@@ -122,6 +121,25 @@ async function handleConnection(io: Server, socket: Socket) {
   socket.on('disconnect', async () => {
     logger.debug({ socketId: socket.id, user: user.displayName }, 'Client disconnected');
 
+    /*
+     * Only act if this socket is still the user's current one.
+     *
+     * A client that reconnects registers its new socket immediately, while the
+     * server may not declare the old one dead until its ping timeout - up to
+     * twenty seconds later. Acting unconditionally tore down state belonging
+     * to the *new* connection: the user vanished from the presence map, so
+     * every targeted emit after that went nowhere. A new room simply never
+     * appeared for the other player until they reloaded, and they showed as
+     * offline to their friends.
+     */
+    if (!presence.unregister(user.id, socket.id)) {
+      logger.debug(
+        { socketId: socket.id, user: user.displayName },
+        'Stale socket closed, user already reconnected'
+      );
+      return;
+    }
+
     await notifyFriendsStatusChanged(io, user.id, false, getUserSocket);
 
     // Hold their seat rather than dropping them: a dropped socket is usually
@@ -133,8 +151,5 @@ async function handleConnection(io: Server, socket: Socket) {
       }
     });
 
-    // Clean up user mappings
-    socketUsers.delete(socket.id);
-    userSockets.delete(user.id);
   });
 }
