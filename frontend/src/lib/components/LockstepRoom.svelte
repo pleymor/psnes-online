@@ -16,6 +16,8 @@
   import type { KeyConfig } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
   import { setLogLabels } from '$lib/utils/log-shipper';
+  import PauseMenu from './PauseMenu.svelte';
+  import { DEFAULT_DISPLAY, type DisplayOptions } from '$lib/znet';
   import {
     AudioSink,
     CanvasRenderer,
@@ -36,6 +38,7 @@
   const logger = createLogger('LockstepRoom');
 
   export let roomId: string;
+  export let gameId: string;
   export let isHost: boolean;
   export let keyConfig: KeyConfig;
   /** Frames of input delay. 0 asks for a value derived from the measured RTT. */
@@ -70,15 +73,46 @@
   let stalling = false;
   let lastResyncAt = 0;
 
+  let showPauseMenu = false;
+  let display: DisplayOptions = { ...DEFAULT_DISPLAY };
+
+  /**
+   * What SavesManager needs from an emulator: a state it can store.
+   *
+   * Saving reads the machine without touching it, so it needs no coordination
+   * with the other player - unlike loading, which goes through the session so
+   * both peers land on the same machine.
+   */
+  $: saveAdapter = core ? { saveState: async () => core!.saveState() } : null;
+
+  $: if (renderer && display) renderer.setOptions(display);
+
   /** Periodic health line; see startDiagnostics. */
   let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
+  let sramTimer: ReturnType<typeof setInterval> | null = null;
   let lastFramesRun = 0;
 
   $: if (collector && keyConfig) collector.setKeyConfig(keyConfig);
 
   onMount(() => {
     void boot();
+    window.addEventListener('keydown', onGlobalKey);
+    return () => window.removeEventListener('keydown', onGlobalKey);
   });
+
+  function onGlobalKey(event: KeyboardEvent) {
+    if (event.key !== 'Escape' || showPauseMenu) return;
+    event.preventDefault();
+    showPauseMenu = true;
+    // Release every held key: the menu swallows keyups, and in lockstep a
+    // stuck direction is sent to the other player too.
+    collector?.detach();
+  }
+
+  function closePauseMenu() {
+    showPauseMenu = false;
+    collector?.attach();
+  }
 
   onDestroy(() => {
     teardown();
@@ -111,6 +145,12 @@
       window.addEventListener('gamepadconnected', refreshGamepadOptions);
       window.addEventListener('gamepaddisconnected', refreshGamepadOptions);
 
+      // Battery saves are part of the emulated machine, so they must be in
+      // place before the session starts: the host's state is what both peers
+      // adopt, and loading SRAM afterwards would change one machine and not
+      // the other. Only the host loads - the guest inherits it in that state.
+      if (isHost) await loadSram();
+
       statusText = 'Connecting to the other player…';
       phase = 'waiting';
       await joinRelay();
@@ -141,11 +181,21 @@
         }
       });
 
+      // The server broadcasts a load to everyone in the room. Only the host
+      // acts on it: it adopts the state and reseeds the session, and the guest
+      // receives that state through the netplay protocol like any resync.
+      // Applying it on both sides independently would put them on two machines
+      // that merely started from the same bytes.
+      $socket?.on('game:loaded', onSaveLoaded);
+
       installDebugHandle();
 
       session.start();
       governor.start();
       startDiagnostics();
+      // Every 30s and on the way out: a battery save that is only written at
+      // teardown is lost whenever a tab is closed abruptly.
+      sramTimer = setInterval(persistSram, 30000);
     } catch (err) {
       logger.error('Lockstep boot failed', err);
       errorText = err instanceof Error ? err.message : String(err);
@@ -243,6 +293,80 @@
     }, 1000);
   }
 
+  /** Fetches this game's battery save and puts it in the machine. */
+  function loadSram(): Promise<void> {
+    return new Promise((resolve) => {
+      const sock = $socket;
+      if (!sock) return resolve();
+
+      const done = setTimeout(() => {
+        sock.off('game:sramLoaded', onLoaded);
+        resolve();
+      }, 5000);
+
+      const onLoaded = (payload: { sramData?: string | null }) => {
+        clearTimeout(done);
+        sock.off('game:sramLoaded', onLoaded);
+        try {
+          if (payload?.sramData && core) {
+            const binary = atob(payload.sramData);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            core.loadSram(bytes);
+            logger.info('Battery save restored', { bytes: bytes.length });
+          }
+        } catch (err) {
+          logger.error('Could not restore the battery save', err);
+        }
+        resolve();
+      };
+
+      sock.on('game:sramLoaded', onLoaded);
+      sock.emit('game:loadSram', { roomId });
+    });
+  }
+
+  /**
+   * Persists the battery save.
+   *
+   * Host only: both machines hold identical SRAM by construction, so having
+   * both write would double the traffic to store the same bytes twice.
+   */
+  function persistSram() {
+    if (!isHost || !core || !$socket) return;
+    const sram = core.sram();
+    if (sram.length === 0) return;
+
+    let binary = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < sram.length; i += CHUNK) {
+      binary += String.fromCharCode(...sram.subarray(i, i + CHUNK));
+    }
+    $socket.emit('game:saveSram', { roomId, sramData: btoa(binary) });
+  }
+
+  function onSaveLoaded(payload: { saveData?: string; name?: string }) {
+    if (!session || !payload?.saveData) return;
+
+    if (!isHost) {
+      // Nothing to do but wait: the host is about to hand us the machine.
+      statusText = 'Loading save…';
+      return;
+    }
+
+    try {
+      const binary = atob(payload.saveData);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      if (session.loadAuthoritativeState(bytes, `save "${payload.name ?? ''}"`)) {
+        audio?.flush();
+        logger.info('Loaded save and reseeded the session', { name: payload.name });
+      }
+    } catch (err) {
+      logger.error('Could not decode the save', err);
+    }
+  }
+
   async function fetchRom(): Promise<ArrayBuffer> {
     const response = await fetch(`/api/games/room/${roomId}/rom`, { credentials: 'include' });
     if (!response.ok) throw new Error(`Could not download the ROM (HTTP ${response.status})`);
@@ -332,6 +456,10 @@
   }
 
   function teardown() {
+    persistSram();
+    if (sramTimer) clearInterval(sramTimer);
+    sramTimer = null;
+    $socket?.off('game:loaded', onSaveLoaded);
     if (diagnosticsTimer) clearInterval(diagnosticsTimer);
     diagnosticsTimer = null;
     window.removeEventListener('gamepadconnected', refreshGamepadOptions);
@@ -383,6 +511,21 @@
     <button class="action" on:click={cycleGamepadSource} title="Which gamepad drives this player">
       🎮 {gamepadLabel(gamepadSource)}
     </button>
+    <button class="action" on:click={() => (showPauseMenu = true)}>☰ Menu (Esc)</button>
+    <button
+      class="action"
+      class:on={display.scanlines}
+      on:click={() => (display = { ...display, scanlines: !display.scanlines })}
+    >Scanlines</button>
+    <button
+      class="action"
+      on:click={() => (display = { ...display, pixelPerfect: !display.pixelPerfect })}
+    >{display.pixelPerfect ? 'Sharp' : 'Smooth'}</button>
+    <button
+      class="action"
+      on:click={() =>
+        (display = { ...display, aspect: display.aspect === 'original' ? 'stretch' : 'original' })}
+    >{display.aspect === 'original' ? 'Fit' : 'Stretch'}</button>
     <button class="action" on:click={() => (showStats = !showStats)}>
       {showStats ? 'Hide' : 'Show'} netplay stats
     </button>
@@ -392,6 +535,18 @@
       </span>
     {/if}
   </div>
+
+  {#if showPauseMenu}
+    <PauseMenu
+      {roomId}
+      {gameId}
+      {keyConfig}
+      emulator={saveAdapter}
+      on:resume={closePauseMenu}
+      on:quit={() => { closePauseMenu(); $socket?.emit('game:stop', { roomId }); }}
+      on:saved={(e) => { keyConfig = e.detail.config; closePauseMenu(); }}
+    />
+  {/if}
 
   {#if showStats && stats}
     <dl class="stats">
@@ -501,6 +656,12 @@
 
   .action:hover {
     background: #34344a;
+  }
+
+  .action.on {
+    background: #667eea;
+    color: #fff;
+    border-color: #667eea;
   }
 
   .summary {

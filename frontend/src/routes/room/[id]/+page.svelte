@@ -256,7 +256,7 @@
     {#if activeEmulationMode === EmulationMode.LOCKSTEP}
       <!-- Lockstep runs on its own deterministic core and its own relay, so it
            shares nothing with the WebRTC path in P2PRoom. -->
-      <LockstepRoom {roomId} isHost={isRoomHost} {keyConfig} />
+      <LockstepRoom {roomId} gameId={room.gameId} isHost={isRoomHost} {keyConfig} />
     {:else}
       <!-- P2PRoom handles the single, dual and streaming modes -->
       <P2PRoom

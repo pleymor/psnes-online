@@ -605,3 +605,60 @@ test('a peer that goes permanently silent is reported, not waited on for ever', 
 	);
 	harness.dispose();
 });
+
+test('loading a savestate reseeds both peers instead of splitting them', async () => {
+	// The whole point of routing a load through the epoch mechanism. Applied on
+	// one side only, it is not a desync that drifts - the two machines simply
+	// stop being the same machine from that instant.
+	const harness = await NetplayHarness.create(
+		harnessOptions(6000, { link: { latency: 40, seed: 91 }, inputDelay: 4, crcInterval: 30 })
+	);
+	harness.handshake();
+	harness.run(3_000);
+
+	// A snapshot of an earlier moment, as a save slot would hold.
+	const snapshot = harness.host.core.saveState();
+	harness.run(4_000);
+
+	const epochBefore = harness.host.session.getStats().epoch;
+	assert.ok(harness.host.session.loadAuthoritativeState(snapshot), 'the host must accept the load');
+	harness.run(15_000);
+
+	assert.notEqual(
+		harness.host.session.getStats().epoch,
+		epochBefore,
+		'a load must open a new epoch, so in-flight pads are discarded'
+	);
+	assert.equal(harness.host.session.state, 'running');
+	assert.equal(harness.guest.session.state, 'running');
+
+	harness.clearLogs();
+	harness.run(10_000);
+	assert.equal(harness.firstDivergence(), null, 'both peers must be on the loaded machine');
+	assert.ok(harness.statesMatchWhenAligned(), 'and agree byte for byte');
+	assert.equal(harness.host.session.getStats().desyncs, 0, 'a load is not a desync');
+
+	harness.dispose();
+});
+
+test('only the host can reseed the session', async () => {
+	// Two peers each declaring a different authoritative state would race, and
+	// the loser would be silently overwritten. The host owns the timeline, as
+	// it does for every other resync.
+	const harness = await NetplayHarness.create(
+		harnessOptions(2000, { link: { latency: 30, seed: 92 }, inputDelay: 4 })
+	);
+	harness.handshake();
+	harness.run(2_000);
+
+	const snapshot = harness.guest.core.saveState();
+	assert.equal(
+		harness.guest.session.loadAuthoritativeState(snapshot),
+		false,
+		'a guest must not be able to reseed'
+	);
+
+	harness.run(3_000);
+	assert.equal(harness.firstDivergence(), null);
+	harness.dispose();
+});

@@ -13,15 +13,63 @@ import type { PsnesCore } from './core.js';
 
 /* ------------------------------------------------------------------ video */
 
+/**
+ * Display options.
+ *
+ * All of these are local and cosmetic: they change how a frame is shown, never
+ * what the emulator computes, so two players can pick differently without any
+ * risk to the lockstep. Note these are not RetroArch's GLSL shaders - those
+ * need a GL pipeline this renderer does not have.
+ */
+export interface DisplayOptions {
+	/** false gives the browser's bilinear smoothing instead of hard pixels. */
+	pixelPerfect: boolean;
+	scanlines: boolean;
+	/** 'original' keeps the SNES 8:7-ish pixel aspect; 'stretch' fills. */
+	aspect: 'original' | 'stretch';
+}
+
+export const DEFAULT_DISPLAY: DisplayOptions = {
+	pixelPerfect: true,
+	scanlines: false,
+	aspect: 'original'
+};
+
 export class CanvasRenderer {
 	private ctx: CanvasRenderingContext2D;
 	private image: ImageData | null = null;
+	private options: DisplayOptions = { ...DEFAULT_DISPLAY };
 
 	constructor(private canvas: HTMLCanvasElement) {
 		const ctx = canvas.getContext('2d', { alpha: false });
 		if (!ctx) throw new Error('could not get a 2D canvas context');
 		this.ctx = ctx;
-		this.ctx.imageSmoothingEnabled = false;
+		this.applyOptions();
+	}
+
+	setOptions(options: DisplayOptions): void {
+		this.options = { ...options };
+		this.applyOptions();
+	}
+
+	private applyOptions(): void {
+		this.ctx.imageSmoothingEnabled = !this.options.pixelPerfect;
+		this.canvas.style.imageRendering = this.options.pixelPerfect ? 'pixelated' : 'auto';
+		this.canvas.style.objectFit = this.options.aspect === 'stretch' ? 'fill' : 'contain';
+	}
+
+	/**
+	 * Draws scanlines over the frame that was just blitted.
+	 *
+	 * Done on the canvas rather than as a CSS overlay so it scales with the
+	 * picture and survives a fullscreen change.
+	 */
+	private drawScanlines(width: number, height: number): void {
+		this.ctx.save();
+		this.ctx.globalAlpha = 0.25;
+		this.ctx.fillStyle = '#000';
+		for (let y = 1; y < height; y += 2) this.ctx.fillRect(0, y, width, 1);
+		this.ctx.restore();
 	}
 
 	draw(core: PsnesCore): void {
@@ -32,7 +80,8 @@ export class CanvasRenderer {
 			this.canvas.width = frame.width;
 			this.canvas.height = frame.height;
 			this.image = null;
-			this.ctx.imageSmoothingEnabled = false;
+			// Resizing a canvas resets its context, including smoothing.
+			this.applyOptions();
 		}
 		if (!this.image || this.image.width !== frame.width || this.image.height !== frame.height) {
 			this.image = this.ctx.createImageData(frame.width, frame.height);
@@ -40,6 +89,7 @@ export class CanvasRenderer {
 
 		this.image.data.set(frame.data);
 		this.ctx.putImageData(this.image, 0, 0);
+		if (this.options.scanlines) this.drawScanlines(frame.width, frame.height);
 	}
 }
 

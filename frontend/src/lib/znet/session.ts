@@ -435,6 +435,42 @@ export class NetplaySession {
 		return 'ran';
 	}
 
+	/**
+	 * Replaces the emulated machine and reseeds the peer from it.
+	 *
+	 * Loading a savestate on one side only is an instant, total desync - the
+	 * two machines stop being the same machine. Routing it through the epoch
+	 * mechanism makes it the same operation as a resync: the host adopts the
+	 * state, the guest is handed it, and everything still in flight from the
+	 * previous timeline is discarded.
+	 *
+	 * Host only. The frame counter deliberately keeps running: the timeline
+	 * continues, it is the machine on it that jumps.
+	 */
+	loadAuthoritativeState(state: Uint8Array, reason = 'state loaded'): boolean {
+		if (!this.isHost) return false;
+		if (this._state !== 'running') return false;
+		try {
+			this.core.loadState(state);
+		} catch (err) {
+			this.onEvent({ type: 'error', message: `Could not load that save: ${(err as Error).message}` });
+			return false;
+		}
+		this.beginResync(reason, true);
+		return true;
+	}
+
+	/** Restarts the emulated machine on both peers. Host only. */
+	resetAuthoritative(): boolean {
+		if (!this.isHost || this._state !== 'running') return false;
+		this.coreReset?.();
+		this.beginResync('reset', true);
+		return true;
+	}
+
+	/** Optional hook: the core's reset, which NetplayCore does not require. */
+	coreReset: (() => void) | null = null;
+
 	/** Forces a resync from the host's current state. Host only. */
 	requestResync(reason = 'manual'): void {
 		if (!this.isHost) {

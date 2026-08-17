@@ -33,7 +33,8 @@ export type { Transport, SimulatedLinkOptions } from './transport.js';
 export { SocketTransport } from './socket-transport.js';
 export type { SocketLike } from './socket-transport.js';
 
-export { CanvasRenderer, AudioSink } from './output.js';
+export { CanvasRenderer, AudioSink, DEFAULT_DISPLAY } from './output.js';
+export type { DisplayOptions } from './output.js';
 export { InputCollector } from './input.js';
 export type { GamepadSource } from './input.js';
 

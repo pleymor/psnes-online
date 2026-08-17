@@ -10,6 +10,24 @@
   export let emulator: any = null; // Reference to ClientEmulator component (host only)
 
   const dispatch = createEventDispatcher();
+
+  /**
+   * Base64 for buffers of any size.
+   *
+   * `String.fromCharCode(...bytes)` spreads one argument per byte, which blows
+   * the call stack somewhere around 100k. A real savestate is over 800KB, so
+   * every state capture threw - and the throw was swallowed by the catch
+   * below, leaving a save with no state in it and no error to explain why.
+   */
+  function toBase64(bytes: Uint8Array): string {
+    let binary = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(binary);
+  }
+
   const logger = createLogger('SavesManager');
 
   interface Save {
@@ -72,12 +90,10 @@
             const uint8Array = new Uint8Array(arrayBuffer);
 
             // Convert to base64
-            const binaryString = String.fromCharCode(...Array.from(uint8Array));
-            saveData = btoa(binaryString);
+            saveData = toBase64(uint8Array);
           } else if (stateData instanceof Uint8Array) {
             // Direct Uint8Array (fallback)
-            const binaryString = String.fromCharCode(...Array.from(stateData));
-            saveData = btoa(binaryString);
+            saveData = toBase64(stateData);
           }
         }
       } catch (error) {
