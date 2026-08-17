@@ -663,3 +663,61 @@ test('only the host can reseed the session', async () => {
 	assert.equal(harness.firstDivergence(), null);
 	harness.dispose();
 });
+
+test('the host sizes the input delay from the link before shipping state', async () => {
+	// The delay travels with the state and the guest adopts it there, so it has
+	// to be right before the state goes out - and measuring afterwards is
+	// useless anyway, since the transfer shares the socket with the pings and
+	// inflates them.
+	const slow = await NetplayHarness.create({
+		makeCore: () => new FakeCore(),
+		romCrc: ROM_CRC,
+		hostInput: new InputTape(1).generate(3000),
+		guestInput: new InputTape(2).generate(3000),
+		link: { latency: 120, jitter: 5, seed: 71 } // 240ms round trip
+	});
+	slow.handshake(30_000);
+	const slowDelay = slow.host.session.inputDelay;
+
+	const fast = await NetplayHarness.create({
+		makeCore: () => new FakeCore(),
+		romCrc: ROM_CRC,
+		hostInput: new InputTape(1).generate(3000),
+		guestInput: new InputTape(2).generate(3000),
+		link: { latency: 10, jitter: 2, seed: 72 } // 20ms round trip
+	});
+	fast.handshake(30_000);
+	const fastDelay = fast.host.session.inputDelay;
+
+	assert.ok(
+		slowDelay > fastDelay,
+		`a slower link must get more delay: slow=${slowDelay} fast=${fastDelay}`
+	);
+	assert.equal(
+		slow.guest.session.inputDelay,
+		slowDelay,
+		'the guest must adopt the delay the state was sized with'
+	);
+
+	// And both sessions must actually run afterwards.
+	slow.run(10_000);
+	fast.run(10_000);
+	assert.equal(slow.firstDivergence(), null);
+	assert.equal(fast.firstDivergence(), null);
+
+	slow.dispose();
+	fast.dispose();
+});
+
+test('a pinned input delay is never overridden by the measurement', async () => {
+	// The manual setting ZSNES exposes. If measurement could override it, the
+	// only escape hatch on a link the formula reads wrongly would be gone.
+	const harness = await NetplayHarness.create(
+		harnessOptions(2000, { link: { latency: 150, seed: 73 }, inputDelay: 4 })
+	);
+	harness.handshake(30_000);
+
+	assert.equal(harness.host.session.inputDelay, 4, 'the pinned value must survive');
+	assert.equal(harness.guest.session.inputDelay, 4);
+	harness.dispose();
+});

@@ -77,6 +77,10 @@ export function normaliseRom(data: Uint8Array): Uint8Array {
  */
 export function suggestInputDelay(rttMs: number, fps = 60.0988): number {
 	const frameMs = 1000 / fps;
-	const needed = Math.ceil(rttMs / 2 / frameMs) + 1;
-	return Math.max(2, Math.min(12, needed));
+	// One-way latency, plus two frames of margin rather than one. A single
+	// frame of headroom is eaten by ordinary jitter: at 120ms round trip the
+	// old formula gave 5 frames for a 60ms one-way trip - 23ms of slack - and
+	// the session ran at 50fps, stalling on almost every frame.
+	const needed = Math.ceil(rttMs / 2 / frameMs) + 2;
+	return Math.max(3, Math.min(16, needed));
 }

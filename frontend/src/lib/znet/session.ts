@@ -81,7 +81,11 @@ export interface SessionOptions {
 	isHost: boolean;
 	/** CRC32 of the ROM, so a mismatched cartridge fails at handshake. */
 	romCrc: number;
-	/** Frames of input delay. Host's value wins; the guest is told at START. */
+	/**
+	 * Frames of input delay. Omit it - or pass 0 - to have the host size it
+	 * from the measured round trip; pass a number to pin it, which is what
+	 * ZSNES exposes as a manual setting.
+	 */
 	inputDelay?: number;
 	/** Frames between checksum exchanges. 0 disables desync detection. */
 	crcInterval?: number;
@@ -101,6 +105,18 @@ export interface SessionOptions {
 }
 
 const PLAYER_COUNT = 2;
+
+/**
+ * Frames of input delay for a given round trip.
+ *
+ * Duplicated from suggestInputDelay in index.ts rather than imported: this
+ * file is deliberately free of imports beyond the protocol and transport, so
+ * the netcode can be tested without pulling in the browser-facing barrel.
+ */
+function suggestedDelay(rttMs: number, fps = 60.0988): number {
+	const frameMs = 1000 / fps;
+	return Math.max(3, Math.min(16, Math.ceil(rttMs / 2 / frameMs) + 2));
+}
 
 /** Reships tolerated before a host gives up and restarts the handshake. */
 const MAX_SHIP_ATTEMPTS = 6;
@@ -193,6 +209,11 @@ export class NetplaySession {
 	/** Debounces the rejoin handling so a duplicate HELLO cannot loop. */
 	private lastRejoinAt = 0;
 
+	/** When the host started waiting for a round-trip sample before shipping. */
+	private sizingSince = 0;
+	/** False when the caller pinned the delay, so measurement must not override it. */
+	private readonly autoInputDelay: boolean;
+
 	/** Reships of the current state that have gone unacknowledged. */
 	private shipAttempts = 0;
 
@@ -232,8 +253,9 @@ export class NetplaySession {
 		this.readLocalInput = options.readLocalInput;
 		this.onEvent = options.onEvent ?? (() => {});
 		this.onFrame = options.onFrame ?? (() => {});
+		this.autoInputDelay = !options.inputDelay;
 		this.opts = {
-			inputDelay: options.inputDelay ?? 3,
+			inputDelay: options.inputDelay || 5,
 			crcInterval: options.crcInterval ?? 60,
 			padRedundancy: options.padRedundancy ?? 6,
 			stateChunkSize: options.stateChunkSize ?? 16 * 1024,
@@ -328,6 +350,33 @@ export class NetplaySession {
 			 * guest leaves it when the state arrives. Neither can loop.
 			 */
 			this.sendHello();
+		}
+
+		// Ship the initial state once the link has been measured, or after a
+		// second if it stays quiet - a session that never starts is worse than
+		// one sized on the default.
+		if (
+			this.isHost &&
+			this._state === 'syncing' &&
+			this.stateShippedAt === 0 &&
+			this.sizingSince > 0 &&
+			(this._rtt !== null || now - this.sizingSince > 1000)
+		) {
+			if (this._rtt !== null && this.autoInputDelay) {
+				const sized = suggestedDelay(this._rtt);
+				if (sized !== this.opts.inputDelay) {
+					this.onEvent({
+						type: 'state',
+						message: `input delay ${sized} frames for ${Math.round(this._rtt)}ms`
+					});
+				}
+				this.opts.inputDelay = sized;
+				this.stats.inputDelay = sized;
+			}
+			this.sizingSince = 0;
+			this.resetTimeline(this.core.frame);
+			this.shipState(this.frame);
+			return;
 		}
 
 		if (
@@ -738,9 +787,19 @@ export class NetplaySession {
 		this.onEvent({ type: 'peer-ready' });
 
 		if (this.isHost && this._state === 'handshake') {
+			/*
+			 * Do not ship yet: size the input delay from a real measurement
+			 * first, in pump().
+			 *
+			 * The delay travels with the state and the guest adopts it there,
+			 * so it has to be right before the state goes out. Measuring now is
+			 * also the only clean moment - once the state is in flight it
+			 * shares the socket with the pings, and the samples read far higher
+			 * than the link really is.
+			 */
 			this.setState('syncing');
-			this.resetTimeline(this.core.frame);
-			this.shipState(this.frame);
+			this.sizingSince = this.now();
+			this.ping();
 			return;
 		}
 

@@ -69,11 +69,14 @@ export class NetplayHarness {
 
 		const hostInput = options.hostInput ?? [];
 		const guestInput = options.guestInput ?? [];
-		const inputDelay = options.inputDelay ?? 3;
 
 		const common = {
 			romCrc: options.romCrc,
-			inputDelay,
+			// Passed through as given: undefined means "let the host size it
+			// from the link", which is the default the app uses. Substituting a
+			// number here silently disabled that path and made the test that
+			// covers it pass against nothing.
+			inputDelay: options.inputDelay,
 			crcInterval: options.crcInterval ?? 60,
 			padRedundancy: options.padRedundancy ?? 6,
 			retryMs: options.retryMs ?? 1500,
@@ -90,7 +93,9 @@ export class NetplayHarness {
 				// Indexed by the frame the pad applies to, not by when it was
 				// read, so both peers replay the identical tape no matter how
 				// the stalls fall.
-				readLocalInput: () => tape[peer.session.currentFrame + inputDelay] ?? 0,
+				// Reads the session's own delay, which the host may have sized from
+				// the link rather than been given.
+				readLocalInput: () => tape[peer.session.currentFrame + peer.session.inputDelay] ?? 0,
 				onEvent: (e) => peer.events.push(e),
 				onFrame: (frame) => peer.crcLog.set(frame - 1, peer.core.wramCrc())
 			});

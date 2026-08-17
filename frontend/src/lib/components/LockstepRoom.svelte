@@ -30,7 +30,6 @@
     loadCore,
     normaliseRom,
     romCrc32,
-    suggestInputDelay,
     type SessionEvent,
     type SessionStats
   } from '$lib/znet';
@@ -164,7 +163,10 @@
         isHost,
         // Both peers must agree on the cartridge before a single frame runs.
         romCrc: romCrc32(rom),
-        inputDelay: inputDelay || suggestInputDelay(120),
+        // Left unset so the host sizes it from the link it actually measures.
+        // A hardcoded guess gave 5 frames on every session: fine at 62ms,
+        // and one stall per frame at the 145ms the link later drifted to.
+        inputDelay: inputDelay || undefined,
         readLocalInput: () => collector!.read(),
         onEvent: handleEvent,
         onFrame: () => {
