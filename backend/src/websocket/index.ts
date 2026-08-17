@@ -2,7 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { Room, User } from '../types/index.js';
 import { prisma } from '../db/prisma.js';
 import { notifyFriendsStatusChanged, getOnlineFriends } from '../services/friends.js';
-import { registerRoomHandlers, handleLeaveRoom } from './room-handlers.js';
+import { registerRoomHandlers, scheduleLeaveRoom } from './room-handlers.js';
 import { registerGameHandlers } from './game-handlers.js';
 import { registerP2PHandlers } from './p2p-handlers.js';
 import { registerSyncHandlers } from './sync-handlers.js';
@@ -124,10 +124,12 @@ async function handleConnection(io: Server, socket: Socket) {
 
     await notifyFriendsStatusChanged(io, user.id, false, getUserSocket);
 
-    // Find and leave all rooms
+    // Hold their seat rather than dropping them: a dropped socket is usually
+    // a blink, not someone leaving, and removing them immediately destroyed
+    // rooms out from under a running game.
     rooms.forEach((room, roomId) => {
       if (room.players.some(p => p.userId === user.id)) {
-        handleLeaveRoom(io, socket, roomId, rooms, user, getUserSocket);
+        scheduleLeaveRoom(io, socket, roomId, rooms, user, getUserSocket);
       }
     });
 

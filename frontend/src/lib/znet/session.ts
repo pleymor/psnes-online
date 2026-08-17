@@ -104,6 +104,9 @@ const PLAYER_COUNT = 2;
 /** Reships tolerated before a host gives up and restarts the handshake. */
 const MAX_SHIP_ATTEMPTS = 6;
 
+/** Silence from the peer, in ms, past which the session is reported as lost. */
+const SILENCE_MS = 15_000;
+
 export interface SessionStats {
 	frame: number;
 	framesRun: number;
@@ -191,6 +194,10 @@ export class NetplaySession {
 
 	/** Reships of the current state that have gone unacknowledged. */
 	private shipAttempts = 0;
+
+	/** Last time anything at all arrived from the peer. */
+	private lastPacketAt = 0;
+	private reportedSilence = false;
 
 	/** Wall-clock bookkeeping for the retry logic in `pump()`. */
 	private helloSentAt = 0;
@@ -280,6 +287,29 @@ export class NetplaySession {
 	 */
 	pump(): void {
 		const now = this.now();
+		if (this.lastPacketAt === 0) this.lastPacketAt = now;
+
+		/*
+		 * Say when the link has gone quiet.
+		 *
+		 * A peer whose packets are being dropped - its seat given away, its
+		 * socket gone - looks exactly like a peer who is briefly slow: the
+		 * session stays 'running' and stalls for ever on a pad that will never
+		 * come. Without this the screen reads "waiting for the other player"
+		 * indefinitely, with nothing to distinguish a hiccup from a session
+		 * that is over.
+		 */
+		if (
+			this._state === 'running' &&
+			!this.reportedSilence &&
+			now - this.lastPacketAt > SILENCE_MS
+		) {
+			this.reportedSilence = true;
+			this.onEvent({
+				type: 'error',
+				message: 'Lost contact with the other player. Reload to rejoin.'
+			});
+		}
 
 		if (this._state === 'handshake' && now - this.helloSentAt >= this.opts.retryMs) {
 			/*
@@ -607,6 +637,8 @@ export class NetplaySession {
 		const msg = decode(data);
 		if (!msg) return;
 		this.stats.packetsReceived++;
+		this.lastPacketAt = this.now();
+		this.reportedSilence = false;
 
 		switch (msg.type) {
 			case MsgType.Hello:

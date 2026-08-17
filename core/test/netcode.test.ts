@@ -581,3 +581,27 @@ test('a peer whose first HELLO is lost still gets into the session', async () =>
 	assert.equal(harness.firstDivergence(), null);
 	harness.dispose();
 });
+
+test('a peer that goes permanently silent is reported, not waited on for ever', async () => {
+	// What a lost seat looks like from the client: the session stays 'running'
+	// and stalls on a pad that will never arrive. Indistinguishable from a
+	// hiccup unless it says so.
+	const harness = await NetplayHarness.create(
+		harnessOptions(4000, { link: { latency: 30, seed: 61 }, inputDelay: 4 })
+	);
+	harness.handshake();
+	harness.run(3_000);
+
+	const errors: string[] = [];
+	harness.host.session.close = harness.host.session.close; // keep the peer alive, just mute the link
+	harness.host.events.length = 0;
+	harness.link.setLoss(1);
+	harness.run(30_000);
+
+	for (const e of harness.host.events) if (e.type === 'error') errors.push(e.message ?? '');
+	assert.ok(
+		errors.some((m) => /Lost contact/.test(m)),
+		`expected a lost-contact report, got ${JSON.stringify(errors)}`
+	);
+	harness.dispose();
+});

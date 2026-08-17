@@ -75,6 +75,9 @@ export function registerRoomHandlers(
 
   // Join room
   socket.on('room:join', async (data: { roomId: string }) => {
+    // A rejoin, including the automatic one after a reconnect, reclaims a seat
+    // that is waiting out its grace period.
+    if (data?.roomId) cancelScheduledLeave(data.roomId, user.id);
     const room = rooms.get(data.roomId);
 
     if (!room) {
@@ -124,6 +127,8 @@ export function registerRoomHandlers(
 
   // Leave room
   socket.on('room:leave', (data: { roomId: string }) => {
+    // Deliberate, so no grace period - and cancel any pending one.
+    if (data?.roomId) cancelScheduledLeave(data.roomId, user.id);
     handleLeaveRoom(io, socket, data.roomId, rooms, user, getUserSocket);
   });
 
@@ -199,6 +204,58 @@ export function registerRoomHandlers(
     io.to(data.roomId).emit('room:updated', room);
     logger.info({ roomId: room.id, mode: data.emulationMode }, 'Emulation mode changed');
   });
+}
+
+/**
+ * Departures waiting out their grace period, keyed by room and user.
+ *
+ * A socket that drops is not a player who left. Removing them on the spot
+ * destroyed rooms mid-game: the last player's connection blinked, the room was
+ * deleted, and when their socket came back a moment later there was nothing to
+ * rejoin - every netplay packet from then on was refused as coming from a
+ * non-member, while the game itself carried on happily sending them.
+ *
+ * Emulation saturates the main thread, which makes those blinks routine rather
+ * than rare.
+ */
+const pendingDepartures = new Map<string, NodeJS.Timeout>();
+
+const DISCONNECT_GRACE_MS = 45_000;
+
+const departureKey = (roomId: string, userId: string) => `${roomId}:${userId}`;
+
+/** Removes a player only if they are still gone once the grace period ends. */
+export function scheduleLeaveRoom(
+  io: Server,
+  socket: Socket,
+  roomId: string,
+  rooms: Map<string, Room>,
+  user: User,
+  getUserSocket: (id: string) => string | undefined
+) {
+  const key = departureKey(roomId, user.id);
+  clearTimeout(pendingDepartures.get(key));
+
+  pendingDepartures.set(
+    key,
+    setTimeout(() => {
+      pendingDepartures.delete(key);
+      logger.info({ roomId, userId: user.id }, 'Grace period elapsed, removing player');
+      void handleLeaveRoom(io, socket, roomId, rooms, user, getUserSocket);
+    }, DISCONNECT_GRACE_MS)
+  );
+
+  logger.debug({ roomId, userId: user.id }, 'Player disconnected, holding their seat');
+}
+
+/** Called when the player is back, so their seat is never given up. */
+export function cancelScheduledLeave(roomId: string, userId: string) {
+  const key = departureKey(roomId, userId);
+  const timer = pendingDepartures.get(key);
+  if (!timer) return;
+  clearTimeout(timer);
+  pendingDepartures.delete(key);
+  logger.info({ roomId, userId }, 'Player returned within the grace period');
 }
 
 export async function handleLeaveRoom(
