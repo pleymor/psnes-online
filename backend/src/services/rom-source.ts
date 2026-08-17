@@ -17,7 +17,11 @@ const logger = createLogger('RomSource');
  * repeated (and drifting) at each call site.
  */
 
-const ROMS_DIR = process.env.ROMS_DIR || './roms';
+/** Resolved per call, not at import: a module-scope read of the environment
+ *  cannot be overridden by a caller, which makes this whole file untestable. */
+function romsDir(): string {
+	return process.env.ROMS_DIR || './roms';
+}
 
 /** Extensions the emulator cores can actually load. */
 export const ALLOWED_ROM_EXTENSIONS = ['.smc', '.sfc', '.fig', '.swc', '.mgd', '.zip'];
@@ -25,13 +29,32 @@ export const ALLOWED_ROM_EXTENSIONS = ['.smc', '.sfc', '.fig', '.swc', '.mgd', '
 /** A 4MB cartridge is the largest the SNES ever shipped; 8MB covers oddities. */
 export const MAX_ROM_BYTES = 8 * 1024 * 1024;
 
+/**
+ * Reads a game's ROM, expanding it if it turns out to be an archive.
+ *
+ * Uploads are unzipped once, on arrival. Drive-backed games are not: whatever
+ * the player put in their Drive is what comes back, and that is very often a
+ * .zip. The RetroArch build behind the dual and streaming modes opens those
+ * itself, which is why this went unnoticed - but the lockstep core is a bare
+ * libretro frontend with no archive support. It does not refuse a zip either:
+ * it loads the bytes, runs at a full 60fps and renders black.
+ */
 export async function readRom(game: Game, ownerUserId: string): Promise<Buffer> {
+	const raw = await readRawRom(game, ownerUserId);
+	return looksLikeZip(raw) ? unzipFirstRom(raw) : raw;
+}
+
+function looksLikeZip(data: Buffer): boolean {
+	return data.length > 4 && data.readUInt32LE(0) === 0x04034b50;
+}
+
+async function readRawRom(game: Game, ownerUserId: string): Promise<Buffer> {
 	if (game.localPath) {
-		const absolute = path.resolve(ROMS_DIR, game.localPath);
+		const absolute = path.resolve(romsDir(), game.localPath);
 		// Defence in depth: localPath is generated server-side, but a stored
 		// value that escaped ROMS_DIR would turn this into an arbitrary file
 		// read for anyone in the room.
-		if (!absolute.startsWith(path.resolve(ROMS_DIR) + path.sep)) {
+		if (!absolute.startsWith(path.resolve(romsDir()) + path.sep)) {
 			throw new Error('ROM path escapes the ROM directory');
 		}
 		return fs.readFile(absolute);
@@ -59,12 +82,12 @@ export async function storeUploadedRom(
 	const bytes = ext === '.zip' ? unzipFirstRom(data) : data;
 	const filename = ext === '.zip' ? zipEntryName(data, originalName) : originalName;
 
-	await fs.mkdir(ROMS_DIR, { recursive: true });
+	await fs.mkdir(romsDir(), { recursive: true });
 
 	// A generated name, never the user's: uploaded filenames are attacker
 	// controlled and this one becomes a filesystem path.
 	const localPath = `${randomUUID()}${path.extname(filename).toLowerCase() || '.sfc'}`;
-	await fs.writeFile(path.join(ROMS_DIR, localPath), bytes);
+	await fs.writeFile(path.join(romsDir(), localPath), bytes);
 
 	logger.info({ localPath, bytes: bytes.length }, 'Stored uploaded ROM');
 	return { localPath, filename, bytes };
@@ -73,7 +96,7 @@ export async function storeUploadedRom(
 export async function deleteLocalRom(localPath: string | null): Promise<void> {
 	if (!localPath) return;
 	try {
-		await fs.unlink(path.join(ROMS_DIR, localPath));
+		await fs.unlink(path.join(romsDir(), localPath));
 	} catch (err) {
 		// A missing file is not worth failing a delete over - the row is going
 		// away either way.

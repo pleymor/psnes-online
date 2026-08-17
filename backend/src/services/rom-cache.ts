@@ -48,6 +48,26 @@ export async function getCachedRom(roomId: string): Promise<string | null> {
 
   try {
     await fs.access(entry.filePath);
+
+    // Treat an archive in the cache as a miss so it is fetched again.
+    //
+    // The cache lives in a volume that outlives a deploy, and entries written
+    // before archives were expanded on read are still zips. The lockstep core
+    // does not reject one: it runs at full speed and renders black, so a stale
+    // entry would look like a netcode bug for as long as the room existed.
+    const head = Buffer.alloc(4);
+    const handle = await fs.open(entry.filePath, 'r');
+    try {
+      await handle.read(head, 0, 4, 0);
+    } finally {
+      await handle.close();
+    }
+    if (head.readUInt32LE(0) === 0x04034b50) {
+      logger.warn({ roomId }, 'Cached ROM is still an archive, re-caching');
+      activeCaches.delete(roomId);
+      return null;
+    }
+
     return entry.filePath;
   } catch {
     activeCaches.delete(roomId);
