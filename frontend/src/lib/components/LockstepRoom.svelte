@@ -17,6 +17,8 @@
   import { createLogger } from '$lib/utils/logger';
   import { setLogLabels } from '$lib/utils/log-shipper';
   import PauseMenu from './PauseMenu.svelte';
+  import LocateRom from './LocateRom.svelte';
+  import { resolveQuietly } from '$lib/roms/provider';
   import { DEFAULT_DISPLAY, type DisplayOptions } from '$lib/znet';
   import {
     AudioSink,
@@ -38,6 +40,9 @@
 
   export let roomId: string;
   export let gameId: string;
+  /** The CRC32 of the room's ROM: how each player finds their own copy. */
+  export let gameCrc32: string | undefined = undefined;
+  export let gameTitle = '';
   export let isHost: boolean;
   export let keyConfig: KeyConfig;
   /** Frames of input delay. 0 asks for a value derived from the measured RTT. */
@@ -48,6 +53,8 @@
   let statusText = 'Loading core…';
   let errorText = '';
   let needsAudioGesture = false;
+  /** Set while the boot is parked waiting for the player to point at a file. */
+  let romPrompt: ((bytes: Uint8Array) => void) | null = null;
   let showStats = false;
 
   let core: PsnesCore | null = null;
@@ -137,8 +144,8 @@
       statusText = 'Loading emulator core…';
       core = await loadCore();
 
-      statusText = 'Downloading ROM…';
-      const rom = normaliseRom(new Uint8Array(await fetchRom()));
+      statusText = 'Locating the ROM…';
+      const rom = normaliseRom(await obtainRom());
       core.loadRom(rom);
 
       renderer = new CanvasRenderer(canvas);
@@ -381,10 +388,35 @@
     }
   }
 
-  async function fetchRom(): Promise<ArrayBuffer> {
-    const response = await fetch(`/api/games/room/${roomId}/rom`, { credentials: 'include' });
-    if (!response.ok) throw new Error(`Could not download the ROM (HTTP ${response.status})`);
-    return response.arrayBuffer();
+  /**
+   * Gets the room's ROM from the player's own machine.
+   *
+   * The quiet path covers the common case - a folder picked once, or a game
+   * already loaded this session - and only falls through to asking when it
+   * genuinely cannot find the file. Boot parks here rather than failing:
+   * a guest who has the cartridge under another name is one gesture away from
+   * playing, and erroring out would send them back to the lobby for nothing.
+   */
+  async function obtainRom(): Promise<Uint8Array> {
+    if (!gameCrc32) {
+      throw new Error('This room predates local ROMs; the host must re-add the game to their library.');
+    }
+
+    const found = await resolveQuietly(gameCrc32);
+    if (found) {
+      logger.info(`Loaded the ROM from this machine (${found.byteLength} bytes)`, { crc32: gameCrc32 });
+      return found;
+    }
+
+    logger.info('No local copy found; asking the player', { crc32: gameCrc32 });
+    statusText = 'Waiting for you to locate the ROM…';
+    return new Promise<Uint8Array>((resolve) => {
+      romPrompt = (bytes) => {
+        romPrompt = null;
+        statusText = 'Loading the ROM…';
+        resolve(bytes);
+      };
+    });
   }
 
   /**
@@ -514,6 +546,10 @@
   // lastResyncAt it would latch on and the badge would never clear.
   $: recentlyResynced = !!stats && lastResyncAt > 0 && Date.now() - lastResyncAt < 3000;
 </script>
+
+{#if romPrompt}
+  <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
+{/if}
 
 <div class="lockstep">
   <div class="screen" class:stalling={stallVisible}>

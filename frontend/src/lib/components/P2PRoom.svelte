@@ -4,6 +4,8 @@
   import ClientEmulator from './ClientEmulator.svelte';
   import DualClientEmulator from './DualClientEmulator.svelte';
   import PauseMenu from './PauseMenu.svelte';
+  import LocateRom from './LocateRom.svelte';
+  import { resolveQuietly } from '$lib/roms/provider';
   import { VALID_SHADER_IDS } from './ShaderSelector.svelte';
   import type { KeyConfig } from '$lib/types';
   import { EmulationMode } from '$lib/types';
@@ -19,6 +21,9 @@
   // --- Props ---
   export let roomId: string;
   export let gameId: string;
+  /** The CRC32 of the room's ROM: how each player finds their own copy. */
+  export let gameCrc32: string | undefined = undefined;
+  export let gameTitle = '';
   export let isHost: boolean;
   export let keyConfig: KeyConfig;
   export let emulationMode: EmulationMode = EmulationMode.DUAL;
@@ -29,6 +34,8 @@
   let emulatorComponent: ClientEmulator;
   let dualEmulatorComponent: DualClientEmulator;
   let romData: ArrayBuffer | null = null;
+  /** Set while loading is parked waiting for the player to point at a file. */
+  let romPrompt: ((bytes: Uint8Array) => void) | null = null;
   let romHash: string | null = null;
   let initialSram: Blob | null = null;
   let loading = true;
@@ -82,73 +89,60 @@
   let shader = getShaderPreference();
 
   // --- ROM Loading ---
-  async function loadROM(): Promise<void> {
-    // Single player mode: just load ROM directly
-    if (emulationMode === EmulationMode.SINGLE) {
-      logger.info('🎮 SINGLE player: loading ROM locally');
-      try {
-        const response = await fetch(`/api/games/${gameId}/download`, {
-          credentials: 'include'
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to load ROM');
-        }
-
-        romData = await response.arrayBuffer();
-        logger.debug(`✅ ROM loaded (${romData.byteLength} bytes)`);
-
-        // Load SRAM for single player mode
-        await loadSRAM();
-
-        loading = false;
-        connectionStatus = 'connected'; // No connection needed in single mode
-      } catch (err) {
-        logger.error('Failed to load ROM:', err);
-        error = 'Failed to load game';
-        loading = false;
-      }
-      return;
+  /**
+   * Finds the ROM on the player's own machine.
+   *
+   * Every mode that runs an emulator needs the bytes locally now - the server
+   * holds none. The streaming guest is the exception below: it renders a video
+   * and has no emulator, so asking it for a ROM would be asking for a file it
+   * has no use for.
+   */
+  async function obtainRom(): Promise<Uint8Array> {
+    if (!gameCrc32) {
+      throw new Error('This room predates local ROMs; the host must re-add the game to their library.');
     }
 
-    // Guest in streaming mode: no ROM needed
+    const found = await resolveQuietly(gameCrc32);
+    if (found) return found;
+
+    return new Promise<Uint8Array>((resolve) => {
+      romPrompt = (bytes) => {
+        romPrompt = null;
+        resolve(bytes);
+      };
+    });
+  }
+
+  async function loadROM(): Promise<void> {
+    // Guest in streaming mode: no emulator, so no ROM.
     if (emulationMode === EmulationMode.STREAMING && !isHost) {
       logger.info('📺 STREAMING guest: no ROM needed');
       loading = false;
       return;
     }
 
-    // Multiplayer modes: use room-based endpoint (allows guest access)
-    // Single player already handled above, so this is for DUAL or STREAMING host
     try {
-      logger.debug('📥 Loading ROM...', gameId);
-      // Use room-based endpoint for multiplayer (allows guest to download)
-      const endpoint = `/api/games/room/${roomId}/rom`;
-
-      const response = await fetch(endpoint, {
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to load ROM');
-      }
-
-      romData = await response.arrayBuffer();
+      const bytes = await obtainRom();
+      // A copy, because the emulator takes ownership of the buffer it is given
+      // and the provider's cache must stay intact for a later rematch.
+      romData = bytes.slice().buffer;
       logger.debug(`✅ ROM loaded (${romData.byteLength} bytes)`);
 
-      // Compute hash for dual mode verification
+      // Dual mode compares hashes between peers before it trusts two machines
+      // to stay in step.
       if (emulationMode === EmulationMode.DUAL) {
         romHash = await computeHash(romData);
         logger.info(`🔐 ROM hash: ${romHash}`);
       }
 
-      // Load SRAM for multiplayer host
       await loadSRAM();
 
       loading = false;
+      // Single player has nobody to connect to.
+      if (emulationMode === EmulationMode.SINGLE) connectionStatus = 'connected';
     } catch (err) {
       logger.error('Failed to load ROM:', err);
-      error = 'Failed to load game';
+      error = err instanceof Error ? err.message : 'Failed to load game';
       loading = false;
     }
   }
@@ -902,6 +896,10 @@
     $socket?.off('sync:result', onSyncResult);
   });
 </script>
+
+{#if romPrompt}
+  <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
+{/if}
 
 <div class="p2p-room" class:single-mode={emulationMode === EmulationMode.SINGLE}>
   <!-- Game Container -->

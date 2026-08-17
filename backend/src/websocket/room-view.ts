@@ -11,6 +11,7 @@ export function toPublicRoom(room: Room) {
     gameId: room.gameId,
     gameTitle: room.gameTitle,
     gameCoverUrl: room.gameCoverUrl,
+    gameCrc32: room.gameCrc32,
     hostId: room.hostId,
     createdBy: room.createdBy,
     status: room.status,

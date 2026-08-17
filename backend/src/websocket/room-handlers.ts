@@ -5,7 +5,6 @@ import { getUserKeyConfig } from '../services/user-config.js';
 import { notifyFriendsAboutRoom, notifyFriendsRoomStatusChanged, getFriendships } from '../services/friends.js';
 import { toPublicRoom } from './room-view.js';
 import { createLogger } from '../utils/logger.js';
-import { cacheRomForRoom, cleanupRoomCache } from '../services/rom-cache.js';
 import { cleanupRoomChecksums } from './sync-handlers.js';
 import { cleanupHostReady } from './p2p-handlers.js';
 import { cleanupZnetRoom } from './znet-handlers.js';
@@ -24,6 +23,13 @@ export function registerRoomHandlers(
   socket.on('room:create', async (data: { gameId: string; gameTitle: string; gameCoverUrl?: string; autoStart?: boolean; emulationMode?: EmulationMode }) => {
     const roomId = randomUUID();
     const userKeyConfig = await getUserKeyConfig(user.id);
+    // Read from the host's library rather than trusting the payload: the guest
+    // will use this checksum to pick a file off their own disk, so it has to
+    // be the one the server recorded.
+    const game = await prisma.game.findFirst({
+      where: { id: data.gameId, userId: user.id },
+      select: { crc32: true }
+    });
     const autoStart = data.autoStart ?? false;
 
     const room: Room = {
@@ -31,6 +37,7 @@ export function registerRoomHandlers(
       gameId: data.gameId,
       gameTitle: data.gameTitle,
       gameCoverUrl: data.gameCoverUrl,
+      gameCrc32: game?.crc32 ?? undefined,
       hostId: user.id,
       createdBy: user.id,
       players: [{
@@ -52,18 +59,6 @@ export function registerRoomHandlers(
 
     rooms.set(roomId, room);
     socket.join(roomId);
-
-    // Cache ROM for multiplayer access
-    try {
-      const game = await prisma.game.findUnique({ where: { id: data.gameId } });
-      if (game) {
-        await cacheRomForRoom(roomId, user.id, game);
-        logger.info({ roomId, gameId: data.gameId }, 'ROM cached for room');
-      }
-    } catch (error) {
-      logger.error({ err: error, roomId, gameId: data.gameId }, 'Failed to cache ROM for room');
-      // Continue anyway - single player might still work
-    }
 
     socket.emit('room:created', room);
     await broadcastRoomUpdate(io, room, getUserSocket);
@@ -280,7 +275,6 @@ export async function handleLeaveRoom(
   if (room.players.length === 0) {
     await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'destroyed', getUserSocket);
     // Clean up per-room state so nothing outlives the room itself
-    await cleanupRoomCache(roomId);
     cleanupRoomChecksums(roomId);
     cleanupHostReady(roomId);
     cleanupZnetRoom(roomId);

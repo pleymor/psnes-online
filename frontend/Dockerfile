@@ -6,14 +6,10 @@ WORKDIR /app
 # Build arguments for Vite environment variables
 ARG VITE_API_URL
 ARG VITE_WS_URL
-ARG VITE_GOOGLE_API_KEY
-ARG VITE_GOOGLE_CLIENT_ID
 
 # Set as environment variables for build
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_WS_URL=$VITE_WS_URL
-ENV VITE_GOOGLE_API_KEY=$VITE_GOOGLE_API_KEY
-ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
 
 # Copy package files and install all dependencies (including devDependencies for build)
 COPY package*.json ./

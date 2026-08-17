@@ -36,6 +36,8 @@ export interface Room {
   gameId: string;
   gameTitle: string;
   gameCoverUrl?: string;
+  /** CRC32 of the room's ROM, which each player resolves against their own files. */
+  gameCrc32?: string;
   hostId: string;
   createdBy: string; // Original creator of the room
   players: RoomPlayer[];

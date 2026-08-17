@@ -37,7 +37,6 @@ services:
       - ./backend/.env
     volumes:
       - backend-data:/app/data
-      - backend-roms:/app/roms
       - backend-saves:/app/saves
       - backend-avatars:/app/avatars
     depends_on:
@@ -60,6 +59,5 @@ services:
 volumes:
   redis-data:
   backend-data:
-  backend-roms:
   backend-saves:
   backend-avatars:
