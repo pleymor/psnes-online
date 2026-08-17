@@ -10,6 +10,7 @@
  */
 
 import { DEBUG } from '$lib/config/debug';
+import { ship } from './log-shipper';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -49,6 +50,18 @@ class Logger {
 
   private formatMessage(level: LogLevel, message: string, ...args: any[]): void {
     if (!this.shouldLog(level)) return;
+
+    // Send anything worth keeping to the server. Debug is excluded: it is
+    // per-frame in places and would be pure flood.
+    if (level !== 'debug') {
+      ship({
+        timestamp: new Date().toISOString(),
+        level,
+        context: this.context,
+        message,
+        ...(args.length > 0 && { data: args })
+      });
+    }
 
     const timestamp = new Date().toISOString().split('T')[1].split('.')[0]; // HH:MM:SS
     const prefix = `[${timestamp}] [${this.context}] [${level.toUpperCase()}]`;

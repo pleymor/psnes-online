@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import { user, userLoading } from '$lib/stores/user';
   import { socket, initializeSocket } from '$lib/api/socket';
+  import { startLogShipping } from '$lib/utils/log-shipper';
   import { createLogger } from '$lib/utils/logger';
 
   const logger = createLogger('AppLayout');
@@ -30,6 +31,9 @@
       // User is logged in and socket not initialized
       initializeSocket();
       socketInitialized = true;
+      // Only once signed in: the ingest endpoint requires a session, and
+      // there is nothing worth collecting from a logged-out visitor.
+      startLogShipping({ app: 'psnes-frontend' });
     } else if (!$user && socketInitialized) {
       // User logged out, clean up socket
       if ($socket) {

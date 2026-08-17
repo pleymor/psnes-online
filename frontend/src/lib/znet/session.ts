@@ -116,6 +116,14 @@ export interface SessionStats {
 	resyncs: number;
 	packetsSent: number;
 	packetsReceived: number;
+	/**
+	 * Frames of input already held beyond the current frame, per player.
+	 *
+	 * The single most diagnostic number in a stalled session: if the remote
+	 * entry sits at zero the pads are not arriving, and if it is healthy while
+	 * nothing advances the problem is not the network at all.
+	 */
+	padsAhead: number[];
 }
 
 export class NetplaySession {
@@ -200,7 +208,8 @@ export class NetplaySession {
 		desyncs: 0,
 		resyncs: 0,
 		packetsSent: 0,
-		packetsReceived: 0
+		packetsReceived: 0,
+		padsAhead: [0, 0]
 	};
 
 	/** Injected so tests can run on a virtual clock. */
@@ -246,7 +255,12 @@ export class NetplaySession {
 	}
 
 	getStats(): SessionStats {
-		return { ...this.stats, frame: this.frame, rtt: this._rtt, epoch: this.epoch };
+		const padsAhead = this.pads.map((map) => {
+			let ahead = 0;
+			while (map.has(this.frame + ahead)) ahead++;
+			return ahead;
+		});
+		return { ...this.stats, frame: this.frame, rtt: this._rtt, epoch: this.epoch, padsAhead };
 	}
 
 	/** Begins the handshake. Both peers call this; order does not matter. */

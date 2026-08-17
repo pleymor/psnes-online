@@ -15,6 +15,7 @@
   import { socket } from '$lib/api/socket';
   import type { KeyConfig } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
+  import { setLogLabels } from '$lib/utils/log-shipper';
   import {
     AudioSink,
     CanvasRenderer,
@@ -69,6 +70,10 @@
   let stalling = false;
   let lastResyncAt = 0;
 
+  /** Periodic health line; see startDiagnostics. */
+  let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
+  let lastFramesRun = 0;
+
   $: if (collector && keyConfig) collector.setKeyConfig(keyConfig);
 
   onMount(() => {
@@ -81,6 +86,9 @@
 
   async function boot() {
     try {
+      // Lets one query pull both players' lines for the same match.
+      setLogLabels({ roomId, player: isHost ? 'p1' : 'p2' });
+
       statusText = 'Loading emulator core…';
       core = await loadCore();
 
@@ -137,6 +145,7 @@
 
       session.start();
       governor.start();
+      startDiagnostics();
     } catch (err) {
       logger.error('Lockstep boot failed', err);
       errorText = err instanceof Error ? err.message : String(err);
@@ -190,6 +199,48 @@
       readPad: () => collector!.read(),
       stats: () => session!.getStats()
     };
+  }
+
+  /**
+   * One line a second describing whether the session is actually moving.
+   *
+   * Every failure in this mode looks the same on screen - black, or a frozen
+   * picture - and these five numbers separate the causes that are otherwise
+   * indistinguishable:
+   *
+   *   fps        frames actually executed in the last second
+   *   padsAhead  frames of input held for [us, them]; a remote 0 means the
+   *              pads are not arriving, which is a transport problem
+   *   stalls     waiting on a pad that has not come
+   *   resyncs    the peers disagreed and the host reseeded the session
+   *   video      the geometry the core is producing, so "running but blank"
+   *              can be told from "not running"
+   */
+  function startDiagnostics() {
+    diagnosticsTimer = setInterval(() => {
+      if (!session) return;
+      const s = session.getStats();
+      const fps = s.framesRun - lastFramesRun;
+      lastFramesRun = s.framesRun;
+
+      const frame = core?.videoFrame();
+      logger.info('netplay', {
+        state: session.state,
+        fps,
+        frame: s.frame,
+        padsAhead: s.padsAhead,
+        stalls: s.stalls,
+        stalledTicks: s.stalledTicks,
+        resyncs: s.resyncs,
+        desyncs: s.desyncs,
+        epoch: s.epoch,
+        rtt: s.rtt === null ? null : Math.round(s.rtt),
+        inputDelay: s.inputDelay,
+        packets: [s.packetsSent, s.packetsReceived],
+        video: frame ? `${frame.width}x${frame.height}` : null,
+        hidden: typeof document !== 'undefined' ? document.hidden : null
+      });
+    }, 1000);
   }
 
   async function fetchRom(): Promise<ArrayBuffer> {
@@ -281,6 +332,8 @@
   }
 
   function teardown() {
+    if (diagnosticsTimer) clearInterval(diagnosticsTimer);
+    diagnosticsTimer = null;
     window.removeEventListener('gamepadconnected', refreshGamepadOptions);
     window.removeEventListener('gamepaddisconnected', refreshGamepadOptions);
     governor?.stop();
