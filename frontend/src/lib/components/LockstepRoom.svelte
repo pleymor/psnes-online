@@ -133,10 +133,7 @@
         }
       });
 
-      // Debug handle, development only. It hands out the live session and the
-      // emulator core, which has no business being reachable from the console
-      // of a deployed build.
-      if (import.meta.env.DEV) installDebugHandle();
+      installDebugHandle();
 
       session.start();
       governor.start();
@@ -153,22 +150,46 @@
    * instant from a live session. See e2e/probe-lockstep.mjs.
    */
   function installDebugHandle() {
-      const w = window as unknown as Record<string, any>;
-      // sessionStorage, not a window field: a full page reload wipes window
-      // state, so a counter kept there reads as "first boot" after exactly the
-      // event it is supposed to detect.
-      const boots = Number(sessionStorage.getItem('znetBoots') ?? '0') + 1;
-      sessionStorage.setItem('znetBoots', String(boots));
-      w.__znetBoots = boots;
-      w.__znetEvents = [];
-      w.__znet = {
-        boot: boots,
-        session,
-        collector,
-        core,
-        readPad: () => collector!.read(),
-        stats: () => session!.getStats()
-      };
+    const w = window as unknown as Record<string, any>;
+
+    // sessionStorage, not a window field: a full page reload wipes window
+    // state, so a counter kept there reads as "first boot" after exactly the
+    // event it is supposed to detect.
+    const boots = Number(sessionStorage.getItem('znetBoots') ?? '0') + 1;
+    sessionStorage.setItem('znetBoots', String(boots));
+    w.__znetBoots = boots;
+
+    /*
+     * Read-only counters, in every build.
+     *
+     * A lockstep failure looks the same from outside whatever its cause - a
+     * black screen - and these numbers are the only thing separating "no
+     * frames are running" from "frames run but nothing renders" from "the
+     * peers disagree". Withholding them in production meant every report from
+     * a deployed build had to be diagnosed by guesswork.
+     *
+     * The live session, core and collector stay development-only: those are
+     * handles that can change emulation, not observations of it.
+     */
+    w.__znetStats = () => ({
+      boot: boots,
+      phase,
+      state: session?.state ?? null,
+      videoSize: core ? `${core.videoFrame().width}x${core.videoFrame().height}` : null,
+      ...(session?.getStats() ?? {})
+    });
+
+    if (!import.meta.env.DEV) return;
+
+    w.__znetEvents = [];
+    w.__znet = {
+      boot: boots,
+      session,
+      collector,
+      core,
+      readPad: () => collector!.read(),
+      stats: () => session!.getStats()
+    };
   }
 
   async function fetchRom(): Promise<ArrayBuffer> {
