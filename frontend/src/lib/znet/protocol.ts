@@ -90,6 +90,8 @@ export interface StateMsg {
 	chunkCount: number;
 	inputDelay: number;
 	crcInterval: number;
+	/** Whether `payload` (across all chunks) is gzipped. */
+	compressed: boolean;
 	payload: Uint8Array;
 }
 
@@ -166,6 +168,7 @@ export function encode(msg: NetMsg): Uint8Array {
 			buf[0] = MsgType.State;
 			buf[1] = msg.epoch;
 			buf[2] = msg.inputDelay;
+			buf[3] = msg.compressed ? 1 : 0;
 			view.setUint32(4, msg.frame >>> 0, true);
 			view.setUint32(8, msg.totalLength >>> 0, true);
 			view.setUint16(12, msg.chunkIndex, true);
@@ -246,6 +249,7 @@ export function decode(data: Uint8Array): NetMsg | null {
 				type: MsgType.State,
 				epoch: data[1],
 				inputDelay: data[2],
+				compressed: data[3] === 1,
 				frame: view.getUint32(4, true),
 				totalLength: view.getUint32(8, true),
 				chunkIndex: view.getUint16(12, true),

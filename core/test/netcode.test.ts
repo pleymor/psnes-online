@@ -44,6 +44,7 @@ test('every message survives a round trip', () => {
 			chunkCount: 4,
 			inputDelay: 7,
 			crcInterval: 600,
+			compressed: true,
 			payload: new Uint8Array([1, 2, 3])
 		},
 		{ type: MsgType.StateAck, epoch: 2, frame: 42 },

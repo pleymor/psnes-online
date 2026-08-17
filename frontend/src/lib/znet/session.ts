@@ -21,6 +21,7 @@
  */
 
 import type { Transport } from './transport.js';
+import { compress, decompress } from './compress.js';
 import {
 	MsgType,
 	PROTOCOL_VERSION,
@@ -645,9 +646,18 @@ export class NetplaySession {
 		this.primeStartupPads(from);
 	}
 
+	/**
+	 * Compresses before chunking.
+	 *
+	 * The state shares its socket with the pad packets, so every byte of it
+	 * delays them. Uncompressed, an 823KB state kept the pads queued behind it
+	 * for the best part of a minute at the start of a session.
+	 */
 	private shipState(frame: number): void {
 		this.stateShippedAt = this.now();
-		const state = this.core.saveState();
+		const state = compress(this.core.saveState());
+		const compressed = true;
+
 		const chunkSize = this.opts.stateChunkSize;
 		const chunkCount = Math.max(1, Math.ceil(state.length / chunkSize));
 		for (let i = 0; i < chunkCount; i++) {
@@ -662,6 +672,7 @@ export class NetplaySession {
 				// the state rather than in a message that could arrive after it.
 				inputDelay: this.opts.inputDelay,
 				crcInterval: this.opts.crcInterval,
+				compressed,
 				payload: state.subarray(i * chunkSize, Math.min((i + 1) * chunkSize, state.length))
 			});
 		}
@@ -832,8 +843,15 @@ export class NetplaySession {
 		const { epoch, frame } = this.incoming;
 		this.incoming = null;
 
+		let state: Uint8Array;
 		try {
-			this.core.loadState(assembled);
+			state = msg.compressed ? decompress(assembled) : assembled;
+		} catch (err) {
+			return this.fail(`could not decompress the synchronisation state: ${(err as Error).message}`);
+		}
+
+		try {
+			this.core.loadState(state);
 		} catch (err) {
 			return this.fail(`failed to load synchronisation state: ${(err as Error).message}`);
 		}
