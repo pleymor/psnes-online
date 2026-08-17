@@ -34,6 +34,22 @@ export class FrameGovernor {
 	private lastTime = 0;
 	private turbo = false;
 
+	/**
+	 * Timer that keeps running when the tab is not visible.
+	 *
+	 * requestAnimationFrame stops outright in a hidden tab, and setTimeout is
+	 * throttled to roughly once a second. Either would be fine for a solo
+	 * emulator - it would simply pause - but this one is half of a lockstep
+	 * pair: a peer that stops running frames stops sending pads, and the other
+	 * player freezes with it. Two windows on one machine can never both be in
+	 * the foreground, which is exactly how most people will try this.
+	 *
+	 * Timers inside a worker are not throttled, so a hidden window keeps
+	 * emulating and its partner keeps playing.
+	 */
+	private worker: Worker | null = null;
+	private onVisibilityChange = () => this.reschedule();
+
 	constructor(session: NetplaySession, options: GovernorOptions = {}) {
 		this.session = session;
 		this.fps = options.fps ?? 60.0988;
@@ -55,19 +71,63 @@ export class FrameGovernor {
 		this.running = true;
 		this.lastTime = performance.now();
 		this.accumulator = 0;
+		document.addEventListener('visibilitychange', this.onVisibilityChange);
 		this.schedule();
 	}
 
 	stop(): void {
 		this.running = false;
+		document.removeEventListener('visibilitychange', this.onVisibilityChange);
 		if (this.handle !== null) {
 			cancelAnimationFrame(this.handle);
 			this.handle = null;
 		}
+		this.stopWorker();
+	}
+
+	/** Switches scheduler when the tab is hidden or shown. */
+	private reschedule(): void {
+		if (!this.running) return;
+		if (this.handle !== null) {
+			cancelAnimationFrame(this.handle);
+			this.handle = null;
+		}
+		this.stopWorker();
+		// A hidden tab has been getting no slices, so the elapsed time since the
+		// last one is meaningless; start the clock fresh rather than replaying it.
+		this.lastTime = performance.now();
+		this.schedule();
 	}
 
 	private schedule(): void {
+		if (typeof document !== 'undefined' && document.hidden) {
+			this.startWorker();
+			return;
+		}
 		this.handle = requestAnimationFrame(() => this.slice());
+	}
+
+	private startWorker(): void {
+		if (this.worker) return;
+		const source = `let t=setInterval(()=>postMessage(0),8);onmessage=()=>{clearInterval(t)}`;
+		const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+		try {
+			this.worker = new Worker(url);
+			this.worker.onmessage = () => this.slice();
+		} catch {
+			// No worker available: fall back to a timer. It will be throttled in
+			// a hidden tab, but a slow session beats a dead one.
+			this.handle = setTimeout(() => this.slice(), 16) as unknown as number;
+		} finally {
+			URL.revokeObjectURL(url);
+		}
+	}
+
+	private stopWorker(): void {
+		if (!this.worker) return;
+		this.worker.postMessage('stop');
+		this.worker.terminate();
+		this.worker = null;
 	}
 
 	private slice(): void {
@@ -109,6 +169,8 @@ export class FrameGovernor {
 		if (this.accumulator > ceiling) this.accumulator = ceiling;
 
 		this.onSlice(ran, stalled);
-		this.schedule();
+
+		// The worker re-arms itself; only the rAF path needs a new request.
+		if (!this.worker) this.schedule();
 	}
 }
