@@ -18,7 +18,8 @@
   import { setLogLabels } from '$lib/utils/log-shipper';
   import PauseMenu from './PauseMenu.svelte';
   import LocateRom from './LocateRom.svelte';
-  import { resolveQuietly } from '$lib/roms/provider';
+  import { remember, resolveQuietly } from '$lib/roms/provider';
+  import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { DEFAULT_DISPLAY, type DisplayOptions } from '$lib/znet';
   import {
     AudioSink,
@@ -55,7 +56,12 @@
   let needsAudioGesture = false;
   /** Set while the boot is parked waiting for the player to point at a file. */
   let romPrompt: ((bytes: Uint8Array) => void) | null = null;
+  /** Chunks sent or received, for a transfer the player can watch. */
+  let romTransfer: { direction: 'in' | 'out'; done: number; total: number } | null = null;
   let showStats = false;
+
+  /** Kept so a guest arriving later can be served without touching the disk. */
+  let loadedRom: Uint8Array | null = null;
 
   let core: PsnesCore | null = null;
   let session: NetplaySession | null = null;
@@ -113,6 +119,11 @@
   $: if (collector && keyConfig) collector.setKeyConfig(keyConfig);
 
   onMount(() => {
+    // Registered before the core starts loading, not after. Both machines boot
+    // at once and the guest asks for the ROM straight away; a listener attached
+    // at the end of boot would miss the first requests.
+    if (isHost) $socket?.on('rom:request', onRomRequested);
+
     void boot();
     window.addEventListener('keydown', onGlobalKey);
     return () => window.removeEventListener('keydown', onGlobalKey);
@@ -145,7 +156,8 @@
       core = await loadCore();
 
       statusText = 'Locating the ROM…';
-      const rom = normaliseRom(await obtainRom());
+      loadedRom = await obtainRom();
+      const rom = normaliseRom(loadedRom);
       core.loadRom(rom);
 
       renderer = new CanvasRenderer(canvas);
@@ -408,6 +420,30 @@
       return found;
     }
 
+    // The guest asks the host before it asks the player. The host has the
+    // cartridge by definition, and sending someone away to find a file they may
+    // not have is the end of the session.
+    if (!isHost) {
+      try {
+        statusText = 'Receiving the ROM from the host…';
+        const rom = await receiveRom({
+          socket: $socket as never,
+          roomId,
+          expectedCrc32: gameCrc32,
+          onProgress: (done, total) => (romTransfer = { direction: 'in', done, total })
+        });
+        romTransfer = null;
+        remember(rom);
+        logger.info(`Received the ROM from the host (${rom.byteLength} bytes)`, { crc32: gameCrc32 });
+        return rom;
+      } catch (err) {
+        romTransfer = null;
+        // Not fatal: the player may well have the file, so fall through to
+        // asking rather than dropping them back into the lobby.
+        logger.warn('The host could not send the ROM', err);
+      }
+    }
+
     logger.info('No local copy found; asking the player', { crc32: gameCrc32 });
     statusText = 'Waiting for you to locate the ROM…';
     return new Promise<Uint8Array>((resolve) => {
@@ -417,6 +453,42 @@
         resolve(bytes);
       };
     });
+  }
+
+  /**
+   * Answers a guest that has no copy of the cartridge.
+   *
+   * Sending happens off the frame loop, a chunk at a time: lockstep runs no
+   * faster than its slowest peer, so a host that stutters pushing four
+   * megabytes into a socket stalls the guest it is helping.
+   */
+  async function onRomRequested(data: { roomId: string; from: string }) {
+    if (data?.roomId !== roomId || !isHost) return;
+
+    const rom = loadedRom ?? (gameCrc32 ? await resolveQuietly(gameCrc32) : null);
+    if (!rom) {
+      logger.warn('A guest asked for the ROM but this machine has no copy either');
+      $socket?.emit('rom:unavailable', {
+        roomId,
+        to: data.from,
+        reason: 'The host does not have this ROM either'
+      });
+      return;
+    }
+
+    logger.info(`Sending the ROM to a guest (${rom.byteLength} bytes)`);
+    await sendRom({
+      socket: $socket as never,
+      roomId,
+      to: data.from,
+      rom,
+      onProgress: (done, total) => (romTransfer = { direction: 'out', done, total }),
+      // A frame is 16ms; yielding to the macrotask queue between chunks keeps
+      // the emulator's slice from being pushed aside by the transfer.
+      pause: () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+    });
+    romTransfer = null;
+    logger.info('Finished sending the ROM');
   }
 
   /**
@@ -525,6 +597,7 @@
     if (sramTimer) clearInterval(sramTimer);
     sramTimer = null;
     $socket?.off('game:loaded', onSaveLoaded);
+    $socket?.off('rom:request', onRomRequested);
     if (diagnosticsTimer) clearInterval(diagnosticsTimer);
     diagnosticsTimer = null;
     window.removeEventListener('gamepadconnected', refreshGamepadOptions);
@@ -546,6 +619,20 @@
   // lastResyncAt it would latch on and the badge would never clear.
   $: recentlyResynced = !!stats && lastResyncAt > 0 && Date.now() - lastResyncAt < 3000;
 </script>
+
+{#if romTransfer}
+  <div class="rom-transfer">
+    <span>
+      {romTransfer.direction === 'in'
+        ? 'Receiving the ROM from the host'
+        : 'Sending the ROM to the other player'}
+    </span>
+    <progress value={romTransfer.done} max={romTransfer.total}></progress>
+    <span class="rom-transfer-count">
+      {Math.round((romTransfer.done / Math.max(1, romTransfer.total)) * 100)}%
+    </span>
+  </div>
+{/if}
 
 {#if romPrompt}
   <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
@@ -631,6 +718,33 @@
 </div>
 
 <style>
+  .rom-transfer {
+    position: fixed;
+    left: 50%;
+    bottom: 2rem;
+    transform: translateX(-50%);
+    z-index: 900;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+    border-radius: 999px;
+    background: rgba(20, 20, 30, 0.92);
+    border: 1px solid #2c2c3c;
+    color: #e6e6f0;
+    font-size: 0.85rem;
+  }
+
+  .rom-transfer progress {
+    width: 160px;
+    height: 6px;
+  }
+
+  .rom-transfer-count {
+    color: #8b8ba3;
+    font-variant-numeric: tabular-nums;
+  }
+
   .lockstep {
     display: flex;
     flex-direction: column;

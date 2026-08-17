@@ -7,6 +7,7 @@ import { registerGameHandlers } from './game-handlers.js';
 import { registerP2PHandlers } from './p2p-handlers.js';
 import { registerSyncHandlers } from './sync-handlers.js';
 import { registerZnetHandlers } from './znet-handlers.js';
+import { registerRomTransferHandlers } from './rom-transfer.js';
 import { toPublicRoom, visibleRoomsFor } from './room-view.js';
 import { createLogger } from '../utils/logger.js';
 import { Presence } from './presence.js';
@@ -106,6 +107,7 @@ async function handleConnection(io: Server, socket: Socket) {
   registerP2PHandlers(socket, user, io, rooms);
   registerSyncHandlers(socket, io, user.id, rooms);
   registerZnetHandlers(socket, user, io, rooms);
+  registerRomTransferHandlers(socket, user, io, rooms, getUserSocket);
 
   // Send current rooms list, scoped the same way as GET /api/rooms —
   // broadcasting every room here would hand out room ids (and previously
