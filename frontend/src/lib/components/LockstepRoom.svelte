@@ -69,7 +69,19 @@
   let gamepadOptions: GamepadSource[] = ['auto', 'off'];
 
   let stats: SessionStats | null = null;
+  /**
+   * Whether to *show* that we are waiting, which is not the same as waiting.
+   *
+   * Brief stalls are normal on a lockstep link and do not affect play; a badge
+   * that flashes on each one reads as a fault and trains the eye to ignore it.
+   * It appears only once a stall has lasted long enough to be felt, and clears
+   * the instant play resumes. The telemetry is untouched - every stall is
+   * counted and logged the moment it happens.
+   */
+  const STALL_VISIBLE_AFTER_MS = 600;
   let stalling = false;
+  let stallVisible = false;
+  let stallTimer: ReturnType<typeof setTimeout> | null = null;
   let lastResyncAt = 0;
 
   let showPauseMenu = false;
@@ -178,7 +190,7 @@
       governor = new FrameGovernor(session, {
         fps: core.fps || 60.0988,
         onSlice: (ran, stalled) => {
-          stalling = stalled && ran === 0;
+          setStalling(stalled && ran === 0);
           stats = session!.getStats();
         }
       });
@@ -434,6 +446,23 @@
     stats = session?.getStats() ?? null;
   }
 
+  function setStalling(active: boolean) {
+    stalling = active;
+
+    if (!active) {
+      if (stallTimer) clearTimeout(stallTimer);
+      stallTimer = null;
+      stallVisible = false;
+      return;
+    }
+
+    if (stallTimer || stallVisible) return;
+    stallTimer = setTimeout(() => {
+      stallTimer = null;
+      stallVisible = true;
+    }, STALL_VISIBLE_AFTER_MS);
+  }
+
   function refreshGamepadOptions() {
     const connected = collector?.connectedGamepads() ?? [];
     gamepadOptions = ['auto', 'off', ...connected];
@@ -458,6 +487,8 @@
   }
 
   function teardown() {
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = null;
     persistSram();
     if (sramTimer) clearInterval(sramTimer);
     sramTimer = null;
@@ -485,7 +516,7 @@
 </script>
 
 <div class="lockstep">
-  <div class="screen" class:stalling>
+  <div class="screen" class:stalling={stallVisible}>
     <canvas bind:this={canvas} width="256" height="224"></canvas>
 
     {#if phase !== 'playing'}
@@ -497,7 +528,7 @@
           <p>{statusText}</p>
         {/if}
       </div>
-    {:else if stalling}
+    {:else if stallVisible}
       <!-- Lockstep's honest failure mode: say what is happening rather than
            inventing frames the other player has not agreed to. -->
       <div class="badge">Waiting for the other player…</div>
