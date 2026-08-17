@@ -183,10 +183,13 @@
     goto('/');
   }
 
+  // Lockstep first: it is the only mode that cannot silently drift apart, and
+  // it is now the default for new rooms. Dual is last - it is still the one
+  // that desyncs.
   const modeOptions = [
-    { mode: EmulationMode.DUAL, label: 'dualMode', badge: 'Alpha' },
-    { mode: EmulationMode.LOCKSTEP, label: 'lockstepMode', badge: 'Beta' },
-    { mode: EmulationMode.STREAMING, label: 'streamingMode', badge: '' }
+    { mode: EmulationMode.LOCKSTEP, label: 'lockstepMode', badge: '' },
+    { mode: EmulationMode.STREAMING, label: 'streamingMode', badge: '' },
+    { mode: EmulationMode.DUAL, label: 'dualMode', badge: 'Alpha' }
   ] as const;
 
   function modeDescriptionKey(mode: EmulationMode | undefined) {

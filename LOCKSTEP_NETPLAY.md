@@ -174,16 +174,44 @@ against the unfixed code.
 
 ## Status
 
-- The core builds, and all 35 tests pass: 24 netcode/relay tests plus 11
-  running the real emulator. Two independent wasm instances stay bit-identical for 1800
-  frames of pseudo-random two-player input, and full netplay sessions over a
-  150ms/60ms-jitter/5%-loss simulated link never diverge.
-- **Not yet exercised in a browser.** Everything above is node-side. The Svelte
-  component, the canvas renderer, the AudioWorklet and the socket transport
-  typecheck and their logic is covered, but no human has watched a frame render
-  or heard a sample play. That is the next thing to do.
-- Only two players are supported. The protocol carries a player index and the
-  core exposes two controller ports; multitap would need both extended.
-- The input delay is chosen once at session start. ZSNES also treats it as a
-  fixed setting; changing it mid-session safely needs both peers to switch at an
-  agreed frame, which is not implemented.
+Running in production as the default mode for new rooms, and playable end to
+end. 43 tests, none skipped: two independent wasm instances stay bit-identical
+for 1800 frames of pseudo-random two-player input, and full sessions over a
+simulated 150ms / 60ms-jitter / 5%-loss link never diverge.
+
+Known limits:
+
+- **Two players only.** The protocol carries a player index and the core
+  exposes two controller ports; multitap would need both extended.
+- **The input delay is chosen once**, from a hardcoded 120ms assumption rather
+  than the round trip the session goes on to measure. ZSNES also treats it as a
+  fixed setting, but the value should come from the measurement.
+- **A hidden window keeps emulating** by design, driven by a worker timer,
+  because a paused peer freezes its partner. That is a deliberate departure
+  from what a solo emulator should do.
+
+Unresolved: during one production freeze the host's resync acknowledgement
+never arrived. A watchdog now restarts the handshake rather than wedging, so
+the symptom is recoverable, but the cause was never found. `__znetStats()` and
+the per-second `netplay` log line are the way in if it recurs.
+
+## What it took to get there
+
+The netcode was the easy half. Ten bugs were fixed along the way, most of them
+pre-existing and unrelated to netplay:
+
+- `vite build` had been failing on main - production could not be rebuilt at
+  all - because `@vite-pwa/sveltekit` claimed the service worker under
+  workbox's `injectManifest`.
+- Direct visits to `/room/<id>` always bounced to the library, so every shared
+  invite link and every mid-lobby refresh was broken.
+- A dropped socket removed a player immediately, destroying rooms mid-game.
+- ROMs from Drive are served as `.zip`, which the lockstep core does not
+  refuse: it runs at a full 60fps and renders black.
+- `.mjs` has no entry in nginx's mime.types, so the core module was rejected as
+  `application/octet-stream` - and an `immutable` cache header, added in the
+  same change that fixed the MIME type, pinned the broken copy for a year.
+
+The lesson worth keeping: the last three of those were diagnosed in two log
+queries, after client telemetry started reaching the server. The ones before it
+took an evening of guessing each. Build the observability first.

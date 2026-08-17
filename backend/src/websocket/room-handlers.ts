@@ -43,7 +43,10 @@ export function registerRoomHandlers(
         keyConfig: userKeyConfig
       }],
       status: autoStart ? 'playing' : 'waiting',
-      emulationMode: data.emulationMode ?? 'streaming',
+      // Lockstep by default: both players run the same deterministic core and
+      // exchange inputs, so a room cannot end up with two machines quietly
+      // diverging the way the dual mode does.
+      emulationMode: data.emulationMode ?? 'lockstep',
       createdAt: new Date()
     };
 
