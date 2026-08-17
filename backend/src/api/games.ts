@@ -1,40 +1,25 @@
 import { Router } from 'express';
-import multer from 'multer';
-import path from 'path';
 import { User } from '../types/index.js';
 import { findGameMetadata, findGameMetadataByChecksum } from '../services/metadata-loader.js';
 import { prisma } from '../db/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
-import { getRooms } from '../websocket/index.js';
-import { getValidAccessToken, downloadDriveFile, getDriveFileMetadata, listDriveFolder } from '../services/google-drive.js';
-import { getCachedRom, cacheRomForRoom } from '../services/rom-cache.js';
-import {
-  ALLOWED_ROM_EXTENSIONS,
-  MAX_ROM_BYTES,
-  crc32,
-  deleteLocalRom,
-  normaliseRom,
-  readRom,
-  storeUploadedRom
-} from '../services/rom-source.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 
 const logger = createLogger('Games');
 
 export const gamesRouter = Router();
 
-const ALLOWED_EXTENSIONS = ALLOWED_ROM_EXTENSIONS;
 const MAX_GAMES_PER_USER = 100;
 
-// Memory storage: a ROM is a few megabytes and is inspected (checksummed,
-// possibly unzipped) before it is written anywhere, so there is nothing to
-// gain from a temp file.
-const romUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_ROM_BYTES, files: 1 }
-});
-
+/**
+ * Games, without ever holding a ROM.
+ *
+ * A row here is a game's identity - its title, its cover, its saves - and
+ * `crc32` is what maps it back to a file on the player's own machine. The
+ * bytes are never uploaded, never stored and never served: that is the point,
+ * and it is why there is no download route below.
+ */
 gamesRouter.use(requireAuth);
 
 // Get user's game library
@@ -61,176 +46,93 @@ gamesRouter.get('/', asyncHandler(async (req, res) => {
   res.json(games);
 }));
 
-// Get access token for Google Drive Picker
-gamesRouter.get('/drive-token', asyncHandler(async (req, res) => {
+/**
+ * Adds a game the player already has on disk.
+ *
+ * Takes a checksum and a filename, never the file. Metadata is matched on the
+ * checksum first and the filename only as a fallback, because a checksum
+ * identifies a dump exactly while a filename is a guess.
+ */
+gamesRouter.post('/', asyncHandler(async (req, res) => {
   const user = req.user as User;
+  const { checksum, filename, title } = req.body ?? {};
 
-  try {
-    const accessToken = await getValidAccessToken(user.id);
-    res.json({ accessToken });
-  } catch (error: any) {
-    logger.error({ err: error, userId: user.id }, 'Failed to get Drive token');
-    res.status(401).json({ error: 'Drive not connected. Please re-authenticate.' });
+  if (typeof checksum !== 'string' || !/^[0-9A-F]{8}$/.test(checksum)) {
+    return res.status(400).json({ error: 'A CRC32 checksum is required' });
   }
-}));
-
-// List contents of a Drive folder
-gamesRouter.get('/drive-folder/:folderId?', asyncHandler(async (req, res) => {
-  const user = req.user as User;
-  const { folderId } = req.params;
-
-  try {
-    const items = await listDriveFolder(user.id, folderId === 'root' ? undefined : folderId);
-    res.json(items);
-  } catch (error: any) {
-    logger.error({ err: error, userId: user.id, folderId }, 'Failed to list Drive folder');
-    res.status(500).json({ error: 'Failed to list folder contents' });
-  }
-}));
-
-// Add game from Google Drive
-gamesRouter.post('/add-from-drive', asyncHandler(async (req, res) => {
-  const user = req.user as User;
-  const { driveFileId, driveFileName, title } = req.body;
-
-  if (!driveFileId || !driveFileName) {
-    return res.status(400).json({ error: 'Missing Drive file information' });
+  if (typeof filename !== 'string' || !filename) {
+    return res.status(400).json({ error: 'A filename is required' });
   }
 
-  // Validate file extension
-  const ext = path.extname(driveFileName).toLowerCase();
-  if (!ALLOWED_EXTENSIONS.includes(ext)) {
-    return res.status(400).json({ error: 'Invalid file type. Only SNES ROM files are allowed.' });
+  const existing = await prisma.game.findFirst({ where: { userId: user.id, crc32: checksum } });
+  if (existing) {
+    // Not an error: picking a ROM already in the library should land on it,
+    // with its saves, rather than creating a second copy.
+    return res.json(existing);
   }
 
-  // Check game count limit
-  const gameCount = await prisma.game.count({ where: { userId: user.id } });
-  if (gameCount >= MAX_GAMES_PER_USER) {
+  const count = await prisma.game.count({ where: { userId: user.id } });
+  if (count >= MAX_GAMES_PER_USER) {
     return res.status(400).json({ error: `Maximum number of games reached (${MAX_GAMES_PER_USER})` });
   }
 
-  // Check for duplicate
-  const existingGame = await prisma.game.findFirst({
-    where: { userId: user.id, driveFileId }
+  const detected = (typeof title === 'string' && title.trim()) || filename.replace(/\.[^.]+$/, '');
+  const metadata = (await findGameMetadataByChecksum(checksum)) || (await findGameMetadata(detected));
+
+  const game = await prisma.game.create({
+    data: {
+      title: metadata?.title || detected,
+      filename,
+      crc32: checksum,
+      userId: user.id,
+      ...(metadata && {
+        genre: metadata.genre,
+        publisher: metadata.publisher,
+        developer: metadata.developer,
+        releaseDate: metadata.releaseDate,
+        players: metadata.players,
+        region: metadata.region,
+        description: metadata.description,
+        coverUrl: metadata.coverUrl
+      })
+    }
   });
-  if (existingGame) {
-    return res.status(400).json({ error: 'This ROM is already in your library' });
-  }
 
-  // Verify file exists and is accessible
-  try {
-    await getDriveFileMetadata(user.id, driveFileId);
-  } catch (error) {
-    logger.error({ err: error, driveFileId }, 'Cannot access Drive file');
-    return res.status(400).json({ error: 'Cannot access Drive file. Make sure the file exists and you have permission.' });
-  }
-
-  const detectedTitle = title || path.basename(driveFileName, ext);
-  const metadata = await findGameMetadata(detectedTitle);
-
-  const gameData: any = {
-    title: metadata?.title || detectedTitle,
-    filename: driveFileName,
-    driveFileId,
-    driveFileName,
-    userId: user.id
-  };
-
-  if (metadata) {
-    logger.info({ title: metadata.title }, 'Found metadata for game');
-    gameData.genre = metadata.genre;
-    gameData.publisher = metadata.publisher;
-    gameData.developer = metadata.developer;
-    gameData.releaseDate = metadata.releaseDate;
-    gameData.players = metadata.players;
-    gameData.region = metadata.region;
-    gameData.description = metadata.description;
-    gameData.coverUrl = metadata.coverUrl;
-  }
-
-  const game = await prisma.game.create({ data: gameData });
-
+  logger.info({ title: game.title, checksum }, 'Game added from the player library');
   res.json(game);
 }));
 
 /**
- * Add a ROM from the player's own machine.
+ * Attaches a checksum to a game that predates local ROMs.
  *
- * The counterpart to /add-from-drive, and the only way to use the app without
- * a Google account. Because the bytes are actually here, this path can match
- * metadata by CRC32 rather than by guessing from the filename.
+ * Those rows came from Drive and the server never saw their bytes, so they
+ * have no checksum and cannot be resolved to a local file. This is how a
+ * player reconnects one - keeping the row, and with it the saves.
  */
-gamesRouter.post('/upload', romUpload.single('rom'), asyncHandler(async (req, res) => {
+gamesRouter.patch('/:gameId/checksum', asyncHandler(async (req, res) => {
   const user = req.user as User;
-  const file = req.file;
+  const { checksum } = req.body ?? {};
 
-  if (!file) {
-    return res.status(400).json({ error: 'No ROM file received' });
+  if (typeof checksum !== 'string' || !/^[0-9A-F]{8}$/.test(checksum)) {
+    return res.status(400).json({ error: 'A CRC32 checksum is required' });
   }
 
-  const ext = path.extname(file.originalname).toLowerCase();
-  if (!ALLOWED_EXTENSIONS.includes(ext)) {
-    return res.status(400).json({ error: 'Invalid file type. Only SNES ROM files are allowed.' });
-  }
+  const game = await prisma.game.findUnique({ where: { id: req.params.gameId } });
+  if (!game) return res.status(404).json({ error: 'Game not found' });
+  if (game.userId !== user.id) return res.status(403).json({ error: 'Not authorized' });
 
-  const gameCount = await prisma.game.count({ where: { userId: user.id } });
-  if (gameCount >= MAX_GAMES_PER_USER) {
-    return res.status(400).json({ error: `Maximum number of games reached (${MAX_GAMES_PER_USER})` });
-  }
-
-  let stored;
-  try {
-    stored = await storeUploadedRom(file.originalname, file.buffer);
-  } catch (error: any) {
-    logger.warn({ err: error, filename: file.originalname }, 'Rejected uploaded ROM');
-    return res.status(400).json({ error: error?.message || 'Could not read this ROM file' });
-  }
-
-  // Checksum the ROM without its copier header, so the same game dumped with
-  // and without one lands on the same metadata entry - and is recognised as a
-  // duplicate of itself.
-  const checksum = crc32(normaliseRom(stored.bytes));
-
-  const duplicate = await prisma.game.findFirst({
-    where: { userId: user.id, crc32: checksum }
+  const clash = await prisma.game.findFirst({
+    where: { userId: user.id, crc32: checksum, NOT: { id: game.id } }
   });
-  if (duplicate) {
-    await deleteLocalRom(stored.localPath);
-    return res.status(400).json({ error: 'This ROM is already in your library' });
+  if (clash) {
+    return res.status(409).json({ error: 'Another game in your library already has that ROM', gameId: clash.id });
   }
 
-  const detectedTitle =
-    (typeof req.body?.title === 'string' && req.body.title.trim()) ||
-    path.basename(stored.filename, path.extname(stored.filename));
-
-  const metadata =
-    (await findGameMetadataByChecksum(checksum)) || (await findGameMetadata(detectedTitle));
-
-  const gameData: any = {
-    title: metadata?.title || detectedTitle,
-    filename: stored.filename,
-    localPath: stored.localPath,
-    crc32: checksum,
-    userId: user.id
-  };
-
-  if (metadata) {
-    logger.info({ title: metadata.title, checksum }, 'Found metadata for uploaded game');
-    gameData.genre = metadata.genre;
-    gameData.publisher = metadata.publisher;
-    gameData.developer = metadata.developer;
-    gameData.releaseDate = metadata.releaseDate;
-    gameData.players = metadata.players;
-    gameData.region = metadata.region;
-    gameData.description = metadata.description;
-    gameData.coverUrl = metadata.coverUrl;
-  }
-
-  const game = await prisma.game.create({ data: gameData });
-  res.json(game);
+  const updated = await prisma.game.update({ where: { id: game.id }, data: { crc32: checksum } });
+  logger.info({ gameId: game.id, checksum }, 'Game re-linked to a local ROM');
+  res.json(updated);
 }));
 
-// Delete a game
 gamesRouter.delete('/:gameId', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { gameId } = req.params;
@@ -247,86 +149,13 @@ gamesRouter.delete('/:gameId', asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'Not authorized' });
   }
 
-  // Delete from database (cascade will delete saves). A Drive-backed game
-  // leaves nothing behind on the server; an uploaded one owns its file and
-  // would otherwise leak it.
+  // Cascade takes the saves. Nothing else to clean up: the server never held
+  // the ROM, so deleting a game leaves no file behind.
   await prisma.game.delete({
     where: { id: gameId }
   });
-  await deleteLocalRom(game.localPath);
 
   res.json({ message: 'Game deleted' });
-}));
-
-// Download ROM file from Google Drive (for single player)
-gamesRouter.get('/:gameId/download', asyncHandler(async (req, res) => {
-  const user = req.user as User;
-  const { gameId } = req.params;
-
-  const game = await prisma.game.findUnique({
-    where: { id: gameId }
-  });
-
-  if (!game) {
-    return res.status(404).json({ error: 'Game not found' });
-  }
-
-  if (game.userId !== user.id) {
-    return res.status(403).json({ error: 'Not authorized' });
-  }
-
-  try {
-    const romBuffer = await readRom(game, user.id);
-
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${game.filename}"`);
-    res.send(romBuffer);
-  } catch (error: any) {
-    logger.error({ err: error, gameId }, 'Failed to read ROM');
-    res.status(500).json({ error: 'Failed to load the ROM file' });
-  }
-}));
-
-// Download ROM file for a room (from cache for multiplayer)
-gamesRouter.get('/room/:roomId/rom', asyncHandler(async (req, res) => {
-  const user = req.user as User;
-  const { roomId } = req.params;
-
-  const rooms = getRooms();
-  const room = rooms.get(roomId);
-
-  if (!room) {
-    return res.status(404).json({ error: 'Room not found' });
-  }
-
-  const isInRoom = room.players.some(p => p.userId === user.id);
-  if (!isInRoom) {
-    return res.status(403).json({ error: 'Not authorized - not in room' });
-  }
-
-  const game = await prisma.game.findUnique({
-    where: { id: room.gameId }
-  });
-
-  if (!game) {
-    return res.status(404).json({ error: 'Game not found' });
-  }
-
-  // Get cached ROM path, or cache on-demand if missing
-  let cachedPath = await getCachedRom(roomId);
-  if (!cachedPath) {
-    logger.info({ roomId, gameId: room.gameId }, 'ROM not cached, caching on-demand');
-    try {
-      cachedPath = await cacheRomForRoom(roomId, room.hostId, game);
-    } catch (error) {
-      logger.error({ err: error, roomId }, 'Failed to cache ROM on-demand');
-      return res.status(500).json({ error: 'Failed to load the ROM file' });
-    }
-  }
-
-  res.setHeader('Content-Type', 'application/octet-stream');
-  res.setHeader('Content-Disposition', `attachment; filename="${game.filename || 'rom.smc'}"`);
-  res.sendFile(path.resolve(cachedPath));
 }));
 
 // Get game saves

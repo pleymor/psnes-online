@@ -40,7 +40,6 @@ services:
       - ./backend:/app
       - backend-node-modules:/app/node_modules
       - backend-data:/app/data
-      - backend-rom-cache:/app/rom-cache
       - backend-saves:/app/saves
       - backend-avatars:/app/avatars
       - ./backend/data/snes-metadata.json:/app/metadata/snes-metadata.json:ro
@@ -60,8 +59,6 @@ services:
     environment:
       - VITE_API_URL=http://localhost:3000
       - BACKEND_URL=http://backend:3000
-      - VITE_GOOGLE_API_KEY=${VITE_GOOGLE_API_KEY}
-      - VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
     command: sh -c "npm install && npm run dev -- --host"
     depends_on:
       - backend
@@ -70,6 +67,5 @@ volumes:
   redis-data:
   backend-data:
   backend-node-modules:
-  backend-rom-cache:
   backend-saves:
   backend-avatars:

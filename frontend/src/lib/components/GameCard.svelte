@@ -43,6 +43,13 @@
     {:else}
       <div class="placeholder">🎮</div>
     {/if}
+    {#if !game.crc32}
+      <!-- Added back when ROMs were stored online, so nothing here can find
+           the file yet. Says so on the card rather than only at launch. -->
+      <div class="needs-rom" title={t($language, 'linkRomExplain')}>
+        {t($language, 'needsRom')}
+      </div>
+    {/if}
     <div class="hover-overlay">
       <div class="info-icon">ℹ️</div>
       <div class="info-text">{t($language, 'clickForDetails')}</div>
@@ -68,6 +75,19 @@
 </div>
 
 <style>
+  .needs-rom {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 2;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(234, 179, 8, 0.9);
+    color: #201a00;
+    font-size: 0.68rem;
+    font-weight: 600;
+  }
+
   .game-card {
     background: rgba(42, 42, 42, 0.8);
     border: 1px solid rgba(255, 255, 255, 0.1);

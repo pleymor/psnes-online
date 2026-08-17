@@ -18,11 +18,6 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  // Google OAuth tokens for Drive access
-  googleAccessToken  String?
-  googleRefreshToken String?
-  googleTokenExpiry  DateTime?
-
   // Relations
   games         Game[]
   friendshipsInitiated Friendship[] @relation("FriendshipInitiator")
@@ -73,12 +68,13 @@ model Game {
   coverUrl    String?
   uploadedAt  DateTime @default(now())
 
-  // Where the ROM lives. Exactly one of these is set: a Drive reference for
-  // games added from Google Drive, or a filename under ROMS_DIR for games
-  // uploaded from the player's own machine.
-  driveFileId   String?
-  driveFileName String?
-  localPath     String?
+  // No pointer to any file: the ROM stays on the player's machine. This row is
+  // the game's identity - title, cover, saves - and `crc32` is what maps it
+  // back to a local file at launch.
+  //
+  // Nullable because the games that predate this change were Drive references
+  // and the server never saw their bytes; those are re-linked the first time
+  // the player picks the file.
 
   // Metadata fields
   genre       String?
@@ -98,6 +94,10 @@ model Game {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   saves       Save[]
+
+  // One entry per cartridge per player: picking the same ROM twice must find
+  // the existing game and its saves, not create a second one.
+  @@unique([userId, crc32])
 }
 
 model Save {

@@ -76,7 +76,7 @@ export async function unzipFirstEntry(data: Uint8Array): Promise<Uint8Array> {
 		throw new Error('This browser cannot open zip archives; please unzip the ROM first.');
 	}
 
-	const stream = new Blob([body]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+	const stream = new Blob([body as BlobPart]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
 	const parts: Uint8Array[] = [];
 	let total = 0;
 	const reader = stream.getReader();

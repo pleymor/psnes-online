@@ -9,6 +9,14 @@ export interface Room {
   gameId: string;
   gameTitle: string;
   gameCoverUrl?: string;
+  /**
+   * Which ROM this room is for, as the CRC32 of its contents.
+   *
+   * The guest does not own the host's game row and the server no longer holds
+   * any ROM, so this checksum is the only thing that tells them which file on
+   * their own machine to load - and confirms both players hold the same dump.
+   */
+  gameCrc32?: string;
   hostId: string;
   createdBy: string; // Original creator of the room
   players: RoomPlayer[];

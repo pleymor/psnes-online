@@ -4,6 +4,9 @@
   import ClientEmulator from './ClientEmulator.svelte';
   import DualClientEmulator from './DualClientEmulator.svelte';
   import PauseMenu from './PauseMenu.svelte';
+  import LocateRom from './LocateRom.svelte';
+  import { remember, resolveQuietly } from '$lib/roms/provider';
+  import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { VALID_SHADER_IDS } from './ShaderSelector.svelte';
   import type { KeyConfig } from '$lib/types';
   import { EmulationMode } from '$lib/types';
@@ -19,6 +22,9 @@
   // --- Props ---
   export let roomId: string;
   export let gameId: string;
+  /** The CRC32 of the room's ROM: how each player finds their own copy. */
+  export let gameCrc32: string | undefined = undefined;
+  export let gameTitle = '';
   export let isHost: boolean;
   export let keyConfig: KeyConfig;
   export let emulationMode: EmulationMode = EmulationMode.DUAL;
@@ -29,6 +35,12 @@
   let emulatorComponent: ClientEmulator;
   let dualEmulatorComponent: DualClientEmulator;
   let romData: ArrayBuffer | null = null;
+  /** Set while loading is parked waiting for the player to point at a file. */
+  let romPrompt: ((bytes: Uint8Array) => void) | null = null;
+  /** Chunks sent or received, for a transfer the player can watch. */
+  let romTransfer: { direction: 'in' | 'out'; done: number; total: number } | null = null;
+  /** Kept so a guest arriving later can be served without touching the disk. */
+  let loadedRom: Uint8Array | null = null;
   let romHash: string | null = null;
   let initialSram: Blob | null = null;
   let loading = true;
@@ -82,73 +94,107 @@
   let shader = getShaderPreference();
 
   // --- ROM Loading ---
-  async function loadROM(): Promise<void> {
-    // Single player mode: just load ROM directly
-    if (emulationMode === EmulationMode.SINGLE) {
-      logger.info('🎮 SINGLE player: loading ROM locally');
+  /**
+   * Finds the ROM on the player's own machine.
+   *
+   * Every mode that runs an emulator needs the bytes locally now - the server
+   * holds none. The streaming guest is the exception below: it renders a video
+   * and has no emulator, so asking it for a ROM would be asking for a file it
+   * has no use for.
+   */
+  async function obtainRom(): Promise<Uint8Array> {
+    if (!gameCrc32) {
+      throw new Error('This room predates local ROMs; the host must re-add the game to their library.');
+    }
+
+    const found = await resolveQuietly(gameCrc32);
+    if (found) return found;
+
+    // The guest asks the host before it asks the player: in a room for someone
+    // else's game, the host is the one machine certain to have the cartridge.
+    if (!isHost && emulationMode !== EmulationMode.SINGLE) {
       try {
-        const response = await fetch(`/api/games/${gameId}/download`, {
-          credentials: 'include'
+        const rom = await receiveRom({
+          socket: $socket as never,
+          roomId,
+          expectedCrc32: gameCrc32,
+          onProgress: (done, total) => (romTransfer = { direction: 'in', done, total })
         });
-
-        if (!response.ok) {
-          throw new Error('Failed to load ROM');
-        }
-
-        romData = await response.arrayBuffer();
-        logger.debug(`✅ ROM loaded (${romData.byteLength} bytes)`);
-
-        // Load SRAM for single player mode
-        await loadSRAM();
-
-        loading = false;
-        connectionStatus = 'connected'; // No connection needed in single mode
+        romTransfer = null;
+        remember(rom);
+        logger.info(`📦 Received the ROM from the host (${rom.byteLength} bytes)`);
+        return rom;
       } catch (err) {
-        logger.error('Failed to load ROM:', err);
-        error = 'Failed to load game';
-        loading = false;
+        romTransfer = null;
+        logger.warn('The host could not send the ROM', err);
       }
+    }
+
+    return new Promise<Uint8Array>((resolve) => {
+      romPrompt = (bytes) => {
+        romPrompt = null;
+        resolve(bytes);
+      };
+    });
+  }
+
+  /** Answers a guest that has no copy of the cartridge. See LockstepRoom. */
+  async function onRomRequested(data: { roomId: string; from: string }) {
+    if (data?.roomId !== roomId || !isHost) return;
+
+    const rom = loadedRom ?? (gameCrc32 ? await resolveQuietly(gameCrc32) : null);
+    if (!rom) {
+      $socket?.emit('rom:unavailable', {
+        roomId,
+        to: data.from,
+        reason: 'The host does not have this ROM either'
+      });
       return;
     }
 
-    // Guest in streaming mode: no ROM needed
+    logger.info(`📦 Sending the ROM to a guest (${rom.byteLength} bytes)`);
+    await sendRom({
+      socket: $socket as never,
+      roomId,
+      to: data.from,
+      rom,
+      onProgress: (done, total) => (romTransfer = { direction: 'out', done, total }),
+      pause: () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+    });
+    romTransfer = null;
+  }
+
+  async function loadROM(): Promise<void> {
+    // Guest in streaming mode: no emulator, so no ROM.
     if (emulationMode === EmulationMode.STREAMING && !isHost) {
       logger.info('📺 STREAMING guest: no ROM needed');
       loading = false;
       return;
     }
 
-    // Multiplayer modes: use room-based endpoint (allows guest access)
-    // Single player already handled above, so this is for DUAL or STREAMING host
     try {
-      logger.debug('📥 Loading ROM...', gameId);
-      // Use room-based endpoint for multiplayer (allows guest to download)
-      const endpoint = `/api/games/room/${roomId}/rom`;
-
-      const response = await fetch(endpoint, {
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to load ROM');
-      }
-
-      romData = await response.arrayBuffer();
+      const bytes = await obtainRom();
+      loadedRom = bytes;
+      // A copy, because the emulator takes ownership of the buffer it is given
+      // and the provider's cache must stay intact for a later rematch.
+      romData = bytes.slice().buffer;
       logger.debug(`✅ ROM loaded (${romData.byteLength} bytes)`);
 
-      // Compute hash for dual mode verification
+      // Dual mode compares hashes between peers before it trusts two machines
+      // to stay in step.
       if (emulationMode === EmulationMode.DUAL) {
         romHash = await computeHash(romData);
         logger.info(`🔐 ROM hash: ${romHash}`);
       }
 
-      // Load SRAM for multiplayer host
       await loadSRAM();
 
       loading = false;
+      // Single player has nobody to connect to.
+      if (emulationMode === EmulationMode.SINGLE) connectionStatus = 'connected';
     } catch (err) {
       logger.error('Failed to load ROM:', err);
-      error = 'Failed to load game';
+      error = err instanceof Error ? err.message : 'Failed to load game';
       loading = false;
     }
   }
@@ -828,6 +874,10 @@
 
   // --- Lifecycle ---
   onMount(async () => {
+    // Before anything else loads: the guest asks for the ROM as soon as it
+    // mounts, and a listener attached later would miss the first requests.
+    if (isHost) $socket?.on('rom:request', onRomRequested);
+
     // Always add keyboard listener for pause menu (Escape key)
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
@@ -874,6 +924,8 @@
   });
 
   onDestroy(() => {
+    $socket?.off('rom:request', onRomRequested);
+
     // Save SRAM before destroying (fire and forget - can't await in onDestroy)
     saveSRAM();
 
@@ -902,6 +954,24 @@
     $socket?.off('sync:result', onSyncResult);
   });
 </script>
+
+{#if romTransfer}
+  <div class="rom-transfer">
+    <span>
+      {romTransfer.direction === 'in'
+        ? 'Receiving the ROM from the host'
+        : 'Sending the ROM to the other player'}
+    </span>
+    <progress value={romTransfer.done} max={romTransfer.total}></progress>
+    <span class="rom-transfer-count">
+      {Math.round((romTransfer.done / Math.max(1, romTransfer.total)) * 100)}%
+    </span>
+  </div>
+{/if}
+
+{#if romPrompt}
+  <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
+{/if}
 
 <div class="p2p-room" class:single-mode={emulationMode === EmulationMode.SINGLE}>
   <!-- Game Container -->
@@ -1074,6 +1144,33 @@
 </div>
 
 <style>
+  .rom-transfer {
+    position: fixed;
+    left: 50%;
+    bottom: 2rem;
+    transform: translateX(-50%);
+    z-index: 900;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+    border-radius: 999px;
+    background: rgba(20, 20, 30, 0.92);
+    border: 1px solid #2c2c3c;
+    color: #e6e6f0;
+    font-size: 0.85rem;
+  }
+
+  .rom-transfer progress {
+    width: 160px;
+    height: 6px;
+  }
+
+  .rom-transfer-count {
+    color: #8b8ba3;
+    font-variant-numeric: tabular-nums;
+  }
+
   .p2p-room {
     width: 100%;
     height: 100vh;
