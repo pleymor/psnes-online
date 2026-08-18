@@ -17,7 +17,7 @@
     "core:build": "./core/build.sh",
     "test:netplay": "node --import tsx --test core/test/netcode.test.ts core/test/relay.test.ts",
     "test:core": "node --import tsx --test core/test/determinism.test.ts core/test/lockstep.test.ts",
-    "test:ui": "node --import tsx --test core/test/capture-gate.test.ts core/test/input.test.ts core/test/rom-provider.test.ts",
+    "test:ui": "node --import tsx --test core/test/capture-gate.test.ts core/test/input.test.ts core/test/rom-provider.test.ts core/test/room-snapshot.test.ts",
     "test:all": "npm run test:netplay && npm run test:core && npm run test:ui"
   },
   "devDependencies": {
