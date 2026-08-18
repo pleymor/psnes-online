@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import { socket } from '$lib/api/socket';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import type { KeyConfig } from '$lib/types';
   import ConfirmModal from './ConfirmModal.svelte';
+  import { CaptureGate } from '$lib/controls/capture-gate';
   import { createLogger } from '$lib/utils/logger';
 
   export let roomId: string = ''; // Optional - if empty, only saves to user profile
@@ -20,6 +21,24 @@
   let errorMessage = '';
   let gamepadPollInterval: number | null = null;
   let showResetConfirm = false;
+
+  /**
+   * The order the buttons are bound in, and the order they are listed in.
+   *
+   * Directions first, then faces, then shoulders, then the two in the middle:
+   * a player working through the whole pad follows the same path as their
+   * thumb, and never has to hunt for what is being asked of them.
+   */
+  const BIND_ORDER: (keyof KeyConfig)[] = [
+    'up', 'down', 'left', 'right', 'a', 'b', 'x', 'y', 'l', 'r', 'start', 'select'
+  ];
+
+  /** Position in BIND_ORDER while binding the whole pad; -1 when idle. */
+  let sequenceIndex = -1;
+  /** What to put back if the run is abandoned halfway through. */
+  let configBeforeSequence: KeyConfig | null = null;
+  /** Keeps one long press from filling every remaining slot. See capture-gate. */
+  const gate = new CaptureGate();
 
   // Create a working copy of the config
   let workingConfig: KeyConfig = { ...currentConfig };
@@ -79,6 +98,7 @@
     currentButton = button;
     isListening = true;
     errorMessage = '';
+    gate.reset();
 
     // Start polling gamepads
     startGamepadPolling();
@@ -88,7 +108,46 @@
   function cancelRebind() {
     currentButton = null;
     isListening = false;
+    sequenceIndex = -1;
+    configBeforeSequence = null;
     stopGamepadPolling();
+  }
+
+  /** Binds every button in turn, one press each. */
+  function startSequence() {
+    configBeforeSequence = { ...workingConfig };
+    sequenceIndex = 0;
+    startRebind(BIND_ORDER[0]);
+  }
+
+  function advanceSequence() {
+    sequenceIndex++;
+    if (sequenceIndex >= BIND_ORDER.length) {
+      cancelRebind();
+      return;
+    }
+    currentButton = BIND_ORDER[sequenceIndex];
+  }
+
+  /**
+   * Abandons the run and puts back what was there before it started.
+   *
+   * Keeping the bindings made so far would leave the pad half rewritten in a
+   * state the player never chose and cannot see the shape of - worse than
+   * either finishing the run or never having started it.
+   */
+  function cancelSequence() {
+    if (configBeforeSequence) workingConfig = { ...configBeforeSequence };
+    cancelRebind();
+  }
+
+  /** Writes one binding, and moves on if there is anywhere to move on to. */
+  function applyCapture(inputCode: string) {
+    if (!currentButton) return;
+
+    workingConfig[currentButton] = inputCode;
+    if (sequenceIndex >= 0) advanceSequence();
+    else cancelRebind();
   }
 
   // Poll gamepad state
@@ -100,6 +159,12 @@
       // Otherwise use normal navigator.getGamepads (when called from homepage)
       const getGamepads = (window as any).__originalGetGamepads || navigator.getGamepads.bind(navigator);
       const gamepads = getGamepads();
+
+      // Everything held down this tick, not just the first thing found: the
+      // gate needs to see a button still held to know not to take it twice,
+      // and a second button pressed before the first is released is a normal
+      // way to work through a pad quickly.
+      const active: string[] = [];
 
       // Remap physical gamepad indices (skip virtual gamepads)
       let physicalGamepadIndex = 0;
@@ -120,8 +185,7 @@
         // Check buttons
         for (let j = 0; j < gamepad.buttons.length; j++) {
           if (gamepad.buttons[j].pressed) {
-            handleGamepadInput(`Gamepad${configIndex}Button${j}`);
-            return;
+            active.push(`Gamepad${configIndex}Button${j}`);
           }
         }
 
@@ -130,11 +194,13 @@
           const axisValue = gamepad.axes[j];
           if (Math.abs(axisValue) > 0.5) {
             const direction = axisValue > 0 ? 'Plus' : 'Minus';
-            handleGamepadInput(`Gamepad${configIndex}Axis${j}${direction}`);
-            return;
+            active.push(`Gamepad${configIndex}Axis${j}${direction}`);
           }
         }
       }
+
+      const captured = gate.tick(active);
+      if (captured) handleGamepadInput(captured);
     }, 50); // Poll every 50ms
   }
 
@@ -147,10 +213,12 @@
 
   function handleGamepadInput(inputCode: string) {
     if (!isListening || !currentButton) return;
-
-    workingConfig[currentButton] = inputCode;
-    cancelRebind();
+    applyCapture(inputCode);
   }
+
+  // The panel can be closed mid-bind - the pause menu is one click away from
+  // it - and the poll would otherwise keep running for the life of the page.
+  onDestroy(stopGamepadPolling);
 
   // Handle key press
   function handleKeyPress(event: KeyboardEvent) {
@@ -161,13 +229,23 @@
 
     // Ignore certain keys
     if (event.code === 'Escape') {
-      cancelRebind();
+      if (sequenceIndex >= 0) cancelSequence();
+      else cancelRebind();
+      return;
+    }
+
+    // Leaves this button as it was and moves on. Without it, a player who
+    // wants nothing on L and R has to either invent a binding or throw the
+    // whole run away. Costs the ability to bind Tab itself, but only here.
+    if (sequenceIndex >= 0 && event.code === 'Tab') {
+      advanceSequence();
       return;
     }
 
     // Assign the new key (allow duplicates, will be highlighted)
-    workingConfig[currentButton] = event.code;
-    cancelRebind();
+    const code = gate.keydown(event);
+    if (!code) return;
+    applyCapture(code);
   }
 
   // Save configuration
@@ -310,14 +388,24 @@
 <svelte:window on:keydown={handleKeyPress} />
 
 <div class="controls-settings">
+  <button
+    class="btn-sequence"
+    on:click={startSequence}
+    disabled={isListening || isLoading || isSaving}
+  >
+    🎮 {t($language, 'configureAllButtons')}
+  </button>
+
   <div class="controls-grid">
-    {#each Object.entries(buttonLabels) as [button, label]}
+    {#each BIND_ORDER as button, i}
       <div class="control-row">
-        <div class="button-label">{label}</div>
+        <div class="button-label">{buttonLabels[button]}</div>
         <div class="key-button-wrapper">
           <button
             class="key-button"
             class:listening={isListening && currentButton === button}
+            class:bound={sequenceIndex >= 0 && i < sequenceIndex}
+            class:pending={sequenceIndex >= 0 && i > sequenceIndex}
             class:conflict={hasConflict(button)}
             disabled={isListening && currentButton !== button}
             on:click={() => handleButtonClick(button)}
@@ -340,9 +428,27 @@
 
   {#if isListening && currentButton}
     <div class="listening-hint">
-      {t($language, 'pressKeyToBind', { button: buttonLabels[currentButton] })}
-      <br />
-      {t($language, 'pressEscToCancel')}
+      {#if sequenceIndex >= 0}
+        {t($language, 'bindingStep', {
+          step: sequenceIndex + 1,
+          total: BIND_ORDER.length,
+          button: buttonLabels[currentButton]
+        })}
+        <br />
+        {t($language, 'pressEscToCancel')} · {t($language, 'pressTabToSkip')}
+        <div class="sequence-actions">
+          <button class="btn-step" on:click={advanceSequence}>
+            {t($language, 'skipBinding')} ⏭
+          </button>
+          <button class="btn-step" on:click={cancelSequence}>
+            {t($language, 'cancel')}
+          </button>
+        </div>
+      {:else}
+        {t($language, 'pressKeyToBind', { button: buttonLabels[currentButton] })}
+        <br />
+        {t($language, 'pressEscToCancel')}
+      {/if}
     </div>
   {/if}
 
@@ -427,6 +533,61 @@
   .key-button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .btn-sequence {
+    background: #2a2a3a;
+    color: #eee;
+    border: 2px solid #555;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-sequence:hover:not(:disabled) {
+    background: #37374d;
+    border-color: #666;
+  }
+
+  .btn-sequence:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Progress through a run, read off the grid rather than off the counter.
+     Every button but the current one is disabled and therefore dimmed, so
+     the half that is already bound has to have that dimming taken back off
+     - otherwise done and not-yet-done look exactly alike. */
+  .key-button.bound:disabled {
+    opacity: 1;
+  }
+
+  .key-button.pending {
+    opacity: 0.35;
+  }
+
+  .sequence-actions {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+  }
+
+  .btn-step {
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 4px;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .btn-step:hover {
+    background: rgba(255, 255, 255, 0.25);
   }
 
   .key-button.listening {
