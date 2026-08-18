@@ -23,6 +23,16 @@
 
   let room: Room | null = null;
   let gameStarted = false;
+
+  /**
+   * Whether any room state has arrived yet for this component instance.
+   *
+   * The resume check below needs "was it already playing when we got here",
+   * and `!gameStarted` alone does not say that: the server sets the status to
+   * playing and emits room:updated *before* it emits game:started, so on an
+   * ordinary start the first thing we see is a playing room we are not yet in.
+   */
+  let seenRoomState = false;
   let showToast = false;
   let toastMessage = '';
   let toastType: 'success' | 'error' = 'success';
@@ -108,13 +118,21 @@
 
   function handleRoomUpdated(updatedRoom: Room) {
     if (updatedRoom.id !== roomId) return;
+
+    const firstStateForThisMount = !seenRoomState;
+    seenRoomState = true;
     room = updatedRoom;
 
     /*
-     * A match already in progress: this is a reload, a recovered crash, or a
-     * reconnect after the server restarted. Lockstep only, and only with both
-     * seats still filled - the netplay session resumes by rejoining a peer
-     * that is still there, and there is nothing to rejoin otherwise.
+     * A match already playing in the very first room state we receive means
+     * we arrived into one - a reload, a recovered crash, or a fresh join into
+     * a running room. `!gameStarted` alone cannot tell that apart from an
+     * ordinary start: the server emits room:updated before game:started, so
+     * even a normal start's playing state reaches us while gameStarted is
+     * still false. What separates the two is whether that playing state is
+     * the first one this mount has seen at all. Lockstep only, and only with
+     * both seats still filled - the netplay session resumes by rejoining a
+     * peer that is still there, and there is nothing to rejoin otherwise.
      *
      * The mode is read from the room rather than from
      * `effectiveEmulationMode`, for two reasons. It is a `$:` value and so is
@@ -124,6 +142,7 @@
      * emulator instead of the match.
      */
     if (
+      firstStateForThisMount &&
       !gameStarted &&
       updatedRoom.status === 'playing' &&
       updatedRoom.emulationMode === EmulationMode.LOCKSTEP &&
