@@ -10,7 +10,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MsgType, PAD, decode, encode, type NetMsg } from '../../frontend/src/lib/znet/protocol.js';
+import {
+	MsgType,
+	PAD,
+	PROTOCOL_VERSION,
+	decode,
+	encode,
+	type NetMsg
+} from '../../frontend/src/lib/znet/protocol.js';
+import { NetplaySession, type SessionEvent } from '../../frontend/src/lib/znet/session.js';
 import { SimulatedLink } from '../../frontend/src/lib/znet/transport.js';
 import { FakeCore } from './fake-core.js';
 import { NetplayHarness } from './harness.js';
@@ -593,16 +601,16 @@ test('a peer that goes permanently silent is reported, not waited on for ever', 
 	harness.handshake();
 	harness.run(3_000);
 
-	const errors: string[] = [];
+	const reports: string[] = [];
 	harness.host.session.close = harness.host.session.close; // keep the peer alive, just mute the link
 	harness.host.events.length = 0;
 	harness.link.setLoss(1);
 	harness.run(30_000);
 
-	for (const e of harness.host.events) if (e.type === 'error') errors.push(e.message ?? '');
+	for (const e of harness.host.events) if (e.type === 'link-lost') reports.push(e.message ?? '');
 	assert.ok(
-		errors.some((m) => /Lost contact/.test(m)),
-		`expected a lost-contact report, got ${JSON.stringify(errors)}`
+		reports.some((m) => /Lost contact/.test(m)),
+		`expected a lost-contact report, got ${JSON.stringify(reports)}`
 	);
 	harness.dispose();
 });
@@ -719,5 +727,136 @@ test('a pinned input delay is never overridden by the measurement', async () => 
 
 	assert.equal(harness.host.session.inputDelay, 4, 'the pinned value must survive');
 	assert.equal(harness.guest.session.inputDelay, 4);
+	harness.dispose();
+});
+
+/* --------------------------------------------------------- link recovery */
+
+test('a link that goes quiet is reported, and so is its return', async () => {
+	const harness = await NetplayHarness.create(harnessOptions(6000));
+	harness.handshake();
+	harness.run(2000);
+
+	// Total outage: every packet is dropped, so both peers stall on pads that
+	// will never arrive. This is what a backend restart looks like from here.
+	harness.link.setLoss(1);
+	harness.run(20_000);
+
+	assert.equal(
+		harness.host.events.filter((e) => e.type === 'link-lost').length,
+		1,
+		'silence must be reported exactly once, not once per tick'
+	);
+	assert.equal(
+		harness.host.events.some((e) => e.type === 'error'),
+		false,
+		'a recoverable outage must not arrive on the fatal channel'
+	);
+	assert.equal(harness.host.session.state, 'running', 'the session must not give up');
+
+	const framesBefore = harness.host.session.getStats().framesRun;
+
+	harness.link.setLoss(0);
+	harness.run(10_000);
+
+	assert.equal(
+		harness.host.events.filter((e) => e.type === 'link-restored').length,
+		1,
+		'the return of the link must be reported'
+	);
+	assert.ok(
+		harness.host.session.getStats().framesRun > framesBefore,
+		'play must actually resume, not merely be reported as resumed'
+	);
+});
+
+test('a fatal failure is never retracted', () => {
+	// A ROM mismatch cannot be recovered from by construction: the two machines
+	// could never agree on anything. Keeping it on a separate channel from
+	// silence is the point of this change, so prove it stays terminal.
+	const link = new SimulatedLink({ latency: 10 });
+	const events: SessionEvent[] = [];
+
+	const session = new NetplaySession({
+		core: new FakeCore(),
+		transport: link.a,
+		playerIndex: 0,
+		isHost: true,
+		romCrc: ROM_CRC,
+		readLocalInput: () => 0,
+		onEvent: (e) => events.push(e),
+		onFrame: () => {}
+	});
+	session.start();
+
+	// The peer announces a different cartridge. link.b sends to link.a.
+	link.b.send(
+		encode({
+			type: MsgType.Hello,
+			protocol: PROTOCOL_VERSION,
+			romCrc: ROM_CRC ^ 0xffff,
+			playerIndex: 1,
+			playerCount: 2
+		})
+	);
+	link.advance(50);
+
+	assert.equal(session.state, 'failed');
+	assert.equal(events.filter((e) => e.type === 'error').length, 1, 'the mismatch must be fatal');
+	assert.equal(
+		events.some((e) => e.type === 'link-restored'),
+		false,
+		'a fatal error must never be followed by a recovery event'
+	);
+});
+
+test('giving up on an unacknowledged state is reported as recoverable, and its recovery too', async () => {
+	// The same "wedged forever" scaffolding as the test above, but this one
+	// asks what travels on the wire rather than just what the state machine
+	// does. The give-up used to be indistinguishable from a ROM mismatch: both
+	// were 'error'. Silencing the link instead of closing the guest's session
+	// keeps its transport alive, so the restarted handshake below can actually
+	// be answered - proving the give-up did not just get reported, it healed.
+	const harness = await NetplayHarness.create(
+		harnessOptions(4000, { link: { latency: 30, seed: 79 }, inputDelay: 4, retryMs: 500 })
+	);
+	harness.handshake();
+	harness.run(3_000);
+
+	harness.link.setLoss(1);
+	harness.host.session.requestResync('test');
+	harness.run(5_000);
+
+	assert.equal(
+		harness.host.session.state,
+		'handshake',
+		'giving up must restart the handshake, not stay wedged in resyncing'
+	);
+	assert.equal(
+		harness.host.events.filter((e) => e.type === 'link-lost').length,
+		1,
+		'the give-up must be reported exactly once'
+	);
+	assert.equal(
+		harness.host.events.some((e) => e.type === 'error'),
+		false,
+		'a self-healing give-up must not arrive on the fatal channel'
+	);
+
+	const framesBefore = harness.host.session.getStats().framesRun;
+
+	harness.link.setLoss(0);
+	harness.run(10_000);
+
+	assert.equal(
+		harness.host.events.filter((e) => e.type === 'link-restored').length,
+		1,
+		'the restarted handshake succeeding must be reported'
+	);
+	assert.ok(
+		harness.host.session.getStats().framesRun > framesBefore,
+		'play must actually resume, not merely be reported as resumed'
+	);
+
 	harness.dispose();
 });

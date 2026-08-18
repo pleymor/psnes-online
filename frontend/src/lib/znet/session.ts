@@ -66,6 +66,14 @@ export interface SessionEvent {
 		| 'resync-start'
 		| 'resync-done'
 		| 'rtt'
+		/**
+		 * The link has gone quiet, and may yet come back. Distinct from
+		 * 'error' because it is retractable: the engine re-sends pads while
+		 * stalled precisely so that play resumes by itself, and a consumer
+		 * that treats this as terminal freezes a session that recovered.
+		 */
+		| 'link-lost'
+		| 'link-restored'
 		| 'error'
 		| 'peer-ready';
 	message?: string;
@@ -329,8 +337,8 @@ export class NetplaySession {
 		) {
 			this.reportedSilence = true;
 			this.onEvent({
-				type: 'error',
-				message: 'Lost contact with the other player. Reload to rejoin.'
+				type: 'link-lost',
+				message: 'Lost contact with the other player. Play resumes as soon as the link is back.'
 			});
 		}
 
@@ -397,8 +405,13 @@ export class NetplaySession {
 			 * which is far better than a session nobody can leave.
 			 */
 			if (this.shipAttempts > MAX_SHIP_ATTEMPTS) {
+				// Reuses the silence flag rather than firing a bare event: handleMessage()
+				// only announces 'link-restored' when reportedSilence is set, and the
+				// restarted handshake below will succeed once the peer answers again, so
+				// without this the UI would be left holding a notice it can never clear.
+				this.reportedSilence = true;
 				this.onEvent({
-					type: 'error',
+					type: 'link-lost',
 					message: 'the other player stopped responding; restarting the session'
 				});
 				this.shipAttempts = 0;
@@ -734,7 +747,10 @@ export class NetplaySession {
 		if (!msg) return;
 		this.stats.packetsReceived++;
 		this.lastPacketAt = this.now();
-		this.reportedSilence = false;
+		if (this.reportedSilence) {
+			this.reportedSilence = false;
+			this.onEvent({ type: 'link-restored' });
+		}
 
 		switch (msg.type) {
 			case MsgType.Hello:
