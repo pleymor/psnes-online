@@ -46,10 +46,14 @@ Quatre étapes, du risque nul au risque réel. Chacune est indépendamment livra
 Retirer ce qui n'a aucun consommateur, vérifié par recherche dans `backend/src`, `frontend/src` et `core` :
 
 - `@sveltejs/adapter-auto`, `@sveltejs/adapter-node` — `frontend/svelte.config.js:1` utilise `adapter-static`
-- `stream-browserify`, `events`, `util` — déclarés et aliasés dans `frontend/vite.config.ts:11-17`, jamais importés
+- `stream-browserify`, `util` — déclarés et aliasés dans `frontend/vite.config.ts:11-17`, jamais importés
 - les entrées correspondantes dans `resolve.alias` et `optimizeDeps.include` de `vite.config.ts`
 
-**Ce qui reste en place.** `simple-peer` porte `frontend/src/lib/webrtc/p2p-manager.ts` (778 lignes), lui-même requis par `dual-mode.ts`, `streaming-mode.ts` et `network-detector.ts`, tous encore câblés depuis `P2PRoom.svelte:1101`. `buffer`, `process` et `path-browserify` le servent via `frontend/src/lib/polyfills.ts`. Les supprimer reviendrait à supprimer les modes Dual et Streaming — une décision produit, qui mérite son issue et non l'effet de bord d'un nettoyage de dépendances.
+**Correction : `events` reste, contrairement à ce que cette spec disait d'abord.** « Aucun importeur dans `src` » ne veut pas dire « aucun importeur ». `simple-peer` tire `readable-stream`, dont le champ `browser` neutralise `util` (`"util": false`) et redirige `stream`, mais ne prévoit rien pour `events` : son `stream-browser.js` fait `require('events').EventEmitter` sans repli. Sans le paquet ni son alias, Vite externalise cet import vers un stub vide **sans faire échouer le build** — `EventEmitter` devient `undefined` dans le bundle, et le WebRTC casse à l'exécution. Le retrait a été tenté, l'inspection du bundle l'a montré, `events` a été remis seul.
+
+La leçon vaut au-delà de ce paquet : une recherche d'imports dans `src` ne prouve rien pour les polyfills, dont l'unique consommateur est toujours une dépendance transitive. Les trois autres ont été retirés sur la même preuve — bundle construit, suite Playwright passante — et non sur le seul `grep`.
+
+**Ce qui reste en place.** `simple-peer` porte `frontend/src/lib/webrtc/p2p-manager.ts` (778 lignes), lui-même requis par `dual-mode.ts`, `streaming-mode.ts` et `network-detector.ts`, tous encore câblés depuis `P2PRoom.svelte:1101`. `buffer`, `process`, `path-browserify` et donc `events` le servent. Les supprimer reviendrait à supprimer les modes Dual et Streaming — une décision produit, qui mérite son issue et non l'effet de bord d'un nettoyage de dépendances.
 
 **Vérification.** `npm run build` du frontend, et `du -sh node_modules` avant/après.
 
