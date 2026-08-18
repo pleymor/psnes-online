@@ -1,6 +1,9 @@
 # Build stage
 FROM node:20-alpine AS builder
 
+COPY --from=oven/bun:1-alpine /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=oven/bun:1-alpine /usr/local/bin/bunx /usr/local/bin/bunx
+
 WORKDIR /app
 
 # Build arguments for Vite environment variables
@@ -12,9 +15,8 @@ ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_WS_URL=$VITE_WS_URL
 
 # Copy package files and install all dependencies (including devDependencies for build)
-COPY package*.json ./
-RUN npm install && \
-    npm cache clean --force
+COPY package.json ./
+RUN bun install
 
 # Copy source code and configuration
 COPY tsconfig.json ./
@@ -28,10 +30,10 @@ RUN sed -i "s/mode: 'development'/mode: 'production'/" vite.config.ts && \
     sed -i "s/strategies: 'injectManifest'/strategies: 'generateSW'/" vite.config.ts
 
 # Generate SvelteKit types (fixes tsconfig warning)
-RUN npx svelte-kit sync
+RUN bunx svelte-kit sync
 
 # Build the SvelteKit app
-RUN npm run build
+RUN bun run build
 
 # Production stage with nginx
 FROM nginx:alpine

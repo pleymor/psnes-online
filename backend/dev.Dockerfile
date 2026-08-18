@@ -1,5 +1,7 @@
 FROM node:20
 
+COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
+
 WORKDIR /app
 
 # Install native dependencies for canvas (cached as a layer)
@@ -9,8 +11,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy package files and install dependencies (cached until package.json changes)
-COPY backend/package*.json ./
-RUN npm install
+COPY backend/package.json ./
+COPY bun.lock ./
+RUN bun install
 
 # Copy prisma schema and generate client (cached until schema changes)
 COPY backend/prisma ./prisma
