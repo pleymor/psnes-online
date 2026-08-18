@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Version control
+.git/
+.gitignore
+
+# Project tooling / planning artifacts
+.superpowers/
+
+# Test artifacts
+test-results/
+**/test-results/
+coverage/
+**/coverage/
+
+# Build outputs
+dist/
+**/dist/
+build/
+**/build/
+.svelte-kit/
+**/.svelte-kit/
+*.tsbuildinfo
+
+# Runtime data
+*.db
+*.db-journal
+**/*.db
+**/*.db-journal
+
+# Environment files
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
