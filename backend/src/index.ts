@@ -17,7 +17,9 @@ import { roomsRouter } from './api/rooms.js';
 import { userRouter } from './api/user.js';
 import { avatarsRouter } from './api/avatars.js';
 import { logsRouter } from './api/logs.js';
-import { initializeWebSocket } from './websocket/index.js';
+import { initializeWebSocket, getRooms, getUserSocket } from './websocket/index.js';
+import { flushRooms, restoreRooms, startRoomSnapshots } from './websocket/room-snapshot.js';
+import { holdRestoredSeat } from './websocket/room-handlers.js';
 import { connectRedis } from './db/redis.js';
 import { refreshGameMetadata } from './services/metadata-loader.js';
 import { ensureAvatarsDir } from './utils/avatar.js';
@@ -168,6 +170,16 @@ io.engine.use(passport.session());
 
 initializeWebSocket(io);
 
+const rooms = getRooms();
+
+// Before the port opens, so the first client to reconnect finds its room
+// already there rather than racing the restore.
+await restoreRooms(rooms, (roomId, userId) => {
+  const player = rooms.get(roomId)?.players.find(p => p.userId === userId);
+  holdRestoredSeat(io, roomId, rooms, userId, player?.displayName ?? userId, getUserSocket);
+});
+startRoomSnapshots(rooms);
+
 const PORT = process.env.PORT || 3000;
 
 httpServer.listen(PORT, async () => {
@@ -185,3 +197,33 @@ httpServer.listen(PORT, async () => {
     logger.warn('⚠️  Failed to refresh game metadata, but server is still running');
   }
 });
+
+/**
+ * A deployment is a graceful shutdown: Docker sends SIGTERM and waits ten
+ * seconds. Flushing here is what makes the room snapshot exact for the case
+ * that motivated it - the periodic write only covers a hard crash.
+ */
+let shuttingDown = false;
+
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info({ signal }, 'Shutting down; saving rooms');
+
+  try {
+    await flushRooms(rooms);
+  } catch (err) {
+    logger.error({ err }, 'Could not save rooms on the way out');
+  }
+
+  httpServer.close();
+  try {
+    await redisClient.quit();
+  } catch {
+    // Already gone; nothing to salvage and nothing to report.
+  }
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
