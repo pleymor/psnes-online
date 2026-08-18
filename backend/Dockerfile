@@ -3,13 +3,17 @@
 ##
 FROM node:20 AS prod-deps
 
+COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
+
 WORKDIR /app
 ENV NODE_ENV=build
 
-COPY backend/package*.json ./
-COPY package-lock.json ./
+COPY package.json ./
+COPY backend/package.json ./backend/package.json
+COPY frontend/package.json ./frontend/package.json
+COPY bun.lock ./
 
-RUN npm ci --omit=dev --prefer-offline
+RUN bun install --production --frozen-lockfile --filter=./backend
 
 
 ##
@@ -29,19 +33,19 @@ RUN apt-get update && apt-get install -y \
     librsvg2-dev
 
 # Copy package files and install ALL dependencies (needed for build)
-RUN npm ci --prefer-offline
+RUN bun install --frozen-lockfile --filter=./backend
 
 # Copy source code and prisma schema
-COPY backend/prisma ./prisma
+COPY backend/prisma ./backend/prisma
 
 # Generate Prisma client
-RUN npx prisma generate
+RUN npx prisma generate --schema=backend/prisma/schema.prisma
 
-COPY backend/src ./src
-COPY backend/tsconfig.json ./
+COPY backend/src ./backend/src
+COPY backend/tsconfig.json ./backend/tsconfig.json
 
 # Build TypeScript to JavaScript
-RUN npm run build
+RUN bun run --filter=./backend build
 
 
 ##
@@ -68,11 +72,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=prod-deps /app/node_modules ./node_modules
 
 # Copy Prisma schema and runtime dependencies from builder stage
-COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/backend/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
 # Copy built application from builder
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/backend/dist ./dist
 
 # Create directories for runtime data (will be mounted as volumes)
 RUN mkdir -p roms saves data avatars metadata && \
