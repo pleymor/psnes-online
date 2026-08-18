@@ -109,6 +109,13 @@ L'application sera disponible sur:
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:3000
 
+**Après avoir ajouté/modifié une dépendance** (`package.json` racine, `backend/package.json` ou `frontend/package.json`), un simple redémarrage des conteneurs ne suffit plus : les dépendances sont installées une seule fois, à la construction de l'image, pas à chaque démarrage. Il faut reconstruire l'image et recréer le volume `node_modules` qu'elle avait initialisé :
+
+```bash
+docker compose down -v
+docker compose up --build -d
+```
+
 ## 🎯 User Journey
 
 1. **Connexion** - Se connecter avec Google
