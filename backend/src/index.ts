@@ -4,7 +4,6 @@ import passport from 'passport';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import RedisStore from 'connect-redis';
-import { createClient } from 'redis';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -19,6 +18,7 @@ import { userRouter } from './api/user.js';
 import { avatarsRouter } from './api/avatars.js';
 import { logsRouter } from './api/logs.js';
 import { initializeWebSocket } from './websocket/index.js';
+import { connectRedis } from './db/redis.js';
 import { refreshGameMetadata } from './services/metadata-loader.js';
 import { ensureAvatarsDir } from './utils/avatar.js';
 import { requestLogger } from './middleware/logger.js';
@@ -93,16 +93,7 @@ const io = new Server(httpServer, {
   httpCompression: false
 });
 
-// Redis client
-const redisClient = createClient({
-  socket: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379')
-  }
-});
-
-redisClient.on('error', (err) => logger.error({ err }, 'Redis error'));
-await redisClient.connect();
+const redisClient = await connectRedis();
 
 // Middleware
 app.use(helmet({
