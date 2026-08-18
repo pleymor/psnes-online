@@ -43,12 +43,19 @@ services:
       - backend-saves:/app/saves
       - backend-avatars:/app/avatars
       - ./backend/data/snes-metadata.json:/app/metadata/snes-metadata.json:ro
-    command: sh -c "npm install && npx prisma generate && npm run dev"
+    # Dependencies are installed once at image build time (backend/dev.Dockerfile),
+    # not on every container start. After changing backend/package.json (or the root
+    # package.json / bun.lock), the image and the backend-node-modules volume are both
+    # stale: `docker compose down -v && docker compose up --build -d` picks up the change.
+    # Restarting the container alone will not.
+    command: sh -c "npx prisma generate && npm run dev"
     depends_on:
       - redis
 
   frontend:
-    image: node:20-alpine
+    build:
+      context: .
+      dockerfile: frontend/dev.Dockerfile
     working_dir: /app
     ports:
       - "5173:5173"
@@ -59,7 +66,10 @@ services:
     environment:
       - VITE_API_URL=http://localhost:3000
       - BACKEND_URL=http://backend:3000
-    command: sh -c "npm install && npm run dev -- --host"
+    # Same as the backend above: dependencies come from the image build, not from an
+    # install at start. After changing frontend/package.json (or the root package.json /
+    # bun.lock): `docker compose down -v && docker compose up --build -d`.
+    command: sh -c "npm run dev -- --host"
     depends_on:
       - backend
 
