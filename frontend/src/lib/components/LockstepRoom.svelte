@@ -12,6 +12,7 @@
    * See frontend/src/lib/znet/session.ts for the protocol.
    */
   import { onMount, onDestroy } from 'svelte';
+  import { goto } from '$app/navigation';
   import { socket } from '$lib/api/socket';
   import type { KeyConfig } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
@@ -99,6 +100,15 @@
   let stallTimer: ReturnType<typeof setTimeout> | null = null;
   let lastResyncAt = 0;
 
+  /**
+   * A link that has gone quiet but is expected back.
+   *
+   * Kept separate from `phase` on purpose: `phase = 'error'` is terminal and
+   * swaps in the error screen, whereas this must be able to clear itself. The
+   * canvas keeps showing its last frame underneath.
+   */
+  let linkLost = false;
+
   let showPauseMenu = false;
   let display: DisplayOptions = { ...DEFAULT_DISPLAY };
 
@@ -160,6 +170,7 @@
     // at once and the guest asks for the ROM straight away; a listener attached
     // at the end of boot would miss the first requests.
     if (isHost) $socket?.on('rom:request', onRomRequested);
+    $socket?.on('znet:error', onRelayError);
 
     void boot();
     window.addEventListener('keydown', onGlobalKey);
@@ -542,6 +553,19 @@
   }
 
   /**
+   * A refusal from the relay, which is terminal by nature: the seat or the
+   * room is gone, and no amount of waiting brings it back. Distinct from a
+   * quiet link, which does come back on its own.
+   */
+  function onRelayError(payload: { roomId?: string; code?: string; message?: string }) {
+    if (payload?.roomId && payload.roomId !== roomId) return;
+    linkLost = false;
+    errorText = payload?.message ?? 'The netplay session ended';
+    phase = 'error';
+    logger.error('The relay refused the session', payload);
+  }
+
+  /**
    * Gets the room's ROM from the player's own machine.
    *
    * The quiet path covers the common case - a folder picked once, or a game
@@ -683,6 +707,14 @@
       case 'desync':
         logger.warn('Desync detected', event.message);
         break;
+      case 'link-lost':
+        linkLost = true;
+        logger.warn('The link went quiet', event.message);
+        break;
+      case 'link-restored':
+        linkLost = false;
+        logger.info('The link is back; play resumes');
+        break;
       case 'error':
         errorText = event.message ?? 'Netplay failed';
         phase = 'error';
@@ -741,6 +773,7 @@
     sramTimer = null;
     $socket?.off('game:loaded', onSaveLoaded);
     $socket?.off('rom:request', onRomRequested);
+    $socket?.off('znet:error', onRelayError);
     if (diagnosticsTimer) clearInterval(diagnosticsTimer);
     diagnosticsTimer = null;
     window.removeEventListener('gamepadconnected', refreshGamepadOptions);
@@ -798,10 +831,16 @@
       <div class="overlay">
         {#if phase === 'error'}
           <p class="error">{errorText}</p>
+          <button class="action" on:click={() => goto('/')}>Back to the lobby</button>
         {:else}
           <div class="spinner"></div>
           <p>{statusText}</p>
         {/if}
+      </div>
+    {:else if linkLost}
+      <!-- Not an error screen: this clears itself when packets resume. -->
+      <div class="badge badge-warn">
+        Connection lost — play resumes as soon as it is back
       </div>
     {:else if stallVisible}
       <!-- Lockstep's honest failure mode: say what is happening rather than
@@ -984,6 +1023,10 @@
     padding: 0.35rem 0.9rem;
     border-radius: 999px;
     font-size: 0.85rem;
+  }
+
+  .badge-warn {
+    background: rgba(150, 75, 0, 0.9);
   }
 
   .bar {
