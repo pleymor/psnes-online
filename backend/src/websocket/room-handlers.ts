@@ -256,9 +256,41 @@ export function cancelScheduledLeave(roomId: string, userId: string) {
   logger.info({ roomId, userId }, 'Player returned within the grace period');
 }
 
+/**
+ * Holds a restored player's seat for the usual grace period.
+ *
+ * Called once per player when rooms are read back after a restart, where
+ * everyone is disconnected by definition. It deliberately reuses the same
+ * timer map as `scheduleLeaveRoom`, so `cancelScheduledLeave` releases it
+ * through the ordinary path when the player's socket comes back - a returning
+ * player needs no special case.
+ */
+export function holdRestoredSeat(
+  io: Server,
+  roomId: string,
+  rooms: Map<string, Room>,
+  userId: string,
+  displayName: string,
+  getUserSocket: (id: string) => string | undefined
+) {
+  const key = departureKey(roomId, userId);
+  clearTimeout(pendingDepartures.get(key));
+
+  pendingDepartures.set(
+    key,
+    setTimeout(() => {
+      pendingDepartures.delete(key);
+      logger.info({ roomId, userId }, 'Restored player did not come back, removing');
+      void handleLeaveRoom(io, null, roomId, rooms, { id: userId, displayName } as User, getUserSocket);
+    }, DISCONNECT_GRACE_MS)
+  );
+
+  logger.debug({ roomId, userId }, 'Holding a restored seat');
+}
+
 export async function handleLeaveRoom(
   io: Server,
-  socket: Socket,
+  socket: Socket | null,
   roomId: string,
   rooms: Map<string, Room>,
   user: User,
@@ -270,7 +302,9 @@ export async function handleLeaveRoom(
   const wasHost = room.hostId === user.id;
 
   room.players = room.players.filter(p => p.userId !== user.id);
-  socket.leave(roomId);
+  // Null when the departure comes from a restored room rather than a live
+  // socket: after a restart there is no socket to take out of the channel.
+  socket?.leave(roomId);
 
   if (room.players.length === 0) {
     await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'destroyed', getUserSocket);
