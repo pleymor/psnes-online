@@ -5,6 +5,7 @@
   import { socket, initializeSocket } from '$lib/api/socket';
   import { startLogShipping } from '$lib/utils/log-shipper';
   import { createLogger } from '$lib/utils/logger';
+  import { linkState } from '$lib/stores/connection';
 
   const logger = createLogger('AppLayout');
 
@@ -46,6 +47,9 @@
 </script>
 
 <div class="app">
+  {#if $linkState === 'reconnecting'}
+    <div class="link-banner" role="status">Connection lost — reconnecting…</div>
+  {/if}
   <slot />
 </div>
 
@@ -70,5 +74,18 @@
 
   :global(:fullscreen) {
     cursor: none;
+  }
+
+  .link-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    font-size: 0.9rem;
+    background: rgba(150, 75, 0, 0.95);
+    color: #fff;
   }
 </style>

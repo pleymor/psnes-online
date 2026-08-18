@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import { io, Socket } from 'socket.io-client';
 import { createLogger } from '$lib/utils/logger';
+import { linkState } from '$lib/stores/connection';
 
 const logger = createLogger('Socket');
 
@@ -20,15 +21,21 @@ export function initializeSocket() {
     autoConnect: true,
     reconnection: true,
     reconnectionDelay: 1000,
-    reconnectionAttempts: 10
+    // Forever, with a five second ceiling between tries. Ten attempts gave up
+    // after well under a minute, which is shorter than a deployment - and
+    // once socket.io has given up it never tries again, so the game was over.
+    reconnectionDelayMax: 5000,
+    reconnectionAttempts: Infinity
   });
 
   socketInstance.on('connect', () => {
     logger.debug('Socket connected');
+    linkState.set('connected');
   });
 
   socketInstance.on('disconnect', () => {
     logger.debug('Socket disconnected');
+    linkState.set('reconnecting');
   });
 
   socketInstance.on('error', (error: any) => {

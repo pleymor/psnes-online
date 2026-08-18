@@ -101,6 +101,65 @@
     });
   }
 
+  function handleReconnect() {
+    logger.info('Socket reconnected, rejoining room');
+    $socket?.emit('room:join', { roomId });
+  }
+
+  function handleRoomUpdated(updatedRoom: Room) {
+    if (updatedRoom.id !== roomId) return;
+    room = updatedRoom;
+
+    /*
+     * A match already in progress: this is a reload, a recovered crash, or a
+     * reconnect after the server restarted. Lockstep only, and only with both
+     * seats still filled - the netplay session resumes by rejoining a peer
+     * that is still there, and there is nothing to rejoin otherwise.
+     *
+     * The mode is read from the room rather than from
+     * `effectiveEmulationMode`, for two reasons. It is a `$:` value and so is
+     * still stale in this tick, and it collapses to SINGLE whenever the room
+     * momentarily holds one player - which is exactly what happens while the
+     * other player is reconnecting, and would drop us into a single-player
+     * emulator instead of the match.
+     */
+    if (
+      !gameStarted &&
+      updatedRoom.status === 'playing' &&
+      updatedRoom.emulationMode === EmulationMode.LOCKSTEP &&
+      updatedRoom.players.length >= 2 &&
+      updatedRoom.players.some(p => p.userId === $user?.id)
+    ) {
+      logger.info('Rejoining a match already in progress');
+      enterGame(EmulationMode.LOCKSTEP);
+    }
+  }
+
+  function enterGame(mode: EmulationMode) {
+    activeEmulationMode = mode;
+    gameStarted = true;
+
+    // Prevent scrolling when game is active
+    if (browser) {
+      document.body.style.overflow = 'hidden';
+    }
+  }
+
+  function handleGameStarted() {
+    enterGame(effectiveEmulationMode ?? EmulationMode.SINGLE);
+  }
+
+  function handleGameStopped() {
+    activeEmulationMode = null;
+    // Restore scrolling
+    if (browser) {
+      document.body.style.overflow = '';
+    }
+
+    // Redirect to home when game is stopped
+    goto('/');
+  }
+
   onMount(async () => {
     const sock = await waitForSocket();
     if (!sock) {
@@ -127,47 +186,22 @@
     // `room:join` only ran in onMount, so the player stayed dropped. The room
     // then sat at one player permanently, which is also what pushed a running
     // game into single-player mode.
-    sock.on('connect', () => {
-      logger.info('Socket reconnected, rejoining room');
-      sock.emit('room:join', { roomId });
-    });
-
-    // Listen for room updates
-    sock.on('room:updated', (updatedRoom: Room) => {
-      if (updatedRoom.id === roomId) {
-        room = updatedRoom;
-      }
-    });
-
-    sock.on('game:started', async () => {
-      activeEmulationMode = effectiveEmulationMode ?? EmulationMode.SINGLE;
-      gameStarted = true;
-
-      // Prevent scrolling when game is active
-      if (browser) {
-        document.body.style.overflow = 'hidden';
-      }
-    });
-
-    sock.on('game:stopped', () => {
-      activeEmulationMode = null;
-      // Restore scrolling
-      if (browser) {
-        document.body.style.overflow = '';
-      }
-
-      // Redirect to home when game is stopped
-      goto('/');
-    });
+    sock.on('connect', handleReconnect);
+    sock.on('room:updated', handleRoomUpdated);
+    sock.on('game:started', handleGameStarted);
+    sock.on('game:stopped', handleGameStopped);
   });
 
   onDestroy(() => {
     if ($socket) {
       $socket.emit('room:leave', { roomId });
-      $socket.off('connect');
-      $socket.off('room:updated');
-      $socket.off('game:started');
-      $socket.off('game:stopped');
+      // With the handler, not without: a bare off('connect') removes every
+      // connect listener on the shared socket, including the ones that keep
+      // the reconnection banner and the netplay slot alive.
+      $socket.off('connect', handleReconnect);
+      $socket.off('room:updated', handleRoomUpdated);
+      $socket.off('game:started', handleGameStarted);
+      $socket.off('game:stopped', handleGameStopped);
     }
 
     if (browser) {
