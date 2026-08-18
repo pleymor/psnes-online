@@ -171,6 +171,7 @@
     // at the end of boot would miss the first requests.
     if (isHost) $socket?.on('rom:request', onRomRequested);
     $socket?.on('znet:error', onRelayError);
+    $socket?.on('player:left', onPlayerLeft);
 
     void boot();
     window.addEventListener('keydown', onGlobalKey);
@@ -566,6 +567,21 @@
   }
 
   /**
+   * The other player's grace period ran out, or they left on purpose.
+   *
+   * Only emitted from `handleLeaveRoom`, never on a bare socket drop, so
+   * unlike `znet:peer-left` it never fires for the transient blips this room
+   * is built to ride out. Once it does fire the departure is final, so the
+   * recoverable "connection lost" badge would be lying if left showing.
+   */
+  function onPlayerLeft() {
+    linkLost = false;
+    errorText = 'The other player left the game.';
+    phase = 'error';
+    logger.info('The other player left; ending the session');
+  }
+
+  /**
    * Gets the room's ROM from the player's own machine.
    *
    * The quiet path covers the common case - a folder picked once, or a game
@@ -774,6 +790,7 @@
     $socket?.off('game:loaded', onSaveLoaded);
     $socket?.off('rom:request', onRomRequested);
     $socket?.off('znet:error', onRelayError);
+    $socket?.off('player:left', onPlayerLeft);
     if (diagnosticsTimer) clearInterval(diagnosticsTimer);
     diagnosticsTimer = null;
     window.removeEventListener('gamepadconnected', refreshGamepadOptions);

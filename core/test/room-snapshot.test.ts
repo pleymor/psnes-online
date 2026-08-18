@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import {
 	deserialiseRooms,
 	flushRooms,
+	restoreRooms,
 	serialiseRooms,
 	resetSnapshotStateForTest,
 	writeSnapshot
@@ -137,6 +138,38 @@ test('flushing twice writes once', async () => {
 	await flushRooms(rooms as never, fake as never);
 
 	assert.equal(writes.length, 1, 'the second flush must be a no-op');
+});
+
+test('a failed read does not let the interval erase a good snapshot', async () => {
+	// If Redis throws on the read, `rooms` stays empty and `lastWritten` stays
+	// `''` - indistinguishable, without a flag for "the read succeeded", from a
+	// boot that legitimately read back an empty snapshot. Without that flag,
+	// `writeSnapshot` would happily write `{"rooms":[]}` over whatever was
+	// actually sitting in Redis, destroying every in-progress game rather than
+	// merely failing to restore them for this one boot.
+	const writes: string[] = [];
+	const failingGet = {
+		async set(_key: string, value: string) {
+			writes.push(value);
+			return 'OK';
+		},
+		async get() {
+			throw new Error('redis is gone');
+		}
+	};
+
+	resetSnapshotStateForTest();
+	const rooms = new Map<string, never>();
+
+	assert.equal(await restoreRooms(rooms as never, () => {}, failingGet as never), 0);
+	assert.equal(rooms.size, 0);
+
+	assert.equal(await writeSnapshot(rooms as never, failingGet as never), false);
+	assert.equal(writes.length, 0, 'an empty map after a failed read must not be written');
+
+	for (const [id, room] of populated()) rooms.set(id, room);
+	assert.equal(await writeSnapshot(rooms as never, failingGet as never), true);
+	assert.equal(writes.length, 1, 'once a room exists, writing is safe and wanted again');
 });
 
 test('a write failure is swallowed, not thrown at the caller', async () => {

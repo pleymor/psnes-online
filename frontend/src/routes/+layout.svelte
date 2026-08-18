@@ -42,13 +42,20 @@
         socket.set(null);
       }
       socketInitialized = false;
+      // A deliberate logout drives the socket to 'offline', not
+      // 'reconnecting' - but the banner is about to be hidden by the $user
+      // guard below anyway, so reset to the default rather than leave a
+      // stale state behind for the next login.
+      linkState.set('connected');
     }
   }
 </script>
 
 <div class="app">
-  {#if $linkState === 'reconnecting'}
+  {#if $user && $linkState === 'reconnecting'}
     <div class="link-banner" role="status">Connection lost — reconnecting…</div>
+  {:else if $user && $linkState === 'offline'}
+    <div class="link-banner" role="status">Connection lost — reload the page to continue.</div>
   {/if}
   <slot />
 </div>

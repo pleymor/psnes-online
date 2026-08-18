@@ -31,6 +31,19 @@ let timer: NodeJS.Timeout | null = null;
  * differ on every tick and the comparison would never match.
  */
 let lastWritten = '';
+/**
+ * Whether a Redis read has ever completed without throwing.
+ *
+ * A failed `restoreRooms` leaves `rooms` empty and `lastWritten` at `''`, and
+ * without this flag `writeSnapshot` cannot tell that empty state apart from a
+ * boot that read an empty snapshot legitimately. Left unguarded, the interval
+ * then overwrites a perfectly good snapshot with `{"rooms":[]}` one second
+ * after a transient Redis failure, destroying every in-progress game instead
+ * of merely failing to restore them for that one boot. Reflects the read
+ * succeeding, not rooms being found - an empty snapshot read cleanly still
+ * sets this, since there was nothing wrong to protect against.
+ */
+let hasReadSucceeded = false;
 
 export function serialiseRooms(rooms: Map<string, Room>): string {
   const snapshot: Snapshot = { version: VERSION, rooms: [...rooms.values()] };
@@ -90,6 +103,7 @@ export async function restoreRooms(
     return 0;
   }
 
+  hasReadSucceeded = true;
   const restored = deserialiseRooms(raw);
   for (const [id, room] of restored) {
     rooms.set(id, room);
@@ -106,6 +120,13 @@ export async function writeSnapshot(
   rooms: Map<string, Room>,
   store: Store = getRedis() as unknown as Store
 ): Promise<boolean> {
+  // Refuse only while both are true: an unread snapshot could still be sitting
+  // in Redis, so overwriting it with an empty one on the strength of an empty
+  // in-memory map is exactly the failure this guard exists to prevent. Once a
+  // room exists, though, writing is both safe and wanted - and a server that
+  // failed its very first read must not be locked out of snapshotting forever.
+  if (!hasReadSucceeded && rooms.size === 0) return false;
+
   const body = serialiseRooms(rooms);
   if (body === lastWritten) return false;
 
@@ -151,5 +172,6 @@ export async function flushRooms(
 /** Test seam: forgets the last write so each test starts from nothing. */
 export function resetSnapshotStateForTest(): void {
   lastWritten = '';
+  hasReadSucceeded = false;
   stopRoomSnapshots();
 }

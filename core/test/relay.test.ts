@@ -293,9 +293,9 @@ test('joining a room the server no longer has answers with an error', async () =
 		});
 		await once(client, 'connect');
 
-		const failed = once(client, 'znet:error');
+		const failed = nextEvent<{ code?: string }>(client, 'znet:error');
 		client.emit('znet:join', { roomId: ROOM_ID });
-		const [payload] = (await failed) as [{ code?: string }];
+		const payload = await failed;
 
 		assert.equal(payload.code, 'room-gone');
 		client.close();

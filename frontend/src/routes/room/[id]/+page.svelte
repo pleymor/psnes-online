@@ -80,6 +80,12 @@
    * running emulator and mounted an independent single-player one; when the
    * peer came back it was rebuilt from scratch and the game restarted. A game
    * in progress keeps the mode it began with.
+   *
+   * `game:started` on rejoin was the hole in this guard: the server re-sends
+   * it to anyone joining a `playing` room, so `handleGameStarted` reran and
+   * called `enterGame` a second time with the live (possibly collapsed) mode,
+   * overwriting the value this variable exists to freeze. It now no-ops once
+   * `gameStarted` is already true.
    */
   let activeEmulationMode: EmulationMode | null = null;
 
@@ -165,6 +171,14 @@
   }
 
   function handleGameStarted() {
+    // The server re-emits `game:started` to anyone rejoining a room that is
+    // already `playing` - every reconnect and every reload. Re-running
+    // `enterGame` there re-derives the mode from `effectiveEmulationMode`,
+    // which collapses to SINGLE while the room momentarily holds one player,
+    // and swapping to it destroys the running LockstepRoom. Once a game has
+    // started, resume has already picked the mode from `room.emulationMode`
+    // in `handleRoomUpdated`; there is nothing left for this handler to do.
+    if (gameStarted) return;
     enterGame(effectiveEmulationMode ?? EmulationMode.SINGLE);
   }
 

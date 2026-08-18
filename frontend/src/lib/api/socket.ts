@@ -33,9 +33,13 @@ export function initializeSocket() {
     linkState.set('connected');
   });
 
-  socketInstance.on('disconnect', () => {
-    logger.debug('Socket disconnected');
-    linkState.set('reconnecting');
+  socketInstance.on('disconnect', (reason: Socket.DisconnectReason) => {
+    logger.debug('Socket disconnected', { reason });
+    // socket.io does not retry after either side ended the connection on
+    // purpose - a deliberate logout or a server-initiated kick - so those two
+    // reasons are the only ones where "reconnecting…" would be false.
+    const isExplicitDisconnect = reason === 'io client disconnect' || reason === 'io server disconnect';
+    linkState.set(isExplicitDisconnect ? 'offline' : 'reconnecting');
   });
 
   socketInstance.on('error', (error: any) => {
