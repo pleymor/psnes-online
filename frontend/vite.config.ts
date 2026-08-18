@@ -9,14 +9,12 @@ export default defineConfig({
   resolve: {
     alias: {
       buffer: 'buffer/',
-      stream: 'stream-browserify',
       events: 'events',
-      util: 'util/',
       path: 'path-browserify',
     },
   },
   optimizeDeps: {
-    include: ['simple-peer', 'buffer', 'process', 'events', 'util', 'stream-browserify', 'ini', 'path-browserify'],
+    include: ['simple-peer', 'buffer', 'process', 'events', 'ini', 'path-browserify'],
     esbuildOptions: {
       define: {
         global: 'globalThis',
