@@ -16,37 +16,40 @@ ENV VITE_WS_URL=$VITE_WS_URL
 
 # Copy package files and install all dependencies (including devDependencies for build)
 COPY package.json ./
-RUN bun install
+COPY backend/package.json ./backend/package.json
+COPY frontend/package.json ./frontend/package.json
+COPY bun.lock ./
+RUN bun install --frozen-lockfile --filter=./frontend
 
 # Copy source code and configuration
-COPY tsconfig.json ./
-COPY svelte.config.js ./
-COPY vite.config.ts ./
-COPY src ./src
-COPY static ./static
+COPY frontend/tsconfig.json ./frontend/tsconfig.json
+COPY frontend/svelte.config.js ./frontend/svelte.config.js
+COPY frontend/vite.config.ts ./frontend/vite.config.ts
+COPY frontend/src ./frontend/src
+COPY frontend/static ./frontend/static
 
 # Update PWA configuration for production build
-RUN sed -i "s/mode: 'development'/mode: 'production'/" vite.config.ts && \
-    sed -i "s/strategies: 'injectManifest'/strategies: 'generateSW'/" vite.config.ts
+RUN sed -i "s/mode: 'development'/mode: 'production'/" frontend/vite.config.ts && \
+    sed -i "s/strategies: 'injectManifest'/strategies: 'generateSW'/" frontend/vite.config.ts
 
 # Generate SvelteKit types (fixes tsconfig warning)
-RUN bunx svelte-kit sync
+RUN cd frontend && bunx svelte-kit sync
 
 # Build the SvelteKit app
-RUN bun run build
+RUN bun run --filter=./frontend build
 
 # Production stage with nginx
 FROM nginx:alpine
 
 # Copy nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Remove default nginx static files
 RUN rm -rf /usr/share/nginx/html/*
 
 # Copy built static assets from builder
 # SvelteKit with adapter-static creates static files in build/
-COPY --from=builder /app/build /usr/share/nginx/html
+COPY --from=builder /app/frontend/build /usr/share/nginx/html
 
 # Fix file permissions for nginx to read all files
 RUN chmod -R 644 /usr/share/nginx/html/* && \
