@@ -59,7 +59,28 @@ export function registerZnetHandlers(
 
 	socket.on('znet:join', (data: { roomId: string }) => {
 		const room = getMemberRoom(rooms, data?.roomId, user.id, 'znet:join');
-		if (!room) return;
+		if (!room) {
+			/*
+			 * Say so when the room is genuinely gone - a restart, or a room
+			 * destroyed while the player was away. Staying silent here is what
+			 * made a lost session look like a freeze: the socket is healthy,
+			 * the client re-joins on every reconnect, and every packet it
+			 * sends afterwards is dropped for not being in the channel.
+			 *
+			 * Only when it is *absent*. A room that exists and simply does not
+			 * have this caller in it must keep learning nothing, or the reply
+			 * becomes a way to confirm a room id - which is the whole reason
+			 * getMemberRoom exists.
+			 */
+			if (data?.roomId && !rooms.has(data.roomId)) {
+				socket.emit('znet:error', {
+					roomId: data.roomId,
+					code: 'room-gone',
+					message: 'This game is no longer on the server. It may have ended while you were away.'
+				});
+			}
+			return;
+		}
 
 		const slots = slotsFor(room.id);
 
@@ -79,7 +100,11 @@ export function registerZnetHandlers(
 			const playerIndex = isHost ? 0 : nextFreeIndex(slots);
 			if (playerIndex < 0 || playerIndex >= MAX_PLAYERS) {
 				logger.warn({ roomId: room.id, userId: user.id }, 'Netplay room is full');
-				socket.emit('znet:error', { message: 'This netplay session is full' });
+				socket.emit('znet:error', {
+					roomId: room.id,
+					code: 'session-full',
+					message: 'This netplay session is full'
+				});
 				return;
 			}
 			slot = { socketId: socket.id, userId: user.id, playerIndex };

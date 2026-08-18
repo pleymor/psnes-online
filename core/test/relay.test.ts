@@ -279,3 +279,52 @@ test('a full netplay session runs over the real relay', async () => {
 	guestSocket.close();
 	await rig.close();
 });
+
+test('joining a room the server no longer has answers with an error', async () => {
+	const rig = await startRig();
+	try {
+		// What a restart looks like from the relay's point of view: the room is
+		// simply not there any more.
+		rig.rooms.delete(ROOM_ID);
+
+		const client = ioClient(rig.url, {
+			transports: ['websocket'],
+			auth: { userId: HOST_ID }
+		});
+		await once(client, 'connect');
+
+		const failed = once(client, 'znet:error');
+		client.emit('znet:join', { roomId: ROOM_ID });
+		const [payload] = (await failed) as [{ code?: string }];
+
+		assert.equal(payload.code, 'room-gone');
+		client.close();
+	} finally {
+		await rig.close();
+	}
+});
+
+test('a non-member still gets silence, not confirmation that a room exists', async () => {
+	// Room ids are handed out by GET /api/rooms and by friend notifications,
+	// so an error here would turn the new message into a way to probe for
+	// them. The room exists; the caller is simply not in it.
+	const rig = await startRig();
+	try {
+		const client = ioClient(rig.url, {
+			transports: ['websocket'],
+			auth: { userId: 'stranger' }
+		});
+		await once(client, 'connect');
+
+		let heard: unknown = null;
+		client.on('znet:error', (p: unknown) => (heard = p));
+		client.on('znet:joined', (p: unknown) => (heard = p));
+		client.emit('znet:join', { roomId: ROOM_ID });
+
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		assert.equal(heard, null, 'a non-member must learn nothing at all');
+		client.close();
+	} finally {
+		await rig.close();
+	}
+});
