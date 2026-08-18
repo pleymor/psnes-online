@@ -50,6 +50,8 @@
   export let inputDelay = 0;
 
   let canvas: HTMLCanvasElement;
+  /** The element that goes fullscreen; holds the picture and every overlay. */
+  let stage: HTMLDivElement;
   let phase: 'loading' | 'waiting' | 'playing' | 'error' = 'loading';
   let statusText = 'Loading core…';
   let errorText = '';
@@ -101,6 +103,41 @@
   let display: DisplayOptions = { ...DEFAULT_DISPLAY };
 
   /**
+   * Fullscreen, which is local and cosmetic like the display options: it
+   * changes how the picture is shown and never what the core computes, so the
+   * two players can be in different states without any risk to the lockstep.
+   */
+  let isFullscreen = false;
+  /**
+   * Distinguishes a fullscreen change we asked for from one Escape forced on
+   * us. The browser exits fullscreen on Escape and swallows the keydown, so
+   * without this flag there is no way to tell "the player wanted out" from
+   * "the player asked for the menu" - and the menu would never open.
+   */
+  let deliberateFullscreenChange = false;
+  /** Set when the menu was opened from fullscreen, so resuming can go back. */
+  let wasFullscreen = false;
+
+  /**
+   * The toolbar is an overlay in fullscreen: shown on pointer activity, hidden
+   * again once the player settles down, so it does not sit over the picture
+   * for a whole session. Hovering it holds it open (CSS), which is why the
+   * timer can be this short.
+   */
+  const CHROME_IDLE_MS = 2500;
+  let chromeVisible = true;
+  let chromeTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Whether the pointer or the focus is on the toolbar itself.
+   *
+   * A pointer resting on a button sends no further mousemove, so the countdown
+   * would hide the very control the player is reaching for - and a hidden
+   * toolbar takes `pointer-events: none`, so CSS `:hover` cannot rescue it.
+   * The hold has to be tracked here, where it can stop the timer.
+   */
+  let chromeHeld = false;
+
+  /**
    * What SavesManager needs from an emulator: a state it can store.
    *
    * Saving reads the machine without touching it, so it needs no coordination
@@ -126,12 +163,34 @@
 
     void boot();
     window.addEventListener('keydown', onGlobalKey);
-    return () => window.removeEventListener('keydown', onGlobalKey);
+    // On the window rather than on the stage: in fullscreen the stage is the
+    // whole screen, so any pointer activity at all is the player asking for
+    // the toolbar. pointerdown covers touch, which sends no mousemove.
+    window.addEventListener('mousemove', onPointerActivity);
+    window.addEventListener('pointerdown', onPointerActivity);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => {
+      window.removeEventListener('keydown', onGlobalKey);
+      window.removeEventListener('mousemove', onPointerActivity);
+      window.removeEventListener('pointerdown', onPointerActivity);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+    };
   });
 
   function onGlobalKey(event: KeyboardEvent) {
+    if (event.altKey && event.key === 'Enter') {
+      event.preventDefault();
+      void toggleFullscreen();
+      return;
+    }
     if (event.key !== 'Escape' || showPauseMenu) return;
     event.preventDefault();
+    openPauseMenu(!!document.fullscreenElement);
+  }
+
+  function openPauseMenu(restoreFullscreen = false) {
+    if (showPauseMenu) return;
+    wasFullscreen = restoreFullscreen;
     showPauseMenu = true;
     // Release every held key: the menu swallows keyups, and in lockstep a
     // stuck direction is sent to the other player too.
@@ -141,6 +200,88 @@
   function closePauseMenu() {
     showPauseMenu = false;
     collector?.attach();
+
+    // Still inside the click that dispatched 'resume', so the browser counts
+    // this as a user gesture. Reached from a gamepad it is not, and the
+    // request is refused - hence the swallowed rejection rather than a throw.
+    if (wasFullscreen && !document.fullscreenElement) {
+      deliberateFullscreenChange = true;
+      stage?.requestFullscreen().catch(() => {
+        deliberateFullscreenChange = false;
+      });
+    }
+    wasFullscreen = false;
+  }
+
+  function quitToLobby() {
+    // Leave the picture before leaving the room: a lobby rendered fullscreen
+    // is not what anyone asked for.
+    wasFullscreen = false;
+    if (document.fullscreenElement) {
+      deliberateFullscreenChange = true;
+      void document.exitFullscreen().catch(() => {});
+    }
+    closePauseMenu();
+    $socket?.emit('game:stop', { roomId });
+  }
+
+  async function toggleFullscreen() {
+    deliberateFullscreenChange = true;
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await stage?.requestFullscreen();
+    } catch (err) {
+      deliberateFullscreenChange = false;
+      logger.error('Could not toggle fullscreen', err);
+    }
+  }
+
+  function onFullscreenChange() {
+    const deliberate = deliberateFullscreenChange;
+    deliberateFullscreenChange = false;
+    isFullscreen = !!document.fullscreenElement;
+
+    if (isFullscreen) {
+      revealChrome();
+      return;
+    }
+
+    if (chromeTimer) clearTimeout(chromeTimer);
+    chromeTimer = null;
+    chromeVisible = true;
+    // The only way out of fullscreen we did not ask for is Escape, which in
+    // this room means "open the menu" - and the keydown never reached us.
+    if (!deliberate) openPauseMenu(true);
+  }
+
+  /**
+   * Cheap guard on a listener that fires on every mouse move in the page: out
+   * of fullscreen the toolbar is in normal flow and there is nothing to show.
+   */
+  function onPointerActivity() {
+    if (isFullscreen) revealChrome();
+  }
+
+  /** Shows the toolbar and restarts the countdown that hides it again. */
+  function revealChrome() {
+    chromeVisible = true;
+    if (chromeTimer) clearTimeout(chromeTimer);
+    chromeTimer = null;
+    if (!isFullscreen || chromeHeld) return;
+    chromeTimer = setTimeout(() => {
+      chromeTimer = null;
+      chromeVisible = false;
+    }, CHROME_IDLE_MS);
+  }
+
+  function holdChrome() {
+    chromeHeld = true;
+    revealChrome();
+  }
+
+  function releaseChrome() {
+    chromeHeld = false;
+    revealChrome();
   }
 
   onDestroy(() => {
@@ -593,6 +734,8 @@
   function teardown() {
     if (stallTimer) clearTimeout(stallTimer);
     stallTimer = null;
+    if (chromeTimer) clearTimeout(chromeTimer);
+    chromeTimer = null;
     persistSram();
     if (sramTimer) clearInterval(sramTimer);
     sramTimer = null;
@@ -620,25 +763,34 @@
   $: recentlyResynced = !!stats && lastResyncAt > 0 && Date.now() - lastResyncAt < 3000;
 </script>
 
-{#if romTransfer}
-  <div class="rom-transfer">
-    <span>
-      {romTransfer.direction === 'in'
-        ? 'Receiving the ROM from the host'
-        : 'Sending the ROM to the other player'}
-    </span>
-    <progress value={romTransfer.done} max={romTransfer.total}></progress>
-    <span class="rom-transfer-count">
-      {Math.round((romTransfer.done / Math.max(1, romTransfer.total)) * 100)}%
-    </span>
-  </div>
-{/if}
+<div
+  class="lockstep"
+  class:chrome-hidden={isFullscreen && !chromeVisible}
+  bind:this={stage}
+>
+  <!-- The transfer banner and the ROM prompt live inside .lockstep rather than
+       beside it: both are fixed overlays, so their position is unchanged, but
+       as descendants of the fullscreen element they still render once a player
+       goes fullscreen. A host serving a ROM to a guest who joins mid-match
+       would otherwise watch a silent transfer. -->
+  {#if romTransfer}
+    <div class="rom-transfer">
+      <span>
+        {romTransfer.direction === 'in'
+          ? 'Receiving the ROM from the host'
+          : 'Sending the ROM to the other player'}
+      </span>
+      <progress value={romTransfer.done} max={romTransfer.total}></progress>
+      <span class="rom-transfer-count">
+        {Math.round((romTransfer.done / Math.max(1, romTransfer.total)) * 100)}%
+      </span>
+    </div>
+  {/if}
 
-{#if romPrompt}
-  <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
-{/if}
+  {#if romPrompt}
+    <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
+  {/if}
 
-<div class="lockstep">
   <div class="screen" class:stalling={stallVisible}>
     <canvas bind:this={canvas} width="256" height="224"></canvas>
 
@@ -660,14 +812,28 @@
     {/if}
   </div>
 
-  <div class="bar">
+  <div
+    class="bar"
+    role="group"
+    aria-label="Emulator controls"
+    on:mouseenter={holdChrome}
+    on:mouseleave={releaseChrome}
+    on:focusin={holdChrome}
+    on:focusout={releaseChrome}
+  >
     {#if needsAudioGesture}
       <button class="action" on:click={enableAudio}>Enable sound</button>
     {/if}
     <button class="action" on:click={cycleGamepadSource} title="Which gamepad drives this player">
       🎮 {gamepadLabel(gamepadSource)}
     </button>
-    <button class="action" on:click={() => (showPauseMenu = true)}>☰ Menu (Esc)</button>
+    <button class="action" on:click={() => openPauseMenu(isFullscreen)}>☰ Menu (Esc)</button>
+    <button
+      class="action"
+      class:on={isFullscreen}
+      on:click={toggleFullscreen}
+      title="Alt+Enter"
+    >⛶ {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button>
     <button
       class="action"
       class:on={display.scanlines}
@@ -699,13 +865,13 @@
       {keyConfig}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
-      on:quit={() => { closePauseMenu(); $socket?.emit('game:stop', { roomId }); }}
+      on:quit={quitToLobby}
       on:saved={(e) => { keyConfig = e.detail.config; closePauseMenu(); }}
     />
   {/if}
 
   {#if showStats && stats}
-    <dl class="stats">
+    <dl class="stats" on:mouseenter={holdChrome} on:mouseleave={releaseChrome}>
       <div><dt>Frame</dt><dd>{stats.frame}</dd></div>
       <div><dt>Round trip</dt><dd>{stats.rtt ? `${Math.round(stats.rtt)} ms` : '—'}</dd></div>
       <div><dt>Input delay</dt><dd>{stats.inputDelay} frames</dd></div>
@@ -881,5 +1047,70 @@
     margin: 0;
     color: #e6e6f0;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* --------------------------------------------------------- fullscreen */
+
+  .lockstep:fullscreen {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    justify-content: center;
+    gap: 0;
+    background: #000;
+    /* The layout sets `cursor: none` on every fullscreen element, which is
+       right while playing and wrong while the toolbar is up: an overlay you
+       cannot see the pointer over is an overlay you cannot click. */
+    cursor: default;
+  }
+
+  .lockstep:fullscreen.chrome-hidden {
+    cursor: none;
+  }
+
+  .lockstep:fullscreen .screen {
+    max-width: none;
+    width: 100%;
+    height: 100%;
+    /* The canvas keeps its own object-fit, set by CanvasRenderer from the
+       display options, so 'Fit' still letterboxes and 'Stretch' still fills. */
+    aspect-ratio: auto;
+    border-radius: 0;
+  }
+
+  /* Clear of the toolbar, which now overlays the bottom of the picture. */
+  .lockstep:fullscreen .badge {
+    bottom: 4.5rem;
+  }
+
+  .lockstep:fullscreen .bar,
+  .lockstep:fullscreen .stats {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    transition: opacity 0.2s ease;
+  }
+
+  .lockstep:fullscreen .bar {
+    bottom: 1.25rem;
+    justify-content: center;
+    padding: 0.5rem 0.9rem;
+    border-radius: 999px;
+    background: rgba(20, 20, 30, 0.92);
+    border: 1px solid #2c2c3c;
+  }
+
+  .lockstep:fullscreen .stats {
+    bottom: 5rem;
+    width: min(1024px, 90vw);
+  }
+
+  .lockstep:fullscreen.chrome-hidden .bar,
+  .lockstep:fullscreen.chrome-hidden .stats {
+    opacity: 0;
+    /* Also makes the picture behind it clickable again, and hands the cursor
+       back to the stage rule above so it disappears with the toolbar. */
+    pointer-events: none;
   }
 </style>
