@@ -3684,6 +3684,8 @@ docker compose down -v
 docker compose up
 ```
 
+**`down -v` détruit des données.** Il supprime tous les volumes nommés du projet : la base SQLite de développement, les savestates, les avatars et le cache Redis. C'est voulu ici — tester le chemin de baseline demande une base vierge — mais prévenir la personne qui exécute avant de lancer, et lui laisser sauvegarder `backend-data` si elle y tient.
+
 Si le backend échoue au démarrage sur une base vide, corriger `docker-compose.yml` en inversant la dépendance, comme `docker-compose.prod.yml` le fait déjà :
 
 ```yaml
@@ -3740,6 +3742,8 @@ docker compose -f docker-compose.prod.yml build
 docker compose down -v && docker compose up -d
 npx playwright test --config e2e/playwright.config.ts
 ```
+
+Même avertissement qu'au Step 4 : ce `down -v` efface la base de développement, les savestates, les avatars et Redis. Il est là pour partir d'un état propre avant la suite Playwright ; le dire avant de le lancer.
 
 Attendu : tout vert, et `grep -rn "prisma" backend/ --include='*.ts' --include='*.json' --include='Dockerfile*'` ne renvoie plus rien.
 
