@@ -1,5 +1,6 @@
 {
   "name": "psnes-backend",
+  "//better-sqlite3": "dependencies.better-sqlite3 is pinned exact (no caret): WiseLibs stopped publishing a Node 20 prebuild (node-v115) as of 12.10.0 (Node 20 hit EOL in April 2026); 13.x requires Node >=22 outright and has no per-ABI prebuild at all. A caret here would let a future install silently drift into a version with no working prebuild and no compiler to fall back on -- bump only after checking the target Node has a published prebuild at https://github.com/WiseLibs/better-sqlite3/releases.",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
@@ -11,6 +12,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "better-sqlite3": "12.9.0",
     "compression": "^1.8.1",
     "connect-redis": "^7.1.1",
     "cors": "^2.8.5",
@@ -27,6 +29,7 @@
     "socket.io": "^4.7.2"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/compression": "^1.8.1",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
