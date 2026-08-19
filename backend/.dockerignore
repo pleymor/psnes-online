@@ -38,7 +38,6 @@ build/
 Dockerfile
 .dockerignore
 docker-compose.yml
-docker-entrypoint-dev.sh
 
 # Misc
 .DS_Store

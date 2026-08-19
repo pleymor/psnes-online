@@ -20,7 +20,7 @@ Plateforme de jeu rétro SNES multijoueur en ligne avec émulation côté serveu
 ### Backend
 - **Node.js/TypeScript** avec Express
 - **Socket.io** pour WebSocket temps réel et signaling WebRTC
-- **Prisma** + SQLite pour la base de données
+- **better-sqlite3** pour la base de données
 - **Redis** pour sessions et rooms actives
 - **Passport.js** pour OAuth Google
 - **Multer** pour upload de fichiers
@@ -156,14 +156,14 @@ psnes/
 │   │   │   └── passport.ts   # Config Passport
 │   │   ├── emulator/
 │   │   │   └── manager.ts    # Gestion émulateur
-│   │   ├── models/           # Models Prisma
+│   │   ├── db/               # Repositories SQLite
 │   │   ├── websocket/
 │   │   │   └── index.ts      # Socket.io handlers
 │   │   ├── types/
 │   │   │   └── index.ts      # Types TypeScript
 │   │   └── index.ts          # Point d'entrée
-│   ├── prisma/
-│   │   └── schema.prisma     # Schéma DB
+│   ├── migrations/
+│   │   └── 0001_baseline.sql # Schéma DB (SQL brut)
 │   ├── roms/                 # Stockage ROMs
 │   ├── saves/                # Stockage saves
 │   └── package.json
@@ -191,7 +191,6 @@ psnes/
 ```bash
 cd backend
 npm install
-npm run db:generate  # Générer Prisma client
 npm run db:migrate   # Migrations DB
 npm run dev          # Mode dev
 ```
