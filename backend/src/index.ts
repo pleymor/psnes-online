@@ -130,6 +130,23 @@ const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || 'dev-only-insecure-secret',
   resave: false,
   saveUninitialized: false,
+  /**
+   * Slide the window on every response.
+   *
+   * Without this the expiry is fixed at login and never moves, however much
+   * the app is used - so a session simply lapses seven days later, and it
+   * lapsed once in the middle of a game. The socket does not notice, because
+   * it reads the user id at handshake and holds it, so the app carries on
+   * looking alive while every HTTP request answers 401.
+   *
+   * Note this only slides on HTTP traffic: `io.engine.use(sessionMiddleware)`
+   * below runs at the handshake, not on socket messages, so hours of play
+   * refresh nothing. Loading the page is enough to push the window out by a
+   * week, which makes expiry-during-play a very narrow case rather than an
+   * impossible one - the client still has to handle a 401 rather than assume
+   * one cannot happen.
+   */
+  rolling: true,
   cookie: {
     secure: process.env.BEHIND_PROXY === 'true', // Only secure when behind HTTPS proxy
     httpOnly: true,

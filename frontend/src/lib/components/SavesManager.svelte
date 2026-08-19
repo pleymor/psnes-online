@@ -54,6 +54,22 @@
     });
   });
 
+  /**
+   * Whether `saves` is known to reflect the server.
+   *
+   * This used to be assumed. `loadSaves` only acted on `res.ok` and did
+   * nothing at all otherwise, so a 401 left `saves` empty and silent - the
+   * player saw "no saves yet" when the truth was "could not ask". The form
+   * then offered slot 1, because an empty list has no slot 1 in it, and the
+   * save overwrote the one already there. A session that lapsed mid-game cost
+   * a real savestate that way.
+   *
+   * So the empty list and the unknown list are now different states, and
+   * nothing may be written while the list is unknown.
+   */
+  let savesLoaded = false;
+  let loadErrorKey: 'sessionExpired' | 'failedToLoadSaves' | null = null;
+
   async function loadSaves() {
     try {
       const res = await fetch(`/api/games/${gameId}/saves`, {
@@ -62,8 +78,17 @@
 
       if (res.ok) {
         saves = await res.json();
+        savesLoaded = true;
+        loadErrorKey = null;
+        return;
       }
+
+      savesLoaded = false;
+      loadErrorKey = res.status === 401 ? 'sessionExpired' : 'failedToLoadSaves';
+      logger.error(`Failed to load saves: HTTP ${res.status}`);
     } catch (error) {
+      savesLoaded = false;
+      loadErrorKey = 'failedToLoadSaves';
       logger.error('Failed to load saves:', error);
     }
   }
@@ -190,6 +215,9 @@
    * click snapped to slot 1. Deciding once, on open, cannot be re-entered.
    */
   function openCreateForm() {
+    // Refuse to guess. pickDefaultSlot on a list we could not load answers 1,
+    // which is a slot that probably already holds something.
+    if (!savesLoaded) return;
     selectedSlot = pickDefaultSlot(saves);
     showCreateForm = true;
   }
@@ -207,6 +235,8 @@
     <h3>{t($language, 'saves')}</h3>
     <button
       class="btn-create"
+      disabled={!savesLoaded}
+      title={savesLoaded ? '' : t($language, 'saveDisabledUntilLoaded')}
       on:click={() => showCreateForm ? (showCreateForm = false) : openCreateForm()}
     >
       + {t($language, 'createSave')}
@@ -252,7 +282,13 @@
   {/if}
 
   <div class="saves-list">
-    {#if saves.length === 0}
+    {#if loadErrorKey}
+      <!-- Never "no saves yet" when the truth is that we could not ask. -->
+      <p class="load-error">
+        {t($language, loadErrorKey)}
+        <button class="btn-retry" on:click={loadSaves}>{t($language, 'retry')}</button>
+      </p>
+    {:else if saves.length === 0}
       <p class="empty">{t($language, 'noSaves')}</p>
     {:else}
       {#each saves.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) as save}
@@ -304,8 +340,38 @@
     transition: transform 0.2s;
   }
 
-  .btn-create:hover {
+  .btn-create:hover:not(:disabled) {
     transform: translateY(-2px);
+  }
+
+  .btn-create:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .load-error {
+    color: #e0a33e;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    text-align: center;
+    padding: 1.5rem 0.5rem;
+    margin: 0;
+  }
+
+  .btn-retry {
+    display: block;
+    margin: 0.75rem auto 0;
+    background: #444;
+    color: white;
+    border: none;
+    padding: 0.4rem 0.9rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8125rem;
+  }
+
+  .btn-retry:hover {
+    background: #555;
   }
 
   .create-form {
