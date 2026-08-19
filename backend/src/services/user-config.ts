@@ -1,5 +1,6 @@
 import { KeyConfig } from '../types/index.js';
-import { prisma } from '../db/prisma.js';
+import { getDb } from '../db/sqlite.js';
+import { findControlsConfig } from '../db/users.js';
 import { cache } from '../utils/cache.js';
 import { getDefaultKeyConfig } from '../utils/key-config.js';
 import { createLogger } from '../utils/logger.js';
@@ -15,13 +16,10 @@ export async function getUserKeyConfig(userId: string): Promise<KeyConfig> {
   }
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { controlsConfig: true }
-    });
+    const stored = findControlsConfig(getDb(), userId);
 
-    if (user?.controlsConfig) {
-      const parsedConfig = JSON.parse(user.controlsConfig);
+    if (stored) {
+      const parsedConfig = JSON.parse(stored);
       cache.set(cacheKey, parsedConfig, 300000); // Cache for 5 minutes
       return parsedConfig;
     }

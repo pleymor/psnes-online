@@ -1,6 +1,4 @@
-import { User as PrismaUser } from '@prisma/client';
-
-export interface User extends PrismaUser {}
+export type { User } from '../db/types.js';
 
 export type EmulationMode = 'single' | 'streaming' | 'dual' | 'lockstep';
 
