@@ -8,7 +8,8 @@ import { createLogger } from '../utils/logger.js';
 import { cleanupRoomChecksums } from './sync-handlers.js';
 import { cleanupHostReady } from './p2p-handlers.js';
 import { cleanupZnetRoom } from './znet-handlers.js';
-import { prisma } from '../db/prisma.js';
+import { getDb } from '../db/sqlite.js';
+import { findChecksumOfOwnedGame } from '../db/games.js';
 
 const logger = createLogger('Room');
 
@@ -26,10 +27,7 @@ export function registerRoomHandlers(
     // Read from the host's library rather than trusting the payload: the guest
     // will use this checksum to pick a file off their own disk, so it has to
     // be the one the server recorded.
-    const game = await prisma.game.findFirst({
-      where: { id: data.gameId, userId: user.id },
-      select: { crc32: true }
-    });
+    const gameCrc32 = findChecksumOfOwnedGame(getDb(), data.gameId, user.id);
     const autoStart = data.autoStart ?? false;
 
     const room: Room = {
@@ -37,7 +35,7 @@ export function registerRoomHandlers(
       gameId: data.gameId,
       gameTitle: data.gameTitle,
       gameCoverUrl: data.gameCoverUrl,
-      gameCrc32: game?.crc32 ?? undefined,
+      gameCrc32: gameCrc32 ?? undefined,
       hostId: user.id,
       createdBy: user.id,
       players: [{

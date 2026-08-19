@@ -1,6 +1,8 @@
 import { Server, Socket } from 'socket.io';
 import { Room, GameInput } from '../types/index.js';
-import { prisma } from '../db/prisma.js';
+import { getDb } from '../db/sqlite.js';
+import { findOwnedGameId, saveSram, findSram } from '../db/games.js';
+import { findSaveInSlot, findSaveWithGame, createSave, updateSaveData } from '../db/saves.js';
 import { notifyFriendsRoomStatusChanged } from '../services/friends.js';
 import { createLogger } from '../utils/logger.js';
 import { getMemberRoom } from './guards.js';
@@ -107,51 +109,32 @@ export function registerGameHandlers(
     if (!room) return;
 
     try {
+      const db = getDb();
       // Saves belong to the game's owner. Without this check a guest in the
       // room would create Save rows against the host's game (mirrors the
       // ownership check in game:load).
-      const ownedGame = await prisma.game.findFirst({
-        where: { id: room.gameId, userId },
-        select: { id: true }
-      });
+      const ownedGameId = findOwnedGameId(db, room.gameId, userId);
 
-      if (!ownedGame) {
+      if (!ownedGameId) {
         socket.emit('error', { message: 'Not authorized to save this game' });
         return;
       }
 
-      const existingSave = await prisma.save.findFirst({
-        where: {
-          gameId: room.gameId,
-          slotNumber: data.slotNumber,
-          game: {
-            userId: userId
-          }
-        }
-      });
+      const existingSave = findSaveInSlot(db, room.gameId, data.slotNumber, userId);
 
       const saveDataBuffer = data.saveData
         ? Buffer.from(data.saveData, 'base64')
         : Buffer.alloc(0);
 
       if (existingSave) {
-        await prisma.save.update({
-          where: { id: existingSave.id },
-          data: {
-            name: data.name,
-            data: saveDataBuffer,
-            updatedAt: new Date()
-          }
-        });
+        updateSaveData(db, existingSave.id, data.name, saveDataBuffer);
       } else {
-        await prisma.save.create({
-          data: {
-            gameId: room.gameId,
-            slotNumber: data.slotNumber,
-            name: data.name,
-            data: saveDataBuffer,
-            screenshot: null
-          }
+        createSave(db, {
+          gameId: room.gameId,
+          slotNumber: data.slotNumber,
+          name: data.name,
+          data: saveDataBuffer,
+          screenshot: null
         });
       }
 
@@ -169,10 +152,7 @@ export function registerGameHandlers(
     if (!room) return;
 
     try {
-      const save = await prisma.save.findUnique({
-        where: { id: data.saveId },
-        include: { game: true }
-      });
+      const save = findSaveWithGame(getDb(), data.saveId);
 
       if (!save) {
         socket.emit('error', { message: 'Save not found' });
@@ -223,16 +203,7 @@ export function registerGameHandlers(
     try {
       const sramBuffer = Buffer.from(data.sramData, 'base64');
 
-      await prisma.game.update({
-        where: {
-          id: room.gameId,
-          userId: userId // Ensure user owns the game
-        },
-        data: {
-          sram: sramBuffer,
-          sramUpdatedAt: new Date()
-        }
-      });
+      saveSram(getDb(), room.gameId, userId, sramBuffer);
 
       socket.emit('game:sramSaved');
       logger.info({ gameId: room.gameId, size: sramBuffer.length }, 'SRAM saved');
@@ -248,28 +219,19 @@ export function registerGameHandlers(
     if (!room) return;
 
     try {
-      const game = await prisma.game.findFirst({
-        where: {
-          id: room.gameId,
-          userId: userId // Ensure user owns the game
-        },
-        select: {
-          sram: true,
-          sramUpdatedAt: true
-        }
-      });
+      const stored = findSram(getDb(), room.gameId, userId);
 
-      if (!game || !game.sram) {
+      if (!stored) {
         socket.emit('game:sramLoaded', { sramData: null });
         return;
       }
 
-      const sramDataBase64 = game.sram.toString('base64');
+      const sramDataBase64 = stored.sram.toString('base64');
       socket.emit('game:sramLoaded', {
         sramData: sramDataBase64,
-        updatedAt: game.sramUpdatedAt
+        updatedAt: stored.sramUpdatedAt
       });
-      logger.info({ gameId: room.gameId, size: game.sram.length }, 'SRAM loaded');
+      logger.info({ gameId: room.gameId, size: stored.sram.length }, 'SRAM loaded');
     } catch (error) {
       logger.error({ err: error }, 'Error loading SRAM');
       socket.emit('error', { message: 'Failed to load SRAM' });
