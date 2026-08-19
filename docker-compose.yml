@@ -18,8 +18,6 @@ services:
       - backend-data:/app/data
     command: node dist/db/migrate-cli.js
     restart: "no"
-    depends_on:
-      - backend
 
   backend:
     build:
@@ -53,9 +51,12 @@ services:
     #   docker compose rm -sf backend
     #   docker volume rm psnes_backend-node-modules
     #   docker compose up -d backend
-    command: sh -c "npx prisma generate && npm run dev"
+    command: sh -c "bun install && npm run dev"
     depends_on:
-      - redis
+      db-migration:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
 
   frontend:
     build:

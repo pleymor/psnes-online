@@ -27,10 +27,6 @@ COPY scripts ./scripts
 RUN bun install --filter=./backend \
     && sh scripts/fetch-better-sqlite3-prebuild.sh
 
-# Copy prisma schema and generate client (cached until schema changes)
-COPY backend/prisma ./prisma
-RUN npx prisma generate
-
 # Source code will be mounted as a volume, so we don't copy it here
 
 CMD ["npm", "run", "dev"]

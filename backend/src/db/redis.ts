@@ -2,7 +2,7 @@ import { createClient, type RedisClientType } from 'redis';
 import { logger } from '../utils/logger.js';
 
 /**
- * The one Redis connection, mirroring db/prisma.ts.
+ * The one Redis connection, mirroring db/sqlite.ts.
  *
  * Sessions and the room snapshot both need it, and the snapshot lives under
  * websocket/ which index.ts already imports - so keeping the client in
