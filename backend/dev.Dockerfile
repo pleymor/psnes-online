@@ -18,7 +18,14 @@ COPY package.json ./
 COPY backend/package.json ./backend/package.json
 COPY frontend/package.json ./frontend/package.json
 COPY bun.lock ./
-RUN bun install --filter=./backend
+COPY scripts ./scripts
+
+# Bun does not run a workspace member's own lifecycle scripts, and does not
+# run the root project's postinstall once --filter narrows the install to
+# one workspace -- so better-sqlite3's native binding (see
+# scripts/fetch-better-sqlite3-prebuild.sh) has to be built explicitly here.
+RUN bun install --filter=./backend \
+    && sh scripts/fetch-better-sqlite3-prebuild.sh
 
 # Copy prisma schema and generate client (cached until schema changes)
 COPY backend/prisma ./prisma

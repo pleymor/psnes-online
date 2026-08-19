@@ -12,8 +12,15 @@ COPY package.json ./
 COPY backend/package.json ./backend/package.json
 COPY frontend/package.json ./frontend/package.json
 COPY bun.lock ./
+COPY scripts ./scripts
 
-RUN bun install --production --frozen-lockfile --filter=./backend
+# Bun does not run a workspace member's own lifecycle scripts, and does not
+# run the root project's postinstall once --filter narrows the install to
+# one workspace -- so better-sqlite3's native binding (see
+# scripts/fetch-better-sqlite3-prebuild.sh) has to be built explicitly here,
+# it will not happen on its own.
+RUN bun install --production --frozen-lockfile --filter=./backend \
+    && sh scripts/fetch-better-sqlite3-prebuild.sh
 
 
 ##
@@ -33,7 +40,8 @@ RUN apt-get update && apt-get install -y \
     librsvg2-dev
 
 # Copy package files and install ALL dependencies (needed for build)
-RUN bun install --frozen-lockfile --filter=./backend
+RUN bun install --frozen-lockfile --filter=./backend \
+    && sh scripts/fetch-better-sqlite3-prebuild.sh
 
 # Copy source code and prisma schema
 COPY backend/prisma ./backend/prisma
