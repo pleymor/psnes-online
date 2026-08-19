@@ -76,7 +76,9 @@
   },
   "trustedDependencies": [
     "esbuild",
+    "@prisma/engines",
     "prisma",
+    "@prisma/client",
     "svelte-preprocess",
   ],
   "packages": {
