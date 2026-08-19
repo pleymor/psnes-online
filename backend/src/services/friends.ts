@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
-import { prisma } from '../db/prisma.js';
+import { getDb } from '../db/sqlite.js';
+import { listAcceptedFriendshipsFor, listAcceptedFriendshipsWithProfiles } from '../db/friendships.js';
 import { cache } from '../utils/cache.js';
 
 export async function getFriendships(userId: string) {
@@ -7,15 +8,7 @@ export async function getFriendships(userId: string) {
   let friendships = cache.get<any[]>(cacheKey);
 
   if (!friendships) {
-    friendships = await prisma.friendship.findMany({
-      where: {
-        OR: [
-          { initiatorId: userId },
-          { receiverId: userId }
-        ],
-        status: 'accepted'
-      }
-    });
+    friendships = listAcceptedFriendshipsFor(getDb(), userId);
     cache.set(cacheKey, friendships, 30000); // Cache for 30 seconds
   }
 
@@ -86,38 +79,18 @@ export async function getOnlineFriends(
   userId: string,
   presence: { socketFor(userId: string): string | undefined }
 ): Promise<any[]> {
-  const friendships = await prisma.friendship.findMany({
-    where: {
-      OR: [
-        { initiatorId: userId },
-        { receiverId: userId }
-      ],
-      status: 'accepted'
-    },
-    include: {
-      initiator: {
-        select: {
-          id: true,
-          displayName: true,
-          avatar: true,
-          email: true
-        }
-      },
-      receiver: {
-        select: {
-          id: true,
-          displayName: true,
-          avatar: true,
-          email: true
-        }
-      }
-    }
-  });
+  const friendships = listAcceptedFriendshipsWithProfiles(getDb(), userId);
 
   return friendships.map(friendship => {
     const friend = friendship.initiatorId === userId ? friendship.receiver : friendship.initiator;
+    // Narrowed on purpose: the old query selected these four columns, and the
+    // repository hands back the whole User. Spreading it here would put
+    // googleId and the timestamps on the wire.
     return {
-      ...friend,
+      id: friend.id,
+      displayName: friend.displayName,
+      avatar: friend.avatar,
+      email: friend.email,
       online: presence.socketFor(friend.id) !== undefined
     };
   });

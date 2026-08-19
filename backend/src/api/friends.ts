@@ -1,7 +1,13 @@
 import { Router } from 'express';
 import { User } from '../types/index.js';
 import { getIO, getUserSocket } from '../websocket/index.js';
-import { prisma } from '../db/prisma.js';
+import { getDb } from '../db/sqlite.js';
+import {
+  listAcceptedFriendshipsWithProfiles, listPendingRequestsFor, listFriendshipPairsFor,
+  findFriendshipById, findFriendshipBetween, createFriendshipRequest,
+  acceptFriendship, deleteFriendship
+} from '../db/friendships.js';
+import { findUserById, findUserByEmail, searchUsers } from '../db/users.js';
 import { cache } from '../utils/cache.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
@@ -17,19 +23,7 @@ friendsRouter.use(requireAuth);
 friendsRouter.get('/', asyncHandler(async (req, res) => {
   const user = req.user as User;
 
-  const friendships = await prisma.friendship.findMany({
-    where: {
-      OR: [
-        { initiatorId: user.id },
-        { receiverId: user.id }
-      ],
-      status: 'accepted'
-    },
-    include: {
-      initiator: true,
-      receiver: true
-    }
-  });
+  const friendships = listAcceptedFriendshipsWithProfiles(getDb(), user.id);
 
   // Return friendship data with friend info and dates
   const friendsData = friendships.map(f => ({
@@ -46,15 +40,7 @@ friendsRouter.get('/', asyncHandler(async (req, res) => {
 friendsRouter.get('/requests', asyncHandler(async (req, res) => {
   const user = req.user as User;
 
-  const requests = await prisma.friendship.findMany({
-    where: {
-      receiverId: user.id,
-      status: 'pending'
-    },
-    include: {
-      initiator: true
-    }
-  });
+  const requests = listPendingRequestsFor(getDb(), user.id);
 
   res.json(requests);
 }));
@@ -71,41 +57,9 @@ friendsRouter.get('/search', asyncHandler(async (req, res) => {
   const searchQuery = query.trim();
 
   // Find users matching the query (by email or display name)
-  const users = await prisma.user.findMany({
-    where: {
-      AND: [
-        { id: { not: user.id } }, // Exclude current user
-        {
-          OR: [
-            { email: { contains: searchQuery } },
-            { displayName: { contains: searchQuery } }
-          ]
-        }
-      ]
-    },
-    select: {
-      id: true,
-      email: true,
-      displayName: true,
-      avatar: true
-    },
-    take: 10 // Limit to 10 results
-  });
-
-  // Get existing friendships to filter out already connected users
-  const friendships = await prisma.friendship.findMany({
-    where: {
-      OR: [
-        { initiatorId: user.id },
-        { receiverId: user.id }
-      ]
-    },
-    select: {
-      initiatorId: true,
-      receiverId: true,
-      status: true
-    }
-  });
+  const db = getDb();
+  const users = searchUsers(db, user.id, searchQuery, 10);
+  const friendships = listFriendshipPairsFor(db, user.id);
 
   const friendIds = new Set(
     friendships.map(f => f.initiatorId === user.id ? f.receiverId : f.initiatorId)
@@ -122,17 +76,14 @@ friendsRouter.post('/request', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { friendEmail, friendId } = req.body;
 
+  const db = getDb();
   let friend;
 
   // Search by ID first if provided, otherwise by email
   if (friendId) {
-    friend = await prisma.user.findUnique({
-      where: { id: friendId }
-    });
+    friend = findUserById(db, friendId);
   } else if (friendEmail) {
-    friend = await prisma.user.findUnique({
-      where: { email: friendEmail }
-    });
+    friend = findUserByEmail(db, friendEmail);
   }
 
   if (!friend) {
@@ -144,30 +95,13 @@ friendsRouter.post('/request', asyncHandler(async (req, res) => {
   }
 
   // Check if friendship already exists
-  const existing = await prisma.friendship.findFirst({
-    where: {
-      OR: [
-        { initiatorId: user.id, receiverId: friend.id },
-        { initiatorId: friend.id, receiverId: user.id }
-      ]
-    }
-  });
+  const existing = findFriendshipBetween(db, user.id, friend.id);
 
   if (existing) {
     return res.status(400).json({ error: 'Friendship already exists' });
   }
 
-  const friendship = await prisma.friendship.create({
-    data: {
-      initiatorId: user.id,
-      receiverId: friend.id,
-      status: 'pending'
-    },
-    include: {
-      initiator: true,
-      receiver: true
-    }
-  });
+  const friendship = createFriendshipRequest(db, user.id, friend.id);
 
   // Notify receiver via WebSocket
   const io = getIO();
@@ -184,22 +118,14 @@ friendsRouter.post('/accept/:friendshipId', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { friendshipId } = req.params;
 
-  const friendship = await prisma.friendship.findUnique({
-    where: { id: friendshipId }
-  });
+  const db = getDb();
+  const friendship = findFriendshipById(db, friendshipId);
 
   if (!friendship || friendship.receiverId !== user.id) {
     return res.status(404).json({ error: 'Friend request not found' });
   }
 
-  const updated = await prisma.friendship.update({
-    where: { id: friendshipId },
-    data: { status: 'accepted' },
-    include: {
-      initiator: true,
-      receiver: true
-    }
-  });
+  const updated = acceptFriendship(db, friendshipId);
 
   // Invalidate friendship cache for both users
   cache.delete(`friendships:${updated.initiatorId}`);
@@ -237,9 +163,8 @@ friendsRouter.delete('/:friendshipId', asyncHandler(async (req, res) => {
   const user = req.user as User;
   const { friendshipId } = req.params;
 
-  const friendship = await prisma.friendship.findUnique({
-    where: { id: friendshipId }
-  });
+  const db = getDb();
+  const friendship = findFriendshipById(db, friendshipId);
 
   if (!friendship) {
     return res.status(404).json({ error: 'Friendship not found' });
@@ -249,9 +174,7 @@ friendsRouter.delete('/:friendshipId', asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'Not authorized' });
   }
 
-  await prisma.friendship.delete({
-    where: { id: friendshipId }
-  });
+  deleteFriendship(db, friendshipId);
 
   // Invalidate friendship cache for both users, as the accept path does.
   // Without this, getFriendships() serves the deleted friendship for up to
