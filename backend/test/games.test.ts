@@ -165,6 +165,11 @@ test('SRAM writes refuse a game that is not yours', () => {
   saveSram(db, game.id, theirs.id, Buffer.from([1, 2, 3]));
 
   assert.equal(findSram(db, game.id, mine.id), null, 'the write must not have landed');
+
+  saveSram(db, game.id, mine.id, Buffer.from([9, 9, 9]));
+
+  assert.equal(findSram(db, game.id, theirs.id), null,
+    'a guest must not be able to read the host SRAM either');
 });
 
 test('a large savestate blob survives the round trip intact', () => {
