@@ -44,10 +44,15 @@ services:
       - backend-avatars:/app/avatars
       - ./backend/data/snes-metadata.json:/app/metadata/snes-metadata.json:ro
     # Dependencies are installed once at image build time (backend/dev.Dockerfile),
-    # not on every container start. After changing backend/package.json (or the root
-    # package.json / bun.lock), the image and the backend-node-modules volume are both
-    # stale: `docker compose down -v && docker compose up --build -d` picks up the change.
-    # Restarting the container alone will not.
+    # not on every container start. backend-node-modules is a NAMED volume, so it
+    # survives both a plain restart and `docker compose up --build`. After changing
+    # backend/package.json (or the root package.json / bun.lock), drop it explicitly
+    # (do NOT `down -v`, which also wipes the dev database, saves, avatars and redis
+    # data — see the frontend service below for its own, different gotcha):
+    #   docker compose up --build -d
+    #   docker compose rm -sf backend
+    #   docker volume rm psnes_backend-node-modules
+    #   docker compose up -d backend
     command: sh -c "npx prisma generate && npm run dev"
     depends_on:
       - redis
@@ -66,9 +71,14 @@ services:
     environment:
       - VITE_API_URL=http://localhost:3000
       - BACKEND_URL=http://backend:3000
-    # Same as the backend above: dependencies come from the image build, not from an
-    # install at start. After changing frontend/package.json (or the root package.json /
-    # bun.lock): `docker compose down -v && docker compose up --build -d`.
+    # Dependencies come from the image build (frontend/dev.Dockerfile), not from an
+    # install at start. Its /app/node_modules above is an ANONYMOUS volume — by
+    # default Compose carries an anonymous volume's *data* over from the old
+    # container to the new one on recreation, so a plain `--build` alone does NOT
+    # pick up a changed frontend/package.json (or root package.json / bun.lock):
+    # verified, it silently keeps the stale packages. Force it to reseed from the
+    # freshly built image instead:
+    #   docker compose up --build -d --renew-anon-volumes
     command: sh -c "npm run dev -- --host"
     depends_on:
       - backend
