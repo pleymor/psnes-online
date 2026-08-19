@@ -97,6 +97,48 @@ function diffSchemas(live: Map<string, string>, expected: Map<string, string>): 
 }
 
 /**
+ * Refuses a migration whose SQL contains a `PRAGMA` statement, before it ever
+ * runs.
+ *
+ * Every migration below executes inside `db.transaction()`. SQLite silently
+ * no-ops `PRAGMA foreign_keys=OFF` (and `defer_foreign_keys=ON` right beside
+ * it - deferral postpones constraint *checks*, it does not suppress cascade
+ * *actions*) when a transaction is already open, so foreign-key enforcement
+ * stays on throughout. That is exactly the shape of a Prisma table rebuild:
+ * create `new_X`, copy rows, `DROP TABLE X`, rename. With enforcement still
+ * on, the `DROP TABLE` fires every surviving `ON DELETE CASCADE` against the
+ * table being dropped, silently deleting rows in *other* tables that the
+ * pragma was meant to protect - no exception raised, the migration reports
+ * success. `prisma migrate diff` - the same command that produced this
+ * repo's baseline - writes exactly this pattern by default, so the next
+ * migration authored here is more likely than not to be handed one.
+ *
+ * Running such a script outside the transaction instead would trade
+ * atomicity silently, on a regex's say-so, for precisely the migration class
+ * where a half-application is most destructive: rows copied, old table
+ * dropped, rename failed, ledger unwritten, and a retry re-runs a
+ * partly-applied script. A refusal costs an author a few minutes; a
+ * half-finished table rebuild costs a restore from backup. So a migration
+ * that needs its pragmas to take effect has to be run by hand, outside
+ * migrate() - deliberately, not through an opt-in flag here.
+ *
+ * A `PRAGMA` inside a comment or a string literal would also be rejected.
+ * That is a false positive worth accepting rather than parsing SQL to avoid:
+ * it costs the author a rename, whereas missing a real one costs silent data
+ * loss.
+ */
+function assertNoPragma(file: string, sql: string): void {
+  if (/\bPRAGMA\b/i.test(sql)) {
+    throw new Error(
+      `${file} contains a PRAGMA statement. Every migration runs inside a transaction, and ` +
+      'SQLite silently ignores PRAGMA foreign_keys there, so a table rebuild\'s DROP TABLE ' +
+      'fires ON DELETE CASCADE with enforcement still on - deleting rows the pragma was meant ' +
+      'to protect, with no error raised. Run this migration by hand, outside migrate(), instead.'
+    );
+  }
+}
+
+/**
  * Brings the database up to date.
  *
  * On a blank database every migration runs. On a database that already
@@ -115,14 +157,22 @@ export function migrate(db: Database, migrationsDir: string): MigrationResult {
     throw new Error(`No migrations found in ${migrationsDir}`);
   }
 
-  const needsBaseline = !db
-    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'`)
-    .get() && hasExistingSchema(db);
-
+  // ensureBookkeeping is unconditional and idempotent - CREATE TABLE IF NOT
+  // EXISTS - so it is safe to run before we know whether this database needs
+  // baselining. What is NOT safe is keying that decision off the table's
+  // *existence*: a refused start (SchemaDriftError below) would then leave an
+  // empty ledger behind, and every later run - even one where the schema has
+  // since been repaired to match exactly - would see the table already there,
+  // treat baselining as done, and crash trying to re-run the baseline's
+  // CREATE TABLE against a schema that's already there. Keying off the
+  // ledger's *row count* instead means a database that failed before ever
+  // recording anything looks, correctly, exactly like one that had never been
+  // touched.
   ensureBookkeeping(db);
+  const recorded = alreadyRecorded(db);
+  const needsBaseline = recorded.size === 0 && hasExistingSchema(db);
 
   const result: MigrationResult = { applied: [], baselined: [] };
-  const recorded = alreadyRecorded(db);
   const [baselineFile, ...rest] = files;
 
   if (needsBaseline) {
@@ -140,22 +190,9 @@ export function migrate(db: Database, migrationsDir: string): MigrationResult {
   for (const file of [baselineFile, ...rest]) {
     if (recorded.has(file)) continue;
     const sql = readFileSync(join(migrationsDir, file), 'utf-8');
+    assertNoPragma(file, sql);
     // Each migration is its own transaction: a failure rolls back that
     // migration and leaves the ones before it recorded.
-    //
-    // That guarantee does not hold for a script that leans on
-    // `PRAGMA foreign_keys=OFF` for a table rebuild. SQLite makes that
-    // pragma a silent no-op inside an already-open transaction, so
-    // enforcement stays on throughout. Tested against the real
-    // Prisma table-rebuild pattern (create new_X, copy rows, DROP TABLE X,
-    // rename): with enforcement still on, the DROP fires each surviving
-    // `ON DELETE CASCADE` against the dropped table, silently deleting rows
-    // in *other* tables that a real, non-transactional run would have kept -
-    // no exception raised, the migration "succeeds". None of the migrations
-    // in this repo do a table rebuild yet (0001_baseline.sql carries no
-    // pragmas), so this has not bitten. The first one that does will need to
-    // run outside a transaction, deliberately trading atomicity for pragmas
-    // that actually take effect - not something to paper over here.
     const run = db.transaction(() => {
       db.exec(sql);
       db.prepare(`INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`)
