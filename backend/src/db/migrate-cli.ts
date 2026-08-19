@@ -24,5 +24,11 @@ try {
     console.error(error.message);
     process.exit(1);
   }
-  throw error;
+  // Anything else - a missing migrations directory, an unreadable database, a
+  // migration statement that fails - would otherwise reach the operator as a
+  // bare, unframed Node stack trace full of dist/ paths. The exit code was
+  // already non-zero either way; what was missing was any signal that it was
+  // *the migration runner* that failed, not the container's next command.
+  console.error('The migration runner failed:', error);
+  process.exit(1);
 }

@@ -105,3 +105,40 @@ test('a failing migration leaves the database untouched', () => {
   const recorded = db.prepare(`SELECT name FROM schema_migrations`).all() as { name: string }[];
   assert.deepEqual(recorded.map(r => r.name), ['0001_baseline.sql']);
 });
+
+test('refusing a drifted database does not poison it: repair the schema and the retry baselines cleanly', () => {
+  const dir = fixture({ '0001_baseline.sql': BASELINE });
+  const db = freshDb();
+  // Same drifted starting point as the refusal test above.
+  db.exec(`CREATE TABLE "Widget" ("id" TEXT NOT NULL PRIMARY KEY)`);
+  db.exec(`CREATE TABLE "_prisma_migrations" ("id" TEXT PRIMARY KEY)`);
+
+  assert.throws(() => migrate(db, dir), SchemaDriftError);
+
+  // An operator fixes the live schema so it now matches the baseline exactly -
+  // no half-measure, no hand-written ledger row.
+  db.exec(`DROP TABLE "Widget"`);
+  db.exec(BASELINE);
+
+  const result = migrate(db, dir);
+
+  assert.deepEqual(result.baselined, ['0001_baseline.sql']);
+  assert.deepEqual(result.applied, []);
+  db.close();
+});
+
+test('a migration containing PRAGMA is refused before it runs', () => {
+  const dir = fixture({
+    '0001_baseline.sql': BASELINE,
+    '0002_pragma.sql': `PRAGMA foreign_keys=OFF;\nALTER TABLE "Widget" ADD COLUMN "colour" TEXT;\nPRAGMA foreign_keys=ON;`
+  });
+  const db = freshDb();
+
+  assert.throws(() => migrate(db, dir), /PRAGMA/);
+
+  const recorded = db.prepare(`SELECT name FROM schema_migrations`).all() as { name: string }[];
+  assert.deepEqual(recorded.map(r => r.name), ['0001_baseline.sql']);
+  const cols = db.prepare(`PRAGMA table_info('Widget')`).all() as { name: string }[];
+  assert.deepEqual(cols.map(c => c.name), ['id', 'label']);
+  db.close();
+});
