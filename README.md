@@ -109,12 +109,25 @@ L'application sera disponible sur:
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:3000
 
-**Après avoir ajouté/modifié une dépendance** (`package.json` racine, `backend/package.json` ou `frontend/package.json`), un simple redémarrage des conteneurs ne suffit plus : les dépendances sont installées une seule fois, à la construction de l'image, pas à chaque démarrage. Il faut reconstruire l'image et recréer le volume `node_modules` qu'elle avait initialisé :
+**Après avoir ajouté/modifié une dépendance** (`package.json` racine, `backend/package.json` ou `frontend/package.json`), un simple redémarrage des conteneurs ne suffit plus : les dépendances sont installées une seule fois, à la construction de l'image, pas à chaque démarrage. Le volume qui les porte n'est pas traité pareil des deux côtés :
+
+- côté **backend**, `node_modules` est un volume **nommé** (`backend-node-modules`) : il
+  survit même à `docker compose up --build`, il faut le supprimer explicitement ;
+- côté **frontend**, `node_modules` est un volume **anonyme** : par défaut, Compose
+  réutilise les données de l'ancien conteneur plutôt que de les régénérer depuis
+  l'image reconstruite — il faut forcer son renouvellement.
 
 ```bash
-docker compose down -v
-docker compose up --build -d
+docker compose up --build -d --renew-anon-volumes   # reconstruit les images, régénère le volume anonyme du frontend
+
+docker compose rm -sf backend                       # côté backend seulement : le volume nommé doit être supprimé à part
+docker volume rm psnes_backend-node-modules
+docker compose up -d backend
 ```
+
+⚠️ Ne pas utiliser `docker compose down -v` pour ça : cette commande supprime **tous**
+les volumes nommés du projet, y compris la base SQLite de dev, les saves, les avatars
+et les données Redis.
 
 ## 🎯 User Journey
 
