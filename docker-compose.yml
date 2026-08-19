@@ -51,7 +51,7 @@ services:
     #   docker compose rm -sf backend
     #   docker volume rm psnes_backend-node-modules
     #   docker compose up -d backend
-    command: sh -c "bun install && npm run dev"
+    command: sh -c "npm run dev"
     depends_on:
       db-migration:
         condition: service_completed_successfully
