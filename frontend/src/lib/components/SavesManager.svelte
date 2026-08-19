@@ -4,6 +4,7 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { createLogger } from '$lib/utils/logger';
+  import { buildSlots, pickDefaultSlot, type Slot } from '$lib/saves/slots';
 
   export let roomId: string;
   export let gameId: string;
@@ -168,38 +169,48 @@
     $socket?.once('error', errorHandler);
   }
 
-  function getAvailableSlots(): number[] {
-    const usedSlots = new Set(saves.map(s => s.slotNumber));
-    const available: number[] = [];
-
-    for (let i = 1; i <= 10; i++) {
-      if (!usedSlots.has(i)) {
-        available.push(i);
-      }
-    }
-
-    return available;
-  }
-
   function formatDate(dateString: string): string {
     const date = new Date(dateString);
     return date.toLocaleString($language);
   }
 
-  $: availableSlots = getAvailableSlots();
-  $: if (availableSlots.length > 0) {
-    selectedSlot = availableSlots[0];
+  function slotLabel(slot: Slot<Save>): string {
+    const prefix = `${t($language, 'slot')} ${slot.slotNumber}`;
+    return slot.save
+      ? `${prefix} — ${slot.save.name} (${formatDate(slot.save.updatedAt)})`
+      : `${prefix} — ${t($language, 'slotFree')}`;
   }
+
+  /**
+   * The default is chosen when the form opens, not by a reactive statement.
+   *
+   * A `$:` block that assigned `selectedSlot` while reading the slot list made
+   * the two one dependency graph: picking a slot in the <select> invalidated
+   * the list as well, which re-ran the block, which put the default back. Every
+   * click snapped to slot 1. Deciding once, on open, cannot be re-entered.
+   */
+  function openCreateForm() {
+    selectedSlot = pickDefaultSlot(saves);
+    showCreateForm = true;
+  }
+
+  // `saves` is referenced here rather than inside a helper, so Svelte actually
+  // tracks it: the previous version called a function that read `saves` out of
+  // scope, which the compiler does not trace, so the list was computed once at
+  // init - while loadSaves() was still in flight - and never again.
+  $: slots = buildSlots(saves);
+  $: selectedSlotHasSave = slots.some(s => s.slotNumber === selectedSlot && s.save !== null);
 </script>
 
 <div class="saves-manager">
   <div class="header">
     <h3>{t($language, 'saves')}</h3>
-    {#if availableSlots.length > 0}
-      <button class="btn-create" on:click={() => showCreateForm = !showCreateForm}>
-        + {t($language, 'createSave')}
-      </button>
-    {/if}
+    <button
+      class="btn-create"
+      on:click={() => showCreateForm ? (showCreateForm = false) : openCreateForm()}
+    >
+      + {t($language, 'createSave')}
+    </button>
   </div>
 
   {#if showCreateForm}
@@ -207,10 +218,13 @@
       <div class="field">
         <label for="slot">{t($language, 'slot')}</label>
         <select id="slot" bind:value={selectedSlot}>
-          {#each availableSlots as slot}
-            <option value={slot}>{t($language, 'slot')} {slot}</option>
+          {#each slots as slot (slot.slotNumber)}
+            <option value={slot.slotNumber}>{slotLabel(slot)}</option>
           {/each}
         </select>
+        {#if selectedSlotHasSave}
+          <small class="overwrite-hint">{t($language, 'slotWillOverwrite')}</small>
+        {/if}
       </div>
 
       <div class="field">
@@ -227,7 +241,7 @@
       </div>
 
       <div class="actions">
-        <button class="btn-save" on:click={createSave} disabled={loading || availableSlots.length === 0}>
+        <button class="btn-save" on:click={createSave} disabled={loading}>
           {loading ? '...' : t($language, 'save')}
         </button>
         <button class="btn-cancel" on:click={() => { showCreateForm = false; saveName = ''; }}>
@@ -307,6 +321,13 @@
 
   .field:last-of-type {
     margin-bottom: 1.5rem;
+  }
+
+  .overwrite-hint {
+    display: block;
+    margin-top: 0.5rem;
+    color: #e0a33e;
+    font-size: 0.75rem;
   }
 
   label {
