@@ -8,7 +8,7 @@ type AsyncRequestHandler = (
 
 /**
  * Express 4 does not observe promises returned by route handlers, so a
- * rejected await (a failing Prisma query, for instance) surfaces as an
+ * rejected await (a failing Redis call, for instance) surfaces as an
  * unhandledRejection and terminates the whole process — one bad query takes
  * the server down for every connected player.
  *

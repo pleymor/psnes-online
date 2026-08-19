@@ -20,7 +20,7 @@ Then start the stack and apply migrations:
 
 ```bash
 docker compose up -d redis backend frontend
-docker compose exec backend npx prisma migrate deploy
+docker compose run --rm db-migration
 ```
 
 `global-setup.ts` waits for both services and fails with a clear message if the

@@ -1,5 +1,7 @@
 # Docker Compose Configuration Update
 
+> **Superseded.** This records a one-off fix made on 2025-11-24, back when the project still ran on Prisma and had a Dual/Streaming emulation toggle. The build-context and Dockerfile shape it describes has since changed further, and step 3 of "Testing the Changes" below (`docker-compose exec backend npx prisma migrate deploy`) no longer works — Prisma is gone; see `docker compose run --rm db-migration` instead. Kept as a historical record, not as instructions to follow.
+
 ## Date: 2025-11-24
 
 ## Changes Made
