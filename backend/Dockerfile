@@ -25,7 +25,7 @@ RUN bun install --production --frozen-lockfile --filter=./backend \
 
 ##
 ## Build stage
-## Prisma generation and TypeScript compilation
+## TypeScript compilation
 ##
 FROM prod-deps AS builder
 
@@ -42,12 +42,6 @@ RUN apt-get update && apt-get install -y \
 # Copy package files and install ALL dependencies (needed for build)
 RUN bun install --frozen-lockfile --filter=./backend \
     && sh scripts/fetch-better-sqlite3-prebuild.sh
-
-# Copy source code and prisma schema
-COPY backend/prisma ./backend/prisma
-
-# Generate Prisma client
-RUN npx prisma generate --schema=backend/prisma/schema.prisma
 
 COPY backend/src ./backend/src
 COPY backend/tsconfig.json ./backend/tsconfig.json
@@ -79,15 +73,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy production dependencies from prod-deps stage
 COPY --from=prod-deps /app/node_modules ./node_modules
 
-# Copy Prisma schema and runtime dependencies from builder stage
-COPY --from=builder /app/backend/prisma ./prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-
 # The migration entrypoint (dist/db/migrate-cli.js) needs these SQL files at
-# runtime; it does not need the two Prisma copies above, but the app code
-# started by CMD (dist/index.js) still does -- backend and db-migration share
-# this production stage, so those Prisma lines stay load-bearing until the
-# app is off Prisma (Task 16). Do not remove them to "clean up" here.
+# runtime.
 COPY backend/migrations ./migrations
 
 # Copy built application from builder

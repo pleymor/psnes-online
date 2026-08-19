@@ -49,14 +49,6 @@ logs/
 # Docker
 docker-compose.override.yml
 
-# Prisma
-# NOTE: backend/prisma/migrations/ is intentionally tracked. `prisma migrate
-# deploy` (see the db-migration service in docker-compose*.yml) needs the
-# migration history in the build context, so ignoring it breaks any fresh
-# clone and CI deploy.
-backend/prisma/*.db
-backend/prisma/*.db-journal
-
 # psnes deterministic core build.
 #
 # The wasm artefact under frontend/static/psnes-core/ IS committed: the
