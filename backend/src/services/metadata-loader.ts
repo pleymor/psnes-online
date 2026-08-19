@@ -1,7 +1,11 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { prisma } from '../db/prisma.js';
+import { getDb } from '../db/sqlite.js';
+import {
+  countGameMetadata, insertGameMetadataBatch, listGameMetadata,
+  findGameMetadataByChecksum as findMetadataRowByChecksum, deleteAllGameMetadata
+} from '../db/game-metadata.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('Metadata');
@@ -43,46 +47,39 @@ export async function loadGameMetadata(): Promise<void> {
     logger.info({ count: metadata.length }, 'Found games in metadata file');
 
     // Check if metadata already exists
-    const existingCount = await prisma.gameMetadata.count();
+    const db = getDb();
+    const existingCount = countGameMetadata(db);
 
     if (existingCount > 0) {
       logger.info({ count: existingCount }, 'Metadata already loaded, skipping');
       return;
     }
 
-    // Insert all metadata entries
-    let successCount = 0;
-    let errorCount = 0;
+    // Insert all metadata entries in one transaction. Unlike the old
+    // entry-by-entry loop, which caught errors per row and kept going, this
+    // fails as a whole on a malformed entry: the catalogue is a JSON file
+    // shipped with the image, not user input, so a loud failure here is more
+    // honest than an error counter nobody reads. The outer try/catch still
+    // lets the app start without metadata.
+    const successCount = insertGameMetadataBatch(db, metadata.map(entry => ({
+      title: entry.title,
+      altTitle: entry.altTitle ?? null,
+      genre: entry.genre ?? null,
+      publisher: entry.publisher ?? null,
+      developer: entry.developer ?? null,
+      releaseDate: entry.releaseDate ?? null,
+      players: entry.players ?? null,
+      region: entry.region ?? null,
+      description: entry.description ?? null,
+      coverUrl: entry.coverUrl ?? null,
+      crc32: entry.crc32 ?? null,
+      md5: entry.md5 ?? null
+    })));
 
-    for (const entry of metadata) {
-      try {
-        await prisma.gameMetadata.create({
-          data: {
-            title: entry.title,
-            altTitle: entry.altTitle,
-            genre: entry.genre,
-            publisher: entry.publisher,
-            developer: entry.developer,
-            releaseDate: entry.releaseDate,
-            players: entry.players,
-            region: entry.region,
-            description: entry.description,
-            coverUrl: entry.coverUrl,
-            crc32: entry.crc32,
-            md5: entry.md5
-          }
-        });
-        successCount++;
-      } catch (error) {
-        logger.error({ err: error, title: entry.title }, "Failed to load metadata");
-        errorCount++;
-      }
-    }
-
-    logger.info({ successCount, errorCount }, 'Metadata loaded successfully');
+    logger.info({ successCount }, 'Metadata loaded successfully');
 
     // Load metadata into cache
-    metadataCache = await prisma.gameMetadata.findMany();
+    metadataCache = listGameMetadata(db);
     logger.info({ count: metadataCache.length }, 'Cached metadata entries in memory');
   } catch (error: any) {
     if (error.code === 'ENOENT') {
@@ -144,7 +141,7 @@ export async function findGameMetadata(title: string): Promise<any | null> {
 
   // Load cache if not already loaded
   if (!metadataCache) {
-    metadataCache = await prisma.gameMetadata.findMany();
+    metadataCache = listGameMetadata(getDb());
   }
 
   const allMetadata = metadataCache;
@@ -182,16 +179,7 @@ export async function findGameMetadata(title: string): Promise<any | null> {
  * Searches for game metadata by checksum (CRC32 or MD5)
  */
 export async function findGameMetadataByChecksum(checksum: string): Promise<any | null> {
-  const metadata = await prisma.gameMetadata.findFirst({
-    where: {
-      OR: [
-        { crc32: checksum },
-        { md5: checksum }
-      ]
-    }
-  });
-
-  return metadata;
+  return findMetadataRowByChecksum(getDb(), checksum);
 }
 
 /**
@@ -201,7 +189,7 @@ export async function refreshGameMetadata(): Promise<void> {
   logger.info('Refreshing game metadata...');
 
   // Delete all existing metadata
-  await prisma.gameMetadata.deleteMany({});
+  deleteAllGameMetadata(getDb());
   logger.info('Cleared existing metadata');
 
   // Clear cache
