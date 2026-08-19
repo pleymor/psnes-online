@@ -13,6 +13,8 @@ const logger = createLogger('Metadata');
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const DEFAULT_METADATA_PATH = path.join(__dirname, '../../metadata/snes-metadata.json');
+
 // In-memory cache for game metadata (loaded once at startup)
 let metadataCache: any[] | null = null;
 
@@ -31,18 +33,39 @@ export interface GameMetadataEntry {
   md5?: string;
 }
 
+/** Reads and parses the catalogue file. Throws on a missing or malformed file - callers decide what "before we've touched the database" means. */
+async function readMetadataEntries(metadataPath: string): Promise<GameMetadataEntry[]> {
+  const metadataContent = await fs.readFile(metadataPath, 'utf-8');
+  return JSON.parse(metadataContent);
+}
+
+function toMetadataInputs(entries: GameMetadataEntry[]) {
+  return entries.map(entry => ({
+    title: entry.title,
+    altTitle: entry.altTitle ?? null,
+    genre: entry.genre ?? null,
+    publisher: entry.publisher ?? null,
+    developer: entry.developer ?? null,
+    releaseDate: entry.releaseDate ?? null,
+    players: entry.players ?? null,
+    region: entry.region ?? null,
+    description: entry.description ?? null,
+    coverUrl: entry.coverUrl ?? null,
+    crc32: entry.crc32 ?? null,
+    md5: entry.md5 ?? null
+  }));
+}
+
 /**
  * Loads SNES game metadata from JSON file and stores it in the database
  * This runs at backend startup to ensure metadata is available
  */
-export async function loadGameMetadata(): Promise<void> {
+export async function loadGameMetadata(metadataPath: string = DEFAULT_METADATA_PATH): Promise<void> {
   logger.info('Loading SNES game metadata...');
 
   try {
     // Read metadata JSON file (from metadata directory, not data which is volume-mounted)
-    const metadataPath = path.join(__dirname, '../../metadata/snes-metadata.json');
-    const metadataContent = await fs.readFile(metadataPath, 'utf-8');
-    const metadata: GameMetadataEntry[] = JSON.parse(metadataContent);
+    const metadata = await readMetadataEntries(metadataPath);
 
     logger.info({ count: metadata.length }, 'Found games in metadata file');
 
@@ -61,20 +84,7 @@ export async function loadGameMetadata(): Promise<void> {
     // shipped with the image, not user input, so a loud failure here is more
     // honest than an error counter nobody reads. The outer try/catch still
     // lets the app start without metadata.
-    const successCount = insertGameMetadataBatch(db, metadata.map(entry => ({
-      title: entry.title,
-      altTitle: entry.altTitle ?? null,
-      genre: entry.genre ?? null,
-      publisher: entry.publisher ?? null,
-      developer: entry.developer ?? null,
-      releaseDate: entry.releaseDate ?? null,
-      players: entry.players ?? null,
-      region: entry.region ?? null,
-      description: entry.description ?? null,
-      coverUrl: entry.coverUrl ?? null,
-      crc32: entry.crc32 ?? null,
-      md5: entry.md5 ?? null
-    })));
+    const successCount = insertGameMetadataBatch(db, toMetadataInputs(metadata));
 
     logger.info({ successCount }, 'Metadata loaded successfully');
 
@@ -183,18 +193,42 @@ export async function findGameMetadataByChecksum(checksum: string): Promise<any 
 }
 
 /**
- * Refreshes/reloads metadata (useful for updates)
+ * Refreshes/reloads metadata (useful for updates).
+ *
+ * The read and parse happen first, entirely before any write: better-sqlite3
+ * transactions cannot span an `await`, so the file has to be off the disk and
+ * in memory before the transaction opens, not merely reordered inside it.
+ * Delete and insert then run as one transaction, so a bad JSON file or a
+ * malformed entry leaves the previous catalogue exactly as it was, instead of
+ * an empty table between a committed delete and an insert that never happens.
  */
-export async function refreshGameMetadata(): Promise<void> {
+export async function refreshGameMetadata(metadataPath: string = DEFAULT_METADATA_PATH): Promise<void> {
   logger.info('Refreshing game metadata...');
 
-  // Delete all existing metadata
-  deleteAllGameMetadata(getDb());
-  logger.info('Cleared existing metadata');
+  let entries: GameMetadataEntry[];
+  try {
+    entries = await readMetadataEntries(metadataPath);
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      logger.warn('No metadata file found, keeping existing catalogue');
+    } else {
+      logger.error({ err: error }, 'Failed to read game metadata file, keeping existing catalogue');
+    }
+    return;
+  }
 
-  // Clear cache
-  metadataCache = null;
+  const db = getDb();
+  try {
+    db.transaction(() => {
+      deleteAllGameMetadata(db);
+      insertGameMetadataBatch(db, toMetadataInputs(entries));
+    })();
+  } catch (error) {
+    logger.error({ err: error }, 'Failed to refresh game metadata, keeping existing catalogue');
+    return;
+  }
 
-  // Reload from file
-  await loadGameMetadata();
+  // Clear and reload the cache only once the new catalogue has actually landed.
+  metadataCache = listGameMetadata(db);
+  logger.info({ count: metadataCache.length }, 'Refreshed metadata entries in memory');
 }

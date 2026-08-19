@@ -91,6 +91,16 @@ export function findControlsConfig(db: Database, userId: string): string | null 
   return row?.controlsConfig ?? null;
 }
 
+/**
+ * Unlike Prisma, which threw P2025 for a row that had vanished, a `WHERE id
+ * = ?` matching nothing here silently affects zero rows - a deliberate
+ * decision, not an oversight, made the same way across the five other writes
+ * of this shape (updateSaveData, updateGameMetadata, deleteGame,
+ * deleteFriendship, saveSram), each already guarded by an existence or
+ * ownership check; its one caller-visible effect is that `PUT /controls` and
+ * `POST /controls/reset` now return 200 instead of 500 for a user whose row
+ * is gone.
+ */
 export function updateControlsConfig(db: Database, userId: string, json: string): void {
   db.prepare(`UPDATE "User" SET controlsConfig = ?, updatedAt = ? WHERE id = ?`)
     .run(json, Date.now(), userId);
