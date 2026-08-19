@@ -83,6 +83,13 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/backend/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
+# The migration entrypoint (dist/db/migrate-cli.js) needs these SQL files at
+# runtime; it does not need the two Prisma copies above, but the app code
+# started by CMD (dist/index.js) still does -- backend and db-migration share
+# this production stage, so those Prisma lines stay load-bearing until the
+# app is off Prisma (Task 16). Do not remove them to "clean up" here.
+COPY backend/migrations ./migrations
+
 # Copy built application from builder
 COPY --from=builder /app/backend/dist ./dist
 
