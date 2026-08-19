@@ -1,6 +1,7 @@
 import { Server, Socket } from 'socket.io';
 import { Room, User } from '../types/index.js';
-import { prisma } from '../db/prisma.js';
+import { getDb } from '../db/sqlite.js';
+import { findUserById } from '../db/users.js';
 import { notifyFriendsStatusChanged, getOnlineFriends } from '../services/friends.js';
 import { registerRoomHandlers, scheduleLeaveRoom } from './room-handlers.js';
 import { registerGameHandlers } from './game-handlers.js';
@@ -80,9 +81,7 @@ async function handleConnection(io: Server, socket: Socket) {
   }
 
   // Load full user data from database (WebSocket doesn't run deserializeUser)
-  const user = await prisma.user.findUnique({
-    where: { id: userId }
-  });
+  const user = findUserById(getDb(), userId);
 
   if (!user) {
     logger.error({ userId }, 'User not found');

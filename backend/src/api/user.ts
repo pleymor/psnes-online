@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { KeyConfig } from '../types';
-import { prisma } from '../db/prisma.js';
+import { getDb } from '../db/sqlite.js';
+import { findControlsConfig, updateControlsConfig } from '../db/users.js';
 import { requireAuth } from '../middleware/auth.js';
 import { getDefaultKeyConfig, isValidKeyConfig } from '../utils/key-config.js';
 import { createLogger } from '../utils/logger.js';
@@ -14,17 +15,14 @@ export const userRouter = Router();
 userRouter.get('/controls', requireAuth, asyncHandler(async (req, res) => {
   try {
     const userId = (req.user as any).id;
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { controlsConfig: true }
-    });
+    const stored = findControlsConfig(getDb(), userId);
 
-    if (!user || !user.controlsConfig) {
+    if (!stored) {
       // Return default configuration if none saved
       return res.json(getDefaultKeyConfig());
     }
 
-    const config = JSON.parse(user.controlsConfig);
+    const config = JSON.parse(stored);
     res.json(config);
   } catch (error) {
     logger.error({ err: error }, 'Error fetching controls config');
@@ -43,10 +41,7 @@ userRouter.put('/controls', requireAuth, asyncHandler(async (req, res) => {
       return res.status(400).json({ error: 'Invalid controls configuration' });
     }
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: { controlsConfig: JSON.stringify(config) }
-    });
+    updateControlsConfig(getDb(), userId, JSON.stringify(config));
 
     res.json({ message: 'Controls configuration updated successfully', config });
   } catch (error) {
@@ -61,10 +56,7 @@ userRouter.post('/controls/reset', requireAuth, asyncHandler(async (req, res) =>
     const userId = (req.user as any).id;
     const defaultConfig = getDefaultKeyConfig();
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: { controlsConfig: JSON.stringify(defaultConfig) }
-    });
+    updateControlsConfig(getDb(), userId, JSON.stringify(defaultConfig));
 
     res.json({ message: 'Controls reset to defaults', config: defaultConfig });
   } catch (error) {

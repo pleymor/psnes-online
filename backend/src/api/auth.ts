@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import passport from 'passport';
 import { getAuthMode } from '../auth/passport.js';
-import { prisma } from '../db/prisma.js';
+import { getDb } from '../db/sqlite.js';
+import { upsertDevUser } from '../db/users.js';
 import { createLogger } from '../utils/logger.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 
@@ -63,11 +64,7 @@ if (AUTH_MODE === 'dev' && process.env.NODE_ENV !== 'production') {
       const userData = devUsers[parseInt(userId) - 1];
 
       // Upsert user in database (update avatar if user already exists)
-      const user = await prisma.user.upsert({
-        where: { id: userData.id },
-        update: { avatar: userData.avatar },
-        create: userData
-      });
+      const user = upsertDevUser(getDb(), userData);
 
       // Login user
       req.login(user, (err) => {

@@ -1,6 +1,7 @@
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import { prisma } from '../db/prisma.js';
+import { getDb } from '../db/sqlite.js';
+import { findUserByGoogleId, findUserById, createUser, updateUserProfile } from '../db/users.js';
 import { downloadAvatar } from '../utils/avatar.js';
 import { logger } from '../utils/logger.js';
 
@@ -23,9 +24,8 @@ export function initializeAuth() {
               return done(new Error('No email found in Google profile'));
             }
 
-            let user = await prisma.user.findUnique({
-              where: { googleId: profile.id }
-            });
+            const db = getDb();
+            let user = findUserByGoogleId(db, profile.id);
 
             // Download avatar from Google if available
             let avatarUrl = null;
@@ -40,21 +40,16 @@ export function initializeAuth() {
             // there is nothing left to call, and storing a refresh token you
             // never use is a standing liability for no benefit.
             if (!user) {
-              user = await prisma.user.create({
-                data: {
-                  googleId: profile.id,
-                  email,
-                  displayName: profile.displayName,
-                  avatar: avatarUrl
-                }
+              user = createUser(db, {
+                googleId: profile.id,
+                email,
+                displayName: profile.displayName,
+                avatar: avatarUrl
               });
             } else {
-              user = await prisma.user.update({
-                where: { id: user.id },
-                data: {
-                  displayName: profile.displayName,
-                  avatar: avatarUrl
-                }
+              user = updateUserProfile(db, user.id, {
+                displayName: profile.displayName,
+                avatar: avatarUrl
               });
             }
 
@@ -73,7 +68,7 @@ export function initializeAuth() {
 
   passport.deserializeUser(async (id: string, done) => {
     try {
-      const user = await prisma.user.findUnique({ where: { id } });
+      const user = findUserById(getDb(), id);
       if (!user) {
         logger.warn({ userId: id }, 'deserializeUser: user not found');
       }
