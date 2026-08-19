@@ -116,4 +116,25 @@ test.describe('room authorization', () => {
     expect(list.map((r: any) => r.id)).not.toContain(room.id);
     expect(JSON.stringify(list)).not.toContain('keyConfig');
   });
+
+  test('friends:online for an accepted friend carries only the four allowed fields', async () => {
+    await befriendDevUsers(c1, c2);
+
+    const online = waitForEvent<any[]>(host, 'friends:online', 4000);
+    host.emit('friends:getOnlineStatus');
+    const friends = await online;
+
+    expect(friends, 'friends:online must still be emitted').not.toBeNull();
+    const friend = friends!.find((f: any) => f.id === 'dev-user-2');
+    expect(friend, 'the accepted friend must appear in the online-friends list').toBeTruthy();
+
+    // Assert on the payload's actual keys, not a substring of its JSON: the
+    // repository's listAcceptedFriendshipsWithProfiles hands back the whole
+    // User on both sides, and it is up to the caller to narrow it back down
+    // to what a friend list is allowed to show.
+    expect(friend).not.toHaveProperty('googleId');
+    expect(friend).not.toHaveProperty('controlsConfig');
+    expect(friend).not.toHaveProperty('createdAt');
+    expect(friend).not.toHaveProperty('updatedAt');
+  });
 });
