@@ -1190,7 +1190,18 @@ COPY backend/migrations ./migrations
 
 - [ ] **Step 3: Vérifier que le binaire natif de better-sqlite3 survit au multi-étage**
 
-C'est le point de rupture le plus probable du build, identifié dans la spec. L'étape `production` copie `node_modules` depuis `prod-deps`, une image `node:20` ; l'étape d'exécution est `node:20-trixie-slim`. Le `.node` compilé doit être compatible.
+**Amendé après la Task 4, qui a changé la nature de la question.** Le binaire ne vient pas d'une compilation mais d'un binaire pré-construit récupéré par `scripts/fetch-better-sqlite3-prebuild.sh` : `prebuild-install` refuse de tourner sous Bun, et Bun remplace `node` par son propre shim pour les scripts de cycle de vie. Surtout, `bun install --filter` **n'exécute pas** le `postinstall` du paquet racine, et Bun n'exécute jamais celui d'un membre du workspace — d'où les étapes `RUN … && sh scripts/fetch-better-sqlite3-prebuild.sh` ajoutées après chaque installation filtrée dans les deux Dockerfiles backend.
+
+La question n'est donc plus « un compilateur est-il présent » mais « le binaire atterrit-il dans l'image ». Et elle ne se vérifie pas en constatant qu'un fichier existe : construire l'image et y exécuter un `require` réel.
+
+```bash
+cd /home/pleymor/projects/psnes-repos/psnes
+docker build -f backend/Dockerfile --target production -t psnes-backend-probe .
+docker run --rm --entrypoint node psnes-backend-probe \
+  -e "const D=require('better-sqlite3'); new D(':memory:').exec('CREATE TABLE t(x)'); console.log('ok')"
+```
+
+Attendu : `ok`. Le `.node` doit aussi rester compatible entre l'étape `prod-deps` (`node:20`, Debian bookworm) et l'étape d'exécution (`node:20-trixie-slim`) — glibc étant rétrocompatible, un binaire construit sur bookworm tourne sur trixie, mais c'est ce `require` qui le prouve, pas ce raisonnement.
 
 ```bash
 cd /home/pleymor/projects/psnes-repos/psnes
@@ -3635,6 +3646,16 @@ rm -f backend/test.db
 ```
 
 `backend/prisma/data/dev.db` est la base locale vide de décembre 2025, sans `_prisma_migrations` — elle ne contient aucune donnée à sauver. `backend/test.db` appartient à root et date de novembre 2025 ; il peut résister à `rm` sans `sudo`, auquel cas le laisser et l'ajouter au `.gitignore`.
+
+- [ ] **Step 2 bis: Ce que le plan ignorait, découvert en cours de route**
+
+Trois choses s'ajoutent à cette tâche et ne figuraient pas dans sa rédaction initiale.
+
+**La production applique ses migrations depuis un autre dépôt.** `pleymor/psnes-online-infra` a son propre `docker-compose.yml`, avec un service `migrations` qui lance `npx prisma migrate deploy` contre `ghcr.io/pleymor/psnes-backend`. Retirer Prisma de l'image sans changer ça casse les migrations de production au déploiement suivant. Cette tâche n'est pas terminée tant que ce service n'invoque pas le nouveau runner, et les deux dépôts doivent changer dans la même fenêtre — un déploiement échouera entre les deux, quel que soit l'ordre.
+
+**`trustedDependencies` liste encore les paquets Prisma.** `package.json` à la racine nomme `@prisma/client`, `@prisma/engines` et `prisma`. Ils partent avec la dépendance. Attention : ce champ **remplace** la liste par défaut de Bun au lieu de l'étendre — c'est écrit dans le fichier, sous la clé `//trustedDependencies` — donc retirer les entrées Prisma ne doit pas retirer par accident celles qui restent nécessaires. Vérifier par `bun pm untrusted` après coup : seul `better-sqlite3` doit y figurer.
+
+**Les numéros de ligne du Dockerfile ont bougé deux fois.** Les Tasks 2 et 7 l'ont réécrit. Repérer `npx prisma generate` et les `COPY` de `prisma/` par leur contenu, pas par les numéros cités plus bas.
 
 - [ ] **Step 3: Retirer les dépendances et les scripts**
 
