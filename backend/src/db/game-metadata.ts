@@ -24,7 +24,19 @@ interface MetadataRow extends Omit<GameMetadata, 'createdAt' | 'updatedAt'> {
 
 function toMetadata(row: MetadataRow): GameMetadata {
   return {
-    ...row,
+    id: row.id,
+    title: row.title,
+    altTitle: row.altTitle,
+    genre: row.genre,
+    publisher: row.publisher,
+    developer: row.developer,
+    releaseDate: row.releaseDate,
+    players: row.players,
+    region: row.region,
+    description: row.description,
+    coverUrl: row.coverUrl,
+    crc32: row.crc32,
+    md5: row.md5,
     createdAt: new Date(row.createdAt),
     updatedAt: new Date(row.updatedAt)
   };
@@ -65,9 +77,9 @@ export function countGameMetadata(db: Database): number {
 /**
  * Loads the whole catalogue in one transaction.
  *
- * The old loader inserted several thousand rows one statement at a time, each
- * its own implicit transaction. One transaction turns that from thousands of
- * fsyncs into one.
+ * The old loader inserted the catalogue's 94 rows (33 KB of JSON) one
+ * statement at a time, each its own implicit transaction. One transaction
+ * turns that from 94 fsyncs into one.
  */
 export function insertGameMetadataBatch(db: Database, entries: GameMetadataInput[]): number {
   const statement = db.prepare(INSERT);

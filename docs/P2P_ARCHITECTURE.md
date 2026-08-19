@@ -169,7 +169,7 @@ GUEST BROWSER:                                         │
   "dependencies": {
     "socket.io": "^4.7.2",           // Signaling WebRTC
     "express": "^4.18.2",            // API REST
-    "prisma": "^5.0.0",              // Database
+    "better-sqlite3": "12.9.0",      // Database
     "redis": "^5.0.0"                // Sessions
   },
   "removed": {

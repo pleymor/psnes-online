@@ -24,7 +24,7 @@ COPY scripts ./scripts
 # run the root project's postinstall once --filter narrows the install to
 # one workspace -- so better-sqlite3's native binding (see
 # scripts/fetch-better-sqlite3-prebuild.sh) has to be built explicitly here.
-RUN bun install --filter=./backend \
+RUN bun install --frozen-lockfile --filter=./backend \
     && sh scripts/fetch-better-sqlite3-prebuild.sh
 
 # Source code will be mounted as a volume, so we don't copy it here
