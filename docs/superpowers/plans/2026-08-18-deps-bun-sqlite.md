@@ -3657,6 +3657,15 @@ Trois choses s'ajoutent à cette tâche et ne figuraient pas dans sa rédaction 
 
 **Les numéros de ligne du Dockerfile ont bougé deux fois.** Les Tasks 2 et 7 l'ont réécrit. Repérer `npx prisma generate` et les `COPY` de `prisma/` par leur contenu, pas par les numéros cités plus bas.
 
+**Deux `COPY` que la Task 7 devait retirer et n'a pas retirés.** Son Step 2 demandait de remplacer, dans l'étape `production` :
+
+```dockerfile
+COPY --from=builder /app/backend/prisma ./prisma
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+```
+
+C'était faux. `docker-compose.prod.yml` construit **deux** services depuis cette même étape — `db-migration` et `backend` — et le serveur applicatif appelait encore Prisma à l'exécution à ce moment-là. Les supprimer aurait fait échouer `new PrismaClient()` au démarrage. La Task 7 a donc ajouté le `COPY` des migrations à côté et laissé ces deux lignes en place. C'est ici qu'elles partent, puisque c'est ici que plus rien n'en a besoin.
+
 - [ ] **Step 3: Retirer les dépendances et les scripts**
 
 Dans `backend/package.json`, supprimer de `dependencies` :
