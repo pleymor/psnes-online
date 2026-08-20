@@ -71,6 +71,18 @@
   let phase: 'loading' | 'waiting' | 'playing' | 'error' = 'loading';
   let statusText = 'Loading core…';
   let errorText = '';
+  /**
+   * Set once the component is gone, so a suspended boot() cannot build on a
+   * corpse.
+   *
+   * boot() awaits the core, the ROM, the audio device, the battery save and
+   * the relay - five points where the room can be destroyed underneath it.
+   * Svelte then runs teardown() from onDestroy, and only afterwards does the
+   * suspended boot() resume and build a fresh AudioSink, InputCollector and
+   * FrameGovernor that nothing will ever stop, because the one teardown()
+   * already happened. Cleanup running zero times rather than once.
+   */
+  let destroyed = false;
   let needsAudioGesture = false;
   /** Set while the boot is parked waiting for the player to point at a file. */
   let romPrompt: ((bytes: Uint8Array) => void) | null = null;
@@ -432,9 +444,11 @@
 
       statusText = 'Loading emulator core…';
       core = await loadCore();
+      if (destroyed) return teardown();
 
       statusText = 'Locating the ROM…';
       loadedRom = await obtainRom();
+      if (destroyed) return teardown();
       const rom = normaliseRom(loadedRom);
       core.loadRom(rom);
 
@@ -457,6 +471,7 @@
 
       audio = new AudioSink();
       await audio.start(Math.round(core.sampleRate));
+      if (destroyed) return teardown();
       // Ask, do not assume: a room is reached by clicking, so the context
       // is usually already running and no gesture is needed.
       needsAudioGesture = audio.needsGesture;
@@ -474,10 +489,12 @@
       // adopt, and loading SRAM afterwards would change one machine and not
       // the other. Only the host loads - the guest inherits it in that state.
       if (isHost) await loadSram();
+      if (destroyed) return teardown();
 
       statusText = 'Connecting to the other player…';
       phase = 'waiting';
       await joinRelay();
+      if (destroyed) return teardown();
 
       transport = new SocketTransport($socket as never, roomId);
 
@@ -939,6 +956,7 @@
   }
 
   function teardown() {
+    destroyed = true;
     if (stallTimer) clearTimeout(stallTimer);
     stallTimer = null;
     if (chromeTimer) clearTimeout(chromeTimer);
