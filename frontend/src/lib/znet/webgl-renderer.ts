@@ -284,9 +284,15 @@ export class WebglRenderer implements Renderer {
 	 * path - what it does NOT control is GL sampling: filtering is the
 	 * preset's business, set per pass from `filter_linearN`, and overriding it
 	 * would make the shader look different from the same shader in the
-	 * RetroArch path. `scanlines` does not apply at all - crt-easymode draws
-	 * its own, and stacking a second set over a shader that already has them
-	 * looks wrong.
+	 * RetroArch path.
+	 *
+	 * `scanlines` does not apply at all, and the honest reason is that it is
+	 * simply not implemented here: the 2D path draws them onto the canvas
+	 * after the blit, which has no equivalent once a shader owns the pixels.
+	 * The room disables the button while a shader is active rather than let it
+	 * advertise an effect nothing applies. A shader that drew its own would
+	 * make stacking a second set wrong anyway, but no preset in the offered
+	 * list does - the one that did, crt-easymode, has been removed.
 	 */
 	private applyOptions(): void {
 		this.canvas.style.imageRendering = this.options.pixelPerfect ? 'pixelated' : 'auto';
