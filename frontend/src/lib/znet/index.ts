@@ -35,6 +35,10 @@ export type { SocketLike } from './socket-transport.js';
 
 export { CanvasRenderer, AudioSink, DEFAULT_DISPLAY } from './output.js';
 export type { DisplayOptions } from './output.js';
+export { parsePreset, resolveShaderUrl, SUPPORTED_DIRECTIVES } from './preset.js';
+export type { Preset, PresetPass, PresetResult } from './preset.js';
+export { loadShaderPreset, presetUrl, SHADER_BASE_URL } from './shader-source.js';
+export type { LoadedPreset, LoadedPass, LoadResult } from './shader-source.js';
 export { InputCollector } from './input.js';
 export type { GamepadSource } from './input.js';
 
