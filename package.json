@@ -18,7 +18,7 @@
     "core:build": "./core/build.sh",
     "test:netplay": "node --import tsx --test core/test/netcode.test.ts core/test/relay.test.ts",
     "test:core": "node --import tsx --test core/test/determinism.test.ts core/test/lockstep.test.ts",
-    "test:ui": "node --import tsx --test core/test/capture-gate.test.ts core/test/input.test.ts core/test/rom-provider.test.ts core/test/room-snapshot.test.ts core/test/thumbnail.test.ts core/test/saves-api.test.ts core/test/preset.test.ts core/test/video-surface.test.ts",
+    "test:ui": "node --import tsx --test core/test/capture-gate.test.ts core/test/input.test.ts core/test/rom-provider.test.ts core/test/room-snapshot.test.ts core/test/thumbnail.test.ts core/test/saves-api.test.ts core/test/preset.test.ts core/test/video-surface.test.ts core/test/solo.test.ts",
     "test:backend": "node --import tsx --test backend/test/*.test.ts",
     "test:all": "npm run test:netplay && npm run test:core && npm run test:ui && npm run test:backend",
     "postinstall": "sh scripts/fetch-better-sqlite3-prebuild.sh"

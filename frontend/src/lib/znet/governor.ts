@@ -1,13 +1,16 @@
 /**
- * Real-time driver for a NetplaySession.
+ * Real-time driver for a TickSource.
  *
  * The session itself is timer-free on purpose; this is the only place that
  * knows about wall-clock time, which keeps the netcode testable. Its job is
  * narrow: decide how many `tick()` calls a given slice of real time deserves,
  * and never let an emulator run away from the clock.
+ *
+ * It works for netplay and for solo alike: both are just something that can be
+ * ticked.
  */
 
-import type { NetplaySession } from './session.js';
+import type { TickSource } from './session.js';
 
 export interface GovernorOptions {
 	/** Emulated frames per second. SNES NTSC is 60.0988, not 60. */
@@ -23,7 +26,7 @@ export interface GovernorOptions {
 }
 
 export class FrameGovernor {
-	private session: NetplaySession;
+	private session: TickSource;
 	private fps: number;
 	private maxCatchUp: number;
 	private onSlice: (framesRun: number, stalled: boolean) => void;
@@ -50,7 +53,7 @@ export class FrameGovernor {
 	private worker: Worker | null = null;
 	private onVisibilityChange = () => this.reschedule();
 
-	constructor(session: NetplaySession, options: GovernorOptions = {}) {
+	constructor(session: TickSource, options: GovernorOptions = {}) {
 		this.session = session;
 		this.fps = options.fps ?? 60.0988;
 		this.maxCatchUp = options.maxCatchUp ?? 8;

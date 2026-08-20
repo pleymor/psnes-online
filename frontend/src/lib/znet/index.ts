@@ -18,7 +18,8 @@ export type {
 	SessionOptions,
 	SessionState,
 	SessionStats,
-	TickResult
+	TickResult,
+	TickSource
 } from './session.js';
 
 export { FrameGovernor } from './governor.js';

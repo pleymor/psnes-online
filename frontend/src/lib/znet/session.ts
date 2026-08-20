@@ -59,6 +59,22 @@ export type SessionState =
 
 export type TickResult = 'ran' | 'stalled' | 'idle';
 
+/**
+ * What FrameGovernor needs from a session, and nothing more.
+ *
+ * The governor is the only timer owner in this stack, and of a session it
+ * calls exactly these two methods. Naming them separately from
+ * NetplaySession is what lets solo play reuse the governor without dragging
+ * in a handshake, an input delay and a resync path that mean nothing with
+ * one player.
+ */
+export interface TickSource {
+	/** Cheap out-of-band work: retries, probes. Called once per slice. */
+	pump(): void;
+	/** Advance at most one frame. */
+	tick(): TickResult;
+}
+
 export interface SessionEvent {
 	type:
 		| 'state'
@@ -154,7 +170,7 @@ export interface SessionStats {
 	padsAhead: number[];
 }
 
-export class NetplaySession {
+export class NetplaySession implements TickSource {
 	readonly isHost: boolean;
 	readonly playerIndex: number;
 
