@@ -453,7 +453,14 @@ export class WebglRenderer implements Renderer {
 			passWidth = Math.max(1, Math.round(passWidth * scale));
 			passHeight = Math.max(1, Math.round(passHeight * scale));
 
-			const texture = gl.createTexture()!;
+			const texture = gl.createTexture();
+			if (!texture) {
+				// A context being lost mid-allocation. Same outcome as an
+				// incomplete framebuffer: give up on GL, keep the 2D path.
+				gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+				this.contextLost = true;
+				return;
+			}
 			gl.bindTexture(gl.TEXTURE_2D, texture);
 			gl.texImage2D(
 				gl.TEXTURE_2D, 0, gl.RGBA, passWidth, passHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null
@@ -463,7 +470,15 @@ export class WebglRenderer implements Renderer {
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
-			const framebuffer = gl.createFramebuffer()!;
+			const framebuffer = gl.createFramebuffer();
+			if (!framebuffer) {
+				// Same as above: the context died between the texture and the
+				// framebuffer being created.
+				gl.deleteTexture(texture);
+				gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+				this.contextLost = true;
+				return;
+			}
 			gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 			gl.framebufferTexture2D(
 				gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0
@@ -472,6 +487,8 @@ export class WebglRenderer implements Renderer {
 				// This is the xbrz-freescale failure, arriving from the other side:
 				// a target too large for the driver. Give up on GL rather than draw
 				// nothing - the room will keep the 2D renderer.
+				gl.deleteTexture(texture);
+				gl.deleteFramebuffer(framebuffer);
 				gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 				this.contextLost = true;
 				return;
