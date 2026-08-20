@@ -976,6 +976,7 @@
 
 <div
   class="lockstep"
+  class:paused={showPauseMenu}
   class:chrome-hidden={isFullscreen && !chromeVisible}
   bind:this={stage}
 >
@@ -1356,5 +1357,26 @@
     /* Also makes the picture behind it clickable again, and hands the cursor
        back to the stage rule above so it disappears with the toolbar. */
     pointer-events: none;
+  }
+  /*
+   * The pause panel is fixed to the left edge, so it pushes nothing by itself.
+   * Reserving its width here is what makes the game shrink rather than be
+   * covered - and .screen's ResizeObserver re-fits the picture as the padding
+   * animates, which keeps it crisp instead of scaled.
+   */
+  .lockstep {
+    --pause-panel-width: 20rem;
+    transition: padding-left 220ms cubic-bezier(0.33, 1, 0.68, 1);
+  }
+
+  .lockstep.paused {
+    padding-left: var(--pause-panel-width);
+  }
+
+  /* Narrow: the panel covers instead, so there is nothing to reserve. */
+  @media (max-width: 700px) {
+    .lockstep.paused {
+      padding-left: 0;
+    }
   }
 </style>

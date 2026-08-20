@@ -1,5 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+  import { fly } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import ControlsSettings from './ControlsSettings.svelte';
   import LoadSavesMenu from './LoadSavesMenu.svelte';
   import SaveGameMenu from './SaveGameMenu.svelte';
@@ -329,7 +331,7 @@
   });
 </script>
 
-<div class="pause-overlay">
+<div class="pause-overlay" transition:fly={{ x: -320, duration: 220, easing: cubicOut }}>
   <div class="pause-menu">
     {#if !showKeyConfig && !showLoadSaves && !showSaveGame && !showVideo}
       <h2>{t($language, 'pauseMenu')}</h2>
@@ -405,25 +407,55 @@
 </div>
 
 <style>
+  /**
+   * Docked to the left rather than covering the picture.
+   *
+   * Covering it made the live preview of the video settings pointless: you
+   * changed a shader and saw the menu. The room reserves this width on its own
+   * side (see each room's .paused rule), so the game shrinks instead of being
+   * hidden.
+   */
   .pause-overlay {
     position: fixed;
     top: 0;
     left: 0;
-    right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.9);
+    width: var(--pause-panel-width, 20rem);
+    background: rgba(18, 18, 18, 0.96);
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.6);
     display: flex;
-    justify-content: center;
-    align-items: center;
+    align-items: flex-start;
+    overflow-y: auto;
     z-index: 1000;
   }
 
+  /*
+   * Too narrow to give a panel its own column: the game would be a stamp. Fall
+   * back to covering, which is what this used to do everywhere.
+   */
+  @media (max-width: 700px) {
+    .pause-overlay {
+      width: 100%;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.94);
+    }
+  }
+
   .pause-menu {
-    background: #2a2a2a;
-    border-radius: 12px;
-    padding: 2rem;
-    max-width: 900px;
-    width: 90%;
+    background: transparent;
+    padding: 1.5rem 1.25rem;
+    width: 100%;
+  }
+
+  @media (max-width: 700px) {
+    .pause-menu {
+      background: #2a2a2a;
+      border-radius: 12px;
+      padding: 2rem;
+      max-width: 900px;
+      width: 90%;
+    }
   }
 
   h2 {
