@@ -9,6 +9,7 @@
   import { t } from '$lib/i18n/translations';
   import P2PRoom from '$lib/components/P2PRoom.svelte';
   import LockstepRoom from '$lib/components/LockstepRoom.svelte';
+  import SoloRoom from '$lib/components/SoloRoom.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
   import type { Room, KeyConfig } from '$lib/types';
   import { EmulationMode } from '$lib/types';
@@ -320,7 +321,11 @@
       {/if}
     </div>
   {:else if room}
-    {#if activeEmulationMode === EmulationMode.LOCKSTEP}
+    {#if activeEmulationMode === EmulationMode.SINGLE}
+      <!-- Solo runs on the znet stack too now, so it gets the same core,
+           renderer, shaders and save chrome the lockstep room has. -->
+      <SoloRoom {roomId} gameId={room.gameId} gameCrc32={room.gameCrc32} gameTitle={room.gameTitle} {keyConfig} />
+    {:else if activeEmulationMode === EmulationMode.LOCKSTEP}
       <!-- Lockstep runs on its own deterministic core and its own relay, so it
            shares nothing with the WebRTC path in P2PRoom. -->
       <LockstepRoom {roomId} gameId={room.gameId} gameCrc32={room.gameCrc32} gameTitle={room.gameTitle} isHost={isRoomHost} {keyConfig} />
