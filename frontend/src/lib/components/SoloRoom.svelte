@@ -15,9 +15,11 @@
   import type { KeyConfig } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
   import { setLogLabels } from '$lib/utils/log-shipper';
+  import { socket } from '$lib/api/socket';
   import LocateRom from './LocateRom.svelte';
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { VALID_SHADER_IDS } from './ShaderSelector.svelte';
+  import PauseMenu from './PauseMenu.svelte';
   import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
   import {
     AudioSink,
@@ -74,11 +76,40 @@
   let shaderSwapToken = 0;
   let gamepadSource: GamepadSource = 'auto';
 
+  let showPauseMenu = false;
+  let pauseRestoresFullscreen = false;
+  let isFullscreen = false;
+  let sramTimer: ReturnType<typeof setInterval> | null = null;
+  let container: HTMLDivElement;
+
+  /**
+   * Whether the battery save was actually read back from the server.
+   *
+   * persistSram() refuses to write until this is true. Writing before it
+   * would overwrite the player's in-game save with the blank SRAM a
+   * freshly-loaded ROM starts with - which is what closing the room during
+   * loadSram()'s round trip used to do. A timeout does NOT set this: if we
+   * could not read, we must not write, for the whole session.
+   */
+  let sramLoaded = false;
+  let sramNotice: string | null = null;
+
   const gamepadKey = 'psnes-gamepad-source';
 
   $: activeCanvas = usingGl ? canvasGl : canvas2d;
   $: if (renderer && display) renderer.setOptions(display);
   $: if (collector && keyConfig) collector.setKeyConfig(keyConfig);
+
+  /**
+   * What the save menus need: a state to store, and the canvas to photograph.
+   *
+   * `getCanvas` reads `activeCanvas` at call time, so a shader swap between
+   * opening the menu and pressing the button still photographs what is on
+   * screen.
+   */
+  $: saveAdapter = core
+    ? { saveState: async () => core!.saveState(), getCanvas: () => activeCanvas }
+    : null;
 
   function shaderLabel(id: string): string {
     if (!id) return 'No shader';
@@ -185,6 +216,62 @@
     });
   }
 
+  /**
+   * Loads the battery save before the first frame runs.
+   *
+   * This is the in-game save - what the player writes from the cartridge's own
+   * menu - so it is part of the emulated machine and has to be in place before
+   * emulation starts.
+   */
+  function loadSram(): Promise<void> {
+    return new Promise((resolve) => {
+      const sock = $socket;
+      if (!sock || !core) return resolve();
+
+      const done = (data: { sramData: string | null }) => {
+        sock.off('game:sramLoaded', done);
+        try {
+          if (data.sramData) {
+            const binary = atob(data.sramData);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            core!.loadSram(bytes);
+            logger.info('Battery save restored', { bytes: bytes.length });
+          }
+        } catch (err) {
+          logger.error('Could not restore the battery save', err);
+        }
+        // Reached from the real response, not the timeout below: "the server
+        // says there is none" is still a successful read.
+        sramLoaded = true;
+        resolve();
+      };
+
+      sock.on('game:sramLoaded', done);
+      sock.emit('game:loadSram', { roomId });
+      // Never block the boot on a server that does not answer. Deliberately
+      // does not set sramLoaded: if we could not read, we must not write, for
+      // the rest of the session - and the player is told why.
+      setTimeout(() => {
+        sock.off('game:sramLoaded', done);
+        if (!sramLoaded) {
+          sramNotice = 'Could not read your battery save from the server; progress will not be saved this session.';
+        }
+        resolve();
+      }, 5000);
+    });
+  }
+
+  function persistSram(): void {
+    if (!sramLoaded) return;
+    if (!core || !$socket) return;
+    const sram = core.sram();
+    if (sram.length === 0) return;
+    let binary = '';
+    for (let i = 0; i < sram.length; i++) binary += String.fromCharCode(sram[i]);
+    $socket.emit('game:saveSram', { roomId, sramData: btoa(binary) });
+  }
+
   async function boot() {
     try {
       setLogLabels({ roomId, player: 'solo' });
@@ -203,6 +290,12 @@
         return;
       }
       core.loadRom(normaliseRom(loadedRom));
+
+      await loadSram();
+      if (destroyed) {
+        teardown();
+        return;
+      }
 
       const storedShader = localStorage.getItem('psnes-shader') || '';
       if (storedShader && !VALID_SHADER_IDS.includes(storedShader)) {
@@ -244,6 +337,7 @@
         onSlice: () => checkRendererHealth()
       });
       governor.start();
+      sramTimer = setInterval(persistSram, 30000);
 
       phase = 'playing';
       statusText = '';
@@ -263,8 +357,72 @@
     await audio?.resume();
   }
 
+  async function toggleFullscreen(): Promise<void> {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await container?.requestFullscreen();
+    } catch (err) {
+      logger.error('Could not toggle fullscreen', err);
+    }
+  }
+
+  function onFullscreenChange(): void {
+    isFullscreen = document.fullscreenElement !== null;
+  }
+
+  /**
+   * Opens the pause menu and actually pauses.
+   *
+   * LockstepRoom cannot stop its governor here: stopping it would stop
+   * sending pads, and the peer would freeze too. Solo has no peer, so it is
+   * free to do the better thing a pause menu implies - the game really stops,
+   * not just the keyboard.
+   */
+  function openPauseMenu(restoreFullscreen = false): void {
+    if (showPauseMenu) return;
+    pauseRestoresFullscreen = restoreFullscreen;
+    showPauseMenu = true;
+    // Solo can really pause: there is no peer to freeze by stopping the
+    // clock. LockstepRoom only detaches input because stopping its governor
+    // would stall the other player.
+    governor?.stop();
+    collector?.detach();
+  }
+
+  function closePauseMenu(): void {
+    showPauseMenu = false;
+    // Input first: the first frame after resuming reads a live pad, not a
+    // stale zero left over from before the clock restarts.
+    collector?.attach();
+    governor?.start();
+    // PauseMenu's own restoreFullscreen prop would fullscreen
+    // document.documentElement, not this component's own container - the
+    // same reason LockstepRoom restores fullscreen itself rather than
+    // handing the prop to PauseMenu.
+    if (pauseRestoresFullscreen && !document.fullscreenElement) {
+      container?.requestFullscreen().catch(() => {});
+    }
+    pauseRestoresFullscreen = false;
+  }
+
+  function onKeyDown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape' || showPauseMenu) return;
+    event.preventDefault();
+    openPauseMenu(!!document.fullscreenElement);
+  }
+
+  /** Leaving the room: told to the server the same way LockstepRoom does it. */
+  function quitToLobby(): void {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    closePauseMenu();
+    $socket?.emit('game:stop', { roomId });
+  }
+
   function teardown() {
     destroyed = true;
+    if (sramTimer) clearInterval(sramTimer);
+    sramTimer = null;
+    persistSram();
     governor?.stop();
     governor = null;
     session = null;
@@ -276,9 +434,13 @@
     renderer = null;
     core?.dispose();
     core = null;
+    document.removeEventListener('fullscreenchange', onFullscreenChange);
+    window.removeEventListener('keydown', onKeyDown);
   }
 
   onMount(() => {
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    window.addEventListener('keydown', onKeyDown);
     void boot();
   });
 
@@ -287,13 +449,17 @@
   });
 </script>
 
-<div class="solo">
+<div class="solo" bind:this={container}>
   <div class="screen">
     <canvas bind:this={canvas2d} class:inactive={usingGl} width="256" height="224"></canvas>
     <canvas bind:this={canvasGl} class:inactive={!usingGl} width="256" height="224"></canvas>
 
     {#if shaderNotice}
       <p class="shader-notice">{shaderNotice}</p>
+    {/if}
+
+    {#if sramNotice}
+      <p class="shader-notice">{sramNotice}</p>
     {/if}
 
     {#if phase !== 'playing'}
@@ -312,17 +478,49 @@
   </div>
 
   <div class="toolbar">
+    <button class="action" class:on={isFullscreen} on:click={toggleFullscreen} title="Alt+Enter"
+      >⛶ {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button
+    >
+    <button
+      class="action"
+      class:on={display.scanlines}
+      disabled={usingGl}
+      title={usingGl ? 'The shader owns the picture while one is active' : undefined}
+      on:click={() => (display = { ...display, scanlines: !display.scanlines })}
+    >Scanlines</button>
+    <button
+      class="action"
+      on:click={() => (display = { ...display, pixelPerfect: !display.pixelPerfect })}
+    >{display.pixelPerfect ? 'Sharp' : 'Smooth'}</button>
+    <button
+      class="action"
+      on:click={() =>
+        (display = { ...display, aspect: display.aspect === 'original' ? 'stretch' : 'original' })}
+    >{display.aspect === 'original' ? 'Fit' : 'Stretch'}</button>
     <button
       class="action"
       class:on={display.shader !== ''}
       on:click={cycleShader}
       title="Shader"
     >{shaderLabel(display.shader)}</button>
+    <button class="action" on:click={() => openPauseMenu(isFullscreen)}>☰ Menu (Esc)</button>
   </div>
 </div>
 
 {#if romPrompt}
   <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
+{/if}
+
+{#if showPauseMenu}
+  <PauseMenu
+    {roomId}
+    {gameId}
+    {keyConfig}
+    emulator={saveAdapter}
+    on:resume={closePauseMenu}
+    on:quit={quitToLobby}
+    on:saved={(e) => { keyConfig = e.detail.config; closePauseMenu(); }}
+  />
 {/if}
 
 <style>
@@ -409,5 +607,10 @@
   .action.on {
     background: #3a4a5a;
     border-color: #667eea;
+  }
+
+  .action:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 </style>
