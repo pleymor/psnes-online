@@ -12,6 +12,7 @@
    * why it had none of the toolbar the lockstep room grew.
    */
   import { onMount, onDestroy } from 'svelte';
+  import { goto } from '$app/navigation';
   import type { KeyConfig } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
   import { setLogLabels } from '$lib/utils/log-shipper';
@@ -76,6 +77,7 @@
   let shaderSwapToken = 0;
   let gamepadSource: GamepadSource = 'auto';
 
+  let turbo = false;
   let showPauseMenu = false;
   let pauseRestoresFullscreen = false;
   let isFullscreen = false;
@@ -95,6 +97,17 @@
   let sramNotice: string | null = null;
 
   const gamepadKey = 'psnes-gamepad-source';
+
+  /** Shown whenever the battery save could not be read at all - no socket,
+   * no core, or no answer from the server in time. Persistence is off for
+   * the rest of the session in every one of these cases. */
+  const SRAM_UNAVAILABLE_NOTICE =
+    'Could not read your battery save from the server; progress will not be saved this session.';
+  /** Distinct from SRAM_UNAVAILABLE_NOTICE: here the server did answer, and
+   * only decoding its payload failed. "Could not read from the server" would
+   * be inaccurate. */
+  const SRAM_DECODE_ERROR_NOTICE =
+    'Your battery save could not be read; progress will not be saved this session.';
 
   $: activeCanvas = usingGl ? canvasGl : canvas2d;
   $: if (renderer && display) renderer.setOptions(display);
@@ -235,10 +248,17 @@
   function loadSram(): Promise<void> {
     return new Promise((resolve) => {
       const sock = $socket;
-      if (!sock || !core) return resolve();
+      if (!sock || !core) {
+        // Neither piece exists to read from or into, so this is exactly as
+        // much a "did not read" as a server timeout - the player deserves the
+        // same warning, not silence.
+        sramNotice = SRAM_UNAVAILABLE_NOTICE;
+        return resolve();
+      }
 
       const done = (data: { sramData: string | null }) => {
         sock.off('game:sramLoaded', done);
+        clearTimeout(timeoutHandle);
         try {
           if (data.sramData) {
             const binary = atob(data.sramData);
@@ -258,7 +278,7 @@
           // whatever real save the server holds with the blank SRAM the ROM
           // just started with.
           logger.error('Could not restore the battery save', err);
-          sramNotice = 'Could not read your battery save from the server; progress will not be saved this session.';
+          sramNotice = SRAM_DECODE_ERROR_NOTICE;
         }
         resolve();
       };
@@ -267,15 +287,41 @@
       sock.emit('game:loadSram', { roomId });
       // Never block the boot on a server that does not answer. Deliberately
       // does not set sramLoaded: if we could not read, we must not write, for
-      // the rest of the session - and the player is told why.
-      setTimeout(() => {
+      // the rest of the session - and the player is told why. Cleared inside
+      // done() when the handler wins the race, so this does not fire late
+      // and touch a possibly-destroyed component.
+      const timeoutHandle = setTimeout(() => {
         sock.off('game:sramLoaded', done);
         if (!sramLoaded) {
-          sramNotice = 'Could not read your battery save from the server; progress will not be saved this session.';
+          sramNotice = SRAM_UNAVAILABLE_NOTICE;
         }
         resolve();
       }, 5000);
     });
+  }
+
+  /**
+   * Applies a state loaded from the pause menu's Load Game screen.
+   *
+   * LockstepRoom's equivalent (onSaveLoaded) adopts the state and reseeds the
+   * session, because there a guest also has to be resynchronised onto it.
+   * Solo has no one to synchronise: applying the bytes directly to the core
+   * is the whole job, per the spec ("il n'y a ici personne à synchroniser").
+   */
+  function onGameLoaded(payload: { saveData?: string; name?: string }): void {
+    if (!core || !payload?.saveData) return;
+    try {
+      const binary = atob(payload.saveData);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      core.loadState(bytes);
+      // Otherwise audio buffered before the jump plays over the restored
+      // state.
+      audio?.flush();
+      logger.info('Loaded save', { name: payload.name });
+    } catch (err) {
+      logger.error('Could not decode the save', err);
+    }
   }
 
   function persistSram(): void {
@@ -350,10 +396,15 @@
 
       governor = new FrameGovernor(session, {
         fps: core.fps || 60.0988,
-        onSlice: () => checkRendererHealth()
+        onSlice: () => checkRendererHealth(),
+        // Solo has no peer to freeze by pausing: let a hidden tab actually
+        // stop instead of burning a CPU core in the background, the way the
+        // rAF-only path this replaced always did.
+        keepRunningWhenHidden: false
       });
       governor.start();
       sramTimer = setInterval(persistSram, 30000);
+      $socket?.on('game:loaded', onGameLoaded);
 
       phase = 'playing';
       statusText = '';
@@ -403,6 +454,9 @@
     // would stall the other player.
     governor?.stop();
     collector?.detach();
+    // Matches P2PRoom's auto-save on pause: a player who opens the menu is
+    // often about to save or leave, and membership is still live here.
+    persistSram();
   }
 
   function closePauseMenu(): void {
@@ -421,10 +475,27 @@
     pauseRestoresFullscreen = false;
   }
 
+  /**
+   * Fast-forward. Solo owns the clock outright, so nothing else has to agree
+   * to it - unlike lockstep, where FrameGovernor.setTurbo exists but nothing
+   * calls it, because turbo only makes sense when every peer runs it
+   * together. The path this replaced bound the same key to the same thing.
+   */
+  function toggleTurbo(): void {
+    turbo = !turbo;
+    governor?.setTurbo(turbo);
+  }
+
   function onKeyDown(event: KeyboardEvent): void {
     if (event.altKey && event.key === 'Enter') {
       event.preventDefault();
       void toggleFullscreen();
+      return;
+    }
+    if (event.key === 'Tab') {
+      // Tab moves focus otherwise.
+      event.preventDefault();
+      toggleTurbo();
       return;
     }
     if (event.key !== 'Escape' || showPauseMenu) return;
@@ -434,6 +505,13 @@
 
   /** Leaving the room: told to the server the same way LockstepRoom does it. */
   function quitToLobby(): void {
+    // Before game:stop, mirroring P2PRoom's handleQuit: the parent page emits
+    // room:leave in its own onDestroy, which runs before this component's
+    // onDestroy (Svelte destroys a parent's on_destroy callbacks before its
+    // children's). The server gates game:saveSram on room membership, so a
+    // save that arrives after room:leave is silently dropped. Saving here,
+    // while we are still a member, is what actually reaches the server.
+    persistSram();
     // Reset first, not read back from document.fullscreenElement inside
     // closePauseMenu() after exitFullscreen() - that promise resolves
     // asynchronously, so relying on its timing would be fragile.
@@ -447,7 +525,16 @@
     destroyed = true;
     if (sramTimer) clearInterval(sramTimer);
     sramTimer = null;
+    // Best-effort only, and usually a no-op: by the time onDestroy runs here,
+    // the parent room page has already emitted room:leave from its own
+    // onDestroy (a parent's on_destroy callbacks run before its children's),
+    // so the server no longer counts us as a room member and rejects the
+    // save. The real saves are the ones in quitToLobby() and
+    // openPauseMenu(), which run while membership is still live. This one
+    // only helps on a path that quits without going through either - e.g. a
+    // parent-initiated teardown - and only if the drop happens to lag behind.
     persistSram();
+    $socket?.off('game:loaded', onGameLoaded);
     governor?.stop();
     governor = null;
     session = null;
@@ -479,18 +566,25 @@
     <canvas bind:this={canvas2d} class:inactive={usingGl} width="256" height="224"></canvas>
     <canvas bind:this={canvasGl} class:inactive={!usingGl} width="256" height="224"></canvas>
 
-    {#if shaderNotice}
-      <p class="shader-notice">{shaderNotice}</p>
-    {/if}
-
-    {#if sramNotice}
-      <p class="shader-notice">{sramNotice}</p>
+    {#if shaderNotice || sramNotice}
+      <!-- A column, not two independently-positioned notices: both used to
+           sit at bottom: 0 and render on top of each other when both fired
+           at once. -->
+      <div class="notices">
+        {#if shaderNotice}
+          <p class="notice">{shaderNotice}</p>
+        {/if}
+        {#if sramNotice}
+          <p class="notice">{sramNotice}</p>
+        {/if}
+      </div>
     {/if}
 
     {#if phase !== 'playing'}
       <div class="overlay">
         {#if phase === 'error'}
           <p class="error">{errorText}</p>
+          <button class="action" on:click={() => goto('/')}>Back to the lobby</button>
         {:else}
           <p>{statusText}</p>
         {/if}
@@ -528,6 +622,12 @@
       on:click={cycleShader}
       title="Shader"
     >{shaderLabel(display.shader)}</button>
+    <button
+      class="action"
+      class:on={turbo}
+      on:click={toggleTurbo}
+      title="Tab"
+    >⏩ Turbo</button>
     <button class="action" on:click={() => openPauseMenu(isFullscreen)}>☰ Menu (Esc)</button>
   </div>
 </div>
@@ -576,8 +676,10 @@
     position: absolute;
     inset: 0;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 1rem;
     background: rgba(0, 0, 0, 0.7);
     color: #fff;
   }
@@ -588,11 +690,16 @@
     text-align: center;
   }
 
-  .shader-notice {
+  .notices {
     position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .notice {
     margin: 0;
     padding: 0.35rem 0.6rem;
     background: rgba(0, 0, 0, 0.6);

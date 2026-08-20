@@ -9,10 +9,28 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { FrameGovernor } from '../../frontend/src/lib/znet/governor.js';
 import type { TickSource } from '../../frontend/src/lib/znet/session.js';
 import { SoloSession } from '../../frontend/src/lib/znet/solo.js';
 import { FakeCore } from './fake-core.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+test('solo.ts owns no timer of its own', () => {
+  // The whole point of naming FrameGovernor "the only timer owner in this
+  // stack" is that solo.ts stays timer-free, which is what keeps it testable
+  // without a browser. This used to be a grep run by hand; asserting it here
+  // makes the rule outlive whoever remembers to run it.
+  const source = readFileSync(
+    path.resolve(here, '..', '..', 'frontend', 'src', 'lib', 'znet', 'solo.ts'),
+    'utf8'
+  );
+  const forbidden = /requestAnimationFrame|setTimeout|setInterval|performance\.now|Date\.now/;
+  assert.equal(forbidden.test(source), false, 'solo.ts must not reach for wall-clock time itself');
+});
 
 /** Records what the governor asked of it. No timers, no core. */
 class RecordingSource implements TickSource {
@@ -42,6 +60,7 @@ test('the governor drives a TickSource through pump and tick', () => {
   const savedDocument = g.document;
   const savedRaf = g.requestAnimationFrame;
   const savedCancel = g.cancelAnimationFrame;
+  const savedPerformance = g.performance;
 
   g.document = { hidden: false, addEventListener() {}, removeEventListener() {} };
   g.requestAnimationFrame = (cb: () => void) => {
@@ -50,9 +69,18 @@ test('the governor drives a TickSource through pump and tick', () => {
   };
   g.cancelAnimationFrame = () => {};
 
+  // start() stamps lastTime from the first call; slice() reads the second to
+  // compute elapsed. Advancing by ~20ms between them - more than one 60fps
+  // frame (16.67ms) - is what lets a single captured slice cross the
+  // threshold and actually call tick(), rather than leaving the accumulator
+  // short and ticks unasserted.
+  let now = 0;
+  g.performance = { now: () => now };
+
   try {
     const governor = new FrameGovernor(source, { fps: 60 });
     governor.start();
+    now += 20;
 
     assert.equal(governor.isRunning, true, 'start() must arm the governor');
     assert.equal(typeof slice, 'function', 'the governor must have scheduled a slice');
@@ -61,6 +89,9 @@ test('the governor drives a TickSource through pump and tick', () => {
 
     // pump runs unconditionally, once per slice, so it is the reliable signal.
     assert.ok(source.pumps >= 1, 'the governor must pump its source every slice');
+    // With the clock actually advanced, the slice must have crossed a frame
+    // boundary and ticked the session - not merely pumped it.
+    assert.ok(source.ticks >= 1, 'the governor must tick its source once a frame has elapsed');
 
     governor.stop();
     assert.equal(governor.isRunning, false);
@@ -68,6 +99,7 @@ test('the governor drives a TickSource through pump and tick', () => {
     g.document = savedDocument;
     g.requestAnimationFrame = savedRaf;
     g.cancelAnimationFrame = savedCancel;
+    g.performance = savedPerformance;
   }
 });
 

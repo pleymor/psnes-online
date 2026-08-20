@@ -23,6 +23,16 @@ export interface GovernorOptions {
 	maxCatchUp?: number;
 	/** Called after a slice, with how many frames actually ran. */
 	onSlice?: (framesRun: number, stalled: boolean) => void;
+	/**
+	 * Whether a hidden tab keeps emulating via the worker-driven timer.
+	 *
+	 * Defaults to true, which is what lockstep needs: a peer that stops
+	 * running frames stops sending pads, and the other player freezes with
+	 * it. A solo session has no peer to protect and no reason to burn a CPU
+	 * core in the background, so SoloRoom passes false to let the tab
+	 * genuinely pause the way requestAnimationFrame already would on its own.
+	 */
+	keepRunningWhenHidden?: boolean;
 }
 
 export class FrameGovernor {
@@ -48,9 +58,13 @@ export class FrameGovernor {
 	 * the foreground, which is exactly how most people will try this.
 	 *
 	 * Timers inside a worker are not throttled, so a hidden window keeps
-	 * emulating and its partner keeps playing.
+	 * emulating and its partner keeps playing. Solo has no partner to protect
+	 * this way, so it sets keepRunningWhenHidden to false and gets the plain
+	 * rAF behaviour: a hidden tab simply stops, same as before this stack
+	 * existed.
 	 */
 	private worker: Worker | null = null;
+	private keepRunningWhenHidden: boolean;
 	private onVisibilityChange = () => this.reschedule();
 
 	constructor(session: TickSource, options: GovernorOptions = {}) {
@@ -58,6 +72,7 @@ export class FrameGovernor {
 		this.fps = options.fps ?? 60.0988;
 		this.maxCatchUp = options.maxCatchUp ?? 8;
 		this.onSlice = options.onSlice ?? (() => {});
+		this.keepRunningWhenHidden = options.keepRunningWhenHidden ?? true;
 	}
 
 	get isRunning(): boolean {
@@ -103,7 +118,7 @@ export class FrameGovernor {
 	}
 
 	private schedule(): void {
-		if (typeof document !== 'undefined' && document.hidden) {
+		if (typeof document !== 'undefined' && document.hidden && this.keepRunningWhenHidden) {
 			this.startWorker();
 			return;
 		}
