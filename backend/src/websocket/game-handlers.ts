@@ -2,7 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { Room, GameInput } from '../types/index.js';
 import { getDb } from '../db/sqlite.js';
 import { findOwnedGameId, saveSram, findSram } from '../db/games.js';
-import { findSaveInSlot, findSaveWithGame, createSave, updateSaveData } from '../db/saves.js';
+import { findSaveWithGame, createSave, updateSaveData, nextFreeSlot, findSaveOwnerId } from '../db/saves.js';
 import { notifyFriendsRoomStatusChanged } from '../services/friends.js';
 import { createLogger } from '../utils/logger.js';
 import { getMemberRoom } from './guards.js';
@@ -104,7 +104,7 @@ export function registerGameHandlers(
   });
 
   // Save state
-  socket.on('game:save', async (data: { roomId: string; slotNumber: number; name: string; saveData?: string }) => {
+  socket.on('game:save', async (data: { roomId: string; saveId?: string; name: string; saveData?: string; screenshot?: string }) => {
     const room = getMemberRoom(rooms, data?.roomId, userId, 'game:save');
     if (!room) return;
 
@@ -120,26 +120,39 @@ export function registerGameHandlers(
         return;
       }
 
-      const existingSave = findSaveInSlot(db, room.gameId, data.slotNumber, userId);
-
       const saveDataBuffer = data.saveData
         ? Buffer.from(data.saveData, 'base64')
         : Buffer.alloc(0);
+      const screenshot = data.screenshot ?? null;
 
-      if (existingSave) {
-        updateSaveData(db, existingSave.id, data.name, saveDataBuffer);
-      } else {
-        createSave(db, {
-          gameId: room.gameId,
-          slotNumber: data.slotNumber,
-          name: data.name,
-          data: saveDataBuffer,
-          screenshot: null
-        });
+      // Overwriting names a save by id, because the player picks it from a
+      // list of thumbnails rather than choosing a slot number. The id came
+      // from the client, so it is checked against this user rather than
+      // trusted - the room's game being theirs does not make every save id
+      // theirs.
+      if (data.saveId) {
+        const owner = findSaveOwnerId(db, data.saveId);
+        if (owner !== userId) {
+          socket.emit('error', { message: 'Not authorized to overwrite this save' });
+          return;
+        }
+        updateSaveData(db, data.saveId, data.name, saveDataBuffer, screenshot);
+        socket.emit('game:saved', { saveId: data.saveId });
+        logger.info({ saveName: data.name, saveId: data.saveId, gameId: room.gameId }, 'Save overwritten');
+        return;
       }
 
-      socket.emit('game:saved', { slotNumber: data.slotNumber });
-      logger.info({ saveName: data.name, slot: data.slotNumber, gameId: room.gameId }, 'Save created');
+      // The slot picker is gone, so the server assigns the number.
+      const created = createSave(db, {
+        gameId: room.gameId,
+        slotNumber: nextFreeSlot(db, room.gameId),
+        name: data.name,
+        data: saveDataBuffer,
+        screenshot
+      });
+
+      socket.emit('game:saved', { saveId: created.id });
+      logger.info({ saveName: data.name, saveId: created.id, gameId: room.gameId }, 'Save created');
     } catch (error) {
       logger.error({ err: error }, 'Error saving game state');
       socket.emit('error', { message: 'Failed to save game' });

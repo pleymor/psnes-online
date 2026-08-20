@@ -30,24 +30,6 @@ function toSave(row: SaveRow): Save {
   };
 }
 
-/**
- * Finds a slot, but only inside a game the caller owns.
- *
- * The ownership test is part of the query rather than a check afterwards: a
- * guest sitting in someone else room must never reach the host slots, and a
- * filter that lives in the SQL cannot be forgotten by a caller.
- */
-export function findSaveInSlot(
-  db: Database, gameId: string, slotNumber: number, ownerId: string
-): Save | null {
-  const row = db.prepare(`
-    SELECT s.* FROM "Save" s
-    JOIN "Game" g ON g.id = s.gameId
-    WHERE s.gameId = ? AND s.slotNumber = ? AND g.userId = ?
-  `).get(gameId, slotNumber, ownerId) as SaveRow | undefined;
-  return row ? toSave(row) : null;
-}
-
 export function findSaveWithGame(db: Database, id: string): SaveWithGame | null {
   const row = db.prepare(`
     SELECT s.*,
@@ -111,7 +93,53 @@ export function createSave(
   return toSave(row);
 }
 
-export function updateSaveData(db: Database, id: string, name: string, data: Buffer): void {
-  db.prepare(`UPDATE "Save" SET name = ?, data = ?, updatedAt = ? WHERE id = ?`)
-    .run(name, data, Date.now(), id);
+/**
+ * Overwrites a save in place.
+ *
+ * The thumbnail goes with the state it depicts, including when there is none:
+ * passing null clears it rather than leaving a picture of a moment that has
+ * been written over.
+ */
+export function updateSaveData(
+  db: Database,
+  id: string,
+  name: string,
+  data: Buffer,
+  screenshot: string | null
+): void {
+  db.prepare(`UPDATE "Save" SET name = ?, data = ?, screenshot = ?, updatedAt = ? WHERE id = ?`)
+    .run(name, data, screenshot, Date.now(), id);
+}
+
+/**
+ * The slot number a new save should take.
+ *
+ * Slot numbers are no longer chosen by the player - the picker is gone - so
+ * they are identity rather than seating. This never reuses a gap left by a
+ * deleted save: two different savestates sharing a slot number would make any
+ * old log line ambiguous about which one it meant.
+ *
+ * There is deliberately no ceiling. The old ten-slot limit lived in the UI,
+ * not the schema, and the only constraint here is uniqueness per game.
+ */
+export function nextFreeSlot(db: Database, gameId: string): number {
+  const row = db.prepare(`SELECT MAX(slotNumber) AS highest FROM "Save" WHERE gameId = ?`)
+    .get(gameId) as { highest: number | null };
+  return (row.highest ?? 0) + 1;
+}
+
+/**
+ * Who owns a save, by way of the game it belongs to.
+ *
+ * The overwrite path calls this on every attempt, so it reads one column and
+ * joins - it must not pull the savestate along, which is over 800KB.
+ */
+export function findSaveOwnerId(db: Database, saveId: string): string | null {
+  const row = db.prepare(`
+    SELECT g.userId AS userId
+    FROM "Save" s
+    JOIN "Game" g ON g.id = s.gameId
+    WHERE s.id = ?
+  `).get(saveId) as { userId: string } | undefined;
+  return row?.userId ?? null;
 }

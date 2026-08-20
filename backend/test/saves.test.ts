@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { migratedDb, insertUser } from './helpers.js';
 import { createGame } from '../src/db/games.js';
-import { findSaveInSlot, findSaveWithGame, createSave, updateSaveData } from '../src/db/saves.js';
+import { findSaveWithGame, createSave, updateSaveData } from '../src/db/saves.js';
 
 const NO_METADATA = {
   genre: null, publisher: null, developer: null, releaseDate: null,
@@ -31,19 +31,6 @@ test('createSave stamps id and both timestamps, and keeps the blob', () => {
   assert.deepEqual([...save.data], [1, 2, 3]);
 });
 
-test('findSaveInSlot only finds a slot in a game the caller owns', () => {
-  const db = migratedDb();
-  const mine = insertUser(db);
-  const theirs = insertUser(db);
-  const game = aGame(db, mine.id);
-  createSave(db, { gameId: game.id, slotNumber: 3, name: 's', data: Buffer.from([1]), screenshot: null });
-
-  assert.ok(findSaveInSlot(db, game.id, 3, mine.id));
-  assert.equal(findSaveInSlot(db, game.id, 3, theirs.id), null,
-    'a guest in the room must not reach the host slots');
-  assert.equal(findSaveInSlot(db, game.id, 9, mine.id), null);
-});
-
 test('updateSaveData replaces the blob and advances updatedAt', async () => {
   const db = migratedDb();
   const user = insertUser(db);
@@ -53,9 +40,9 @@ test('updateSaveData replaces the blob and advances updatedAt', async () => {
   });
   await new Promise(r => setTimeout(r, 5));
 
-  updateSaveData(db, save.id, 'renamed', Buffer.from([7, 7, 7]));
+  updateSaveData(db, save.id, 'renamed', Buffer.from([7, 7, 7]), null);
 
-  const read = findSaveInSlot(db, game.id, 1, user.id)!;
+  const read = findSaveWithGame(db, save.id)!;
   assert.equal(read.name, 'renamed');
   assert.deepEqual([...read.data], [7, 7, 7]);
   assert.ok(read.updatedAt.getTime() > save.updatedAt.getTime());
