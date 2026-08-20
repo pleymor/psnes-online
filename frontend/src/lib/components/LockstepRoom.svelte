@@ -21,10 +21,12 @@
   import LocateRom from './LocateRom.svelte';
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
-  import { DEFAULT_DISPLAY, type DisplayOptions } from '$lib/znet';
+  import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
   import {
     AudioSink,
     CanvasRenderer,
+    WebglRenderer,
+    loadShaderPreset,
     FrameGovernor,
     InputCollector,
     NetplaySession,
@@ -50,7 +52,17 @@
   /** Frames of input delay. 0 asks for a value derived from the measured RTT. */
   export let inputDelay = 0;
 
-  let canvas: HTMLCanvasElement;
+  /**
+   * One canvas per context type.
+   *
+   * A canvas that has produced a webgl2 context can never produce a 2d one, so
+   * switching renderers means switching elements. Both are declared in the
+   * markup and one is hidden, which keeps Svelte the owner of both - replacing
+   * a bound element at runtime would leave Svelte holding a detached node.
+   */
+  let canvas2d: HTMLCanvasElement;
+  let canvasGl: HTMLCanvasElement;
+  let usingGl = false;
   /** The element that goes fullscreen; holds the picture and every overlay. */
   let stage: HTMLDivElement;
   let phase: 'loading' | 'waiting' | 'playing' | 'error' = 'loading';
@@ -71,7 +83,7 @@
   let governor: FrameGovernor | null = null;
   let transport: SocketTransport | null = null;
   let collector: InputCollector | null = null;
-  let renderer: CanvasRenderer | null = null;
+  let renderer: Renderer | null = null;
   let audio: AudioSink | null = null;
 
   /**
@@ -111,6 +123,10 @@
 
   let showPauseMenu = false;
   let display: DisplayOptions = { ...DEFAULT_DISPLAY };
+  /** Set when a shader was asked for and could not be delivered. Plain English, like the rest of this component. */
+  let shaderNotice: string | null = null;
+  /** Guards against overlapping swaps when the player clicks the button quickly. */
+  let shaderSwapToken = 0;
 
   /**
    * Fullscreen, which is local and cosmetic like the display options: it
@@ -147,6 +163,102 @@
    */
   let chromeHeld = false;
 
+  /** The same six the home page offers, in the same order, plus none. */
+  const SHADER_IDS = [
+    '',
+    'xbrz/6xbrz-linear',
+    'xbrz/5xbrz-linear',
+    'xbrz/4xbrz-linear',
+    'crt/crt-easymode',
+    'interpolation/sharp-bilinear-simple',
+    'anti-aliasing/fxaa'
+  ];
+
+  function shaderLabel(id: string): string {
+    if (!id) return 'No shader';
+    // The id's last segment is short enough for a toolbar button.
+    return id.split('/').pop() as string;
+  }
+
+  /** Drops back to the 2D renderer on its own canvas. Always succeeds. */
+  function useCanvasRenderer(): void {
+    renderer?.dispose();
+    usingGl = false;
+    renderer = new CanvasRenderer(canvas2d);
+    renderer.setOptions(display);
+    if (core) renderer.draw(core);
+  }
+
+  /**
+   * Switches the renderer to run `shaderId`, or keeps 2D and says why.
+   *
+   * Every failure lands in the same place: a working 2D renderer plus a
+   * notice. The player is never left looking at a black canvas wondering
+   * whether the game crashed - which is exactly what xbrz-freescale used to do
+   * before it was removed from the shader list.
+   */
+  async function applyShader(shaderId: string): Promise<void> {
+    const token = ++shaderSwapToken;
+    shaderNotice = null;
+
+    if (!shaderId) {
+      useCanvasRenderer();
+      return;
+    }
+
+    const loaded = await loadShaderPreset(shaderId);
+    // The player may have picked something else while this was fetching.
+    if (token !== shaderSwapToken) return;
+
+    if (!loaded.ok) {
+      logger.warn('shader unavailable', { shaderId, reason: loaded.reason });
+      shaderNotice = 'That shader could not be loaded; showing raw pixels.';
+      useCanvasRenderer();
+      return;
+    }
+
+    renderer?.dispose();
+
+    const webgl = WebglRenderer.create(canvasGl, loaded.preset);
+    if (!webgl) {
+      logger.warn('webgl2 unavailable or the shader would not compile', { shaderId });
+      shaderNotice = 'Shaders need WebGL2, which this browser did not provide.';
+      useCanvasRenderer();
+      return;
+    }
+
+    usingGl = true;
+    renderer = webgl;
+    renderer.setOptions(display);
+    if (core) renderer.draw(core);
+  }
+
+  async function cycleShader(): Promise<void> {
+    const next = SHADER_IDS[(SHADER_IDS.indexOf(display.shader) + 1) % SHADER_IDS.length];
+    display = { ...display, shader: next };
+    // Local and cosmetic, so it is remembered exactly the way the home page's
+    // settings modal remembers it - same key, same meaning.
+    if (next) localStorage.setItem('psnes-shader', next);
+    else localStorage.removeItem('psnes-shader');
+    await applyShader(next);
+  }
+
+  /**
+   * Falls back to 2D if the GL context died mid-game.
+   *
+   * Polled from the governor's existing slice callback rather than from an
+   * event handler here: the renderer is the only thing that knows, and giving
+   * it a way to call back into the room is exactly the coupling this design
+   * refuses. One boolean read per slice, and no new timer.
+   */
+  function checkRendererHealth(): void {
+    if (renderer instanceof WebglRenderer && renderer.lost) {
+      logger.warn('webgl context lost, falling back to 2D');
+      shaderNotice = 'The graphics context was lost; showing raw pixels.';
+      useCanvasRenderer();
+    }
+  }
+
   /**
    * What the save menu needs from an emulator: a state it can store, and the
    * canvas it can photograph for the thumbnail.
@@ -155,8 +267,10 @@
    * with the other player - unlike loading, which goes through the session so
    * both peers land on the same machine.
    */
+  $: activeCanvas = usingGl ? canvasGl : canvas2d;
+
   $: saveAdapter = core
-    ? { saveState: async () => core!.saveState(), getCanvas: () => canvas }
+    ? { saveState: async () => core!.saveState(), getCanvas: () => activeCanvas }
     : null;
 
   $: if (renderer && display) renderer.setOptions(display);
@@ -316,8 +430,18 @@
       const rom = normaliseRom(loadedRom);
       core.loadRom(rom);
 
-      renderer = new CanvasRenderer(canvas);
+      // The shader preference is global and already set from the home page's
+      // settings modal; the lockstep path simply never honoured it until now.
+      const storedShader = localStorage.getItem('psnes-shader') || '';
+      display = { ...display, shader: storedShader };
+
+      renderer = new CanvasRenderer(canvas2d);
       renderer.draw(core);
+
+      // Then try to upgrade to GL. Deliberately after a first frame is already
+      // on screen: fetching a preset takes a moment, and a visible picture
+      // beats an empty canvas while it loads.
+      if (storedShader) await applyShader(storedShader);
 
       audio = new AudioSink();
       await audio.start(Math.round(core.sampleRate));
@@ -367,6 +491,7 @@
         onSlice: (ran, stalled) => {
           setStalling(stalled && ran === 0);
           stats = session!.getStats();
+          checkRendererHealth();
         }
       });
 
@@ -803,6 +928,8 @@
     collector?.detach();
     void audio?.stop();
     core?.dispose();
+    renderer?.dispose();
+    renderer = null;
     governor = null;
     session = null;
     transport = null;
@@ -845,7 +972,12 @@
   {/if}
 
   <div class="screen" class:stalling={stallVisible}>
-    <canvas bind:this={canvas} width="256" height="224"></canvas>
+    <canvas bind:this={canvas2d} class:inactive={usingGl} width="256" height="224"></canvas>
+    <canvas bind:this={canvasGl} class:inactive={!usingGl} width="256" height="224"></canvas>
+
+    {#if shaderNotice}
+      <p class="shader-notice">{shaderNotice}</p>
+    {/if}
 
     {#if phase !== 'playing'}
       <div class="overlay">
@@ -907,6 +1039,12 @@
       on:click={() =>
         (display = { ...display, aspect: display.aspect === 'original' ? 'stretch' : 'original' })}
     >{display.aspect === 'original' ? 'Fit' : 'Stretch'}</button>
+    <button
+      class="action"
+      class:on={display.shader !== ''}
+      on:click={cycleShader}
+      title="Shader"
+    >{shaderLabel(display.shader)}</button>
     <button class="action" on:click={() => (showStats = !showStats)}>
       {showStats ? 'Hide' : 'Show'} netplay stats
     </button>
@@ -997,6 +1135,23 @@
     height: 100%;
     image-rendering: pixelated;
     display: block;
+  }
+
+  canvas.inactive {
+    display: none;
+  }
+
+  .shader-notice {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    padding: 0.35rem 0.6rem;
+    background: rgba(0, 0, 0, 0.6);
+    color: #e0b040;
+    font-size: 0.8rem;
+    text-align: center;
   }
 
   .overlay {
