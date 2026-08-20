@@ -32,6 +32,15 @@
   /** null where there are no network statistics to show: solo. */
   export let showStats: boolean | null = null;
   /**
+   * False while a shader owns the picture.
+   *
+   * The 2D renderer paints scanlines onto the canvas after the blit and the
+   * WebGL one has no equivalent, so the toggle would advertise an effect
+   * nothing applies. The old toolbar disabled its button for this; the menu
+   * has to do the same or the setting silently lies.
+   */
+  export let scanlinesAvailable: boolean = true;
+  /**
    * The already-formatted name of the gamepad driving this player, or null
    * where there is no picker. Formatted by the room rather than here: which
    * pads are connected is its business, and this only has to render a string.
@@ -44,6 +53,8 @@
     label: string;
     action: () => void;
     danger?: boolean;
+    /** Rendered but not clickable - a setting this room cannot honour right now. */
+    disabled?: boolean;
   }
 
   /** The translated name of a shader id, using the same list the picker shows. */
@@ -62,6 +73,7 @@
   let showKeyConfig = false;
   let showLoadSaves = false;
   let showSaveGame = false;
+  let showVideo = false;
   let selectedIndex = 0;
   let menuButtons: HTMLButtonElement[] = [];
   let gamepadPollInterval: number | null = null;
@@ -85,8 +97,11 @@
   $: displayItems = display
     ? [
         {
-          label: `${t($language, 'scanlines')}: ${t($language, display.scanlines ? 'on' : 'off')}`,
-          action: () => dispatch('display', { ...display, scanlines: !display!.scanlines })
+          label: scanlinesAvailable
+            ? `${t($language, 'scanlines')}: ${t($language, display.scanlines ? 'on' : 'off')}`
+            : `${t($language, 'scanlines')}: ${t($language, 'shaderOwnsPicture')}`,
+          action: () => dispatch('display', { ...display, scanlines: !display!.scanlines }),
+          disabled: !scanlinesAvailable
         },
         {
           label: `${t($language, 'pixels')}: ${t($language, display.pixelPerfect ? 'sharp' : 'smooth')}`,
@@ -100,7 +115,11 @@
               aspect: display!.aspect === 'original' ? 'stretch' : 'original'
             })
         },
-        { label: `${t($language, 'shader')}: ${shaderName(display.shader)}`, action: cycleShader }
+        { label: `${t($language, 'shader')}: ${shaderName(display.shader)}`, action: cycleShader },
+        {
+          label: `${t($language, 'fullscreen')}: ${t($language, isFullscreen ? 'on' : 'off')}`,
+          action: () => dispatch('fullscreen')
+        }
       ]
     : [];
 
@@ -130,19 +149,16 @@
             action: () => dispatch('stats')
           }
         ]),
-    {
-      label: `${t($language, 'fullscreen')}: ${t($language, isFullscreen ? 'on' : 'off')}`,
-      action: () => dispatch('fullscreen')
-    }
   ];
 
   let menuItems: MenuItem[] = [];
+  /** The root list: one "Video" door instead of four graphics rows at the top level. */
   $: menuItems = [
     { label: t($language, 'resume'), action: () => handleResumeWithFullscreen() },
     { label: t($language, 'controls'), action: () => showKeyConfig = true },
     { label: t($language, 'loadGame'), action: () => showLoadSaves = true },
     { label: t($language, 'saveGame'), action: () => showSaveGame = true },
-    ...displayItems,
+    ...(display ? [{ label: t($language, 'video'), action: () => (showVideo = true) }] : []),
     ...extraItems,
     { label: t($language, 'quit'), action: () => dispatch('quit'), danger: true }
   ];
@@ -159,7 +175,7 @@
 
   function handleKeyDown(e: KeyboardEvent) {
     // Skip navigation when in submenus
-    if (showKeyConfig || showLoadSaves || showSaveGame) return;
+    if (showKeyConfig || showLoadSaves || showSaveGame || showVideo) return;
 
     const button = keyCodeToButton[e.code];
 
@@ -199,6 +215,7 @@
     showKeyConfig = false;
     showLoadSaves = false;
     showSaveGame = false;
+    showVideo = false;
     selectedIndex = 0;
     // Refocus the menu after a short delay to ensure DOM is updated
     setTimeout(() => menuButtons[selectedIndex]?.focus(), 50);
@@ -219,7 +236,7 @@
 
     gamepadPollInterval = window.setInterval(() => {
       // Skip if in submenus
-      if (showKeyConfig || showLoadSaves || showSaveGame) return;
+      if (showKeyConfig || showLoadSaves || showSaveGame || showVideo) return;
 
       const gamepads = navigator.getGamepads();
 
@@ -309,7 +326,7 @@
 
 <div class="pause-overlay">
   <div class="pause-menu">
-    {#if !showKeyConfig && !showLoadSaves && !showSaveGame}
+    {#if !showKeyConfig && !showLoadSaves && !showSaveGame && !showVideo}
       <h2>{t($language, 'pauseMenu')}</h2>
       <p class="hint">{t($language, 'pauseMenuHint')}</p>
 
@@ -324,6 +341,20 @@
             {item.label}
           </button>
         {/each}
+      </div>
+    {/if}
+
+    {#if showVideo}
+      <div class="submenu">
+        <h3>{t($language, 'video')}</h3>
+        <div class="menu-items">
+          {#each displayItems as item}
+            <button on:click={item.action} disabled={item.disabled}>{item.label}</button>
+          {/each}
+        </div>
+        <button on:click={handleBackFromSubmenu} class="back-button">
+          {t($language, 'close')}
+        </button>
       </div>
     {/if}
 

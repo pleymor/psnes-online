@@ -492,9 +492,24 @@
    * calls it, because turbo only makes sense when every peer runs it
    * together. The path this replaced bound the same key to the same thing.
    */
+  /**
+   * Fast-forward, with the sound muted while it lasts.
+   *
+   * The sink plays at real time and turbo produces up to four times as many
+   * samples, so feeding it during turbo grows a queue that never drains: the
+   * worklet's one-second cap starts dropping the oldest chunks, which is
+   * audible as clicks, and whatever survives arrives late for as long as
+   * turbo ran. Muting removes the cause rather than the symptom - and
+   * `setMuted(true)` already flushes what is queued, so switching back is
+   * immediate instead of playing seconds of stale audio.
+   *
+   * This is what emulators do on fast-forward. Sped-up sound is not worth
+   * hearing anyway.
+   */
   function toggleTurbo(): void {
     turbo = !turbo;
     governor?.setTurbo(turbo);
+    audio?.setMuted(turbo);
   }
 
   function onKeyDown(event: KeyboardEvent): void {
@@ -629,6 +644,7 @@
     {keyConfig}
     {display}
     {isFullscreen}
+    scanlinesAvailable={!usingGl}
     {turbo}
     emulator={saveAdapter}
     on:resume={closePauseMenu}
@@ -644,13 +660,23 @@
   .solo {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    align-items: center;
+    gap: 0.75rem;
+    /* Without this the width comes up from the content, which means from the
+       canvas's buffer - so a 6x shader resized the whole layout, 'Fit' and
+       'Stretch' looked identical because the box already matched the picture's
+       ratio, and 'Sharp' had nothing to smooth because nothing was upscaled. */
+    width: 100%;
   }
 
   .screen {
     position: relative;
+    width: 100%;
+    max-width: 1024px;
     aspect-ratio: 4 / 3;
     background: #000;
+    border-radius: 8px;
+    overflow: hidden;
   }
 
   canvas {
@@ -731,5 +757,34 @@
   .action:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+
+  .solo:fullscreen {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    justify-content: center;
+    gap: 0;
+    background: #000;
+  }
+
+  .solo:fullscreen .screen {
+    max-width: none;
+    width: 100%;
+    height: 100%;
+    /* Dropping the fixed ratio is the whole point: a 4/3 box as wide as the
+       screen is taller than the screen. The canvas keeps its own object-fit,
+       set by the active renderer from the display options, so 'Fit' still
+       letterboxes and 'Stretch' still fills. */
+    aspect-ratio: auto;
+    border-radius: 0;
+  }
+
+  .solo:fullscreen .toolbar {
+    position: absolute;
+    bottom: 0.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
   }
 </style>

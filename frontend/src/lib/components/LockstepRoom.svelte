@@ -1056,6 +1056,7 @@
       {keyConfig}
       {display}
       {isFullscreen}
+      scanlinesAvailable={!usingGl}
       {showStats}
       gamepadLabel={gamepadLabel(gamepadSource)}
       emulator={saveAdapter}
