@@ -21,6 +21,7 @@
   import LocateRom from './LocateRom.svelte';
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
+  import { VALID_SHADER_IDS } from './ShaderSelector.svelte';
   import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
   import {
     AudioSink,
@@ -163,17 +164,6 @@
    */
   let chromeHeld = false;
 
-  /** The same six the home page offers, in the same order, plus none. */
-  const SHADER_IDS = [
-    '',
-    'xbrz/6xbrz-linear',
-    'xbrz/5xbrz-linear',
-    'xbrz/4xbrz-linear',
-    'crt/crt-easymode',
-    'interpolation/sharp-bilinear-simple',
-    'anti-aliasing/fxaa'
-  ];
-
   function shaderLabel(id: string): string {
     if (!id) return 'No shader';
     // The id's last segment is short enough for a toolbar button.
@@ -243,7 +233,11 @@
   }
 
   async function cycleShader(): Promise<void> {
-    const next = SHADER_IDS[(SHADER_IDS.indexOf(display.shader) + 1) % SHADER_IDS.length];
+    // VALID_SHADER_IDS already starts with '' for "no shader", same order the
+    // toolbar has always cycled in - it is the same list ShaderSelector.svelte
+    // shows on the home page, so there is only one place that ever lists them.
+    const next =
+      VALID_SHADER_IDS[(VALID_SHADER_IDS.indexOf(display.shader) + 1) % VALID_SHADER_IDS.length];
     display = { ...display, shader: next };
     // Local and cosmetic, so it is remembered exactly the way the home page's
     // settings modal remembers it - same key, same meaning.
@@ -261,9 +255,13 @@
    * refuses. One boolean read per slice, and no new timer.
    */
   function checkRendererHealth(): void {
-    if (renderer instanceof WebglRenderer && renderer.lost) {
-      logger.warn('webgl context lost, falling back to 2D');
-      shaderNotice = 'The graphics context was lost; showing raw pixels.';
+    if (renderer instanceof WebglRenderer && renderer.unusable) {
+      // Reason-agnostic on purpose: `unusable` covers both a lost browser
+      // context and allocate() giving up (e.g. a shader's render target
+      // too large for the driver), and the player does not need to know
+      // which - both end the same way, a working 2D picture.
+      logger.warn('webgl renderer unusable, falling back to 2D');
+      shaderNotice = 'Hardware shaders stopped working; showing raw pixels.';
       useCanvasRenderer();
     }
   }
@@ -441,16 +439,20 @@
 
       // The shader preference is global and already set from the home page's
       // settings modal; the lockstep path simply never honoured it until now.
-      const storedShader = localStorage.getItem('psnes-shader') || '';
+      // Read-and-purge like the other two readers (P2PRoom.svelte and
+      // routes/+page.svelte): a stale id left over from a delisted preset
+      // (xbrz-freescale, before it was removed) is dropped here too, rather
+      // than costing this reader alone a CDN round trip and a user-facing
+      // notice for a value the other two would have deleted outright.
+      let storedShader = localStorage.getItem('psnes-shader') || '';
+      if (storedShader && !VALID_SHADER_IDS.includes(storedShader)) {
+        localStorage.removeItem('psnes-shader');
+        storedShader = '';
+      }
       display = { ...display, shader: storedShader };
 
       renderer = new CanvasRenderer(canvas2d);
       renderer.draw(core);
-
-      // Then try to upgrade to GL. Deliberately after a first frame is already
-      // on screen: fetching a preset takes a moment, and a visible picture
-      // beats an empty canvas while it loads.
-      if (storedShader) await applyShader(storedShader);
 
       audio = new AudioSink();
       await audio.start(Math.round(core.sampleRate));
@@ -515,6 +517,17 @@
 
       session.start();
       governor.start();
+
+      // Try to upgrade to GL now, after the session is running rather than
+      // before joinRelay(): loadShaderPreset does two sequential fetches to a
+      // third-party CDN with no timeout, and doing that before the relay join
+      // would delay the handshake - and the other player's wait in `waiting` -
+      // by however long a slow CDN takes, for a reason that has nothing to do
+      // with them. Not awaited: onFrame above closes over the mutable
+      // `renderer` binding, so a later swap is picked up, and applyShader is
+      // already re-entrancy-safe through shaderSwapToken.
+      if (storedShader) void applyShader(storedShader);
+
       startDiagnostics();
       // Every 30s and on the way out: a battery save that is only written at
       // teardown is lost whenever a tab is closed abruptly.
@@ -1037,6 +1050,8 @@
     <button
       class="action"
       class:on={display.scanlines}
+      disabled={usingGl}
+      title={usingGl ? 'The shader owns the picture while one is active' : undefined}
       on:click={() => (display = { ...display, scanlines: !display.scanlines })}
     >Scanlines</button>
     <button

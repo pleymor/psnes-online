@@ -14,7 +14,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePreset, resolveShaderUrl } from '../../frontend/src/lib/znet/preset.js';
+import { parsePreset, resolveShaderUrl, presetUrl } from '../../frontend/src/lib/znet/preset.js';
 
 const XBRZ_6X = `shaders = 2
 
@@ -188,6 +188,31 @@ test('a non-numeric scale is refused rather than becoming NaN', () => {
   assert.match(result.directive, /scale0/);
 });
 
+test('a hypothetical "shaders2" key is refused by its own name, not accepted as base "shaders"', () => {
+  // SUPPORTED_DIRECTIVES used to be one list doing two jobs: the literal
+  // 'shaders' and the indexed prefixes both lived in it, so splitIndexed's
+  // regex match on 'shaders2' -> base 'shaders' would have passed the
+  // includes() check. This is the case that hole would have let through.
+  const result = parsePreset('shaders = 1\nshader0 = a.glsl\nshaders2 = 1\n');
+
+  assert.equal(result.ok, false);
+  if (result.ok) throw new Error('unreachable');
+  assert.equal(result.directive, 'shaders2');
+});
+
+test('a line with no "=" is refused rather than half-read - the CDN error-page case', () => {
+  // A captive portal or a CDN outage can serve an HTML error page with a 200
+  // status. The first line of that page has no '=', and the whole preset must
+  // be refused rather than silently skipping the malformed line and reading
+  // whatever happens to parse after it.
+  const result = parsePreset('<!DOCTYPE html>\nshaders = 1\nshader0 = a.glsl\n');
+
+  assert.equal(result.ok, false);
+  if (result.ok) throw new Error('unreachable');
+  assert.equal(result.directive, '<!DOCTYPE html>');
+  assert.match(result.reason, /not a key = value line/);
+});
+
 test('a directive belonging to a pass beyond the declared count is refused', () => {
   // Otherwise a preset could smuggle in a pass the pipeline never allocates.
   const result = parsePreset('shaders = 1\nshader0 = a.glsl\nfilter_linear1 = true\n');
@@ -212,5 +237,12 @@ test('a ../ shader path climbs out of the preset directory - the stock.glsl case
   assert.equal(
     resolveShaderUrl(base, '../stock.glsl'),
     'https://cdn.example/gh/libretro/glsl-shaders@abc/stock.glsl'
+  );
+});
+
+test('presetUrl builds the pinned .glslp URL for a shader id', () => {
+  assert.equal(
+    presetUrl('xbrz/6xbrz-linear'),
+    'https://cdn.jsdelivr.net/gh/libretro/glsl-shaders@468f67b6f6788e2719d1dd28dfb2c9b7c3db3cc7/xbrz/6xbrz-linear.glslp'
   );
 });

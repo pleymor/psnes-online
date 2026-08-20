@@ -15,7 +15,7 @@
  * The GL pipeline cannot be unit-tested in this repo - there is no WebGL
  * context under Node and no browser harness here - so it is written to fail
  * into the 2D path rather than to be caught by a test. Every failure returns
- * null or sets `lost`; nothing here throws at the caller.
+ * null or sets `unusable`; nothing here throws at the caller.
  */
 
 import type { PsnesCore } from './core.js';
@@ -185,7 +185,14 @@ export class WebglRenderer implements Renderer {
 	private inputHeight = 0;
 
 	private frameCount = 0;
-	private contextLost = false;
+	/**
+	 * True once the GL pipeline can no longer be trusted - a lost browser
+	 * context, or `allocate()` giving up. Two different causes, one meaning:
+	 * "stop calling into GL and let the room fall back to 2D." Backing field
+	 * for the public `unusable` getter; it cannot share that name because a
+	 * class cannot declare a field and an accessor with the same identifier.
+	 */
+	private isUnusable = false;
 	private onContextLost: (event: Event) => void;
 
 	/**
@@ -205,6 +212,11 @@ export class WebglRenderer implements Renderer {
 			stencil: false,
 			// The picture must survive until the next draw: a lockstep stall means
 			// no new frame for a while, and a cleared canvas would flash black.
+			// It is also load-bearing for save thumbnails: `saves/thumbnail.ts`
+			// calls ctx.drawImage(sourceCanvas, …) outside the drawing frame, and
+			// that only reads a real picture back because the buffer is preserved
+			// rather than cleared right after compositing. Removing this for
+			// performance would silently break thumbnails in GL mode.
 			preserveDrawingBuffer: true
 		});
 		if (!gl) return null;
@@ -244,16 +256,20 @@ export class WebglRenderer implements Renderer {
 		// message; treated, the room falls back to 2D and keeps playing.
 		this.onContextLost = (event: Event) => {
 			event.preventDefault();
-			this.contextLost = true;
+			this.isUnusable = true;
 		};
 		canvas.addEventListener('webglcontextlost', this.onContextLost);
 
 		this.applyOptions();
 	}
 
-	/** True once the GL context died. The room watches this and swaps to 2D. */
-	get lost(): boolean {
-		return this.contextLost;
+	/**
+	 * True once the GL pipeline is unusable - context lost, or an allocation
+	 * gave up. The room watches this and swaps to 2D either way; it does not
+	 * need to know which of the two happened.
+	 */
+	get unusable(): boolean {
+		return this.isUnusable;
 	}
 
 	setOptions(options: DisplayOptions): void {
@@ -264,11 +280,13 @@ export class WebglRenderer implements Renderer {
 	/**
 	 * Only the CSS-level options apply here.
 	 *
-	 * `pixelPerfect` does not: filtering is the preset's business, set per pass
-	 * from `filter_linearN`, and overriding it would make the shader look
-	 * different from the same shader in the RetroArch path. `scanlines` does
-	 * not either - crt-easymode draws its own, and stacking a second set over
-	 * a shader that already has them looks wrong.
+	 * `pixelPerfect` still sets `style.imageRendering` below, same as the 2D
+	 * path - what it does NOT control is GL sampling: filtering is the
+	 * preset's business, set per pass from `filter_linearN`, and overriding it
+	 * would make the shader look different from the same shader in the
+	 * RetroArch path. `scanlines` does not apply at all - crt-easymode draws
+	 * its own, and stacking a second set over a shader that already has them
+	 * looks wrong.
 	 */
 	private applyOptions(): void {
 		this.canvas.style.imageRendering = this.options.pixelPerfect ? 'pixelated' : 'auto';
@@ -276,7 +294,7 @@ export class WebglRenderer implements Renderer {
 	}
 
 	draw(core: PsnesCore): void {
-		if (this.contextLost) return;
+		if (this.isUnusable) return;
 
 		const surface = core.videoSurface();
 		if (surface.width === 0 || surface.height === 0) return;
@@ -286,9 +304,18 @@ export class WebglRenderer implements Renderer {
 		if (surface.width !== this.inputWidth || surface.height !== this.inputHeight) {
 			// The SNES switches between 256x224, 512x448 and interlaced modes. A
 			// fixed-size texture would show noise the first time a game opens a
-			// high-resolution menu.
-			this.allocate(surface.width, surface.height);
+			// high-resolution menu. This is also where a too-large target for the
+			// driver (xBRZ 6x of a 512x448 frame, above GLES3's guaranteed
+			// MAX_TEXTURE_SIZE) shows up, so a false here is an ordinary outcome,
+			// not a surprise - which is why it is checked rather than ignored.
+			if (!this.allocate(surface.width, surface.height)) return;
 		}
+
+		// Defensive, on top of the check above: even if some future give-up path
+		// inside allocate() forgets to return false, this second read of the
+		// flag still keeps the pass loop below from ever running against
+		// targets that were never (re)allocated.
+		if (this.isUnusable) return;
 
 		this.upload(surface.data, surface.width, surface.height, surface.stride);
 
@@ -309,6 +336,14 @@ export class WebglRenderer implements Renderer {
 			const pass = this.passes[i];
 			const last = i === this.passes.length - 1;
 			const target = last ? null : this.targets[i];
+			if (!last && !target) {
+				// allocate() did not leave a target here - it should have, for
+				// every intermediate pass, but this is the bail-out that replaces
+				// asserting past it. The same outcome as any other give-up path:
+				// stop touching GL and let the room fall back to 2D.
+				this.isUnusable = true;
+				break;
+			}
 			const outWidth = last ? finalWidth : target!.width;
 			const outHeight = last ? finalHeight : target!.height;
 
@@ -433,8 +468,14 @@ export class WebglRenderer implements Renderer {
 		gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
 	}
 
-	/** (Re)allocates the input texture and every intermediate render target. */
-	private allocate(width: number, height: number): void {
+	/**
+	 * (Re)allocates the input texture and every intermediate render target.
+	 *
+	 * Returns false on any give-up path - the caller (`draw()`) must check this
+	 * and bail rather than continue into a pass loop that expects a target
+	 * this call did not produce.
+	 */
+	private allocate(width: number, height: number): boolean {
 		const gl = this.gl;
 		this.releaseTextures();
 
@@ -458,8 +499,8 @@ export class WebglRenderer implements Renderer {
 				// A context being lost mid-allocation. Same outcome as an
 				// incomplete framebuffer: give up on GL, keep the 2D path.
 				gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-				this.contextLost = true;
-				return;
+				this.isUnusable = true;
+				return false;
 			}
 			gl.bindTexture(gl.TEXTURE_2D, texture);
 			gl.texImage2D(
@@ -476,8 +517,8 @@ export class WebglRenderer implements Renderer {
 				// framebuffer being created.
 				gl.deleteTexture(texture);
 				gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-				this.contextLost = true;
-				return;
+				this.isUnusable = true;
+				return false;
 			}
 			gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 			gl.framebufferTexture2D(
@@ -485,13 +526,17 @@ export class WebglRenderer implements Renderer {
 			);
 			if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
 				// This is the xbrz-freescale failure, arriving from the other side:
-				// a target too large for the driver. Give up on GL rather than draw
-				// nothing - the room will keep the 2D renderer.
+				// a target too large for the driver (xBRZ 6x of a 512x448 frame is
+				// 3072x2688, above the 2048 MAX_TEXTURE_SIZE GLES3 only guarantees).
+				// Give up on GL rather than draw with a target that was never
+				// created - the false returned here is what stops draw() from
+				// reaching a pass loop that expects one - the room will keep the
+				// 2D renderer.
 				gl.deleteTexture(texture);
 				gl.deleteFramebuffer(framebuffer);
 				gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-				this.contextLost = true;
-				return;
+				this.isUnusable = true;
+				return false;
 			}
 
 			this.targets.push({ framebuffer, texture, width: passWidth, height: passHeight });
@@ -500,6 +545,7 @@ export class WebglRenderer implements Renderer {
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		this.inputWidth = width;
 		this.inputHeight = height;
+		return true;
 	}
 
 	private releaseTextures(): void {

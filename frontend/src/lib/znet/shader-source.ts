@@ -14,14 +14,13 @@
  *
  * All the networking for this feature lives here. Everything decidable from a
  * string lives in `preset.ts`, which is why that file has tests and this one
- * does not.
+ * does not - including `presetUrl` and `SHADER_BASE_URL`, re-exported below so
+ * this stays the one place callers import shader-loading names from.
  */
 
-import { parsePreset, resolveShaderUrl } from './preset.js';
+import { parsePreset, resolveShaderUrl, presetUrl, SHADER_BASE_URL } from './preset.js';
 
-/** Pinned to the same commit the RetroArch path uses. */
-export const SHADER_BASE_URL =
-	'https://cdn.jsdelivr.net/gh/libretro/glsl-shaders@468f67b6f6788e2719d1dd28dfb2c9b7c3db3cc7';
+export { presetUrl, SHADER_BASE_URL };
 
 export interface LoadedPass {
 	/** The full .glsl text, both stages, still carrying its COMPAT macros. */
@@ -35,11 +34,6 @@ export interface LoadedPreset {
 }
 
 export type LoadResult = { ok: true; preset: LoadedPreset } | { ok: false; reason: string };
-
-/** `xbrz/6xbrz-linear` becomes the pinned URL of `xbrz/6xbrz-linear.glslp`. */
-export function presetUrl(shaderId: string): string {
-	return `${SHADER_BASE_URL}/${shaderId}.glslp`;
-}
 
 async function fetchText(url: string, fetchImpl: typeof fetch): Promise<string> {
 	const res = await fetchImpl(url);

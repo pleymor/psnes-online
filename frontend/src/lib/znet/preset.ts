@@ -15,14 +15,18 @@
  * WebGL path.
  */
 
-/** The whole supported vocabulary. `shaderN` and friends match by prefix. */
-export const SUPPORTED_DIRECTIVES: readonly string[] = [
-	'shaders',
-	'shader',
-	'filter_linear',
-	'scale_type',
-	'scale'
-];
+/**
+ * The indexed-directive prefixes: `shaderN`, `filter_linearN`, `scale_typeN`,
+ * `scaleN`. Deliberately excludes `shaders`, which is a directive in its own
+ * right with no index - if it were in this table, a hypothetical `shaders2`
+ * key would be accepted as base `shaders` rather than refused by name, which
+ * is exactly the hole the "refuse everything outside the subset, by name"
+ * invariant exists to close.
+ */
+const INDEXED_DIRECTIVES: readonly string[] = ['shader', 'filter_linear', 'scale_type', 'scale'];
+
+/** The whole supported vocabulary, `shaders` plus every indexed prefix. */
+export const SUPPORTED_DIRECTIVES: readonly string[] = ['shaders', ...INDEXED_DIRECTIVES];
 
 export interface PresetPass {
 	/** As written in the preset - relative to the preset's own URL. */
@@ -99,7 +103,7 @@ export function parsePreset(source: string): PresetResult {
 		if (key === 'shaders') continue;
 
 		const indexed = splitIndexed(key);
-		if (!indexed || !SUPPORTED_DIRECTIVES.includes(indexed.base)) {
+		if (!indexed || !INDEXED_DIRECTIVES.includes(indexed.base)) {
 			return refuse(key, 'directive is outside the supported subset');
 		}
 		if (indexed.index >= passCount) {
@@ -158,4 +162,32 @@ export function parsePreset(source: string): PresetResult {
  */
 export function resolveShaderUrl(presetUrl: string, shaderPath: string): string {
 	return new URL(shaderPath, presetUrl).toString();
+}
+
+/**
+ * Pinned to the same commit the RetroArch path uses (see `shaderRepo` /
+ * `shaderVersion` in `frontend/src/lib/emulator/libs/options.ts`), on purpose:
+ * both renderers must show the SAME shader, or the one setting would look
+ * different depending on which mode you are playing in.
+ *
+ * Not imported from that file: `options.ts` is the RetroArch/WASM stack's
+ * module, and pulling it in here would drag its own dependencies (`ini`,
+ * `path-browserify`, the whole default RetroArch config builder) into this
+ * module's bundle, plus its `resolveShader`'s hardcoded per-preset table -
+ * exactly the pattern this file exists to avoid. `preset.ts` is meant to stay
+ * pure and DOM/fetch/global-free, per the module docstring above. If this
+ * commit ever moves, it has to move in both places - `options.ts` carries the
+ * matching comment pointing back here.
+ */
+export const SHADER_BASE_URL =
+	'https://cdn.jsdelivr.net/gh/libretro/glsl-shaders@468f67b6f6788e2719d1dd28dfb2c9b7c3db3cc7';
+
+/**
+ * `xbrz/6xbrz-linear` becomes the pinned URL of `xbrz/6xbrz-linear.glslp`.
+ *
+ * String-in, string-out, so it lives here rather than in `shader-source.ts`,
+ * whose own docstring says string-decidable logic belongs in this module.
+ */
+export function presetUrl(shaderId: string): string {
+	return `${SHADER_BASE_URL}/${shaderId}.glslp`;
 }

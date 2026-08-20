@@ -73,6 +73,12 @@ const coreVersion = 'v1.22.2'
 const coreDirectory = 'retroarch'
 
 const shaderRepo = 'libretro/glsl-shaders'
+// Kept in sync by hand with SHADER_BASE_URL in frontend/src/lib/znet/preset.ts
+// - the WebGL2 lockstep renderer's pinned commit. Both must show the SAME
+// shader, so if this version ever moves, that constant has to move with it.
+// Not imported from there: preset.ts is deliberately pure (no DOM, no fetch,
+// no globals, none of this module's dependencies), and importing across would
+// undo that.
 const shaderVersion = '468f67b6f6788e2719d1dd28dfb2c9b7c3db3cc7'
 
 const zipjsURL = 'https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.8.10/+esm'

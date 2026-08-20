@@ -29,9 +29,11 @@ export interface DisplayOptions {
 	/**
 	 * A libretro shader id such as `xbrz/6xbrz-linear`, or '' for none.
 	 *
-	 * Only WebglRenderer honours this; CanvasRenderer has no GL pipeline and
-	 * ignores it. Like the rest of this interface it is local and cosmetic and
-	 * never crosses the network.
+	 * Neither renderer reads this field - the room does. It picks the shader,
+	 * swaps `WebglRenderer` in or out, and stores the id here so the toolbar
+	 * button and the renderer's other options keep travelling together as one
+	 * `DisplayOptions` value. Like the rest of this interface it is local and
+	 * cosmetic and never crosses the network.
 	 */
 	shader: string;
 }
