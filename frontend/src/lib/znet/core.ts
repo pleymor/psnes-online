@@ -56,6 +56,21 @@ export interface VideoFrame {
 	height: number;
 }
 
+/**
+ * A live view of the core's video buffer, with no copy.
+ *
+ * `data` points into wasm memory and is only valid until the next core call -
+ * anything that can grow the heap invalidates it. Upload it and forget it.
+ * `stride` is the buffer's row length in pixels and is always >= width, so a
+ * consumer must skip the padding itself (in WebGL, via UNPACK_ROW_LENGTH).
+ */
+export interface VideoSurface {
+	data: Uint8Array;
+	width: number;
+	height: number;
+	stride: number;
+}
+
 export class PsnesCore {
 	private module: PsnesCoreModule;
 	private romPtr = 0;
@@ -161,6 +176,25 @@ export class PsnesCore {
 			out.set(heap.subarray(src, src + width * 4), y * width * 4);
 		}
 		return { data: out, width, height };
+	}
+
+	/**
+	 * The same frame as `videoFrame()`, without the repack.
+	 *
+	 * The core's stride is fixed at PN_MAX_WIDTH (512) whatever the visible
+	 * width is, so `videoFrame`'s row-by-row copy discards half of every row
+	 * at the usual 256-wide output. WebGL can read the sub-rectangle directly,
+	 * so it takes this instead. The 2D path still needs the tight buffer.
+	 */
+	videoSurface(): VideoSurface {
+		const width = this.module._pn_video_width();
+		const height = this.module._pn_video_height();
+		const stride = this.module._pn_video_stride();
+		const base = this.module._pn_video();
+		// A fresh subarray each call: the previous one may have been detached by
+		// a heap growth, and a stale view is a silent read of the wrong memory.
+		const data = this.module.HEAPU8.subarray(base, base + stride * height * 4);
+		return { data, width, height, stride };
 	}
 
 	/** Interleaved stereo samples produced by the last `runFrame`. */

@@ -8,7 +8,7 @@
  */
 
 export { PsnesCore } from './core.js';
-export type { PsnesCoreModule, PsnesCoreFactory, VideoFrame } from './core.js';
+export type { PsnesCoreModule, PsnesCoreFactory, VideoFrame, VideoSurface } from './core.js';
 export { loadCore, coreAvailable } from './loader.js';
 
 export { NetplaySession } from './session.js';
