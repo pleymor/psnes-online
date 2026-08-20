@@ -454,7 +454,9 @@
 
       audio = new AudioSink();
       await audio.start(Math.round(core.sampleRate));
-      needsAudioGesture = true;
+      // Ask, do not assume: a room is reached by clicking, so the context
+      // is usually already running and no gesture is needed.
+      needsAudioGesture = audio.needsGesture;
 
       const saved = localStorage.getItem(gamepadKey);
       if (saved) gamepadSource = saved === 'auto' || saved === 'off' ? saved : Number(saved);
@@ -923,8 +925,14 @@
   }
 
   async function enableAudio() {
-    await audio?.resume();
-    needsAudioGesture = false;
+    try {
+      await audio?.resume();
+    } catch (err) {
+      logger.error('Could not start audio', err);
+    }
+    // Re-read rather than clear: if resume failed the button has to stay, or
+    // the player is left with silence and nothing to click.
+    needsAudioGesture = audio?.needsGesture ?? false;
   }
 
   function teardown() {

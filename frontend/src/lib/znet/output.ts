@@ -201,6 +201,19 @@ export class AudioSink {
 		this.ready = true;
 	}
 
+	/**
+	 * Whether the browser is actually holding audio until a user gesture.
+	 *
+	 * Ask rather than assume. A room reached by clicking - which is every room -
+	 * usually has user activation already, so the context starts running and no
+	 * gesture is needed. Callers that assumed otherwise showed a "click for
+	 * sound" button that did nothing, because `resume()` is a no-op on a context
+	 * that was never suspended.
+	 */
+	get needsGesture(): boolean {
+		return this.context?.state === 'suspended';
+	}
+
 	/** Browsers block audio until a gesture; call this from a click handler. */
 	async resume(): Promise<void> {
 		if (this.context?.state === 'suspended') await this.context.resume();

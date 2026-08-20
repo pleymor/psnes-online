@@ -386,7 +386,9 @@
         teardown();
         return;
       }
-      needsAudioGesture = true;
+      // Ask, do not assume: a room is reached by clicking, so the context
+      // is usually already running and no gesture is needed.
+      needsAudioGesture = audio.needsGesture;
 
       const saved = localStorage.getItem(gamepadKey);
       if (saved) gamepadSource = saved === 'auto' || saved === 'off' ? saved : Number(saved);
@@ -431,8 +433,14 @@
   }
 
   async function startAudio() {
-    needsAudioGesture = false;
-    await audio?.resume();
+    try {
+      await audio?.resume();
+    } catch (err) {
+      logger.error('Could not start audio', err);
+    }
+    // Re-read rather than clear: if resume failed the button has to stay, or
+    // the player is left with silence and nothing to click.
+    needsAudioGesture = audio?.needsGesture ?? false;
   }
 
   async function toggleFullscreen(): Promise<void> {
