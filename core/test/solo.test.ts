@@ -28,24 +28,43 @@ class RecordingSource implements TickSource {
   }
 }
 
-test('the governor accepts any TickSource, not only a NetplaySession', () => {
+test('the governor drives a TickSource through pump and tick', () => {
   const source = new RecordingSource();
 
-  // Constructing is the whole assertion: before TickSource existed this did
-  // not type-check, and a runtime-only widening would leave the compiler
-  // still demanding a NetplaySession.
-  const governor = new FrameGovernor(source, { fps: 60 });
+  // FrameGovernor reaches for browser globals: document.hidden decides
+  // whether it schedules on rAF or in a worker, and rAF hands it its slice.
+  // Capturing the callback rather than letting it fire makes the slice
+  // deterministic - the point is what the governor calls, not when.
+  let slice: (() => void) | null = null;
+  const g = globalThis as unknown as Record<string, unknown>;
+  const savedDocument = g.document;
+  const savedRaf = g.requestAnimationFrame;
+  const savedCancel = g.cancelAnimationFrame;
 
-  assert.equal(governor.isRunning, false, 'a fresh governor has not started');
-});
+  g.document = { hidden: false, addEventListener() {}, removeEventListener() {} };
+  g.requestAnimationFrame = (cb: () => void) => {
+    slice = cb;
+    return 1;
+  };
+  g.cancelAnimationFrame = () => {};
 
-test('the governor reads its session through the two-method contract only', () => {
-  const source = new RecordingSource();
-  const governor = new FrameGovernor(source, { fps: 60 });
+  try {
+    const governor = new FrameGovernor(source, { fps: 60 });
+    governor.start();
 
-  // Both methods exist on the narrow interface, so a governor that reached for
-  // anything else would fail to compile against RecordingSource.
-  assert.equal(typeof source.pump, 'function');
-  assert.equal(typeof source.tick, 'function');
-  assert.equal(governor.isRunning, false);
+    assert.equal(governor.isRunning, true, 'start() must arm the governor');
+    assert.equal(typeof slice, 'function', 'the governor must have scheduled a slice');
+
+    slice!();
+
+    // pump runs unconditionally, once per slice, so it is the reliable signal.
+    assert.ok(source.pumps >= 1, 'the governor must pump its source every slice');
+
+    governor.stop();
+    assert.equal(governor.isRunning, false);
+  } finally {
+    g.document = savedDocument;
+    g.requestAnimationFrame = savedRaf;
+    g.cancelAnimationFrame = savedCancel;
+  }
 });
