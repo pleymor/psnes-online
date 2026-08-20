@@ -12,7 +12,6 @@
    * why it had none of the toolbar the lockstep room grew.
    */
   import { onMount, onDestroy } from 'svelte';
-  import { socket } from '$lib/api/socket';
   import type { KeyConfig } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
   import { setLogLabels } from '$lib/utils/log-shipper';
@@ -59,6 +58,9 @@
   let collector: InputCollector | null = null;
   let session: SoloSession | null = null;
   let governor: FrameGovernor | null = null;
+
+  /** Set once the component is gone, so a suspended boot() cannot build on a corpse. */
+  let destroyed = false;
 
   let phase: 'booting' | 'playing' | 'error' = 'booting';
   let statusText = 'Loading emulator core…';
@@ -189,9 +191,17 @@
 
       statusText = 'Loading emulator core…';
       core = await loadCore();
+      if (destroyed) {
+        teardown();
+        return;
+      }
 
       statusText = 'Locating the ROM…';
       loadedRom = await obtainRom();
+      if (destroyed) {
+        teardown();
+        return;
+      }
       core.loadRom(normaliseRom(loadedRom));
 
       const storedShader = localStorage.getItem('psnes-shader') || '';
@@ -206,6 +216,10 @@
 
       audio = new AudioSink();
       await audio.start(Math.round(core.sampleRate));
+      if (destroyed) {
+        teardown();
+        return;
+      }
       needsAudioGesture = true;
 
       const saved = localStorage.getItem(gamepadKey);
@@ -240,6 +254,7 @@
       logger.error('Solo boot failed', err);
       errorText = err instanceof Error ? err.message : String(err);
       phase = 'error';
+      teardown();
     }
   }
 
@@ -249,6 +264,7 @@
   }
 
   function teardown() {
+    destroyed = true;
     governor?.stop();
     governor = null;
     session = null;

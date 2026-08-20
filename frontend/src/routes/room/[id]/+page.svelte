@@ -330,7 +330,7 @@
            shares nothing with the WebRTC path in P2PRoom. -->
       <LockstepRoom {roomId} gameId={room.gameId} gameCrc32={room.gameCrc32} gameTitle={room.gameTitle} isHost={isRoomHost} {keyConfig} />
     {:else}
-      <!-- P2PRoom handles the single, dual and streaming modes -->
+      <!-- P2PRoom handles the dual and streaming modes -->
       <P2PRoom
         {roomId}
         gameId={room.gameId}
