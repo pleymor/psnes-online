@@ -117,6 +117,8 @@ test('frame history is refused, since the renderer keeps no previous frames', ()
   const result = parsePreset('shaders = 1\nshader0 = a.glsl\nframe_count_mod0 = 2\n');
 
   assert.equal(result.ok, false);
+  if (result.ok) throw new Error('unreachable');
+  assert.equal(result.directive, 'frame_count_mod0');
 });
 
 test('a pass count that does not match the shaderN lines present is refused', () => {
@@ -147,6 +149,8 @@ test('a zero pass count is refused', () => {
   const result = parsePreset('shaders = 0\n');
 
   assert.equal(result.ok, false);
+  if (result.ok) throw new Error('unreachable');
+  assert.equal(result.directive, 'shaders');
 });
 
 test('comments and blank lines are ignored', () => {
