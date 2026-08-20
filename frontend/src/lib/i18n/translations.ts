@@ -225,7 +225,6 @@ export const translations = {
     shaderXbrz6x: 'xBRZ 6x',
     shaderXbrz5x: 'xBRZ 5x',
     shaderXbrz4x: 'xBRZ 4x',
-    shaderCrtEasymode: 'CRT Easymode',
     shaderSharpBilinear: 'Sharp Bilinear',
     shaderFxaa: 'FXAA (Anti-aliasing)',
 
@@ -463,7 +462,6 @@ export const translations = {
     shaderXbrz6x: 'xBRZ 6x',
     shaderXbrz5x: 'xBRZ 5x',
     shaderXbrz4x: 'xBRZ 4x',
-    shaderCrtEasymode: 'CRT Easymode',
     shaderSharpBilinear: 'Sharp Bilinear',
     shaderFxaa: 'FXAA (Anti-crénelage)',
 
