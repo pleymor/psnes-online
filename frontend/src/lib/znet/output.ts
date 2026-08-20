@@ -18,8 +18,7 @@ import type { PsnesCore } from './core.js';
  *
  * All of these are local and cosmetic: they change how a frame is shown, never
  * what the emulator computes, so two players can pick differently without any
- * risk to the lockstep. Note these are not RetroArch's GLSL shaders - those
- * need a GL pipeline this renderer does not have.
+ * risk to the lockstep.
  */
 export interface DisplayOptions {
 	/** false gives the browser's bilinear smoothing instead of hard pixels. */
@@ -27,15 +26,37 @@ export interface DisplayOptions {
 	scanlines: boolean;
 	/** 'original' keeps the SNES 8:7-ish pixel aspect; 'stretch' fills. */
 	aspect: 'original' | 'stretch';
+	/**
+	 * A libretro shader id such as `xbrz/6xbrz-linear`, or '' for none.
+	 *
+	 * Only WebglRenderer honours this; CanvasRenderer has no GL pipeline and
+	 * ignores it. Like the rest of this interface it is local and cosmetic and
+	 * never crosses the network.
+	 */
+	shader: string;
 }
 
 export const DEFAULT_DISPLAY: DisplayOptions = {
 	pixelPerfect: true,
 	scanlines: false,
-	aspect: 'original'
+	aspect: 'original',
+	shader: ''
 };
 
-export class CanvasRenderer {
+/**
+ * What a room needs from a renderer.
+ *
+ * Both renderers implement this, so the room picks one at boot and never has
+ * to know which it got. Deliberately tiny, and deliberately without any method
+ * that could let a renderer influence when a frame runs.
+ */
+export interface Renderer {
+	setOptions(options: DisplayOptions): void;
+	draw(core: PsnesCore): void;
+	dispose(): void;
+}
+
+export class CanvasRenderer implements Renderer {
 	private ctx: CanvasRenderingContext2D;
 	private image: ImageData | null = null;
 	private options: DisplayOptions = { ...DEFAULT_DISPLAY };
@@ -90,6 +111,11 @@ export class CanvasRenderer {
 		this.image.data.set(frame.data);
 		this.ctx.putImageData(this.image, 0, 0);
 		if (this.options.scanlines) this.drawScanlines(frame.width, frame.height);
+	}
+
+	/** Nothing to release: a 2D context holds no GL objects. Here for symmetry. */
+	dispose(): void {
+		this.image = null;
 	}
 }
 
