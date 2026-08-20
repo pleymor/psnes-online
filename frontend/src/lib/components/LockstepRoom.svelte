@@ -164,11 +164,6 @@
    */
   let chromeHeld = false;
 
-  function shaderLabel(id: string): string {
-    if (!id) return 'No shader';
-    // The id's last segment is short enough for a toolbar button.
-    return id.split('/').pop() as string;
-  }
 
   /** Drops back to the 2D renderer on its own canvas. Always succeeds. */
   function useCanvasRenderer(): void {
@@ -232,18 +227,21 @@
     if (core) renderer.draw(core);
   }
 
-  async function cycleShader(): Promise<void> {
-    // VALID_SHADER_IDS already starts with '' for "no shader", same order the
-    // toolbar has always cycled in - it is the same list ShaderSelector.svelte
-    // shows on the home page, so there is only one place that ever lists them.
-    const next =
-      VALID_SHADER_IDS[(VALID_SHADER_IDS.indexOf(display.shader) + 1) % VALID_SHADER_IDS.length];
-    display = { ...display, shader: next };
-    // Local and cosmetic, so it is remembered exactly the way the home page's
-    // settings modal remembers it - same key, same meaning.
-    if (next) localStorage.setItem('psnes-shader', next);
+  /**
+   * Takes a display change from the pause menu.
+   *
+   * A shader change needs a whole new renderer, because the renderer is built
+   * from a compiled preset and never re-reads the field. Assigning `display`
+   * alone would move the menu's label and leave the picture untouched.
+   */
+  async function onDisplayChange(next: DisplayOptions): Promise<void> {
+    const shaderChanged = next.shader !== display.shader;
+    display = next;
+    if (!shaderChanged) return;
+
+    if (next.shader) localStorage.setItem('psnes-shader', next.shader);
     else localStorage.removeItem('psnes-shader');
-    await applyShader(next);
+    await applyShader(next.shader);
   }
 
   /**
@@ -1037,41 +1035,13 @@
     {#if needsAudioGesture}
       <button class="action" on:click={enableAudio}>Enable sound</button>
     {/if}
-    <button class="action" on:click={cycleGamepadSource} title="Which gamepad drives this player">
-      🎮 {gamepadLabel(gamepadSource)}
-    </button>
+    <!--
+      Controls moved into the pause menu; readouts stayed. A live round-trip
+      number is the only visible sign of connection quality, and pausing does
+      not stop a lockstep session anyway, so hiding it behind a menu would
+      hide exactly the thing you want while playing.
+    -->
     <button class="action" on:click={() => openPauseMenu(isFullscreen)}>☰ Menu (Esc)</button>
-    <button
-      class="action"
-      class:on={isFullscreen}
-      on:click={toggleFullscreen}
-      title="Alt+Enter"
-    >⛶ {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button>
-    <button
-      class="action"
-      class:on={display.scanlines}
-      disabled={usingGl}
-      title={usingGl ? 'The shader owns the picture while one is active' : undefined}
-      on:click={() => (display = { ...display, scanlines: !display.scanlines })}
-    >Scanlines</button>
-    <button
-      class="action"
-      on:click={() => (display = { ...display, pixelPerfect: !display.pixelPerfect })}
-    >{display.pixelPerfect ? 'Sharp' : 'Smooth'}</button>
-    <button
-      class="action"
-      on:click={() =>
-        (display = { ...display, aspect: display.aspect === 'original' ? 'stretch' : 'original' })}
-    >{display.aspect === 'original' ? 'Fit' : 'Stretch'}</button>
-    <button
-      class="action"
-      class:on={display.shader !== ''}
-      on:click={cycleShader}
-      title="Shader"
-    >{shaderLabel(display.shader)}</button>
-    <button class="action" on:click={() => (showStats = !showStats)}>
-      {showStats ? 'Hide' : 'Show'} netplay stats
-    </button>
     {#if stats}
       <span class="summary">
         {stats.rtt ? `${Math.round(stats.rtt)} ms` : '— ms'} · delay {stats.inputDelay}f
@@ -1084,9 +1054,17 @@
       {roomId}
       {gameId}
       {keyConfig}
+      {display}
+      {isFullscreen}
+      {showStats}
+      gamepadLabel={gamepadLabel(gamepadSource)}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}
+      on:display={(e) => void onDisplayChange(e.detail)}
+      on:fullscreen={toggleFullscreen}
+      on:stats={() => (showStats = !showStats)}
+      on:gamepad={cycleGamepadSource}
       on:saved={(e) => { keyConfig = e.detail.config; closePauseMenu(); }}
     />
   {/if}
@@ -1247,12 +1225,6 @@
 
   .action:hover {
     background: #34344a;
-  }
-
-  .action.on {
-    background: #667eea;
-    color: #fff;
-    border-color: #667eea;
   }
 
   .summary {

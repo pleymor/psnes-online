@@ -7,6 +7,8 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import type { KeyConfig } from '$lib/types';
+  import type { DisplayOptions } from '$lib/znet';
+  import { SHADERS, VALID_SHADER_IDS } from './ShaderSelector.svelte';
 
   export let roomId: string;
   export let gameId: string;
@@ -14,7 +16,48 @@
   export let emulator: any = null; // Reference to ClientEmulator component (host only)
   export let restoreFullscreen: boolean = false; // Whether to restore fullscreen on resume
 
+  /**
+   * Display settings, or null for a room that has none to offer.
+   *
+   * These used to be a row of buttons along the bottom of the game screen, in
+   * both rooms, in hardcoded English. They live here instead because nobody
+   * changes them mid-game, and because a menu item inherits this component's
+   * keyboard and gamepad navigation for free - a separate toggle row would be
+   * mouse-only, in a menu built to be driven by a pad.
+   */
+  export let display: DisplayOptions | null = null;
+  export let isFullscreen: boolean = false;
+  /** null where fast-forward is not offered: in lockstep it would stall the peer. */
+  export let turbo: boolean | null = null;
+  /** null where there are no network statistics to show: solo. */
+  export let showStats: boolean | null = null;
+  /**
+   * The already-formatted name of the gamepad driving this player, or null
+   * where there is no picker. Formatted by the room rather than here: which
+   * pads are connected is its business, and this only has to render a string.
+   */
+  export let gamepadLabel: string | null = null;
+
   const dispatch = createEventDispatcher();
+
+  interface MenuItem {
+    label: string;
+    action: () => void;
+    danger?: boolean;
+  }
+
+  /** The translated name of a shader id, using the same list the picker shows. */
+  function shaderName(id: string): string {
+    const entry = SHADERS.find((s) => s.id === id) ?? SHADERS[0];
+    return t($language, entry.name);
+  }
+
+  function cycleShader(): void {
+    if (!display) return;
+    const next =
+      VALID_SHADER_IDS[(VALID_SHADER_IDS.indexOf(display.shader) + 1) % VALID_SHADER_IDS.length];
+    dispatch('display', { ...display, shader: next });
+  }
 
   let showKeyConfig = false;
   let showLoadSaves = false;
@@ -33,13 +76,79 @@
     }
   }
 
+  /**
+   * Display entries, folded into the same array as everything else so they
+   * inherit the arrow-key and gamepad navigation below. Each label carries its
+   * current value, the way the old toolbar buttons did.
+   */
+  let displayItems: MenuItem[] = [];
+  $: displayItems = display
+    ? [
+        {
+          label: `${t($language, 'scanlines')}: ${t($language, display.scanlines ? 'on' : 'off')}`,
+          action: () => dispatch('display', { ...display, scanlines: !display!.scanlines })
+        },
+        {
+          label: `${t($language, 'pixels')}: ${t($language, display.pixelPerfect ? 'sharp' : 'smooth')}`,
+          action: () => dispatch('display', { ...display, pixelPerfect: !display!.pixelPerfect })
+        },
+        {
+          label: `${t($language, 'aspect')}: ${t($language, display.aspect === 'stretch' ? 'stretch' : 'fit')}`,
+          action: () =>
+            dispatch('display', {
+              ...display,
+              aspect: display!.aspect === 'original' ? 'stretch' : 'original'
+            })
+        },
+        { label: `${t($language, 'shader')}: ${shaderName(display.shader)}`, action: cycleShader }
+      ]
+    : [];
+
+  let extraItems: MenuItem[] = [];
+  $: extraItems = [
+    ...(turbo === null
+      ? []
+      : [
+          {
+            label: `${t($language, 'fastForward')}: ${t($language, turbo ? 'on' : 'off')}`,
+            action: () => dispatch('turbo')
+          }
+        ]),
+    ...(gamepadLabel === null
+      ? []
+      : [
+          {
+            label: `${t($language, 'gamepad')}: ${gamepadLabel}`,
+            action: () => dispatch('gamepad')
+          }
+        ]),
+    ...(showStats === null
+      ? []
+      : [
+          {
+            label: `${t($language, 'netplayStats')}: ${t($language, showStats ? 'shown' : 'hidden')}`,
+            action: () => dispatch('stats')
+          }
+        ]),
+    {
+      label: `${t($language, 'fullscreen')}: ${t($language, isFullscreen ? 'on' : 'off')}`,
+      action: () => dispatch('fullscreen')
+    }
+  ];
+
+  let menuItems: MenuItem[] = [];
   $: menuItems = [
     { label: t($language, 'resume'), action: () => handleResumeWithFullscreen() },
     { label: t($language, 'controls'), action: () => showKeyConfig = true },
     { label: t($language, 'loadGame'), action: () => showLoadSaves = true },
     { label: t($language, 'saveGame'), action: () => showSaveGame = true },
+    ...displayItems,
+    ...extraItems,
     { label: t($language, 'quit'), action: () => dispatch('quit'), danger: true }
   ];
+
+  // The list can grow or shrink between rooms; never leave the cursor past its end.
+  $: if (selectedIndex >= menuItems.length) selectedIndex = menuItems.length - 1;
 
   function handleSaved(event: CustomEvent<{ config: KeyConfig }>) {
     // Forward the saved config to parent

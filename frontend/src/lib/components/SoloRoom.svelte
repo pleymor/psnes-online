@@ -110,7 +110,12 @@
     'Your battery save could not be read; progress will not be saved this session.';
 
   $: activeCanvas = usingGl ? canvasGl : canvas2d;
-  $: if (renderer && display) renderer.setOptions(display);
+  $: if (renderer && display) {
+    renderer.setOptions(display);
+    // The pause menu really pauses in solo, so no frame is coming to show the
+    // change. Draw one, or every display setting would look inert until resume.
+    if (showPauseMenu && core) renderer.draw(core);
+  }
   $: if (collector && keyConfig) collector.setKeyConfig(keyConfig);
 
   /**
@@ -124,10 +129,6 @@
     ? { saveState: async () => core!.saveState(), getCanvas: () => activeCanvas }
     : null;
 
-  function shaderLabel(id: string): string {
-    if (!id) return 'No shader';
-    return id.split('/').pop() as string;
-  }
 
   /** Drops back to the 2D renderer on its own canvas. Always succeeds. */
   function useCanvasRenderer(): void {
@@ -185,13 +186,23 @@
     if (core) renderer.draw(core);
   }
 
-  async function cycleShader(): Promise<void> {
-    const next =
-      VALID_SHADER_IDS[(VALID_SHADER_IDS.indexOf(display.shader) + 1) % VALID_SHADER_IDS.length];
-    display = { ...display, shader: next };
-    if (next) localStorage.setItem('psnes-shader', next);
+  /**
+   * Takes a display change from the pause menu.
+   *
+   * A shader change is not just a field: the renderer is built from a compiled
+   * preset, so it needs a new renderer entirely. Assigning `display` alone
+   * would update the menu's label and change nothing on screen - which is the
+   * exact class of defect this branch has already been caught on twice.
+   */
+  async function onDisplayChange(next: DisplayOptions): Promise<void> {
+    const shaderChanged = next.shader !== display.shader;
+    display = next;
+    if (!shaderChanged) return;
+
+    // Remembered the same way the home page's settings modal remembers it.
+    if (next.shader) localStorage.setItem('psnes-shader', next.shader);
     else localStorage.removeItem('psnes-shader');
-    await applyShader(next);
+    await applyShader(next.shader);
   }
 
   /** Falls back to 2D if the GL context died mid-game. One boolean per slice. */
@@ -596,38 +607,13 @@
     {/if}
   </div>
 
+  <!--
+    Only the menu button remains on screen. Everything else moved into the
+    pause menu, which is where settings nobody changes mid-game belong - and
+    where they inherit its keyboard and gamepad navigation. This button stays
+    because it is the only way to reach the menu without a keyboard.
+  -->
   <div class="toolbar">
-    <button class="action" class:on={isFullscreen} on:click={toggleFullscreen} title="Alt+Enter"
-      >⛶ {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button
-    >
-    <button
-      class="action"
-      class:on={display.scanlines}
-      disabled={usingGl}
-      title={usingGl ? 'The shader owns the picture while one is active' : undefined}
-      on:click={() => (display = { ...display, scanlines: !display.scanlines })}
-    >Scanlines</button>
-    <button
-      class="action"
-      on:click={() => (display = { ...display, pixelPerfect: !display.pixelPerfect })}
-    >{display.pixelPerfect ? 'Sharp' : 'Smooth'}</button>
-    <button
-      class="action"
-      on:click={() =>
-        (display = { ...display, aspect: display.aspect === 'original' ? 'stretch' : 'original' })}
-    >{display.aspect === 'original' ? 'Fit' : 'Stretch'}</button>
-    <button
-      class="action"
-      class:on={display.shader !== ''}
-      on:click={cycleShader}
-      title="Shader"
-    >{shaderLabel(display.shader)}</button>
-    <button
-      class="action"
-      class:on={turbo}
-      on:click={toggleTurbo}
-      title="Tab"
-    >⏩ Turbo</button>
     <button class="action" on:click={() => openPauseMenu(isFullscreen)}>☰ Menu (Esc)</button>
   </div>
 </div>
@@ -641,9 +627,15 @@
     {roomId}
     {gameId}
     {keyConfig}
+    {display}
+    {isFullscreen}
+    {turbo}
     emulator={saveAdapter}
     on:resume={closePauseMenu}
     on:quit={quitToLobby}
+    on:display={(e) => void onDisplayChange(e.detail)}
+    on:fullscreen={toggleFullscreen}
+    on:turbo={toggleTurbo}
     on:saved={(e) => { keyConfig = e.detail.config; closePauseMenu(); }}
   />
 {/if}
@@ -734,11 +726,6 @@
     padding: 0.4rem 0.75rem;
     border-radius: 6px;
     cursor: pointer;
-  }
-
-  .action.on {
-    background: #3a4a5a;
-    border-color: #667eea;
   }
 
   .action:disabled {
