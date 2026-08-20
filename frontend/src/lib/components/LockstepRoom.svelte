@@ -184,6 +184,11 @@
   function useCanvasRenderer(): void {
     renderer?.dispose();
     usingGl = false;
+    // The button reads display.shader, so leaving it set would keep
+    // advertising a shader that is not running. The stored preference is
+    // deliberately left alone: it is the player's choice, and it should be
+    // retried on the next load rather than silently forgotten.
+    display = { ...display, shader: '' };
     renderer = new CanvasRenderer(canvas2d);
     renderer.setOptions(display);
     if (core) renderer.draw(core);
@@ -217,6 +222,10 @@
       return;
     }
 
+    // If WebglRenderer.create fails below, useCanvasRenderer() disposes this
+    // same (already-disposed) renderer again. That is safe: dispose() on both
+    // renderer types guards every deletion and nulls what it deletes, so
+    // nothing gets double-freed.
     renderer?.dispose();
 
     const webgl = WebglRenderer.create(canvasGl, loaded.preset);
@@ -1290,7 +1299,7 @@
     max-width: none;
     width: 100%;
     height: 100%;
-    /* The canvas keeps its own object-fit, set by CanvasRenderer from the
+    /* The canvas keeps its own object-fit, set by the active renderer from the
        display options, so 'Fit' still letterboxes and 'Stretch' still fills. */
     aspect-ratio: auto;
     border-radius: 0;
