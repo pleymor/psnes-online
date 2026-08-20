@@ -103,10 +103,6 @@
           disabled: !scanlinesAvailable
         },
         {
-          label: `${t($language, 'pixels')}: ${t($language, display.pixelPerfect ? 'sharp' : 'smooth')}`,
-          action: () => dispatch('display', { ...display, pixelPerfect: !display!.pixelPerfect })
-        },
-        {
           label: `${t($language, 'aspect')}: ${t($language, display.aspect === 'stretch' ? 'stretch' : 'fit')}`,
           action: () =>
             dispatch('display', {

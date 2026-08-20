@@ -21,8 +21,6 @@ import type { PsnesCore } from './core.js';
  * risk to the lockstep.
  */
 export interface DisplayOptions {
-	/** false gives the browser's bilinear smoothing instead of hard pixels. */
-	pixelPerfect: boolean;
 	scanlines: boolean;
 	/** 'original' keeps the SNES 8:7-ish pixel aspect; 'stretch' fills. */
 	aspect: 'original' | 'stretch';
@@ -39,7 +37,6 @@ export interface DisplayOptions {
 }
 
 export const DEFAULT_DISPLAY: DisplayOptions = {
-	pixelPerfect: true,
 	scanlines: false,
 	aspect: 'original',
 	shader: ''
@@ -76,8 +73,11 @@ export class CanvasRenderer implements Renderer {
 	}
 
 	private applyOptions(): void {
-		this.ctx.imageSmoothingEnabled = !this.options.pixelPerfect;
-		this.canvas.style.imageRendering = this.options.pixelPerfect ? 'pixelated' : 'auto';
+		// Always nearest-neighbour here: this path's buffer is the SNES frame at
+		// its native size, so it is only ever scaled UP to the display, and hard
+		// pixels are the point. (imageSmoothingEnabled would not matter either
+		// way - putImageData ignores it.)
+		this.canvas.style.imageRendering = 'pixelated';
 		this.canvas.style.objectFit = this.options.aspect === 'stretch' ? 'fill' : 'contain';
 	}
 

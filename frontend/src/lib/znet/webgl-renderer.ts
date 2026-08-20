@@ -280,11 +280,16 @@ export class WebglRenderer implements Renderer {
 	/**
 	 * Only the CSS-level options apply here.
 	 *
-	 * `pixelPerfect` still sets `style.imageRendering` below, same as the 2D
-	 * path - what it does NOT control is GL sampling: filtering is the
-	 * preset's business, set per pass from `filter_linearN`, and overriding it
-	 * would make the shader look different from the same shader in the
-	 * RetroArch path.
+	 * Filtering inside the pipeline is the preset's business, set per pass from
+	 * `filter_linearN`; overriding it would make the shader look different from
+	 * the same shader in the RetroArch path.
+	 *
+	 * The final CSS resampling is chosen from its direction rather than from a
+	 * setting. A single-pass preset leaves the buffer at native size, so it is
+	 * scaled up and hard pixels are right. A multi-pass one leaves it several
+	 * times larger than the display - xBRZ 6x is 1536 wide - so it is scaled
+	 * DOWN, where nearest-neighbour is not crisp, it is aliased and shimmers in
+	 * motion. There is no taste to exercise here, only a direction to read.
 	 *
 	 * `scanlines` does not apply at all, and the honest reason is that it is
 	 * simply not implemented here: the 2D path draws them onto the canvas
@@ -295,7 +300,8 @@ export class WebglRenderer implements Renderer {
 	 * list does - the one that did, crt-easymode, has been removed.
 	 */
 	private applyOptions(): void {
-		this.canvas.style.imageRendering = this.options.pixelPerfect ? 'pixelated' : 'auto';
+		const downscaling = this.canvas.clientWidth > 0 && this.canvas.width > this.canvas.clientWidth;
+		this.canvas.style.imageRendering = downscaling ? 'auto' : 'pixelated';
 		this.canvas.style.objectFit = this.options.aspect === 'stretch' ? 'fill' : 'contain';
 	}
 
@@ -332,6 +338,11 @@ export class WebglRenderer implements Renderer {
 		if (this.canvas.width !== finalWidth || this.canvas.height !== finalHeight) {
 			this.canvas.width = finalWidth;
 			this.canvas.height = finalHeight;
+			// The buffer size is half of what decides the final resampling, and it
+			// changes here rather than in setOptions - a shader swap moves it by a
+			// factor of six. Re-reading it only on an actual resize keeps this off
+			// the per-frame path.
+			this.applyOptions();
 		}
 
 		let inputTexture = this.inputTexture;
