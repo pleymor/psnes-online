@@ -222,6 +222,15 @@
    * This is the in-game save - what the player writes from the cartridge's own
    * menu - so it is part of the emulated machine and has to be in place before
    * emulation starts.
+   *
+   * Invariant `sramLoaded` depends on: it means the server's copy was read
+   * and applied - or, for a new game, that the server confirmed there was
+   * none to apply. Every path that sets it true must be a path where that is
+   * actually true; a caught decode error and an unanswered request are both
+   * "did not read" and must leave it false. `persistSram()` trusts this flag
+   * completely to decide whether writing back is safe, so setting it on a
+   * failure path is a silent, permanent way to overwrite a real save with a
+   * blank one - it has happened twice already.
    */
   function loadSram(): Promise<void> {
     return new Promise((resolve) => {
@@ -237,13 +246,20 @@
             for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
             core!.loadSram(bytes);
             logger.info('Battery save restored', { bytes: bytes.length });
+            sramLoaded = true;
+          } else {
+            // The server has nothing for us - a new game - which is still a
+            // successful read: a first save still has to be able to persist.
+            sramLoaded = true;
           }
         } catch (err) {
+          // A payload we could not decode is a read that did not succeed.
+          // sramLoaded stays false, so persistSram() will not overwrite
+          // whatever real save the server holds with the blank SRAM the ROM
+          // just started with.
           logger.error('Could not restore the battery save', err);
+          sramNotice = 'Could not read your battery save from the server; progress will not be saved this session.';
         }
-        // Reached from the real response, not the timeout below: "the server
-        // says there is none" is still a successful read.
-        sramLoaded = true;
         resolve();
       };
 
@@ -400,12 +416,17 @@
     // same reason LockstepRoom restores fullscreen itself rather than
     // handing the prop to PauseMenu.
     if (pauseRestoresFullscreen && !document.fullscreenElement) {
-      container?.requestFullscreen().catch(() => {});
+      container?.requestFullscreen().catch((err) => logger.error('Could not restore fullscreen', err));
     }
     pauseRestoresFullscreen = false;
   }
 
   function onKeyDown(event: KeyboardEvent): void {
+    if (event.altKey && event.key === 'Enter') {
+      event.preventDefault();
+      void toggleFullscreen();
+      return;
+    }
     if (event.key !== 'Escape' || showPauseMenu) return;
     event.preventDefault();
     openPauseMenu(!!document.fullscreenElement);
@@ -413,6 +434,10 @@
 
   /** Leaving the room: told to the server the same way LockstepRoom does it. */
   function quitToLobby(): void {
+    // Reset first, not read back from document.fullscreenElement inside
+    // closePauseMenu() after exitFullscreen() - that promise resolves
+    // asynchronously, so relying on its timing would be fragile.
+    pauseRestoresFullscreen = false;
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     closePauseMenu();
     $socket?.emit('game:stop', { roomId });
