@@ -148,13 +148,16 @@
   let chromeHeld = false;
 
   /**
-   * What SavesManager needs from an emulator: a state it can store.
+   * What the save menu needs from an emulator: a state it can store, and the
+   * canvas it can photograph for the thumbnail.
    *
    * Saving reads the machine without touching it, so it needs no coordination
    * with the other player - unlike loading, which goes through the session so
    * both peers land on the same machine.
    */
-  $: saveAdapter = core ? { saveState: async () => core!.saveState() } : null;
+  $: saveAdapter = core
+    ? { saveState: async () => core!.saveState(), getCanvas: () => canvas }
+    : null;
 
   $: if (renderer && display) renderer.setOptions(display);
 

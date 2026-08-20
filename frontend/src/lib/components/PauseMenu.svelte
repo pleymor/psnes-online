@@ -1,7 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import ControlsSettings from './ControlsSettings.svelte';
-  import SavesManager from './SavesManager.svelte';
+  import LoadSavesMenu from './LoadSavesMenu.svelte';
+  import SaveGameMenu from './SaveGameMenu.svelte';
   import { socket } from '$lib/api/socket';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
@@ -16,7 +17,8 @@
   const dispatch = createEventDispatcher();
 
   let showKeyConfig = false;
-  let showSaveLoad = false;
+  let showLoadSaves = false;
+  let showSaveGame = false;
   let selectedIndex = 0;
   let menuButtons: HTMLButtonElement[] = [];
   let gamepadPollInterval: number | null = null;
@@ -34,7 +36,8 @@
   $: menuItems = [
     { label: t($language, 'resume'), action: () => handleResumeWithFullscreen() },
     { label: t($language, 'controls'), action: () => showKeyConfig = true },
-    { label: t($language, 'saves'), action: () => showSaveLoad = true },
+    { label: t($language, 'loadGame'), action: () => showLoadSaves = true },
+    { label: t($language, 'saveGame'), action: () => showSaveGame = true },
     { label: t($language, 'quit'), action: () => dispatch('quit'), danger: true }
   ];
 
@@ -47,7 +50,7 @@
 
   function handleKeyDown(e: KeyboardEvent) {
     // Skip navigation when in submenus
-    if (showKeyConfig || showSaveLoad) return;
+    if (showKeyConfig || showLoadSaves || showSaveGame) return;
 
     const button = keyCodeToButton[e.code];
 
@@ -85,7 +88,8 @@
 
   function handleBackFromSubmenu() {
     showKeyConfig = false;
-    showSaveLoad = false;
+    showLoadSaves = false;
+    showSaveGame = false;
     selectedIndex = 0;
     // Refocus the menu after a short delay to ensure DOM is updated
     setTimeout(() => menuButtons[selectedIndex]?.focus(), 50);
@@ -106,7 +110,7 @@
 
     gamepadPollInterval = window.setInterval(() => {
       // Skip if in submenus
-      if (showKeyConfig || showSaveLoad) return;
+      if (showKeyConfig || showLoadSaves || showSaveGame) return;
 
       const gamepads = navigator.getGamepads();
 
@@ -196,7 +200,7 @@
 
 <div class="pause-overlay">
   <div class="pause-menu">
-    {#if !showKeyConfig && !showSaveLoad}
+    {#if !showKeyConfig && !showLoadSaves && !showSaveGame}
       <h2>{t($language, 'pauseMenu')}</h2>
       <p class="hint">{t($language, 'pauseMenuHint')}</p>
 
@@ -224,14 +228,27 @@
       </div>
     {/if}
 
-    {#if showSaveLoad}
+    {#if showLoadSaves}
       <div class="submenu">
-        <SavesManager
+        <LoadSavesMenu
+          {roomId}
+          {gameId}
+          on:notification={handleNotification}
+          on:close={handleSaveClose}
+        />
+        <button on:click={handleBackFromSubmenu} class="back-button">
+          {t($language, 'close')}
+        </button>
+      </div>
+    {/if}
+
+    {#if showSaveGame}
+      <div class="submenu">
+        <SaveGameMenu
           {roomId}
           {gameId}
           {emulator}
           on:notification={handleNotification}
-          on:close={handleSaveClose}
         />
         <button on:click={handleBackFromSubmenu} class="back-button">
           {t($language, 'close')}
