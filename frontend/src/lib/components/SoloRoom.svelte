@@ -639,30 +639,29 @@
   <div class="toolbar">
     <button class="action" on:click={() => openPauseMenu(isFullscreen)}>☰ Menu (Esc)</button>
   </div>
+  {#if romPrompt}
+    <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
+  {/if}
+
+  {#if showPauseMenu}
+    <PauseMenu
+      {roomId}
+      {gameId}
+      {keyConfig}
+      {display}
+      {isFullscreen}
+      scanlinesAvailable={!usingGl}
+      {turbo}
+      emulator={saveAdapter}
+      on:resume={closePauseMenu}
+      on:quit={quitToLobby}
+      on:display={(e) => void onDisplayChange(e.detail)}
+      on:fullscreen={toggleFullscreen}
+      on:turbo={toggleTurbo}
+      on:saved={(e) => { keyConfig = e.detail.config; closePauseMenu(); }}
+    />
+  {/if}
 </div>
-
-{#if romPrompt}
-  <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
-{/if}
-
-{#if showPauseMenu}
-  <PauseMenu
-    {roomId}
-    {gameId}
-    {keyConfig}
-    {display}
-    {isFullscreen}
-    scanlinesAvailable={!usingGl}
-    {turbo}
-    emulator={saveAdapter}
-    on:resume={closePauseMenu}
-    on:quit={quitToLobby}
-    on:display={(e) => void onDisplayChange(e.detail)}
-    on:fullscreen={toggleFullscreen}
-    on:turbo={toggleTurbo}
-    on:saved={(e) => { keyConfig = e.detail.config; closePauseMenu(); }}
-  />
-{/if}
 
 <style>
   .solo {

@@ -174,6 +174,19 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      // The browser takes this press to leave fullscreen, so acting on it too
+      // would do two things at once. Let it have this one; the next press
+      // steps back through the menu.
+      if (document.fullscreenElement) return;
+      e.preventDefault();
+      if (showKeyConfig || showLoadSaves || showSaveGame || showVideo) {
+        handleBackFromSubmenu();
+      } else {
+        handleResumeWithFullscreen();
+      }
+      return;
+    }
     // Skip navigation when in submenus
     if (showKeyConfig || showLoadSaves || showSaveGame || showVideo) return;
 
@@ -194,7 +207,7 @@
       e.preventDefault();
       menuButtons[selectedIndex]?.click();
     }
-    // Handle B button to resume (Escape handled in keyup to work with fullscreen)
+    // Handle B button to resume
     else if (button === 'b') {
       e.preventDefault();
       e.stopPropagation();
