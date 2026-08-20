@@ -1078,7 +1078,6 @@
       {gameId}
       {keyConfig}
       {display}
-      scanlinesAvailable={!usingGl}
       {showStats}
       gamepadLabel={gamepadLabel(gamepadSource)}
       emulator={saveAdapter}

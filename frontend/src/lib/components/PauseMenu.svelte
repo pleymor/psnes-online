@@ -33,15 +33,6 @@
   /** null where there are no network statistics to show: solo. */
   export let showStats: boolean | null = null;
   /**
-   * False while a shader owns the picture.
-   *
-   * The 2D renderer paints scanlines onto the canvas after the blit and the
-   * WebGL one has no equivalent, so the toggle would advertise an effect
-   * nothing applies. The old toolbar disabled its button for this; the menu
-   * has to do the same or the setting silently lies.
-   */
-  export let scanlinesAvailable: boolean = true;
-  /**
    * The already-formatted name of the gamepad driving this player, or null
    * where there is no picker. Formatted by the room rather than here: which
    * pads are connected is its business, and this only has to render a string.
@@ -54,8 +45,6 @@
     label: string;
     action: () => void;
     danger?: boolean;
-    /** Rendered but not clickable - a setting this room cannot honour right now. */
-    disabled?: boolean;
   }
 
   /** The translated name of a shader id, using the same list the picker shows. */
@@ -97,13 +86,6 @@
   let displayItems: MenuItem[] = [];
   $: displayItems = display
     ? [
-        {
-          label: scanlinesAvailable
-            ? `${t($language, 'scanlines')}: ${t($language, display.scanlines ? 'on' : 'off')}`
-            : `${t($language, 'scanlines')}: ${t($language, 'shaderOwnsPicture')}`,
-          action: () => dispatch('display', { ...display, scanlines: !display!.scanlines }),
-          disabled: !scanlinesAvailable
-        },
         {
           // The values are ratios, so they need no translating.
           label: `${t($language, 'aspect')}: ${display.aspect === 'crt' ? '4:3' : '1:1'}`,
@@ -356,7 +338,7 @@
         <h3>{t($language, 'video')}</h3>
         <div class="menu-items">
           {#each displayItems as item}
-            <button on:click={item.action} disabled={item.disabled}>{item.label}</button>
+            <button on:click={item.action}>{item.label}</button>
           {/each}
         </div>
         <button on:click={handleBackFromSubmenu} class="back-button">

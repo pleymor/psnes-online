@@ -663,7 +663,6 @@
       {gameId}
       {keyConfig}
       {display}
-      scanlinesAvailable={!usingGl}
       {turbo}
       emulator={saveAdapter}
       on:resume={closePauseMenu}

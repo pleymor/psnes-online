@@ -223,8 +223,6 @@ export const translations = {
     shader: 'Shader',
     // Display settings, shown in the pause menu since the on-screen toolbar went
     video: 'Video',
-    shaderOwnsPicture: 'the shader draws its own',
-    scanlines: 'Scanlines',
     gamepad: 'Gamepad',
     aspect: 'Aspect',
     fastForward: 'Fast-forward',
@@ -472,8 +470,6 @@ export const translations = {
     shader: 'Shader',
     // Réglages d'affichage, dans le menu pause depuis la disparition de la barre
     video: 'Vidéo',
-    shaderOwnsPicture: 'le shader dessine les siennes',
-    scanlines: 'Lignes de balayage',
     gamepad: 'Manette',
     aspect: 'Format',
     fastForward: 'Accéléré',

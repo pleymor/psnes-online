@@ -22,7 +22,6 @@ import type { PixelAspect } from './fit.js';
  * risk to the lockstep.
  */
 export interface DisplayOptions {
-	scanlines: boolean;
 	/**
 	 * How the picture is presented: 'square' for 1:1 pixels (8:7 at 256x224),
 	 * 'crt' for the 4:3 shape the games were composed for.
@@ -44,7 +43,6 @@ export interface DisplayOptions {
 }
 
 export const DEFAULT_DISPLAY: DisplayOptions = {
-	scanlines: false,
 	aspect: 'square',
 	shader: ''
 };
@@ -87,19 +85,6 @@ export class CanvasRenderer implements Renderer {
 		this.canvas.style.imageRendering = 'pixelated';
 	}
 
-	/**
-	 * Draws scanlines over the frame that was just blitted.
-	 *
-	 * Done on the canvas rather than as a CSS overlay so it scales with the
-	 * picture and survives a fullscreen change.
-	 */
-	private drawScanlines(width: number, height: number): void {
-		this.ctx.save();
-		this.ctx.globalAlpha = 0.25;
-		this.ctx.fillStyle = '#000';
-		for (let y = 1; y < height; y += 2) this.ctx.fillRect(0, y, width, 1);
-		this.ctx.restore();
-	}
 
 	draw(core: PsnesCore): void {
 		const frame = core.videoFrame();
@@ -118,7 +103,6 @@ export class CanvasRenderer implements Renderer {
 
 		this.image.data.set(frame.data);
 		this.ctx.putImageData(this.image, 0, 0);
-		if (this.options.scanlines) this.drawScanlines(frame.width, frame.height);
 	}
 
 	/** Nothing to release: a 2D context holds no GL objects. Here for symmetry. */

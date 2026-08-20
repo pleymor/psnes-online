@@ -139,6 +139,10 @@
 
 <style>
   .menu {
+    /* Measured against its own width, not the viewport's: this menu lives in a
+       20rem side panel on a wide screen and in a wide card on a narrow one, so
+       a media query would get it backwards. */
+    container-type: inline-size;
     background: #1a1a1a;
     border-radius: 8px;
     padding: 1.5rem;
@@ -146,9 +150,20 @@
 
   .header {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
     margin-bottom: 0.75rem;
+  }
+
+  /* Room for the title and the button side by side. Below this they stack, and
+     the button spans the width rather than being squeezed against the title. */
+  @container (min-width: 26rem) {
+    .header {
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+    }
   }
 
   h3 {
