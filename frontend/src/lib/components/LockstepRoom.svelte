@@ -37,6 +37,8 @@
     loadCore,
     normaliseRom,
     romCrc32,
+    aspectRatioOf,
+    fitToBox,
     type SessionEvent,
     type SessionStats
   } from '$lib/znet';
@@ -273,6 +275,7 @@
    * both peers land on the same machine.
    */
   $: activeCanvas = usingGl ? canvasGl : canvas2d;
+  $: displayRatio = aspectRatioOf(display.aspect);
 
   $: saveAdapter = core
     ? { saveState: async () => core!.saveState(), getCanvas: () => activeCanvas }
@@ -1009,6 +1012,7 @@
     class:stalling={stallVisible}
     on:dblclick={toggleFullscreen}
     role="presentation"
+    use:fitToBox={displayRatio}
   >
     <canvas bind:this={canvas2d} class:inactive={usingGl} width="256" height="224"></canvas>
     <canvas bind:this={canvasGl} class:inactive={!usingGl} width="256" height="224"></canvas>
@@ -1133,15 +1137,24 @@
     align-items: center;
     gap: 0.75rem;
     width: 100%;
+    /* The page centres its children; claim the full height instead. */
+    align-self: stretch;
+    height: 100%;
+    min-height: 0;
   }
 
   .screen {
     position: relative;
+    /* Take whatever the toolbar leaves, in both directions. The ratio belongs
+       to the picture inside, not to the box - that is what makes 1:1 and 4:3 a
+       real choice rather than two ways of filling the same shape. */
+    flex: 1;
+    min-height: 0;
     width: 100%;
-    max-width: 1024px;
-    aspect-ratio: 4 / 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: #000;
-    border-radius: 8px;
     overflow: hidden;
   }
 
@@ -1150,8 +1163,12 @@
   }
 
   canvas {
-    width: 100%;
-    height: 100%;
+    /* Sized by the fitToBox action on .screen; the fallback covers the frames
+       before the first measurement. */
+    width: var(--fit-width, 100%);
+    height: var(--fit-height, 100%);
+    /* The box already carries the intended ratio, so nothing to letterbox. */
+    object-fit: fill;
     image-rendering: pixelated;
     display: block;
   }
@@ -1300,12 +1317,8 @@
   }
 
   .lockstep:fullscreen .screen {
-    max-width: none;
     width: 100%;
     height: 100%;
-    /* The canvas keeps its own object-fit, set by the active renderer from the
-       display options, so 'Fit' still letterboxes and 'Stretch' still fills. */
-    aspect-ratio: auto;
     border-radius: 0;
   }
 

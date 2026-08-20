@@ -10,6 +10,7 @@
  */
 
 import type { PsnesCore } from './core.js';
+import type { PixelAspect } from './fit.js';
 
 /* ------------------------------------------------------------------ video */
 
@@ -22,8 +23,14 @@ import type { PsnesCore } from './core.js';
  */
 export interface DisplayOptions {
 	scanlines: boolean;
-	/** 'original' keeps the SNES 8:7-ish pixel aspect; 'stretch' fills. */
-	aspect: 'original' | 'stretch';
+	/**
+	 * How the picture is presented: 'square' for 1:1 pixels (8:7 at 256x224),
+	 * 'crt' for the 4:3 shape the games were composed for.
+	 *
+	 * The renderers do not read this - the room does, to size the canvas box.
+	 * It lives here because it is display state and travels with the rest.
+	 */
+	aspect: PixelAspect;
 	/**
 	 * A libretro shader id such as `xbrz/6xbrz-linear`, or '' for none.
 	 *
@@ -38,7 +45,7 @@ export interface DisplayOptions {
 
 export const DEFAULT_DISPLAY: DisplayOptions = {
 	scanlines: false,
-	aspect: 'original',
+	aspect: 'square',
 	shader: ''
 };
 
@@ -78,7 +85,6 @@ export class CanvasRenderer implements Renderer {
 		// pixels are the point. (imageSmoothingEnabled would not matter either
 		// way - putImageData ignores it.)
 		this.canvas.style.imageRendering = 'pixelated';
-		this.canvas.style.objectFit = this.options.aspect === 'stretch' ? 'fill' : 'contain';
 	}
 
 	/**

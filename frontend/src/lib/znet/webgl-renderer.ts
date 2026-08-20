@@ -302,7 +302,6 @@ export class WebglRenderer implements Renderer {
 	private applyOptions(): void {
 		const downscaling = this.canvas.clientWidth > 0 && this.canvas.width > this.canvas.clientWidth;
 		this.canvas.style.imageRendering = downscaling ? 'auto' : 'pixelated';
-		this.canvas.style.objectFit = this.options.aspect === 'stretch' ? 'fill' : 'contain';
 	}
 
 	draw(core: PsnesCore): void {

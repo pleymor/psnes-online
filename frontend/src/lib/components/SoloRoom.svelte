@@ -33,7 +33,9 @@
     type GamepadSource,
     PsnesCore,
     loadCore,
-    normaliseRom
+    normaliseRom,
+    aspectRatioOf,
+    fitToBox
   } from '$lib/znet';
 
   export let roomId: string;
@@ -110,6 +112,7 @@
     'Your battery save could not be read; progress will not be saved this session.';
 
   $: activeCanvas = usingGl ? canvasGl : canvas2d;
+  $: displayRatio = aspectRatioOf(display.aspect);
   $: if (renderer && display) {
     renderer.setOptions(display);
     // The pause menu really pauses in solo, so no frame is coming to show the
@@ -606,6 +609,7 @@
     class="screen"
     on:dblclick={toggleFullscreen}
     role="presentation"
+    use:fitToBox={displayRatio}
   >
     <canvas bind:this={canvas2d} class:inactive={usingGl} width="256" height="224"></canvas>
     <canvas bind:this={canvasGl} class:inactive={!usingGl} width="256" height="224"></canvas>
@@ -677,6 +681,11 @@
     flex-direction: column;
     align-items: center;
     gap: 0.75rem;
+    /* The page centres its children, so claim the full height rather than
+       settling for the content's. */
+    align-self: stretch;
+    height: 100%;
+    min-height: 0;
     /* Without this the width comes up from the content, which means from the
        canvas's buffer - so a 6x shader resized the whole layout, 'Fit' and
        'Stretch' looked identical because the box already matched the picture's
@@ -686,17 +695,27 @@
 
   .screen {
     position: relative;
+    /* Take whatever the toolbar leaves, in both directions. No max-width and
+       no fixed ratio: the ratio belongs to the picture inside, not to the box,
+       which is what lets 1:1 and 4:3 be a real choice. */
+    flex: 1;
+    min-height: 0;
     width: 100%;
-    max-width: 1024px;
-    aspect-ratio: 4 / 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: #000;
-    border-radius: 8px;
     overflow: hidden;
   }
 
   canvas {
-    width: 100%;
-    height: 100%;
+    /* Sized by the fitToBox action on .screen; the fallback covers the frames
+       before the first measurement. */
+    width: var(--fit-width, 100%);
+    height: var(--fit-height, 100%);
+    /* The box already carries the intended ratio, so there is nothing to
+       letterbox inside it. */
+    object-fit: fill;
     image-rendering: pixelated;
     display: block;
   }
@@ -784,14 +803,8 @@
   }
 
   .solo:fullscreen .screen {
-    max-width: none;
     width: 100%;
     height: 100%;
-    /* Dropping the fixed ratio is the whole point: a 4/3 box as wide as the
-       screen is taller than the screen. The canvas keeps its own object-fit,
-       set by the active renderer from the display options, so 'Fit' still
-       letterboxes and 'Stretch' still fills. */
-    aspect-ratio: auto;
     border-radius: 0;
   }
 

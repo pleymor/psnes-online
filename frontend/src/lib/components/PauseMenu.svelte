@@ -103,11 +103,12 @@
           disabled: !scanlinesAvailable
         },
         {
-          label: `${t($language, 'aspect')}: ${t($language, display.aspect === 'stretch' ? 'stretch' : 'fit')}`,
+          // The values are ratios, so they need no translating.
+          label: `${t($language, 'aspect')}: ${display.aspect === 'crt' ? '4:3' : '1:1'}`,
           action: () =>
             dispatch('display', {
               ...display,
-              aspect: display!.aspect === 'original' ? 'stretch' : 'original'
+              aspect: display!.aspect === 'square' ? 'crt' : 'square'
             })
         },
         { label: `${t($language, 'shader')}: ${shaderName(display.shader)}`, action: cycleShader }
