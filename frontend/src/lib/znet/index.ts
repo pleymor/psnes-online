@@ -25,6 +25,9 @@ export type {
 export { FrameGovernor } from './governor.js';
 export type { GovernorOptions } from './governor.js';
 
+export { SoloSession } from './solo.js';
+export type { SoloOptions, SoloPads } from './solo.js';
+
 export { PAD, MsgType, PROTOCOL_VERSION, encode, decode } from './protocol.js';
 export type { NetMsg, PadMask } from './protocol.js';
 
