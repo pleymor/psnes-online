@@ -596,7 +596,17 @@
 </script>
 
 <div class="solo" bind:this={container}>
-  <div class="screen">
+  <!--
+    Double-click toggles fullscreen, the way a video player does. It is not a
+    menu entry because Escape has to reach the menu, and the browser keeps
+    Escape for leaving fullscreen - so a menu you open with Escape is the one
+    place fullscreen must not be toggled from. Alt+Enter still works.
+  -->
+  <div
+    class="screen"
+    on:dblclick={toggleFullscreen}
+    role="presentation"
+  >
     <canvas bind:this={canvas2d} class:inactive={usingGl} width="256" height="224"></canvas>
     <canvas bind:this={canvasGl} class:inactive={!usingGl} width="256" height="224"></canvas>
 
@@ -649,14 +659,12 @@
       {gameId}
       {keyConfig}
       {display}
-      {isFullscreen}
       scanlinesAvailable={!usingGl}
       {turbo}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}
       on:display={(e) => void onDisplayChange(e.detail)}
-      on:fullscreen={toggleFullscreen}
       on:turbo={toggleTurbo}
       on:saved={(e) => { keyConfig = e.detail.config; closePauseMenu(); }}
     />

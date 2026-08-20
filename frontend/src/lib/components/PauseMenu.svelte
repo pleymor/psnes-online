@@ -26,7 +26,6 @@
    * mouse-only, in a menu built to be driven by a pad.
    */
   export let display: DisplayOptions | null = null;
-  export let isFullscreen: boolean = false;
   /** null where fast-forward is not offered: in lockstep it would stall the peer. */
   export let turbo: boolean | null = null;
   /** null where there are no network statistics to show: solo. */
@@ -115,11 +114,7 @@
               aspect: display!.aspect === 'original' ? 'stretch' : 'original'
             })
         },
-        { label: `${t($language, 'shader')}: ${shaderName(display.shader)}`, action: cycleShader },
-        {
-          label: `${t($language, 'fullscreen')}: ${t($language, isFullscreen ? 'on' : 'off')}`,
-          action: () => dispatch('fullscreen')
-        }
+        { label: `${t($language, 'shader')}: ${shaderName(display.shader)}`, action: cycleShader }
       ]
     : [];
 

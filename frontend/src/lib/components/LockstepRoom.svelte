@@ -999,7 +999,17 @@
     <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
   {/if}
 
-  <div class="screen" class:stalling={stallVisible}>
+  <!--
+    Double-click toggles fullscreen, the way a video player does. It is not a
+    menu entry because Escape has to reach the menu, and the browser keeps
+    Escape for leaving fullscreen. Alt+Enter still works.
+  -->
+  <div
+    class="screen"
+    class:stalling={stallVisible}
+    on:dblclick={toggleFullscreen}
+    role="presentation"
+  >
     <canvas bind:this={canvas2d} class:inactive={usingGl} width="256" height="224"></canvas>
     <canvas bind:this={canvasGl} class:inactive={!usingGl} width="256" height="224"></canvas>
 
@@ -1063,7 +1073,6 @@
       {gameId}
       {keyConfig}
       {display}
-      {isFullscreen}
       scanlinesAvailable={!usingGl}
       {showStats}
       gamepadLabel={gamepadLabel(gamepadSource)}
@@ -1071,7 +1080,6 @@
       on:resume={closePauseMenu}
       on:quit={quitToLobby}
       on:display={(e) => void onDisplayChange(e.detail)}
-      on:fullscreen={toggleFullscreen}
       on:stats={() => (showStats = !showStats)}
       on:gamepad={cycleGamepadSource}
       on:saved={(e) => { keyConfig = e.detail.config; closePauseMenu(); }}
