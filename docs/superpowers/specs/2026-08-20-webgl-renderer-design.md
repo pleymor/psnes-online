@@ -8,7 +8,7 @@ Cette issue existait indépendamment, mais elle est devenue un prérequis. Le so
 
 Sauf que `znet` rend en 2D. Basculer le solo tel quel lui ferait perdre xBRZ, CRT-Easymode, sharp-bilinear et FXAA, que RetroArch lui donne aujourd'hui. D'où l'ordre retenu : le rendu d'abord, la bascule ensuite, aucun compromis à assumer entre les deux.
 
-Le lockstep y gagne au passage ce qu'il prétend déjà offrir. `ShaderSelector.svelte` est visible en mode lockstep et **n'y fait rien** — un réglage proposé qui ne change rien est pire qu'un réglage absent.
+Le lockstep y gagne au passage un réglage que l'application propose déjà. `ShaderSelector.svelte` vit dans la fenêtre de réglages de l'accueil, écrit son choix dans `localStorage['psnes-shader']`, et ce choix est honoré par le chemin RetroArch seul : `LockstepRoom.svelte` ne lit jamais cette clé. Un joueur qui choisit xBRZ le voit donc en solo et le perd en salon lockstep, sans explication. Un réglage global qui ne s'applique qu'à la moitié des modes est pire qu'un réglage absent.
 
 ## Ce que le sélecteur propose réellement
 
@@ -38,10 +38,12 @@ Ces fichiers sont écrits pour GLSL ES 1.00 tout en gérant la 3.00 par macros (
 Le contrat est petit et fermé :
 
 - attributs `VertexCoord`, `COLOR`, `TexCoord`
-- varyings `COL0`, `TEX0`
-- uniformes `MVPMatrix`, `FrameDirection`, `FrameCount`, `OutputSize`, `TextureSize`, `InputSize`
+- varyings `COL0`, `TEX0`, plus ceux que le shader déclare pour son propre usage
+- uniformes `MVPMatrix`, `FrameDirection`, `FrameCount`, `OutputSize`, `TextureSize`, `InputSize`, et l'échantillonneur `Texture`
 
-`#pragma parameter` peut apparaître dans les `.glsl` ; ses valeurs par défaut suffisent. On ne construit pas d'interface de réglage.
+Vérifié sur les six : aucun ne déclare autre chose. `COLOR` et `COL0` sont déclarés partout et utilisés nulle part, donc le compilateur les élimine et `getAttribLocation` rend `-1` — un emplacement absent est normal et doit être ignoré, pas traité comme une erreur.
+
+`crt-easymode.glsl` porte dix-sept `#pragma parameter`, et le mécanisme mérite d'être nommé parce qu'il a un mode de défaillance silencieux. Le fichier déclare ces réglages en uniformes sous `#ifdef PARAMETER_UNIFORM`, et leurs valeurs par défaut en `#define` dans la branche `#else`. **On ne définit donc jamais `PARAMETER_UNIFORM`** : les défauts se compilent dans le shader. Le définir sans fournir les dix-sept uniformes les laisserait à zéro, ce qui donne une image noire sans la moindre erreur de compilation. On ne construit pas d'interface de réglage.
 
 ## Architecture
 
@@ -70,7 +72,9 @@ où `PresetResult` est une union discriminée : soit le préréglage compris, so
 
 La règle qui compte : **tout ce qui n'est pas dans le sous-ensemble est refusé et nommé**. L'issue le demande explicitement, et pour une raison documentée — `xbrz-freescale` a été retiré de la liste parce que son échelle relative au viewport provoquait des erreurs de framebuffer. Un refus lisible vaut mieux qu'un écran noir.
 
-La récupération des fichiers reste hors de cette fonction : les URL suivent le schéma que `resolveShader` construit déjà dans `options.ts`, même dépôt, même version épinglée. Les deux chemins de rendu affichent ainsi **les mêmes shaders**, ce qui est l'argument décisif de cette approche : des effets réécrits à la main donneraient au même réglage un aspect différent selon le mode de jeu.
+La récupération des fichiers reste hors de cette fonction. Le dépôt et la version épinglée sont ceux d'`options.ts`, mais la résolution des chemins ne l'est pas : `resolveShader` code en dur une table de cas particuliers pour les trois xBRZ, alors que le préréglage nomme lui-même ses fichiers — et les nomme **relativement à lui**, `shader0 = shaders/6xbrz.glsl` puis `shader1 = ../stock.glsl`. On résout donc ces chemins comme des URL relatives à celle du préréglage, ce qui rend la table de cas particuliers inutile et gère par construction tout préréglage du sous-ensemble.
+
+Les deux chemins de rendu affichent ainsi **les mêmes shaders**, ce qui est l'argument décisif de cette approche : des effets réécrits à la main donneraient au même réglage un aspect différent selon le mode de jeu.
 
 ### Les passes
 
@@ -93,6 +97,8 @@ La texture d'entrée et les framebuffers de passes sont donc réalloués quand l
 ## Ce que cette conception refuse de faire
 
 **Le rendu ne pilote rien.** Aucun `requestAnimationFrame` à l'intérieur, aucun cadencement sur le vsync, aucune compensation d'image perdue, aucun « je dessine quand je suis prêt ». `session.tick()` décide qu'une image existe ; le rendu ne fait que l'afficher.
+
+Un corollaire mesuré : `draw()` est appelé depuis `onFrame` de la session, donc **une fois par image émulée et non par image affichée**. Après un décrochage réseau, le gouverneur en exécute jusqu'à huit dans une seule tranche de `requestAnimationFrame`, et le pipeline tournera donc huit fois pour une seule image visible. C'est déjà le comportement du chemin 2D ; en WebGL avec xBRZ 6x le coût est plus élevé. Ce n'est pas un risque de désynchronisation — le gouverneur plafonne, l'émulation reste juste — mais un risque de saccade visible, et la conception ne le corrige pas : ne dessiner que la dernière image d'une tranche changerait aussi le chemin 2D, ce qui sort de cette spec. À constater dans le navigateur avant d'y toucher.
 
 Ce n'est pas une préférence de style. `FrameGovernor` est le seul possesseur de timer de cette pile — c'est écrit en tête de `session.ts`, « le moteur ne possède aucun timer, tout se passe dans `tick()` », et c'est ce qui rend la session testable. Si le rendu influençait le cadencement, l'émulation des deux joueurs dépendrait de leurs cartes graphiques. C'est une désynchronisation avec des étapes supplémentaires.
 
