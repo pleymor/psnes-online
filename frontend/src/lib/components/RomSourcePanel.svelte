@@ -58,8 +58,10 @@
         await registerGame(entry.checksum, entry.filename);
         added++;
       } catch (err) {
-        // One unreadable or duplicate ROM must not abandon the rest of a
-        // forty-cartridge folder.
+        // One unreadable ROM must not abandon the rest of a forty-cartridge
+        // folder. A game already in the library does NOT arrive here: the
+        // server looks the checksum up and answers 200 with the existing
+        // game, so re-scanning a folder is a safe no-op.
         logger.warn(`Could not add ${entry.filename}`, err);
       }
     }
@@ -67,7 +69,7 @@
     // Every entry failing looks exactly like a completed scan unless said
     // out loud - the player just watched forty cartridges scroll by for
     // nothing.
-    if (added === 0) error = t($language, 'failedToSendRequest');
+    if (added === 0) error = t($language, 'romsNoneAdded');
   }
 
   /**
