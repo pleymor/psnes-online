@@ -131,6 +131,15 @@ La différence avec le travail précédent mérite d'être notée : là-bas, l'e
 
 ## Ce qui vient après
 
+> **Décision annulée le 2026-08-21.** Le propriétaire a changé d'avis après
+> avoir vu les modes en service : dual et streaming restent, et avec eux
+> `ClientEmulator`, `P2PRoom`, `DualClientEmulator`, le module émulateur et
+> `simple-peer`. **Ne pas exécuter la suppression décrite ci-dessous.** Le
+> paragraphe est conservé plutôt que supprimé parce qu'il explique l'ordre des
+> morceaux et parce que ses deux conséquences restent vraies — en particulier
+> que le streaming est le seul chemin pour un invité incapable de faire
+> tourner l'émulateur, ce qui est une raison de le garder.
+
 La suppression de l'ancienne pile, décidée par le propriétaire : `ClientEmulator`, `P2PRoom`, `DualClientEmulator`, le module émulateur et `simple-peer`, avec les modes dual et streaming.
 
 Deux conséquences de cette suppression, notées ici parce qu'elles se décident en connaissance de cause. Elle retire le seul chemin pour un invité **incapable de faire tourner l'émulateur** — c'est à cela que servait le streaming. Et elle supprime `options.ts`, qui détient le commit épinglé des shaders que `preset.ts` référence en double : la duplication signalée par la revue finale du travail précédent disparaît alors par soustraction, et l'argument « les deux chemins montrent le même shader » — qui justifiait de reprendre les fichiers libretro tels quels — cesse d'avoir un second chemin à égaler.
