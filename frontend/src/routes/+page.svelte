@@ -437,13 +437,19 @@
 
   .content-wrapper {
     width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
   }
 
   .games-grid {
     display: grid;
+    /* Fixed 280px tracks, so auto-fill leaves a remainder at almost every
+       window width. `start` pushed all of it to the right, which read as the
+       whole library being pinned to the left edge; `center` splits it. The
+       cards keep their size - only the block of tracks moves. */
     grid-template-columns: repeat(auto-fill, 280px);
     gap: 1.5rem;
-    justify-content: start;
+    justify-content: center;
   }
 
   .empty-state {
