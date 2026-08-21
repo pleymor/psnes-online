@@ -15,7 +15,10 @@ const config = {
     prerender: {
       handleMissingId: 'warn',
       handleHttpError: 'warn',
-      entries: ['/']
+      // '/profile' has to be named: the crawler starts at '/' and the only
+      // link to the profile is the avatar in the top bar, which renders only
+      // when a user is signed in - and there is no session while prerendering.
+      entries: ['/', '/profile']
     }
   }
 };
