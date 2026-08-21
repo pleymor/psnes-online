@@ -352,9 +352,14 @@
     gap: 1.5rem;
   }
 
-  @media (min-width: 900px) {
+  /* 900px was too eager: it gave the controls card about 420px, which is
+     under what two columns of key bindings need, so the page went
+     side-by-side exactly when its widest block could no longer afford it.
+     Past 1200px the controls column takes the larger share and stays wide
+     enough to keep its own two columns. */
+  @media (min-width: 1200px) {
     .columns {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
     }
   }
 

@@ -486,6 +486,13 @@
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+    /* This component is mounted in three places of very different widths -
+       a full-width page section, a column beside other cards, and the 20rem
+       pause panel - so it has to answer to its own width rather than the
+       window's. Safe here: nothing inside is absolutely positioned, and the
+       confirm modal is a sibling rather than a descendant, so containment
+       does not trap it. */
+    container-type: inline-size;
   }
 
   .controls-grid {
@@ -695,7 +702,12 @@
     cursor: not-allowed;
   }
 
-  @media (max-width: 768px) {
+  /* Was a viewport media query at 768px, which is the wrong question: in a
+     narrow column of a wide window the component believed it had room and
+     kept two columns of bindings squeezed into half the space. Two columns
+     need roughly 2 x (120px label + a key button) plus the 2rem gap, so they
+     fold below that. */
+  @container (max-width: 33rem) {
     .controls-grid {
       grid-template-columns: 1fr;
     }
