@@ -202,7 +202,7 @@
     display = next;
     if (!shaderChanged) return;
 
-    // Remembered the same way the home page's settings modal remembers it.
+    // Remembered the same way the profile page remembers it.
     writeShaderPreference(localStorage, next.shader);
     await applyShader(next.shader);
   }

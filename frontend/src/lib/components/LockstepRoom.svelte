@@ -451,8 +451,8 @@
       const rom = normaliseRom(loadedRom);
       core.loadRom(rom);
 
-      // The shader preference is global and already set from the home page's
-      // settings modal; the lockstep path simply never honoured it until now.
+      // The shader preference is global and already set from the profile
+      // page; the lockstep path simply never honoured it until now.
       const storedShader = readShaderPreference(localStorage);
       display = { ...display, shader: storedShader };
 

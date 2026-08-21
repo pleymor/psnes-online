@@ -182,7 +182,7 @@
         <p class="note">{romProgress}</p>
       {/if}
       {#if romAdded && !romBusy}
-        <p class="note">{t($language, 'gamesAdded')}</p>
+        <p class="note">1 {t($language, 'gamesAdded')}</p>
       {/if}
       {#if romError}
         <p class="note error">{romError}</p>

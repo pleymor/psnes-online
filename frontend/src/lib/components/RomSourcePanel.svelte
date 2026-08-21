@@ -39,12 +39,12 @@
   /**
    * Scans a folder and registers everything found in it.
    *
-   * Shared by both ways of getting a working handle - picking a new folder
-   * and re-granting access to a remembered one - because either can leave the
-   * library with games it does not know about yet.
+   * Called from pickFolder once a working handle exists - whether that
+   * handle came from picking a new folder or re-granting access to a
+   * remembered one - because either can leave the library with games it
+   * does not know about yet.
    */
   async function scanAndRegister(handle: FileSystemDirectoryHandle): Promise<void> {
-    added = 0;
     progress = t($language, 'scanningFolder');
     const entries: LibraryEntry[] = await scanDirectory(handle);
     if (entries.length === 0) {
@@ -109,6 +109,7 @@
     busy = true;
     error = '';
     progress = '';
+    added = 0;
     try {
       if (await chooseDirectory()) {
         const handle = await storedDirectory();
