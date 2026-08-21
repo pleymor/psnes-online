@@ -173,7 +173,6 @@
       {#if romError}
         <p class="note error">{romError}</p>
       {/if}
-      <p class="legal">{t($language, 'legalUploadWarning')}</p>
     </div>
   </RomSourcePanel>
 
@@ -315,13 +314,6 @@
 
   .hidden-input {
     display: none;
-  }
-
-  .legal {
-    margin: 0.5rem 0 0;
-    font-size: 0.75rem;
-    color: #6f6f88;
-    line-height: 1.4;
   }
 
   .danger {

@@ -129,6 +129,7 @@
 
 <section class="rom-source">
   <h3>{t($language, 'romSource')}</h3>
+  <p class="legal">{t($language, 'legalUploadWarning')}</p>
 
   {#if state.kind === 'unsupported'}
     <p class="explain">{t($language, 'romFolderUnsupported')}</p>
@@ -182,6 +183,13 @@
     margin: 0;
     color: #f87171;
     font-size: 0.9rem;
+  }
+
+  .legal {
+    margin: 0;
+    font-size: 0.75rem;
+    color: #6f6f88;
+    line-height: 1.4;
   }
 
   button {
