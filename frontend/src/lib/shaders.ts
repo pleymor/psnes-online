@@ -21,7 +21,6 @@ export const SHADERS = [
 	{ id: 'xbrz/4xbrz-linear', name: 'shaderXbrz4x' as const },
 	{ id: 'interpolation/sharp-bilinear-simple', name: 'shaderSharpBilinear' as const },
 	{ id: 'anti-aliasing/fxaa', name: 'shaderFxaa' as const },
-	{ id: 'crt/crt-easymode', name: 'shaderCrtEasymode' as const },
 ] as const;
 
 export const VALID_SHADER_IDS: readonly string[] = SHADERS.map(s => s.id);

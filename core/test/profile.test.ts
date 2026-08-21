@@ -100,9 +100,9 @@ test('an unknown id is purged, not returned', () => {
 test('writing a shader id stores it', () => {
   const storage = fakeStorage();
 
-  writeShaderPreference(storage, 'crt/crt-easymode');
+  writeShaderPreference(storage, 'xbrz/6xbrz-linear');
 
-  assert.equal(storage.data.get('psnes-shader'), 'crt/crt-easymode');
+  assert.equal(storage.data.get('psnes-shader'), 'xbrz/6xbrz-linear');
 });
 
 test('writing the empty id removes the key rather than storing an empty string', () => {
@@ -122,4 +122,16 @@ test('writing an unknown id is refused rather than stored', () => {
   writeShaderPreference(storage, 'not/a/shader');
 
   assert.equal(storage.data.has('psnes-shader'), false, 'a value no reader would accept must not be written');
+});
+
+test('a preset that was removed from the list is refused, not stored', () => {
+  // crt-easymode was dropped on the owner's call, and xbrz-freescale before it
+  // for producing framebuffer errors. Either reappearing in a profile must be
+  // treated as unknown - which is also what stops a test from quietly
+  // resurrecting one.
+  const storage = fakeStorage();
+
+  writeShaderPreference(storage, 'crt/crt-easymode');
+
+  assert.equal(storage.data.has('psnes-shader'), false);
 });
