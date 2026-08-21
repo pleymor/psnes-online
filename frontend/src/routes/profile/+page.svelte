@@ -18,7 +18,6 @@
   import ControlsSettings from '$lib/components/ControlsSettings.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import RomSourcePanel from '$lib/components/RomSourcePanel.svelte';
-  import ShaderPreview from '$lib/components/ShaderPreview.svelte';
   import { SHADERS } from '$lib/shaders';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import { romFileProblem, ACCEPT } from '$lib/roms/rom-file';
@@ -234,7 +233,10 @@
               aria-pressed={shader === option.id}
               on:click={() => chooseShader(option.id)}
             >
-              <ShaderPreview shaderId={option.id} />
+              <!-- alt is empty on purpose: the caption beside it already
+                   names the shader, so describing the picture too would say
+                   the same thing twice to a screen reader. -->
+              <img class="shot" src={option.preview} alt="" loading="lazy" />
               <span class="shader-name">{t($language, option.name)}</span>
             </button>
           {/each}
@@ -381,6 +383,18 @@
   .shader.on {
     background: rgba(102, 126, 234, 0.15);
     border-color: #667eea;
+  }
+
+  .shot {
+    display: block;
+    width: 100%;
+    /* The captures are hand-cropped to slightly different sizes, so a fixed
+       box plus cover frames them identically instead of letting the tiles
+       jitter by a few pixels. */
+    aspect-ratio: 8 / 7;
+    object-fit: cover;
+    border-radius: 6px;
+    background: #000;
   }
 
   .shader-name {

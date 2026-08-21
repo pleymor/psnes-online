@@ -14,13 +14,23 @@
  *   evaluates to a constant, so the scanlines vanished entirely.
  */
 
+/**
+ * `preview` is a still of that shader's own output, captured from the same
+ * frame for every entry so the pictures differ only by the shader. They are
+ * screenshots rather than something rendered live: a preview does not need a
+ * WebGL context per tile to show what a filter does to an edge.
+ */
 export const SHADERS = [
-	{ id: '', name: 'shaderNone' as const },
-	{ id: 'xbrz/6xbrz-linear', name: 'shaderXbrz6x' as const },
-	{ id: 'xbrz/5xbrz-linear', name: 'shaderXbrz5x' as const },
-	{ id: 'xbrz/4xbrz-linear', name: 'shaderXbrz4x' as const },
-	{ id: 'interpolation/sharp-bilinear-simple', name: 'shaderSharpBilinear' as const },
-	{ id: 'anti-aliasing/fxaa', name: 'shaderFxaa' as const },
+	{ id: '', name: 'shaderNone' as const, preview: '/shaders/raw.png' },
+	{ id: 'xbrz/6xbrz-linear', name: 'shaderXbrz6x' as const, preview: '/shaders/xbrz-6x.png' },
+	{ id: 'xbrz/5xbrz-linear', name: 'shaderXbrz5x' as const, preview: '/shaders/xbrz-5x.png' },
+	{ id: 'xbrz/4xbrz-linear', name: 'shaderXbrz4x' as const, preview: '/shaders/xbrz-4x.png' },
+	{
+		id: 'interpolation/sharp-bilinear-simple',
+		name: 'shaderSharpBilinear' as const,
+		preview: '/shaders/sharp-bilinear.png'
+	},
+	{ id: 'anti-aliasing/fxaa', name: 'shaderFxaa' as const, preview: '/shaders/fxaa.png' },
 ] as const;
 
 export const VALID_SHADER_IDS: readonly string[] = SHADERS.map(s => s.id);
