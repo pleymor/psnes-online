@@ -18,6 +18,7 @@
   import ControlsSettings from '$lib/components/ControlsSettings.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import RomSourcePanel from '$lib/components/RomSourcePanel.svelte';
+  import ShaderPreview from '$lib/components/ShaderPreview.svelte';
   import { SHADERS } from '$lib/shaders';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import { romFileProblem, ACCEPT } from '$lib/roms/rom-file';
@@ -227,8 +228,14 @@
         <h3>{t($language, 'display')}</h3>
         <div class="shaders">
           {#each SHADERS as option}
-            <button class:on={shader === option.id} on:click={() => chooseShader(option.id)}>
-              {t($language, option.name)}
+            <button
+              class="shader"
+              class:on={shader === option.id}
+              aria-pressed={shader === option.id}
+              on:click={() => chooseShader(option.id)}
+            >
+              <ShaderPreview shaderId={option.id} />
+              <span class="shader-name">{t($language, option.name)}</span>
             </button>
           {/each}
         </div>
@@ -349,10 +356,40 @@
     }
   }
 
+  /* Tiles rather than a row of names: the preview is the reason this section
+     exists, so it gets the space and the label becomes the caption. */
   .shaders {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+    gap: 0.6rem;
+  }
+
+  .shader {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.4rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 2px solid transparent;
+    text-align: center;
+  }
+
+  .shader:hover:not(.on) {
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  .shader.on {
+    background: rgba(102, 126, 234, 0.15);
+    border-color: #667eea;
+  }
+
+  .shader-name {
+    font-size: 0.8rem;
+    color: #ccc;
+  }
+
+  .shader.on .shader-name {
+    color: #fff;
   }
 
   button {

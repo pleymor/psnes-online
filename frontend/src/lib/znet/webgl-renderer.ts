@@ -18,7 +18,7 @@
  * null or sets `unusable`; nothing here throws at the caller.
  */
 
-import type { PsnesCore } from './core.js';
+import type { PsnesCore, VideoSurface } from './core.js';
 import type { LoadedPass, LoadedPreset } from './shader-source.js';
 import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from './output.js';
 
@@ -305,9 +305,20 @@ export class WebglRenderer implements Renderer {
 	}
 
 	draw(core: PsnesCore): void {
+		this.drawSurface(core.videoSurface());
+	}
+
+	/**
+	 * Draws one still surface.
+	 *
+	 * Split out of `draw` so a caller with a frame but no emulator core can
+	 * use the same pipeline - the shader previews on the profile page feed it
+	 * a generated test pattern. Nothing below this line ever needed the core
+	 * for anything but the surface it hands over.
+	 */
+	drawSurface(surface: VideoSurface): void {
 		if (this.isUnusable) return;
 
-		const surface = core.videoSurface();
 		if (surface.width === 0 || surface.height === 0) return;
 
 		const gl = this.gl;

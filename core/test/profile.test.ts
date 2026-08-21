@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { romSourceState } from '../../frontend/src/lib/roms/source-state.js';
 import { pickerError } from '../../frontend/src/lib/roms/picker-error.js';
 import { romFileProblem } from '../../frontend/src/lib/roms/rom-file.js';
+import { previewSurface } from '../../frontend/src/lib/znet/preview-pattern.js';
 import {
   readShaderPreference,
   writeShaderPreference
@@ -186,4 +187,45 @@ test('an uppercase extension is accepted, matching the lowercased comparison', (
   // The old modal lowercased the extension before comparing; losing that
   // would reject a file it used to take.
   assert.equal(romFileProblem('Chrono Trigger.SFC', 1024), null);
+});
+
+// --- the shader preview's test pattern -------------------------------------
+
+test('the pattern fills every pixel of its frame', () => {
+  // The realistic defect is a band that writes nothing: the renderer would
+  // then show a transparent stripe, which reads as a broken preview rather
+  // than as a shader difference. Alpha is the cheap way to catch it.
+  const surface = previewSurface();
+  for (let y = 0; y < surface.height; y++) {
+    for (let x = 0; x < surface.width; x++) {
+      const alpha = surface.data[(y * surface.stride + x) * 4 + 3];
+      assert.equal(alpha, 255, `pixel ${x},${y} was never written`);
+    }
+  }
+});
+
+test('the pattern is sized as a progressive SNES frame', () => {
+  const surface = previewSurface();
+  assert.equal(surface.width, 256);
+  assert.equal(surface.height, 224);
+  assert.equal(surface.stride, 256);
+  assert.equal(surface.data.length, surface.stride * surface.height * 4);
+});
+
+test('a wider stride is honoured, so the renderer can unpack rows', () => {
+  const surface = previewSurface(512);
+  assert.equal(surface.stride, 512);
+  assert.equal(surface.width, 256);
+  assert.equal(surface.data.length, 512 * surface.height * 4);
+});
+
+test('adjacent pixels differ in the checkerboard band', () => {
+  // This is the property the preview exists to show: a linear filter should
+  // flatten this band and a pixel-preserving one should keep it. If the band
+  // were ever made uniform, every shader would look identical here.
+  const surface = previewSurface();
+  const y = Math.floor(surface.height * 0.375); // inside the second band
+  const at = (x: number) => surface.data[(y * surface.stride + x) * 4];
+  assert.notEqual(at(10), at(11));
+  assert.equal(at(10), at(12));
 });
