@@ -143,7 +143,12 @@ app.use(requestLogger);
 function requireSecrets(): void {
   if (process.env.NODE_ENV !== 'production') return;
 
-  const required = ['SESSION_SECRET'];
+  // SESSION_SECRET is deliberately not listed here: the check above, which
+  // runs before this function is even called, already rejects a missing,
+  // too-short (<32 chars) or placeholder SESSION_SECRET in production and
+  // exits the process. Re-adding it here would just be a check that can
+  // never fire.
+  const required: string[] = [];
   // Only when Google is the auth mode: the alternative mode needs none of them,
   // and demanding them would break it.
   if ((process.env.AUTH_MODE || 'google') === 'google') {
