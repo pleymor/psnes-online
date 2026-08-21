@@ -8,6 +8,9 @@ import { getFriendships } from '../services/friends.js';
 export function toPublicRoom(room: Room) {
   return {
     id: room.id,
+    // No requireGame() here on purpose: a room can exist before a game is
+    // chosen, and this view has to describe that room too, undefined gameId
+    // and gameTitle included.
     gameId: room.gameId,
     gameTitle: room.gameTitle,
     gameCoverUrl: room.gameCoverUrl,

@@ -4,8 +4,8 @@ export type EmulationMode = 'single' | 'streaming' | 'dual' | 'lockstep';
 
 export interface Room {
   id: string;
-  gameId: string;
-  gameTitle: string;
+  gameId?: string;
+  gameTitle?: string;
   gameCoverUrl?: string;
   /**
    * Which ROM this room is for, as the CRC32 of its contents.

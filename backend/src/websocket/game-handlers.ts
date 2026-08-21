@@ -6,6 +6,7 @@ import { findSaveWithGame, createSave, updateSaveData, nextFreeSlot, findSaveOwn
 import { notifyFriendsRoomStatusChanged } from '../services/friends.js';
 import { createLogger } from '../utils/logger.js';
 import { getMemberRoom } from './guards.js';
+import { requireGame } from '../rooms/require-game.js';
 
 const logger = createLogger('Game');
 
@@ -108,12 +109,18 @@ export function registerGameHandlers(
     const room = getMemberRoom(rooms, data?.roomId, userId, 'game:save');
     if (!room) return;
 
+    const game = requireGame(room);
+    if (!game) {
+      socket.emit('error', { message: 'No game has been chosen in this room yet.' });
+      return;
+    }
+
     try {
       const db = getDb();
       // Saves belong to the game's owner. Without this check a guest in the
       // room would create Save rows against the host's game (mirrors the
       // ownership check in game:load).
-      const ownedGameId = findOwnedGameId(db, room.gameId, userId);
+      const ownedGameId = findOwnedGameId(db, game.gameId, userId);
 
       if (!ownedGameId) {
         socket.emit('error', { message: 'Not authorized to save this game' });
@@ -138,21 +145,21 @@ export function registerGameHandlers(
         }
         updateSaveData(db, data.saveId, data.name, saveDataBuffer, screenshot);
         socket.emit('game:saved', { saveId: data.saveId });
-        logger.info({ saveName: data.name, saveId: data.saveId, gameId: room.gameId }, 'Save overwritten');
+        logger.info({ saveName: data.name, saveId: data.saveId, gameId: game.gameId }, 'Save overwritten');
         return;
       }
 
       // The slot picker is gone, so the server assigns the number.
       const created = createSave(db, {
-        gameId: room.gameId,
-        slotNumber: nextFreeSlot(db, room.gameId),
+        gameId: game.gameId,
+        slotNumber: nextFreeSlot(db, game.gameId),
         name: data.name,
         data: saveDataBuffer,
         screenshot
       });
 
       socket.emit('game:saved', { saveId: created.id });
-      logger.info({ saveName: data.name, saveId: created.id, gameId: room.gameId }, 'Save created');
+      logger.info({ saveName: data.name, saveId: created.id, gameId: game.gameId }, 'Save created');
     } catch (error) {
       logger.error({ err: error }, 'Error saving game state');
       socket.emit('error', { message: 'Failed to save game' });
@@ -163,6 +170,12 @@ export function registerGameHandlers(
   socket.on('game:load', async (data: { roomId: string; saveId: string }) => {
     const room = getMemberRoom(rooms, data?.roomId, userId, 'game:load');
     if (!room) return;
+
+    const game = requireGame(room);
+    if (!game) {
+      socket.emit('error', { message: 'No game has been chosen in this room yet.' });
+      return;
+    }
 
     try {
       const save = findSaveWithGame(getDb(), data.saveId);
@@ -185,7 +198,7 @@ export function registerGameHandlers(
         slotNumber: save.slotNumber,
         name: save.name
       });
-      logger.info({ saveName: save.name, slot: save.slotNumber, gameId: room.gameId }, 'Save loaded');
+      logger.info({ saveName: save.name, slot: save.slotNumber, gameId: game.gameId }, 'Save loaded');
     } catch (error) {
       logger.error({ err: error }, 'Error loading game state');
       socket.emit('error', { message: 'Failed to load game' });
@@ -213,13 +226,19 @@ export function registerGameHandlers(
     const room = getMemberRoom(rooms, data?.roomId, userId, 'game:saveSram');
     if (!room) return;
 
+    const game = requireGame(room);
+    if (!game) {
+      socket.emit('error', { message: 'No game has been chosen in this room yet.' });
+      return;
+    }
+
     try {
       const sramBuffer = Buffer.from(data.sramData, 'base64');
 
-      saveSram(getDb(), room.gameId, userId, sramBuffer);
+      saveSram(getDb(), game.gameId, userId, sramBuffer);
 
       socket.emit('game:sramSaved');
-      logger.info({ gameId: room.gameId, size: sramBuffer.length }, 'SRAM saved');
+      logger.info({ gameId: game.gameId, size: sramBuffer.length }, 'SRAM saved');
     } catch (error) {
       logger.error({ err: error }, 'Error saving SRAM');
       socket.emit('error', { message: 'Failed to save SRAM' });
@@ -231,8 +250,14 @@ export function registerGameHandlers(
     const room = getMemberRoom(rooms, data?.roomId, userId, 'game:loadSram');
     if (!room) return;
 
+    const game = requireGame(room);
+    if (!game) {
+      socket.emit('error', { message: 'No game has been chosen in this room yet.' });
+      return;
+    }
+
     try {
-      const stored = findSram(getDb(), room.gameId, userId);
+      const stored = findSram(getDb(), game.gameId, userId);
 
       if (!stored) {
         socket.emit('game:sramLoaded', { sramData: null });
@@ -244,7 +269,7 @@ export function registerGameHandlers(
         sramData: sramDataBase64,
         updatedAt: stored.sramUpdatedAt
       });
-      logger.info({ gameId: room.gameId, size: stored.sram.length }, 'SRAM loaded');
+      logger.info({ gameId: game.gameId, size: stored.sram.length }, 'SRAM loaded');
     } catch (error) {
       logger.error({ err: error }, 'Error loading SRAM');
       socket.emit('error', { message: 'Failed to load SRAM' });
