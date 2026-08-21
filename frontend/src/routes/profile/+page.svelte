@@ -12,7 +12,7 @@
   import { goto } from '$app/navigation';
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
-  import { t, type TranslationKey } from '$lib/i18n/translations';
+  import { t } from '$lib/i18n/translations';
   import type { KeyConfig } from '$lib/types';
   import ControlsSettings from '$lib/components/ControlsSettings.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
@@ -60,10 +60,7 @@
 
     const problem = romFileProblem(file.name, file.size);
     if (problem) {
-      // Cast at the boundary: the function's return type is deliberately the
-      // plain `string | null` in its own signature, not the translation
-      // union - only the call site knows it will pass a real key.
-      romError = t($language, problem as TranslationKey);
+      romError = t($language, problem);
       return;
     }
 

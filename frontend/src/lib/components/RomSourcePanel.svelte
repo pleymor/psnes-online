@@ -12,23 +12,68 @@
    * Chromium has. Without the single-file fallback, Firefox and Safari would
    * have a permanently empty library and no recourse.
    */
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { onMount } from 'svelte';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
+  import { createLogger } from '$lib/utils/logger';
   import { romSourceState, type RomSourceState } from '$lib/roms/source-state';
   import { pickerError } from '$lib/roms/picker-error';
   import {
     supportsDirectoryPicker,
     chooseDirectory,
     storedDirectory,
-    ensureAccess
+    ensureAccess,
+    scanDirectory,
+    type LibraryEntry
   } from '$lib/roms/local-library';
 
-  const dispatch = createEventDispatcher();
+  const logger = createLogger('RomSourcePanel');
 
   let state: RomSourceState = { kind: 'no-folder' };
   let busy = false;
   let error = '';
+  let progress = '';
+
+  /** Registers one game: its identity, never its contents. */
+  async function register(checksum: string, filename: string): Promise<void> {
+    const res = await fetch('/api/games', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ checksum, filename })
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+  }
+
+  /**
+   * Scans a folder and registers everything found in it.
+   *
+   * Shared by both ways of getting a working handle - picking a new folder
+   * and re-granting access to a remembered one - because either can leave the
+   * library with games it does not know about yet.
+   */
+  async function scanAndRegister(handle: FileSystemDirectoryHandle): Promise<void> {
+    progress = t($language, 'scanningFolder');
+    const entries: LibraryEntry[] = await scanDirectory(handle);
+    if (entries.length === 0) {
+      error = t($language, 'noRomsFound');
+      return;
+    }
+
+    for (const [index, entry] of entries.entries()) {
+      progress = `${index + 1}/${entries.length} · ${entry.filename}`;
+      try {
+        await register(entry.checksum, entry.filename);
+      } catch (err) {
+        // One unreadable or duplicate ROM must not abandon the rest of a
+        // forty-cartridge folder.
+        logger.warn(`Could not add ${entry.filename}`, err);
+      }
+    }
+  }
 
   /**
    * Gathers the facts, then lets the pure function decide.
@@ -66,14 +111,19 @@
   async function pickFolder(): Promise<void> {
     busy = true;
     error = '';
+    progress = '';
     try {
-      if (await chooseDirectory()) dispatch('changed');
+      if (await chooseDirectory()) {
+        const handle = await storedDirectory();
+        if (handle) await scanAndRegister(handle);
+      }
       await refresh();
     } catch (err) {
       const message = pickerError(err);
       if (message) error = message;
     } finally {
       busy = false;
+      progress = '';
     }
   }
 
@@ -101,6 +151,9 @@
     <button on:click={pickFolder} disabled={busy}>{t($language, 'chooseRomFolder')}</button>
   {/if}
 
+  {#if progress}
+    <p class="explain">{progress}</p>
+  {/if}
   {#if error}
     <p class="error">{error}</p>
   {/if}
