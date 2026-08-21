@@ -19,7 +19,7 @@
   import { socket } from '$lib/api/socket';
   import LocateRom from './LocateRom.svelte';
   import { remember, resolveQuietly } from '$lib/roms/provider';
-  import { VALID_SHADER_IDS } from './ShaderSelector.svelte';
+  import { VALID_SHADER_IDS } from '$lib/shaders';
   import PauseMenu from './PauseMenu.svelte';
   import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
   import {

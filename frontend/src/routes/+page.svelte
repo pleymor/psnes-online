@@ -14,7 +14,8 @@
   import FriendsList from '$lib/components/FriendsList.svelte';
   import FriendDetailsModal from '$lib/components/FriendDetailsModal.svelte';
   import ControlsModal from '$lib/components/ControlsModal.svelte';
-  import ShaderSelector, { VALID_SHADER_IDS } from '$lib/components/ShaderSelector.svelte';
+  import ShaderSelector from '$lib/components/ShaderSelector.svelte';
+  import { VALID_SHADER_IDS } from '$lib/shaders';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import type { KeyConfig } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';

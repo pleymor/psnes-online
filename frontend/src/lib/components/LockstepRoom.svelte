@@ -21,7 +21,7 @@
   import LocateRom from './LocateRom.svelte';
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
-  import { VALID_SHADER_IDS } from './ShaderSelector.svelte';
+  import { VALID_SHADER_IDS } from '$lib/shaders';
   import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
   import {
     AudioSink,

@@ -10,7 +10,7 @@
   import { t } from '$lib/i18n/translations';
   import type { KeyConfig } from '$lib/types';
   import type { DisplayOptions } from '$lib/znet';
-  import { SHADERS, VALID_SHADER_IDS } from './ShaderSelector.svelte';
+  import { SHADERS, VALID_SHADER_IDS } from '$lib/shaders';
 
   export let roomId: string;
   export let gameId: string;
