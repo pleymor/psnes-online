@@ -353,7 +353,6 @@ export function findInvitationById(db: Database, id: string): Invitation | null 
 Les trois restantes suivent le même moule :
 
 ```ts
-```ts
 /** Les invitations encore en attente pour ce joueur, les plus récentes d'abord. */
 export function listPendingInvitationsFor(db: Database, userId: string): Invitation[];
 
