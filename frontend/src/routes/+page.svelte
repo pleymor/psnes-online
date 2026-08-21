@@ -11,13 +11,8 @@
   import GameDetailsModal from '$lib/components/GameDetailsModal.svelte';
   import AddGames from '$lib/components/AddGames.svelte';
   import LinkRom from '$lib/components/LinkRom.svelte';
-  import FriendsList from '$lib/components/FriendsList.svelte';
-  import FriendDetailsModal from '$lib/components/FriendDetailsModal.svelte';
-  import ControlsModal from '$lib/components/ControlsModal.svelte';
-  import ShaderSelector from '$lib/components/ShaderSelector.svelte';
-  import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
-  import type { KeyConfig } from '$lib/types';
+  import TopBar from '$lib/components/TopBar.svelte';
   import { createLogger } from '$lib/utils/logger';
 
   const logger = createLogger('HomePage');
@@ -28,48 +23,12 @@
     showUpload = false;
   }
   let selectedGame: Game | null = null;
-  let selectedFriend: any = null;
-  let friendsListRef: FriendsList;
-  let isRefreshingMetadata = false;
   let showToast = false;
   let toastMessage = '';
   let toastType: 'success' | 'error' = 'success';
   let showDeleteConfirm = false;
   let gameToDelete: Game | null = null;
-  let showControls = false;
-  let showShaderSelector = false;
-  let showMobileSidebar = false;
   let activeRooms: any[] = [];
-
-  let currentShader = '';
-
-  function loadShaderPreference() {
-    if (typeof localStorage !== 'undefined') {
-      currentShader = readShaderPreference(localStorage);
-    }
-  }
-
-  function handleShaderSelect(event: CustomEvent<{ shader: string }>) {
-    const { shader } = event.detail;
-    currentShader = shader;
-    if (typeof localStorage !== 'undefined') {
-      writeShaderPreference(localStorage, shader);
-    }
-  }
-  let userKeyConfig: KeyConfig = {
-    up: 'ArrowUp',
-    down: 'ArrowDown',
-    left: 'ArrowLeft',
-    right: 'ArrowRight',
-    a: 'KeyX',
-    b: 'KeyZ',
-    x: 'KeyS',
-    y: 'KeyA',
-    l: 'KeyQ',
-    r: 'KeyW',
-    start: 'Enter',
-    select: 'ShiftRight'
-  };
 
   async function loadGames() {
     const res = await fetch('/api/games', { credentials: 'include' });
@@ -78,18 +37,6 @@
       // Sort games alphabetically by title
       gamesData.sort((a: Game, b: Game) => a.title.localeCompare(b.title));
       games.set(gamesData);
-    }
-  }
-
-  async function loadUserControls() {
-    try {
-      const res = await fetch('/api/user/controls', { credentials: 'include' });
-      if (res.ok) {
-        const config = await res.json();
-        userKeyConfig = config;
-      }
-    } catch (error) {
-      logger.error('Failed to load user controls:', error);
     }
   }
 
@@ -149,52 +96,11 @@
     }, 4000);
   }
 
-  function handleFriendClicked(event: CustomEvent<any>) {
-    selectedFriend = event.detail;
-  }
-
-  async function handleRemoveFriend(event: CustomEvent<{ friendshipId: string }>) {
-    const { friendshipId } = event.detail;
-
-    if (friendsListRef) {
-      await friendsListRef.removeFriend(friendshipId);
-      selectedFriend = null;
-    }
-  }
-
-  async function refreshMetadata() {
-    isRefreshingMetadata = true;
-
-    try {
-      const res = await fetch('/api/games/refresh-metadata', {
-        method: 'POST',
-        credentials: 'include'
-      });
-
-      if (res.ok) {
-        const result = await res.json();
-        await loadGames();
-        showNotification(
-          t($language, 'metadataUpdated', { updated: result.updated, skipped: result.skipped }),
-          'success'
-        );
-      } else {
-        showNotification(t($language, 'failedToRefreshMetadata'), 'error');
-      }
-    } catch (error) {
-      logger.error('Error refreshing metadata:', error);
-      showNotification(t($language, 'errorRefreshingMetadata'), 'error');
-    } finally {
-      isRefreshingMetadata = false;
-    }
-  }
-
   async function loadUserData() {
-    await Promise.all([loadGames(), loadUserControls(), loadRooms()]);
+    await Promise.all([loadGames(), loadRooms()]);
   }
 
   onMount(async () => {
-    loadShaderPreference();
     // Wait for auth check to complete
     const unsubscribe = userLoading.subscribe(async (loading) => {
       if (!loading) {
@@ -275,23 +181,9 @@
     }
   }
 
-  async function logout() {
-    await fetch('/auth/logout', {
-      method: 'POST',
-      credentials: 'include'
-    });
-    // Setting user to null will trigger socket cleanup in layout
-    user.set(null);
-    goto('/');
-  }
-
   onMount(() => {
     loadAuthMode();
   });
-
-  function handleControlsSaved(event: CustomEvent<{ config: any }>) {
-    userKeyConfig = { ...event.detail.config };
-  }
 </script>
 
 {#if !$user}
@@ -331,76 +223,7 @@
 {:else}
   <!-- Library page for authenticated users -->
   <div class="app-layout">
-    <!-- Mobile burger button -->
-    <button class="burger-btn" on:click={() => showMobileSidebar = !showMobileSidebar}>
-      <span></span>
-      <span></span>
-      <span></span>
-    </button>
-
-    <!-- Mobile overlay -->
-    {#if showMobileSidebar}
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="mobile-overlay" role="presentation" on:click={() => showMobileSidebar = false}></div>
-    {/if}
-
-    <!-- Sidebar Menu -->
-    <aside class="sidebar-menu" class:show-mobile={showMobileSidebar}>
-      <div class="sidebar-header">
-        <a href="/" class="logo">🎮 PSNES</a>
-        <LanguageSelector />
-      </div>
-
-      <nav class="sidebar-nav">
-        <div class="nav-section">
-          <button on:click={() => showUpload = true} class="nav-button nav-button-primary">
-            <span class="icon">+</span>
-            <span class="label">{t($language, 'addGames')}</span>
-          </button>
-
-          <button on:click={() => showControls = true} class="nav-button">
-            <span class="icon">🎮</span>
-            <span class="label">{t($language, 'controls')}</span>
-          </button>
-
-          <button on:click={() => showShaderSelector = true} class="nav-button">
-            <span class="icon">🖼️</span>
-            <span class="label">{t($language, 'display')}</span>
-          </button>
-
-          <button on:click={refreshMetadata} class="nav-button" disabled={isRefreshingMetadata}>
-            <span class="icon">{isRefreshingMetadata ? '⏳' : '🔄'}</span>
-            <span class="label">{isRefreshingMetadata ? t($language, 'updating') : t($language, 'updateMetadata')}</span>
-          </button>
-        </div>
-
-        <div class="nav-section nav-section-friends">
-          <FriendsList bind:this={friendsListRef} {activeRooms} on:friendClicked={handleFriendClicked} />
-        </div>
-
-        <div class="nav-section nav-section-bottom">
-          <div class="user-profile">
-            <div class="user-info">
-              <div class="user-avatar">
-                {#if $user?.avatar}
-                  <img src={$user.avatar} alt={$user.displayName} />
-                {:else}
-                  <span class="avatar-placeholder">👤</span>
-                {/if}
-                <div class="online-indicator"></div>
-              </div>
-              <div class="user-details">
-                <div class="user-name">{$user?.displayName}</div>
-                <div class="user-status">{t($language, 'online')}</div>
-              </div>
-            </div>
-            <button on:click={logout} class="logout-icon" title={t($language, 'logout')}>
-              🚪
-            </button>
-          </div>
-        </div>
-      </nav>
-    </aside>
+    <TopBar {activeRooms} />
 
     <!-- Main Content -->
     <main class="main-content">
@@ -460,16 +283,6 @@
     />
   {/if}
 
-  {#if selectedFriend}
-    <FriendDetailsModal
-      friend={selectedFriend.friend}
-      friendsSince={selectedFriend.friendsSince}
-      friendshipId={selectedFriend.friendshipId}
-      on:close={() => selectedFriend = null}
-      on:remove={handleRemoveFriend}
-    />
-  {/if}
-
   {#if showDeleteConfirm && gameToDelete}
     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
     <div class="modal-overlay" role="presentation" on:click={cancelDelete}>
@@ -481,29 +294,6 @@
           <button on:click={cancelDelete} class="btn-cancel">{t($language, 'cancel')}</button>
           <button on:click={confirmDelete} class="btn-confirm-delete">{t($language, 'delete')}</button>
         </div>
-      </div>
-    </div>
-  {/if}
-
-  <ControlsModal
-    bind:show={showControls}
-    currentConfig={userKeyConfig}
-    on:close={() => showControls = false}
-    on:saved={handleControlsSaved}
-  />
-
-  {#if showShaderSelector}
-    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-    <div class="modal-overlay" role="presentation" on:click={() => showShaderSelector = false}>
-      <div class="shader-modal" role="dialog" aria-modal="true" on:click|stopPropagation>
-        <h3>{t($language, 'display')}</h3>
-        <ShaderSelector
-          {currentShader}
-          on:select={handleShaderSelect}
-        />
-        <button on:click={() => showShaderSelector = false} class="btn-cancel">
-          {t($language, 'close')}
-        </button>
       </div>
     </div>
   {/if}
@@ -631,233 +421,14 @@
   /* Library page styles */
   .app-layout {
     display: flex;
+    flex-direction: column;
     min-height: 100vh;
     background: #0a0a0a;
-  }
-
-  /* Sidebar Menu */
-  .sidebar-menu {
-    width: 340px;
-    background: rgba(20, 20, 20, 0.95);
-    border-right: 1px solid rgba(255, 255, 255, 0.1);
-    display: flex;
-    flex-direction: column;
-    position: fixed;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 1000;
-    backdrop-filter: blur(10px);
-    overflow-y: auto;
-  }
-
-  .sidebar-header {
-    padding: 2rem 1.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .logo {
-    font-size: 1.5rem;
-    font-weight: 700;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    text-decoration: none;
-    transition: opacity 0.2s;
-  }
-
-  .logo:hover {
-    opacity: 0.8;
-  }
-
-  .sidebar-nav {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    padding: 1rem 0;
-  }
-
-  .nav-section {
-    padding: 0.5rem 1rem;
-    margin-bottom: 1rem;
-  }
-
-  .nav-section-friends {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0;
-    margin-bottom: 0;
-  }
-
-  .nav-section-friends-compact {
-    display: none;
-  }
-
-  .nav-section-bottom {
-    margin-top: 0;
-    margin-bottom: 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    padding-top: 1rem;
-  }
-
-  .user-profile {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 8px;
-    gap: 0.75rem;
-  }
-
-  .user-info {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .user-avatar {
-    position: relative;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    overflow: hidden;
-    background: #333;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .user-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .avatar-placeholder {
-    font-size: 1.5rem;
-  }
-
-  .online-indicator {
-    position: absolute;
-    bottom: 2px;
-    right: 2px;
-    width: 10px;
-    height: 10px;
-    background: #4caf50;
-    border: 2px solid #1a1a1a;
-    border-radius: 50%;
-  }
-
-  .user-details {
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-    min-width: 0;
-    flex: 1;
-  }
-
-  .user-name {
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: white;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .user-status {
-    font-size: 0.75rem;
-    color: #4caf50;
-  }
-
-  .logout-icon {
-    background: transparent;
-    border: none;
-    font-size: 1.25rem;
-    cursor: pointer;
-    padding: 0.5rem;
-    border-radius: 6px;
-    transition: all 0.2s;
-    flex-shrink: 0;
-    line-height: 1;
-  }
-
-  .logout-icon:hover {
-    background: rgba(255, 255, 255, 0.1);
-    transform: scale(1.1);
-  }
-
-  .nav-button {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.875rem 1rem;
-    background: transparent;
-    border: none;
-    border-radius: 8px;
-    color: #ccc;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-size: 0.95rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .nav-button:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.05);
-    color: white;
-    transform: translateX(4px);
-  }
-
-  .nav-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .nav-button .icon {
-    font-size: 1.25rem;
-    width: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .nav-button .label {
-    flex: 1;
-    text-align: left;
-  }
-
-  .nav-button-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-  }
-
-  .nav-button-primary:hover {
-    background: linear-gradient(135deg, #7d8ef5 0%, #8a5bb8 100%);
-    transform: translateX(4px);
-  }
-
-  .nav-button-logout {
-    color: #f44336;
-  }
-
-  .nav-button-logout:hover {
-    background: rgba(244, 67, 54, 0.1);
-    color: #f44336;
   }
 
   /* Main Content */
   .main-content {
     flex: 1;
-    margin-left: 340px;
     padding: 2rem;
   }
 
@@ -1062,100 +633,9 @@
     box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
   }
 
-  .shader-modal {
-    background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
-    border-radius: 16px;
-    padding: 2rem;
-    max-width: 400px;
-    width: 90%;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    animation: slideUp 0.3s ease-out;
-  }
-
-  .shader-modal h3 {
-    margin: 0 0 1.5rem 0;
-    font-size: 1.5rem;
-    color: #fff;
-  }
-
-  .shader-modal .btn-cancel {
-    width: 100%;
-    margin-top: 1.5rem;
-  }
-
-  /* Burger menu button */
-  .burger-btn {
-    display: none;
-    position: fixed;
-    top: 1rem;
-    left: 1rem;
-    z-index: 10001;
-    background: rgba(42, 42, 42, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    width: 48px;
-    height: 48px;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-    backdrop-filter: blur(10px);
-    transition: all 0.3s;
-  }
-
-  .burger-btn:hover {
-    background: rgba(102, 126, 234, 0.2);
-    border-color: rgba(102, 126, 234, 0.5);
-  }
-
-  .burger-btn span {
-    display: block;
-    width: 24px;
-    height: 2px;
-    background: white;
-    border-radius: 2px;
-    transition: all 0.3s;
-  }
-
-  /* Mobile overlay */
-  .mobile-overlay {
-    display: none;
-  }
-
   @media (max-width: 768px) {
-    .burger-btn {
-      display: flex;
-    }
-
-    .mobile-overlay {
-      display: block;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.7);
-      z-index: 9998;
-      backdrop-filter: blur(4px);
-    }
-
-    .sidebar-menu {
-      position: fixed;
-      left: -340px;
-      transition: left 0.3s ease-in-out;
-      z-index: 9999;
-    }
-
-    .sidebar-menu.show-mobile {
-      left: 0;
-    }
-
     .main-content {
-      margin-left: 0;
       padding: 1rem;
-      padding-top: 4rem;
     }
 
     .games-grid {
