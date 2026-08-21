@@ -12,13 +12,18 @@
   import { goto } from '$app/navigation';
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
-  import { t } from '$lib/i18n/translations';
+  import { t, type TranslationKey } from '$lib/i18n/translations';
   import type { KeyConfig } from '$lib/types';
   import ControlsSettings from '$lib/components/ControlsSettings.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import RomSourcePanel from '$lib/components/RomSourcePanel.svelte';
   import { SHADERS } from '$lib/shaders';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
+  import { romFileProblem, ACCEPT } from '$lib/roms/rom-file';
+  import { checksumOf } from '$lib/roms/local-library';
+  import { createLogger } from '$lib/utils/logger';
+
+  const logger = createLogger('ProfilePage');
 
   let keyConfig: KeyConfig | null = null;
   let controlsError = '';
@@ -27,6 +32,56 @@
   let refreshMessage = '';
   let loggingOut = false;
   let logoutMessage = '';
+
+  let fileInput: HTMLInputElement;
+  let romBusy = false;
+  let romError = '';
+  let romProgress = '';
+  let romAdded = false;
+
+  /** Registers one game: its identity, never its contents. */
+  async function register(checksum: string, filename: string): Promise<boolean> {
+    const res = await fetch('/api/games', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ checksum, filename })
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+    return true;
+  }
+
+  async function onFileChosen(event: Event) {
+    const file = (event.currentTarget as HTMLInputElement).files?.[0];
+    if (!file) return;
+
+    const problem = romFileProblem(file.name, file.size);
+    if (problem) {
+      // Cast at the boundary: the function's return type is deliberately the
+      // plain `string | null` in its own signature, not the translation
+      // union - only the call site knows it will pass a real key.
+      romError = t($language, problem as TranslationKey);
+      return;
+    }
+
+    romBusy = true;
+    romError = '';
+    romAdded = false;
+    try {
+      romProgress = file.name;
+      await register(await checksumOf(file), file.name);
+      romAdded = true;
+    } catch (err) {
+      romError = err instanceof Error ? err.message : String(err);
+      logger.error('Could not add the game', err);
+    } finally {
+      romBusy = false;
+      romProgress = '';
+    }
+  }
 
   onMount(async () => {
     // localStorage owns the display setting; this page and the pause menu both
@@ -115,7 +170,30 @@
     </div>
   </section>
 
-  <RomSourcePanel />
+  <RomSourcePanel>
+    <div slot="fallback" class="rom-fallback">
+      <button on:click={() => fileInput.click()} disabled={romBusy}>
+        {t($language, 'chooseOneRom')}
+      </button>
+      <input
+        bind:this={fileInput}
+        type="file"
+        accept={ACCEPT}
+        class="hidden-input"
+        on:change={onFileChosen}
+      />
+      {#if romProgress}
+        <p class="note">{romProgress}</p>
+      {/if}
+      {#if romAdded && !romBusy}
+        <p class="note">{t($language, 'gamesAdded')}</p>
+      {/if}
+      {#if romError}
+        <p class="note error">{romError}</p>
+      {/if}
+      <p class="legal">{t($language, 'legalUploadWarning')}</p>
+    </div>
+  </RomSourcePanel>
 
   <section>
     <h3>{t($language, 'controls')}</h3>
@@ -240,6 +318,28 @@
     margin: 0.5rem 0 0;
     color: #aaa;
     font-size: 0.9rem;
+  }
+
+  .note.error {
+    color: #f87171;
+  }
+
+  .rom-fallback {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .hidden-input {
+    display: none;
+  }
+
+  .legal {
+    margin: 0.5rem 0 0;
+    font-size: 0.75rem;
+    color: #6f6f88;
+    line-height: 1.4;
   }
 
   .danger {

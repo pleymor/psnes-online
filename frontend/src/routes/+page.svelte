@@ -9,7 +9,6 @@
   import { t } from '$lib/i18n/translations';
   import GameCard from '$lib/components/GameCard.svelte';
   import GameDetailsModal from '$lib/components/GameDetailsModal.svelte';
-  import AddGames from '$lib/components/AddGames.svelte';
   import LinkRom from '$lib/components/LinkRom.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
@@ -17,11 +16,6 @@
 
   const logger = createLogger('HomePage');
 
-  let showUpload = false;
-
-  function closeUpload() {
-    showUpload = false;
-  }
   let selectedGame: Game | null = null;
   let showToast = false;
   let toastMessage = '';
@@ -240,9 +234,7 @@
             <div class="empty-icon">🎮</div>
             <h2>{t($language, 'emptyLibrary')}</h2>
             <p>{t($language, 'startUploading')}</p>
-            <button on:click={() => showUpload = true} class="btn-upload-large">
-              + {t($language, 'addGames')}
-            </button>
+            <a class="empty-cta" href="/profile">{t($language, 'romSource')}</a>
           </div>
         {:else}
           <div class="games-grid">
@@ -266,13 +258,6 @@
       title={gameToLink.title}
       on:close={() => (gameToLink = null)}
       on:linked={() => { gameToLink = null; loadGames(); }}
-    />
-  {/if}
-
-  {#if showUpload}
-    <AddGames
-      on:close={closeUpload}
-      on:added={() => { closeUpload(); loadGames(); }}
     />
   {/if}
 
@@ -487,18 +472,18 @@
     margin: 0 0 2rem 0;
   }
 
-  .btn-upload-large {
+  .empty-cta {
+    display: inline-block;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
-    border: none;
+    text-decoration: none;
     padding: 1rem 2.5rem;
     border-radius: 8px;
-    cursor: pointer;
     font-size: 1.125rem;
     transition: transform 0.2s;
   }
 
-  .btn-upload-large:hover {
+  .empty-cta:hover {
     transform: translateY(-2px);
   }
 

@@ -11,6 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { romSourceState } from '../../frontend/src/lib/roms/source-state.js';
 import { pickerError } from '../../frontend/src/lib/roms/picker-error.js';
+import { romFileProblem } from '../../frontend/src/lib/roms/rom-file.js';
 import {
   readShaderPreference,
   writeShaderPreference
@@ -161,4 +162,28 @@ test('an Error about aborting is still reported unless its name is AbortError', 
   const err = new Error('the request was aborted by the network layer');
 
   assert.equal(pickerError(err), 'the request was aborted by the network layer');
+});
+
+const MAX_ROM_BYTES = 8 * 1024 * 1024;
+
+test('an accepted extension under the size cap passes', () => {
+  assert.equal(romFileProblem('Chrono Trigger.sfc', 1024), null);
+});
+
+test('a rejected extension is reported as an invalid type', () => {
+  assert.equal(romFileProblem('setup.exe', 1024), 'romInvalidType');
+});
+
+test('a file one byte over the cap is too large', () => {
+  assert.equal(romFileProblem('Chrono Trigger.sfc', MAX_ROM_BYTES + 1), 'romTooLarge');
+});
+
+test('a file exactly at the cap is accepted', () => {
+  assert.equal(romFileProblem('Chrono Trigger.sfc', MAX_ROM_BYTES), null);
+});
+
+test('an uppercase extension is accepted, matching the lowercased comparison', () => {
+  // The old modal lowercased the extension before comparing; losing that
+  // would reject a file it used to take.
+  assert.equal(romFileProblem('Chrono Trigger.SFC', 1024), null);
 });
