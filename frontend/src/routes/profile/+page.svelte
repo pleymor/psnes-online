@@ -21,9 +21,12 @@
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
 
   let keyConfig: KeyConfig | null = null;
+  let controlsError = '';
   let shader = '';
   let refreshing = false;
   let refreshMessage = '';
+  let loggingOut = false;
+  let logoutMessage = '';
 
   onMount(async () => {
     // localStorage owns the display setting; this page and the pause menu both
@@ -31,8 +34,16 @@
     // so there is nothing to keep in sync.
     shader = readShaderPreference(localStorage);
 
-    const res = await fetch('/api/user/controls', { credentials: 'include' });
-    if (res.ok) keyConfig = await res.json();
+    try {
+      const res = await fetch('/api/user/controls', { credentials: 'include' });
+      // Showing nothing on failure is deliberate: presenting stale or absent
+      // key bindings as if they were the saved config would be worse than an
+      // explanation and an empty section.
+      if (res.ok) keyConfig = await res.json();
+      else controlsError = t($language, 'controlsLoadFailed');
+    } catch {
+      controlsError = t($language, 'controlsLoadFailed');
+    }
   });
 
   function chooseShader(id: string): void {
@@ -65,9 +76,25 @@
   }
 
   async function logout(): Promise<void> {
-    await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
-    user.set(null);
-    void goto('/');
+    loggingOut = true;
+    logoutMessage = '';
+    try {
+      const res = await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
+      // Only a genuinely successful response clears the client session. On a
+      // rejection or a non-ok status the server session may still be live, so
+      // pretending the user is signed out would be the actual harm here - on a
+      // shared machine, worse than the inconvenience of showing an error.
+      if (res.ok) {
+        user.set(null);
+        void goto('/');
+      } else {
+        logoutMessage = t($language, 'logoutFailed');
+      }
+    } catch {
+      logoutMessage = t($language, 'logoutFailed');
+    } finally {
+      loggingOut = false;
+    }
   }
 </script>
 
@@ -94,6 +121,8 @@
     <h3>{t($language, 'controls')}</h3>
     {#if keyConfig}
       <ControlsSettings currentConfig={keyConfig} on:saved={(e) => (keyConfig = e.detail.config)} />
+    {:else if controlsError}
+      <p class="note">{controlsError}</p>
     {/if}
   </section>
 
@@ -122,7 +151,8 @@
   </section>
 
   <section class="danger">
-    <button class="logout" on:click={logout}>{t($language, 'logout')}</button>
+    <button class="logout" on:click={logout} disabled={loggingOut}>{t($language, 'logout')}</button>
+    {#if logoutMessage}<p class="note">{logoutMessage}</p>{/if}
   </section>
 </div>
 
@@ -210,6 +240,11 @@
     margin: 0.5rem 0 0;
     color: #aaa;
     font-size: 0.9rem;
+  }
+
+  .danger {
+    padding-top: 1rem;
+    border-top: 1px solid #333;
   }
 
   .logout {

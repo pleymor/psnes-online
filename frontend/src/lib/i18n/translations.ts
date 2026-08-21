@@ -10,6 +10,7 @@ export const translations = {
     logout: 'Logout',
     backToLibrary: 'Back to the library',
     language: 'Language',
+    logoutFailed: 'Could not log out. You are still signed in.',
 
     // Home page
     playWithFriends: 'Play classic SNES games with your friends',
@@ -142,6 +143,7 @@ export const translations = {
     pauseMenu: 'Pause Menu',
     pauseMenuHint: 'Use D-Pad + A to select, B to resume',
     controls: 'Controls',
+    controlsLoadFailed: 'Could not load your controls.',
     controllerSettings: 'Controller Settings',
     saveGame: 'Save Game',
     loadGame: 'Load Game',
@@ -266,6 +268,7 @@ export const translations = {
     logout: 'Déconnexion',
     backToLibrary: 'Retour à la bibliothèque',
     language: 'Langue',
+    logoutFailed: 'Impossible de se déconnecter. Vous êtes toujours connecté(e).',
 
     // Home page
     playWithFriends: 'Jouez aux jeux SNES classiques avec vos amis',
@@ -398,6 +401,7 @@ export const translations = {
     pauseMenu: 'Menu Pause',
     pauseMenuHint: 'Utilisez D-Pad + A pour sélectionner, B pour reprendre',
     controls: 'Contrôles',
+    controlsLoadFailed: 'Impossible de charger vos contrôles.',
     controllerSettings: 'Paramètres de la manette',
     saveGame: 'Sauvegarder',
     loadGame: 'Charger',
