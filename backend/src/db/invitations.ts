@@ -84,3 +84,22 @@ export function markInvitation(db: Database, id: string, status: InvitationStatu
 export function deleteInvitationsForRoom(db: Database, roomId: string): void {
   db.prepare(`DELETE FROM "RoomInvitation" WHERE roomId = ?`).run(roomId);
 }
+
+/**
+ * Le balayage du démarrage : les lignes dont le délai est passé.
+ *
+ * Un salon qui meurt proprement emporte ses invitations
+ * (`deleteInvitationsForRoom`), mais un crash ou un `kill -9` les laisse
+ * derrière lui sans personne pour les supprimer. La justesse n'en a jamais
+ * dépendu — `lobby:accept` et la livraison à la connexion vérifient tous deux
+ * que le salon existe encore — donc ceci ne sert qu'à ce que la table ne
+ * grossisse pas indéfiniment.
+ *
+ * La borne est le même `<=` que celui d'`invitationState` : une invitation
+ * expirée pour un lecteur est expirée pour le balayage, sans fenêtre où les
+ * deux se contrediraient. Et `now` est un paramètre pour la même raison.
+ */
+export function deleteExpiredInvitations(db: Database, now: Date): number {
+  return db.prepare(`DELETE FROM "RoomInvitation" WHERE expiresAt <= ?`)
+    .run(now.getTime()).changes;
+}

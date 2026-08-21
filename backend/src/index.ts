@@ -21,6 +21,8 @@ import { initializeWebSocket, getRooms, getUserSocket } from './websocket/index.
 import { flushRooms, restoreRooms, startRoomSnapshots } from './websocket/room-snapshot.js';
 import { holdRestoredSeat } from './websocket/room-handlers.js';
 import { connectRedis } from './db/redis.js';
+import { getDb } from './db/sqlite.js';
+import { deleteExpiredInvitations } from './db/invitations.js';
 import { refreshGameMetadata } from './services/metadata-loader.js';
 import { ensureAvatarsDir } from './utils/avatar.js';
 import { requestLogger } from './middleware/logger.js';
@@ -231,6 +233,23 @@ io.engine.use(passport.session());
 initializeWebSocket(io);
 
 const rooms = getRooms();
+
+/*
+ * Invitations whose deadline has passed, cleared once at boot.
+ *
+ * A room that dies cleanly takes its invitations with it, but a crash leaves
+ * them behind with nothing to remove them. Nothing ever reads a stale row -
+ * `lobby:accept` and the connection-time delivery both check that the room
+ * still exists - so this is housekeeping and nothing more, which is exactly
+ * why it is wrapped: a failure to tidy up must never be the reason the server
+ * cannot start.
+ */
+try {
+  const swept = deleteExpiredInvitations(getDb(), new Date());
+  if (swept > 0) logger.info({ swept }, 'Cleared expired invitations');
+} catch (err) {
+  logger.warn({ err }, 'Could not sweep expired invitations; carrying on');
+}
 
 // Before the port opens, so the first client to reconnect finds its room
 // already there rather than racing the restore.
