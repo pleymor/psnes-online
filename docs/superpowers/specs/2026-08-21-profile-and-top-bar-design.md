@@ -20,6 +20,7 @@ Et « Ajouter des jeux » a perdu sa raison d'être en chemin. Depuis la bascule
 | Mise à jour des métadonnées | Page de profil |
 | Liste d'amis, toujours visible | Menu déroulant dans la barre |
 | Bloc profil + icône de déconnexion | L'avatar dans la barre, menant à la page de profil |
+| — | Changer d'avatar : **pas dans ce morceau**, aucune API ne le permet aujourd'hui |
 | Sélecteur de langue dans la navbar | Page de profil |
 | Sélecteur de langue sur l'accueil déconnecté | **Inchangé** — voir plus bas |
 
@@ -37,7 +38,11 @@ Une route, `/profile`, et non un modal. Elle porte assez de choses pour mériter
 
 Ses sections, dans cet ordre — l'identité d'abord parce que c'est ce qu'on vient vérifier, les réglages ensuite, la déconnexion en dernier parce qu'elle est destructive :
 
-**Identité.** L'avatar en grand, le nom affiché, l'adresse. Changer l'avatar.
+**Identité.** L'avatar en grand, le nom affiché, l'adresse.
+
+**Pas le changement d'avatar**, et c'est une correction de cette spec plutôt qu'un choix de départ. Je l'avais listé parce que la demande le mentionnait, sans vérifier que le code pouvait le tenir. Il ne peut pas : le routeur d'avatars ne sert que des fichiers en lecture, le routeur utilisateur ne gère que les contrôles, et l'avatar vient de Google — téléchargé une fois à la connexion. Le changer demande un point de téléversement neuf, avec validation du type, plafond de taille et emplacement de stockage.
+
+C'est une surface de fichier non fiable, donc un genre de risque différent du reste de ce morceau : il mérite sa propre conception et sa propre revue plutôt que de voyager en passager dans un changement de mise en page. Cinquième morceau, à part.
 
 **D'où viennent tes ROM.** Voir le dossier configuré, en choisir un, en changer. Traité en détail plus bas, parce que ce que le navigateur permet change la forme de cet encart.
 
