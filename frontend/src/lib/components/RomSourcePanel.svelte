@@ -24,6 +24,7 @@
     storedDirectory,
     ensureAccess,
     scanDirectory,
+    registerGame,
     type LibraryEntry
   } from '$lib/roms/local-library';
 
@@ -33,20 +34,7 @@
   let busy = false;
   let error = '';
   let progress = '';
-
-  /** Registers one game: its identity, never its contents. */
-  async function register(checksum: string, filename: string): Promise<void> {
-    const res = await fetch('/api/games', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ checksum, filename })
-    });
-    if (!res.ok) {
-      const payload = await res.json().catch(() => ({}));
-      throw new Error(payload.error || `HTTP ${res.status}`);
-    }
-  }
+  let added = 0;
 
   /**
    * Scans a folder and registers everything found in it.
@@ -56,6 +44,7 @@
    * library with games it does not know about yet.
    */
   async function scanAndRegister(handle: FileSystemDirectoryHandle): Promise<void> {
+    added = 0;
     progress = t($language, 'scanningFolder');
     const entries: LibraryEntry[] = await scanDirectory(handle);
     if (entries.length === 0) {
@@ -66,13 +55,19 @@
     for (const [index, entry] of entries.entries()) {
       progress = `${index + 1}/${entries.length} · ${entry.filename}`;
       try {
-        await register(entry.checksum, entry.filename);
+        await registerGame(entry.checksum, entry.filename);
+        added++;
       } catch (err) {
         // One unreadable or duplicate ROM must not abandon the rest of a
         // forty-cartridge folder.
         logger.warn(`Could not add ${entry.filename}`, err);
       }
     }
+
+    // Every entry failing looks exactly like a completed scan unless said
+    // out loud - the player just watched forty cartridges scroll by for
+    // nothing.
+    if (added === 0) error = t($language, 'failedToSendRequest');
   }
 
   /**
@@ -153,6 +148,9 @@
 
   {#if progress}
     <p class="explain">{progress}</p>
+  {/if}
+  {#if added > 0 && !busy}
+    <p class="explain">{added} {t($language, 'gamesAdded')}</p>
   {/if}
   {#if error}
     <p class="error">{error}</p>

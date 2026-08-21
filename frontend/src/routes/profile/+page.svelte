@@ -20,7 +20,7 @@
   import { SHADERS } from '$lib/shaders';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import { romFileProblem, ACCEPT } from '$lib/roms/rom-file';
-  import { checksumOf } from '$lib/roms/local-library';
+  import { checksumOf, registerGame } from '$lib/roms/local-library';
   import { createLogger } from '$lib/utils/logger';
 
   const logger = createLogger('ProfilePage');
@@ -39,21 +39,6 @@
   let romProgress = '';
   let romAdded = false;
 
-  /** Registers one game: its identity, never its contents. */
-  async function register(checksum: string, filename: string): Promise<boolean> {
-    const res = await fetch('/api/games', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ checksum, filename })
-    });
-    if (!res.ok) {
-      const payload = await res.json().catch(() => ({}));
-      throw new Error(payload.error || `HTTP ${res.status}`);
-    }
-    return true;
-  }
-
   async function onFileChosen(event: Event) {
     const file = (event.currentTarget as HTMLInputElement).files?.[0];
     if (!file) return;
@@ -69,7 +54,7 @@
     romAdded = false;
     try {
       romProgress = file.name;
-      await register(await checksumOf(file), file.name);
+      await registerGame(await checksumOf(file), file.name);
       romAdded = true;
     } catch (err) {
       romError = err instanceof Error ? err.message : String(err);

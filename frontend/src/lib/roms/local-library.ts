@@ -183,3 +183,24 @@ export async function romBytes(file: File): Promise<Uint8Array> {
 export async function checksumOf(file: File): Promise<string> {
 	return crc32(normaliseRom(await romBytes(file)));
 }
+
+/* ----------------------------------------------------------- the server */
+
+/**
+ * Registers one game: its identity, never its contents.
+ *
+ * Throws on failure rather than returning a flag - the folder scan relies on
+ * that to catch a single bad entry without losing track of which one it was.
+ */
+export async function registerGame(checksum: string, filename: string): Promise<void> {
+	const res = await fetch('/api/games', {
+		method: 'POST',
+		credentials: 'include',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ checksum, filename })
+	});
+	if (!res.ok) {
+		const payload = await res.json().catch(() => ({}));
+		throw new Error(payload.error || `HTTP ${res.status}`);
+	}
+}
