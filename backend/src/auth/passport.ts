@@ -17,7 +17,11 @@ export function initializeAuth() {
           clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
           callbackURL: process.env.GOOGLE_CALLBACK_URL!
         },
-        async (accessToken, refreshToken, profile, done) => {
+        // Both tokens are deliberately ignored: this app authenticates and
+        // never calls Google on the user's behalf. Naming them with an
+        // underscore is what stops someone re-adding accessType: 'offline' to
+        // "fix" a token that nothing wants.
+        async (_accessToken, _refreshToken, profile, done) => {
           try {
             const email = profile.emails?.[0]?.value;
             if (!email) {

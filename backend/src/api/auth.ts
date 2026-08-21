@@ -18,9 +18,17 @@ if (AUTH_MODE === 'google') {
     // Identity only. The Drive scope is gone with Drive itself: asking a
     // player for read access to their whole Drive was never proportionate to
     // what it bought, and ROMs no longer leave their machine.
-    scope: ['profile', 'email'],
-    accessType: 'offline',
-    prompt: 'consent'
+    scope: ['profile', 'email']
+    // No accessType or prompt. Both were here to obtain a refresh token, which
+    // Google only issues when consent is granted afresh - so `prompt: 'consent'`
+    // forced its consent screen on EVERY sign-in, even with a live Google
+    // session and consent already given. That is why signing in felt like
+    // reconnecting rather than a redirect.
+    //
+    // They were left behind by the Drive integration. Nothing uses a Google
+    // token any more: the strategy callback in auth/passport.ts is handed both
+    // and reads neither, taking only the profile. So the cost was a screen
+    // nobody needed for a token nobody wanted.
   }));
 
   authRouter.get('/google/callback',
