@@ -299,15 +299,19 @@ interface InvitationRow {
   fromUserId: string;
   toUserId: string;
   status: string;
-  createdAt: string;
-  expiresAt: string;
+  // Des NOMBRES : ce dépôt stocke les dates en millisecondes epoch. Voir
+  // `FriendshipRow` dans friendships.ts, qui déclare `createdAt: number` et
+  // écrit `Date.now()`. Déclarer `string` ici typecheckerait sans broncher et
+  // produirait une comparaison de temps fausse en silence.
+  createdAt: number;
+  expiresAt: number;
 }
 
 /**
- * SQLite rend les dates en texte. Les repasser en `Date` ici et nulle part
- * ailleurs : `invitationState` compare des instants, et une chaîne qui lui
- * arrive à la place produit une comparaison silencieusement fausse plutôt
- * qu'une erreur.
+ * Les repasser en `Date` ici et nulle part ailleurs : `invitationState`
+ * compare des instants, et un nombre ou une chaîne qui lui arrive à la place
+ * d'une `Date` donne une comparaison silencieusement fausse plutôt qu'une
+ * erreur.
  */
 function toInvitation(row: InvitationRow): Invitation {
   return {
@@ -325,10 +329,15 @@ export function createInvitation(
   db: Database, roomId: string, fromUserId: string, toUserId: string, expiresAt: Date
 ): Invitation {
   const id = randomUUID();
+  // `createdAt` est écrit EXPLICITEMENT, jamais laissé au DEFAULT
+  // CURRENT_TIMESTAMP de la table : ce défaut insérerait du texte là où tout
+  // le reste du dépôt met des millisecondes epoch, et SQLite étant typé
+  // dynamiquement personne ne s'en plaindrait avant que la comparaison de
+  // dates soit fausse.
   db.prepare(
-    `INSERT INTO "RoomInvitation" (id, roomId, fromUserId, toUserId, status, expiresAt)
-     VALUES (?, ?, ?, ?, 'pending', ?)`
-  ).run(id, roomId, fromUserId, toUserId, expiresAt.toISOString());
+    `INSERT INTO "RoomInvitation" (id, roomId, fromUserId, toUserId, status, createdAt, expiresAt)
+     VALUES (?, ?, ?, ?, 'pending', ?, ?)`
+  ).run(id, roomId, fromUserId, toUserId, Date.now(), expiresAt.getTime());
   const created = findInvitationById(db, id);
   if (!created) throw new Error('the invitation vanished between insert and read');
   return created;
@@ -360,7 +369,7 @@ export function deleteInvitationsForRoom(db: Database, roomId: string): void;
 
 Ajouter à `backend/test/lobby.test.ts`, avec `migratedDb()` et `insertUser()` de `backend/test/helpers.ts`. Couvrir :
 
-1. Une invitation créée se relit avec les mêmes champs, et ses dates sont bien des `Date` — pas des chaînes. **Ce test est celui qui compte** : une date restée en texte fait échouer la comparaison de `invitationState` sans rien casser visiblement.
+1. Une invitation créée se relit avec les mêmes champs, et ses dates sont bien des `Date` — pas des nombres. **Ce test est celui qui compte** : une date restée en nombre fait échouer la comparaison de `invitationState` sans rien casser visiblement. Vérifier `instanceof Date` et l'égalité de `getTime()` avec ce qui a été passé, pas seulement la vérité de la valeur.
 2. `listPendingInvitationsFor` ne rend pas celles marquées acceptées ou refusées.
 3. `markInvitation` change l'état, et `findInvitationById` le voit.
 4. `deleteInvitationsForRoom` supprime celles de ce salon et **laisse celles des autres salons**.
