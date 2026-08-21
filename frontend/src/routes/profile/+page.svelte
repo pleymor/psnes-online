@@ -10,7 +10,7 @@
    */
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { user } from '$lib/stores/user';
+  import { user, userLoading } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import type { KeyConfig } from '$lib/types';
@@ -64,6 +64,20 @@
       romProgress = '';
     }
   }
+
+  onMount(() => {
+    // $user is null both while signed out and while the root layout's auth
+    // check is still in flight, so bouncing on a bare `!$user` would also
+    // bounce every legitimate visitor on first load. userLoading is the
+    // signal that the session answer has arrived; only then is a null
+    // $user proof of being signed out.
+    const unsubscribe = userLoading.subscribe((loading) => {
+      if (!loading) {
+        if (!$user) void goto('/');
+        unsubscribe();
+      }
+    });
+  });
 
   onMount(async () => {
     // localStorage owns the display setting; this page and the pause menu both
