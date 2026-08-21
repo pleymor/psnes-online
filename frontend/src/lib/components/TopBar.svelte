@@ -16,6 +16,9 @@
    * the modal's handler; splitting them across the page boundary is how you get
    * a remove button that silently does nothing.
    */
+  import { onMount, onDestroy } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { socket, waitForSocket } from '$lib/api/socket';
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
@@ -27,6 +30,154 @@
   let showFriends = false;
   let friendsListRef: FriendsList;
   let selectedFriend: any = null;
+
+  /** What the server tells a client about an invitation addressed to it. */
+  interface Invitation {
+    id: string;
+    roomId: string;
+    fromUserId: string;
+    fromDisplayName: string;
+    fromAvatar?: string;
+    /** Absent while the room has no game yet, which is now an ordinary state. */
+    gameTitle?: string;
+    /**
+     * An ISO string, not a Date: Socket.IO serialises dates on the way out and
+     * never revives them, so this has to be parsed before it means anything.
+     */
+    expiresAt: string;
+  }
+
+  let invitations: Invitation[] = [];
+  let showInvitations = false;
+  let invitationError = '';
+  /** The invitation whose answer is in flight, so a refusal can be attributed. */
+  let answering: string | null = null;
+  let now = Date.now();
+  let clock: ReturnType<typeof setInterval> | undefined;
+
+  /**
+   * The invitations still standing at this instant.
+   *
+   * The server filters expired ones when it hands them over, but a tray left
+   * open outlives that answer: without a clock of its own this panel would go on
+   * offering an invitation the server will now refuse. Ten minutes is short
+   * enough for that to happen while someone reads their library.
+   */
+  $: liveInvitations = invitations.filter(i => new Date(i.expiresAt).getTime() > now);
+  // The drawer and its button both vanish with the last invitation, so leaving
+  // the flag set would make the next one arrive with the panel already open.
+  $: if (liveInvitations.length === 0) showInvitations = false;
+
+  /**
+   * `at` and `lang` are arguments rather than reads of `now` and `$language`,
+   * so the template tracks them: an expression whose dependencies are only
+   * hidden inside a function body never re-runs when they change, and this one
+   * has to tick.
+   */
+  function expiryLabel(invitation: Invitation, at: number, lang: 'en' | 'fr'): string {
+    const minutes = Math.ceil((new Date(invitation.expiresAt).getTime() - at) / 60_000);
+    return minutes <= 1
+      ? t(lang, 'expiresInAMinute')
+      : t(lang, 'expiresInMinutes', { count: minutes });
+  }
+
+  function handleInvitations(list: Invitation[]) {
+    // Replaced, not merged: this is the server's whole answer - sent at every
+    // connection, already filtered for expiry and for rooms that still exist -
+    // and merging would keep resurrecting the ones it left out on purpose.
+    invitations = list ?? [];
+  }
+
+  function handleInvitation(invitation: Invitation) {
+    // Keyed by id rather than appended: re-inviting refreshes one row instead of
+    // adding another, so the same id arrives again with a later deadline.
+    invitations = [...invitations.filter(i => i.id !== invitation.id), invitation];
+  }
+
+  function handleAccepted({ invitationId, roomId }: { invitationId: string; roomId: string }) {
+    forget(invitationId);
+    showInvitations = false;
+    // `from=invitation` so the room screen can say so if it lands in a match
+    // that is already running: `lobby:accept` does not look at the room's
+    // status, and being seated into a game in progress is not an ordinary
+    // arrival even though the seat is legitimately theirs.
+    goto(`/room/${roomId}?from=invitation`);
+  }
+
+  function handleDeclined({ invitationId }: { invitationId: string }) {
+    forget(invitationId);
+  }
+
+  function forget(invitationId: string) {
+    answering = null;
+    invitationError = '';
+    invitations = invitations.filter(i => i.id !== invitationId);
+  }
+
+  /**
+   * Only while an answer of ours is in flight.
+   *
+   * `error` is the server's general-purpose channel, so a message meant for
+   * some other feature has no business surfacing in the invitation tray. The
+   * row is left in place: a room that filled up can free a seat again while the
+   * ten minutes are still running, and the server leaves that invitation
+   * pending for exactly that reason.
+   */
+  function handleError(payload: { message?: string }) {
+    if (!answering) return;
+    answering = null;
+    invitationError = payload?.message ?? '';
+  }
+
+  function acceptInvitation(invitation: Invitation) {
+    invitationError = '';
+    answering = invitation.id;
+    $socket?.emit('lobby:accept', { invitationId: invitation.id });
+  }
+
+  function declineInvitation(invitation: Invitation) {
+    invitationError = '';
+    answering = invitation.id;
+    $socket?.emit('lobby:decline', { invitationId: invitation.id });
+  }
+
+  onMount(async () => {
+    clock = setInterval(() => (now = Date.now()), 15_000);
+
+    // Not `$socket?.on(...)`: this bar mounts with the page, and a child's
+    // onMount runs before its parent's - so the layout has not created the
+    // socket yet and the invitations the server pushes at connection time
+    // would land on nobody.
+    const sock = await waitForSocket();
+    if (!sock) return;
+
+    sock.on('lobby:invitations', handleInvitations);
+    sock.on('lobby:invitation', handleInvitation);
+    sock.on('lobby:accepted', handleAccepted);
+    sock.on('lobby:declined', handleDeclined);
+    sock.on('error', handleError);
+  });
+
+  onDestroy(() => {
+    clearInterval(clock);
+    if (!$socket) return;
+    $socket.off('lobby:invitations', handleInvitations);
+    $socket.off('lobby:invitation', handleInvitation);
+    $socket.off('lobby:accepted', handleAccepted);
+    $socket.off('lobby:declined', handleDeclined);
+    $socket.off('error', handleError);
+  });
+
+  function toggleFriends() {
+    showFriends = !showFriends;
+    // One drawer at a time: both are fixed to the same corner.
+    if (showFriends) showInvitations = false;
+  }
+
+  function toggleInvitations() {
+    showInvitations = !showInvitations;
+    if (showInvitations) showFriends = false;
+  }
 
   function handleFriendClicked(event: CustomEvent<any>) {
     selectedFriend = event.detail;
@@ -46,7 +197,16 @@
   <a class="brand" href="/">🎮 PSNES</a>
 
   <div class="right">
-    <button class="bar-button" class:on={showFriends} on:click={() => (showFriends = !showFriends)}>
+    <!-- Shown only when there is something to answer: a permanently visible
+         empty tray is a button that never does anything. -->
+    {#if liveInvitations.length > 0}
+      <button class="bar-button" class:on={showInvitations} on:click={toggleInvitations}>
+        {t($language, 'invitations')}
+        <span class="badge">{liveInvitations.length}</span>
+      </button>
+    {/if}
+
+    <button class="bar-button" class:on={showFriends} on:click={toggleFriends}>
       {t($language, 'friends')}
     </button>
 
@@ -59,6 +219,48 @@
     </a>
   </div>
 </header>
+
+{#if showInvitations && liveInvitations.length > 0}
+  <!-- Same drawer geometry as the friends list, including the narrow-screen
+       takeover, because it is the same kind of panel in the same corner. -->
+  <div class="friends-drawer">
+    <div class="invites-panel">
+      <h2>{t($language, 'invitations')}</h2>
+
+      {#if invitationError}
+        <p class="invite-error">{invitationError}</p>
+      {/if}
+
+      {#each liveInvitations as invitation (invitation.id)}
+        <div class="invite">
+          <div class="invite-info">
+            <strong>{t($language, 'invitedYou', { name: invitation.fromDisplayName })}</strong>
+            <!-- A room can be waiting with no game at all now, so there is
+                 nothing to name - say that rather than show an empty line. -->
+            <small>{invitation.gameTitle ?? t($language, 'noGameChosen')}</small>
+            <small class="invite-expiry">{expiryLabel(invitation, now, $language)}</small>
+          </div>
+          <div class="invite-actions">
+            <button
+              class="btn-accept"
+              disabled={answering === invitation.id}
+              on:click={() => acceptInvitation(invitation)}
+            >
+              {t($language, 'accept')}
+            </button>
+            <button
+              class="btn-decline"
+              disabled={answering === invitation.id}
+              on:click={() => declineInvitation(invitation)}
+            >
+              {t($language, 'decline')}
+            </button>
+          </div>
+        </div>
+      {/each}
+    </div>
+  </div>
+{/if}
 
 {#if showFriends}
   <!-- A dropdown on a wide screen, the whole screen on a narrow one: a friends
@@ -123,6 +325,98 @@
   .bar-button.on {
     background: #3a4a5a;
     border-color: #667eea;
+  }
+
+  .badge {
+    display: inline-block;
+    margin-left: 0.4rem;
+    min-width: 1.2rem;
+    padding: 0 0.3rem;
+    border-radius: 999px;
+    background: #667eea;
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1.2rem;
+    text-align: center;
+  }
+
+  .invites-panel {
+    padding: 1.5rem;
+  }
+
+  .invites-panel h2 {
+    margin: 0 0 1rem;
+    font-size: 1.1rem;
+  }
+
+  .invite {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    border-top: 1px solid #2e2e2e;
+  }
+
+  .invite-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+
+  .invite-info strong {
+    font-size: 0.95rem;
+  }
+
+  .invite-info small {
+    color: #8b8ba3;
+    font-size: 0.8rem;
+  }
+
+  .invite-expiry {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .invite-actions {
+    display: flex;
+    gap: 0.4rem;
+    flex-shrink: 0;
+  }
+
+  .btn-accept,
+  .btn-decline {
+    border: none;
+    border-radius: 6px;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    color: #fff;
+  }
+
+  .btn-accept {
+    background: #4caf50;
+  }
+
+  .btn-decline {
+    background: #3a3a3a;
+  }
+
+  .btn-accept:disabled,
+  .btn-decline:disabled {
+    opacity: 0.5;
+    cursor: progress;
+  }
+
+  .invite-error {
+    margin: 0 0 0.75rem;
+    padding: 0.5rem 0.6rem;
+    border-radius: 6px;
+    background: rgba(244, 67, 54, 0.12);
+    border: 1px solid rgba(244, 67, 54, 0.4);
+    color: #f08a80;
+    font-size: 0.85rem;
   }
 
   .avatar {

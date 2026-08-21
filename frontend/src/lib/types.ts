@@ -13,6 +13,16 @@ export interface KeyConfig {
   select: string;
 }
 
+/**
+ * Whether a player has the room's ROM, as the server records it - with a third
+ * state that is not politeness.
+ *
+ * `unknown` means the chosen game has no recorded checksum, so there is nothing
+ * to compare and no answer to give. Showing it as "does not have it" would be a
+ * claim the server never made.
+ */
+export type RomAvailability = 'has' | 'missing' | 'unknown';
+
 export interface RoomPlayer {
   userId: string;
   displayName: string;
@@ -20,6 +30,14 @@ export interface RoomPlayer {
   port: 1 | 2 | null;
   isReady: boolean;
   keyConfig: KeyConfig;
+  /**
+   * Optional because only the *public* room view carries it.
+   *
+   * `room:updated` sends the raw room - keyConfig included, `rom` absent -
+   * while `room:update` sends `toPublicRoom`, which computes it. A screen that
+   * wants the indicator has to read it from the public view.
+   */
+  rom?: RomAvailability;
 }
 
 // Emulation Mode types
@@ -33,8 +51,14 @@ export enum EmulationMode {
 
 export interface Room {
   id: string;
-  gameId: string;
-  gameTitle: string;
+  /**
+   * Absent until a game is chosen: a room is a place where players meet, and
+   * the game can be picked once they are both there. Optional here so every
+   * reader has to say what it shows in the meantime - the compiler names the
+   * sites that forgot.
+   */
+  gameId?: string;
+  gameTitle?: string;
   gameCoverUrl?: string;
   /** CRC32 of the room's ROM, which each player resolves against their own files. */
   gameCrc32?: string;
@@ -43,7 +67,13 @@ export interface Room {
   players: RoomPlayer[];
   status: 'waiting' | 'playing';
   emulationMode: EmulationMode;
-  createdAt: Date;
+  /**
+   * An ISO string, not a Date: this arrives over Socket.IO, which serialises
+   * dates and never revives them. It was typed `Date` here and no caller had
+   * yet trusted that enough to call a method on it; parse with `new Date(...)`
+   * before doing anything with it.
+   */
+  createdAt: string;
 }
 
 export interface InputState {

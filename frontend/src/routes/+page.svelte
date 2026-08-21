@@ -109,7 +109,7 @@
   /** A game from before local ROMs, waiting for the player to point at its file. */
   let gameToLink: Game | null = null;
 
-  async function createRoom(gameId: string, gameTitle: string, gameCoverUrl?: string) {
+  function createRoom(gameId: string, gameTitle: string) {
     // Without a checksum nobody - not even the host - can find the file, so
     // ask here rather than let the room open onto an error.
     const game = $games.find((g) => g.id === gameId);
@@ -118,15 +118,32 @@
       return;
     }
 
-    if ($socket) {
-      // Create room and immediately start playing as player 1
-      $socket.emit('room:create', { gameId, gameTitle, gameCoverUrl, autoStart: false });
+    // No cover in the payload: the server reads it from its own row for this
+    // game and ignores anything we send, because a cover is rendered as an
+    // image source and this side does not get to choose it.
+    openRoom({ gameId, gameTitle, autoStart: false });
+  }
 
-      // Wait for room created event
-      $socket.once('room:created', (room: any) => {
-        goto(`/room/${room.id}`);
-      });
-    }
+  /**
+   * A room with nobody's game in it yet.
+   *
+   * Distinct from the play button on a card, which is still the solo path: this
+   * one opens a place to meet, and the game is chosen from inside it - by
+   * either player, from their own library.
+   */
+  function createEmptyRoom() {
+    openRoom({});
+  }
+
+  function openRoom(payload: { gameId?: string; gameTitle?: string; autoStart?: boolean }) {
+    if (!$socket) return;
+
+    $socket.emit('room:create', payload);
+
+    // Wait for room created event
+    $socket.once('room:created', (room: any) => {
+      goto(`/room/${room.id}`);
+    });
   }
 
   let authMode: 'google' | 'dev' = 'google';
@@ -226,6 +243,9 @@
           <h1>{t($language, 'library')}</h1>
           <p class="subtitle">{$games.length} {$games.length === 1 ? t($language, 'game') : t($language, 'games')}</p>
         </div>
+        <button class="btn-create-room" on:click={createEmptyRoom}>
+          {t($language, 'createRoom')}
+        </button>
       </div>
 
       <div class="content-wrapper">
@@ -241,7 +261,7 @@
             {#each $games as game}
               <GameCard
                 {game}
-                on:play={() => createRoom(game.id, game.title, game.coverUrl)}
+                on:play={() => createRoom(game.id, game.title)}
                 on:details={() => selectedGame = game}
                 on:delete={() => handleDeleteRequest(game)}
               />
@@ -419,6 +439,28 @@
 
   .page-header {
     margin-bottom: 2rem;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .btn-create-room {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .btn-create-room:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
   }
 
   h1 {

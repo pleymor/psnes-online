@@ -1,17 +1,19 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
-  import { socket } from '$lib/api/socket';
-  import type { Socket } from 'socket.io-client';
+  import { socket, waitForSocket } from '$lib/api/socket';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { user } from '$lib/stores/user';
+  import { games } from '$lib/stores/games';
+  import type { Game } from '$lib/stores/games';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import P2PRoom from '$lib/components/P2PRoom.svelte';
   import LockstepRoom from '$lib/components/LockstepRoom.svelte';
   import SoloRoom from '$lib/components/SoloRoom.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
-  import type { Room, KeyConfig } from '$lib/types';
+  import type { Room, KeyConfig, RomAvailability } from '$lib/types';
   import { EmulationMode } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
 
@@ -94,29 +96,55 @@
   $: canStartGame = room?.players.some(p => p.port !== null && p.isReady) ?? false;
 
   /**
-   * Waits for the shared socket to exist.
+   * The chosen game, narrowed once, or null while the room has none.
    *
-   * The layout creates it in its own onMount, after awaiting /auth/me - and a
-   * child's onMount runs before its parent's. Bailing out on a null socket
-   * therefore bounced every direct visit to a room URL back to the library,
-   * which is every shared invite link and every page refresh mid-lobby.
+   * The emulator components need a definite id and title; `room.gameId` is now
+   * optional because a room can exist before anyone has picked anything.
    */
-  function waitForSocket(timeoutMs = 10000): Promise<Socket | null> {
-    if ($socket) return Promise.resolve($socket);
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        unsubscribe();
-        resolve(null);
-      }, timeoutMs);
-      const unsubscribe = socket.subscribe((value) => {
-        if (!value) return;
-        clearTimeout(timer);
-        // Defer: subscribe fires synchronously, before `unsubscribe` is bound.
-        queueMicrotask(() => unsubscribe());
-        resolve(value);
-      });
-    });
+  $: chosenGame = room?.gameId
+    ? { id: room.gameId, title: room.gameTitle ?? '', crc32: room.gameCrc32 }
+    : null;
+
+  /**
+   * Whether each player has the room's ROM, as the server worked it out.
+   *
+   * Kept beside `room` rather than inside it because the two arrive on
+   * different events. This screen's room state comes from `room:updated`, which
+   * is the raw room - every player's keyConfig, and no `rom` at all - while
+   * `rom` is computed only for the public view, broadcast as `room:update`.
+   * Seeded from GET /api/rooms, which serves that same public view, because
+   * `room:join` answers a player who already has a seat with `room:updated`
+   * alone: without the seed the indicator would be blank after every reload.
+   */
+  let romByUserId = new Map<string, RomAvailability>();
+
+  /** The library to choose from, and the friends who can be invited into it. */
+  let friends: { friendshipId: string; friend: { id: string; displayName: string; avatar?: string } }[] = [];
+  let showGamePicker = false;
+  let showInvite = false;
+  /**
+   * The picker opens by itself on a room that has no game, once.
+   *
+   * After that first state it obeys the button: reopening it on every
+   * `room:updated` would fight the player who just closed it.
+   */
+  let pickerDecided = false;
+  $: if (room && !pickerDecided) {
+    pickerDecided = true;
+    showGamePicker = !room.gameId;
   }
+
+  /**
+   * Whether we got here by answering an invitation.
+   *
+   * `lobby:accept` does not look at the room's status, so an invitation
+   * answered after the launch seats the invitee straight into a running game.
+   * The seat is legitimately theirs - `room:join` has always behaved this way -
+   * so nothing is refused; but a screen that dropped them into a match without
+   * a word would be pretending this was an ordinary arrival.
+   */
+  let arrivedByInvitation = false;
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   function handleReconnect() {
     logger.info('Socket reconnected, rejoining room');
@@ -129,6 +157,14 @@
     const firstStateForThisMount = !seenRoomState;
     seenRoomState = true;
     room = updatedRoom;
+
+    // Said once, on arrival, and only to someone who came in through an
+    // invitation: they were asked to join a room and landed in a match that was
+    // already running. Nothing is taken away from them - the seat is theirs -
+    // but they are told what happened instead of being dropped into it.
+    if (firstStateForThisMount && arrivedByInvitation && updatedRoom.status === 'playing') {
+      showNotification(t($language, 'joinedInProgress'), 'success');
+    }
 
     /*
      * A match already playing in the very first room state we receive means
@@ -159,6 +195,112 @@
       logger.info('Rejoining a match already in progress');
       enterGame(EmulationMode.LOCKSTEP);
     }
+  }
+
+  /**
+   * The public view of this room, which is the only payload carrying `rom`.
+   *
+   * Only the ROM column is taken from it: it has no keyConfig, so it cannot
+   * replace `room` without dropping the local player's controls.
+   */
+  function handleRoomView(view: { id: string; players?: { userId: string; rom?: RomAvailability }[] }) {
+    if (view?.id !== roomId) return;
+    romByUserId = readRomColumn(view.players);
+  }
+
+  function readRomColumn(players?: { userId: string; rom?: RomAvailability }[]) {
+    const next = new Map<string, RomAvailability>();
+    for (const player of players ?? []) {
+      if (player.rom) next.set(player.userId, player.rom);
+    }
+    return next;
+  }
+
+  function showNotification(message: string, type: 'success' | 'error' = 'success') {
+    toastMessage = message;
+    toastType = type;
+    showToast = true;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      showToast = false;
+    }, 4000);
+  }
+
+  /**
+   * The server's refusals, said out loud.
+   *
+   * Every lobby action here can be refused - a room that filled up, a friend
+   * who is no longer one, a game changed after the launch - and this screen
+   * used to swallow all of it, leaving a button that looked like it had done
+   * nothing.
+   */
+  function handleSocketError(payload: { message?: string }) {
+    if (!payload?.message) return;
+    showNotification(payload.message, 'error');
+  }
+
+  function handleInviteSent() {
+    showNotification(t($language, 'invitationSent'), 'success');
+  }
+
+  function handleInviteDeclined(payload: { roomId: string; displayName: string }) {
+    if (payload?.roomId !== roomId) return;
+    showNotification(t($language, 'invitationDeclined', { name: payload.displayName }), 'error');
+  }
+
+  /**
+   * The library, always re-read rather than trusted from the store.
+   *
+   * A direct visit to a room URL never ran the library page, so the store is
+   * empty; a client-side arrival from it may have a list that predates the last
+   * game added. Either player picks from their own library, which is also the
+   * only one the server will look in.
+   */
+  async function loadMyGames() {
+    try {
+      const res = await fetch('/api/games', { credentials: 'include' });
+      if (!res.ok) return;
+      const gamesData: Game[] = await res.json();
+      gamesData.sort((a, b) => a.title.localeCompare(b.title));
+      games.set(gamesData);
+    } catch (error) {
+      logger.error('Failed to load games:', error);
+    }
+  }
+
+  async function loadFriends() {
+    try {
+      const res = await fetch('/api/friends', { credentials: 'include' });
+      if (res.ok) friends = await res.json();
+    } catch (error) {
+      logger.error('Failed to load friends:', error);
+    }
+  }
+
+  async function seedRomColumn() {
+    try {
+      const res = await fetch('/api/rooms', { credentials: 'include' });
+      if (!res.ok) return;
+      const rooms: { id: string; players?: { userId: string; rom?: RomAvailability }[] }[] = await res.json();
+      const mine = rooms.find(r => r.id === roomId);
+      // Never over a live broadcast: this fetch was issued before `room:join`,
+      // so a `room:update` can land first and this answer is the older one.
+      if (mine && romByUserId.size === 0) romByUserId = readRomColumn(mine.players);
+    } catch (error) {
+      logger.error('Failed to read who has the ROM:', error);
+    }
+  }
+
+  function chooseGame(game: Game) {
+    // Only the id and the title travel. The checksum and the cover are read
+    // from the chooser's own row on the server, which is the only copy either
+    // player can trust.
+    $socket?.emit('room:choose-game', { roomId, gameId: game.id, gameTitle: game.title });
+    showGamePicker = false;
+  }
+
+  function inviteFriend(friendId: string) {
+    $socket?.emit('lobby:invite', { roomId, friendId });
   }
 
   function enterGame(mode: EmulationMode) {
@@ -195,6 +337,8 @@
   }
 
   onMount(async () => {
+    arrivedByInvitation = $page.url.searchParams.get('from') === 'invitation';
+
     const sock = await waitForSocket();
     if (!sock) {
       goto('/');
@@ -212,6 +356,13 @@
       logger.error('Failed to load user controls:', error);
     }
 
+    // The lobby's own material: what can be chosen, who can be invited, and
+    // who already has the ROM. Not awaited - the room state is what the screen
+    // needs first, and each of these fills in its own corner when it lands.
+    void loadMyGames();
+    void loadFriends();
+    void seedRomColumn();
+
     // Join room
     sock.emit('room:join', { roomId });
 
@@ -222,8 +373,12 @@
     // game into single-player mode.
     sock.on('connect', handleReconnect);
     sock.on('room:updated', handleRoomUpdated);
+    sock.on('room:update', handleRoomView);
     sock.on('game:started', handleGameStarted);
     sock.on('game:stopped', handleGameStopped);
+    sock.on('error', handleSocketError);
+    sock.on('lobby:invite-sent', handleInviteSent);
+    sock.on('lobby:invitation-declined', handleInviteDeclined);
   });
 
   onDestroy(() => {
@@ -234,9 +389,15 @@
       // the reconnection banner and the netplay slot alive.
       $socket.off('connect', handleReconnect);
       $socket.off('room:updated', handleRoomUpdated);
+      $socket.off('room:update', handleRoomView);
       $socket.off('game:started', handleGameStarted);
       $socket.off('game:stopped', handleGameStopped);
+      $socket.off('error', handleSocketError);
+      $socket.off('lobby:invite-sent', handleInviteSent);
+      $socket.off('lobby:invitation-declined', handleInviteDeclined);
     }
+
+    clearTimeout(toastTimer);
 
     if (browser) {
       document.body.style.overflow = '';
@@ -276,13 +437,20 @@
   {#if !gameStarted}
     <div class="lobby">
       {#if room?.gameCoverUrl}
-        <img src={room.gameCoverUrl} alt={room.gameTitle} class="game-cover" />
+        <img src={room.gameCoverUrl} alt={room.gameTitle ?? ''} class="game-cover" />
+      {:else if !room}
+        <h1>{t($language, 'loading')}</h1>
+      {:else if room.gameTitle}
+        <h1>{room.gameTitle}</h1>
       {:else}
-        <h1>{room?.gameTitle || t($language, 'loading')}</h1>
+        <!-- Not the loading string, which is what stood here: a room with no
+             game is not a room still on its way, and telling the player to wait
+             for something nobody is sending is worse than a blank. -->
+        <h1 class="no-game">{t($language, 'noGameChosen')}</h1>
       {/if}
 
       {#if room}
-        <RoomPlayers {room} {roomId} />
+        <RoomPlayers {room} {roomId} rom={romByUserId} />
 
         <!-- Emulation Mode selector (only shown when 2+ players).
              Three modes now rather than two, so a segmented control replaces
@@ -308,34 +476,112 @@
           </div>
         {/if}
 
+        <!-- Only while waiting: the server refuses a game change once the
+             room has started, so offering one here would be a button that
+             cannot work. -->
+        {#if room.status === 'waiting'}
+          <div class="lobby-setup">
+            <div class="setup-buttons">
+              <button class="btn-setup" class:on={showGamePicker} on:click={() => (showGamePicker = !showGamePicker)}>
+                {room.gameId ? t($language, 'changeGame') : t($language, 'chooseGame')}
+              </button>
+              {#if room.players.length < 2}
+                <button class="btn-setup" class:on={showInvite} on:click={() => (showInvite = !showInvite)}>
+                  {t($language, 'inviteFriend')}
+                </button>
+              {/if}
+            </div>
+
+            {#if showGamePicker}
+              <div class="panel">
+                {#if $games.length === 0}
+                  <p class="panel-empty">{t($language, 'emptyLibrary')}</p>
+                {:else}
+                  <ul class="panel-list">
+                    {#each $games as game (game.id)}
+                      <li>
+                        <button
+                          class="panel-row picker-row"
+                          class:chosen={game.id === room.gameId}
+                          disabled={!game.crc32}
+                          on:click={() => chooseGame(game)}
+                        >
+                          <span class="panel-name">{game.title}</span>
+                          <!-- Without a checksum the server has nothing to give
+                               either player to find the file with, so this one
+                               cannot be chosen until it has been located once
+                               from the library. -->
+                          {#if !game.crc32}
+                            <span class="panel-note">{t($language, 'needsRom')}</span>
+                          {/if}
+                        </button>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+                <p class="panel-hint">{t($language, 'ownLibraryOnly')}</p>
+              </div>
+            {/if}
+
+            {#if showInvite}
+              <div class="panel">
+                {#if friends.length === 0}
+                  <p class="panel-empty">{t($language, 'noFriendsYet')}</p>
+                {:else}
+                  <ul class="panel-list">
+                    {#each friends as friendData (friendData.friendshipId)}
+                      <li>
+                        <div class="panel-row">
+                          <span class="panel-name">{friendData.friend.displayName}</span>
+                          <button class="btn-invite" on:click={() => inviteFriend(friendData.friend.id)}>
+                            {t($language, 'invite')}
+                          </button>
+                        </div>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
         <div class="actions">
-          <button on:click={startGame} class="btn-start" disabled={!canStartGame}>
+          <!-- No game, no launch: the server would refuse it, and there is
+               nothing to run. -->
+          <button on:click={startGame} class="btn-start" disabled={!canStartGame || !room.gameId}>
             {t($language, 'startGame')}
           </button>
           <button on:click={leaveRoom} class="btn-leave">
             {t($language, 'leaveRoom')}
           </button>
         </div>
+
+        {#if !room.gameId}
+          <p class="start-hint">{t($language, 'chooseGameToStart')}</p>
+        {/if}
       {:else}
         <p class="loading">{t($language, 'joiningRoom')}</p>
       {/if}
     </div>
-  {:else if room}
+  {:else if chosenGame}
+    <!-- `chosenGame` rather than `room`: nothing can run without a game, and it
+         carries the definite id and title the emulator components need. -->
     {#if activeEmulationMode === EmulationMode.SINGLE}
       <!-- Solo runs on the znet stack too now, so it gets the same core,
            renderer, shaders and save chrome the lockstep room has. -->
-      <SoloRoom {roomId} gameId={room.gameId} gameCrc32={room.gameCrc32} gameTitle={room.gameTitle} {keyConfig} />
+      <SoloRoom {roomId} gameId={chosenGame.id} gameCrc32={chosenGame.crc32} gameTitle={chosenGame.title} {keyConfig} />
     {:else if activeEmulationMode === EmulationMode.LOCKSTEP}
       <!-- Lockstep runs on its own deterministic core and its own relay, so it
            shares nothing with the WebRTC path in P2PRoom. -->
-      <LockstepRoom {roomId} gameId={room.gameId} gameCrc32={room.gameCrc32} gameTitle={room.gameTitle} isHost={isRoomHost} {keyConfig} />
+      <LockstepRoom {roomId} gameId={chosenGame.id} gameCrc32={chosenGame.crc32} gameTitle={chosenGame.title} isHost={isRoomHost} {keyConfig} />
     {:else}
       <!-- P2PRoom handles the dual and streaming modes -->
       <P2PRoom
         {roomId}
-        gameId={room.gameId}
-        gameCrc32={room.gameCrc32}
-        gameTitle={room.gameTitle}
+        gameId={chosenGame.id}
+        gameCrc32={chosenGame.crc32}
+        gameTitle={chosenGame.title}
         isHost={isRoomHost}
         {keyConfig}
         emulationMode={activeEmulationMode ?? EmulationMode.SINGLE}
@@ -382,6 +628,141 @@
   h1 {
     font-size: 2rem;
     margin-bottom: 2rem;
+  }
+
+  h1.no-game {
+    color: #8b8ba3;
+    font-weight: 500;
+  }
+
+  .lobby-setup {
+    margin: 2rem 0 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .setup-buttons {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .btn-setup {
+    background: #2a2a3a;
+    border: 1px solid #3d3d52;
+    color: #d6d6e6;
+    padding: 0.5rem 1.1rem;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+
+  .btn-setup:hover {
+    border-color: #667eea;
+    color: #fff;
+  }
+
+  .btn-setup.on {
+    background: #3a4a5a;
+    border-color: #667eea;
+    color: #fff;
+  }
+
+  .panel {
+    width: 100%;
+    max-width: 28rem;
+    background: #1f1f2b;
+    border: 1px solid #3d3d52;
+    border-radius: 10px;
+    padding: 0.75rem;
+    text-align: left;
+  }
+
+  .panel-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 15rem;
+    overflow-y: auto;
+  }
+
+  .panel-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0.6rem;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #d6d6e6;
+    font-size: 0.95rem;
+    text-align: left;
+  }
+
+  .picker-row {
+    cursor: pointer;
+  }
+
+  .picker-row:hover:not(:disabled) {
+    background: #2a2a3a;
+    color: #fff;
+  }
+
+  .picker-row:disabled {
+    cursor: not-allowed;
+    color: #6f6f85;
+  }
+
+  .picker-row.chosen {
+    background: rgba(102, 126, 234, 0.18);
+    color: #fff;
+  }
+
+  .panel-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .panel-note {
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #f59e0b;
+  }
+
+  .panel-empty,
+  .panel-hint {
+    color: #8b8ba3;
+    font-size: 0.8rem;
+    margin: 0.5rem 0.6rem 0;
+  }
+
+  .btn-invite {
+    flex-shrink: 0;
+    background: #667eea;
+    border: none;
+    color: #fff;
+    padding: 0.3rem 0.8rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .btn-invite:hover {
+    background: #7b8ff0;
+  }
+
+  .start-hint {
+    color: #8b8ba3;
+    font-size: 0.875rem;
+    margin: 0.75rem 0 0;
   }
 
   .mode-toggle-container {

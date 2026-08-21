@@ -389,7 +389,10 @@
               <div class="info">
                 <strong>{friendData.friend.displayName}</strong>
                 {#if room}
-                  <small class="room-status">{ room.gameTitle }</small>
+                  <!-- A room can be waiting with no game chosen yet, and a blank
+                       line there says nothing at all - so name the state
+                       instead of the game. -->
+                  <small class="room-status">{room.gameTitle ?? t($language, 'inLobby')}</small>
                 {:else if onlineFriends.get(friendData.friend.id)}
                   <small class="online-status">{t($language, 'online')}</small>
                 {:else}

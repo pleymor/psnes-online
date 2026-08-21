@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { io, Socket } from 'socket.io-client';
 import { createLogger } from '$lib/utils/logger';
 import { linkState } from '$lib/stores/connection';
@@ -6,6 +6,38 @@ import { linkState } from '$lib/stores/connection';
 const logger = createLogger('Socket');
 
 export const socket = writable<Socket | null>(null);
+
+/**
+ * Waits for the shared socket to exist.
+ *
+ * The layout creates it in a reactive block that runs after its own onMount has
+ * awaited /auth/me - and a child's onMount runs before its parent's. So any
+ * component that registers socket listeners when it mounts sees a null store
+ * and, if it gives up there, never hears anything again. That bounced every
+ * direct visit to a room URL back to the library, and it would silently swallow
+ * the invitations the server pushes at connection time.
+ *
+ * Resolves null on timeout, which the caller has to handle: there is no socket
+ * to listen on.
+ */
+export function waitForSocket(timeoutMs = 10000): Promise<Socket | null> {
+  const existing = get(socket);
+  if (existing) return Promise.resolve(existing);
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      unsubscribe();
+      resolve(null);
+    }, timeoutMs);
+    const unsubscribe = socket.subscribe((value) => {
+      if (!value) return;
+      clearTimeout(timer);
+      // Defer: subscribe fires synchronously, before `unsubscribe` is bound.
+      queueMicrotask(() => unsubscribe());
+      resolve(value);
+    });
+  });
+}
 
 export function initializeSocket() {
   // In development, connect directly to backend to avoid Vite proxy issues with binary data
