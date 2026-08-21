@@ -16,6 +16,7 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { romSourceState, type RomSourceState } from '$lib/roms/source-state';
+  import { pickerError } from '$lib/roms/picker-error';
   import {
     supportsDirectoryPicker,
     chooseDirectory,
@@ -37,21 +38,29 @@
    * anyone seeing it.
    */
   async function refresh(): Promise<void> {
-    const supported = supportsDirectoryPicker();
-    if (!supported) {
-      state = romSourceState({ supported: false });
-      return;
+    try {
+      const supported = supportsDirectoryPicker();
+      if (!supported) {
+        state = romSourceState({ supported: false });
+        return;
+      }
+      const handle = await storedDirectory();
+      if (!handle) {
+        state = romSourceState({ supported: true });
+        return;
+      }
+      state = romSourceState({
+        supported: true,
+        folderName: handle.name,
+        accessGranted: await ensureAccess(handle)
+      });
+    } catch (err) {
+      // A remembered folder that was since moved or deleted must not vanish
+      // as an unhandled rejection - the player is left staring at a stale
+      // "no folder" state with no idea why.
+      const message = pickerError(err);
+      if (message) error = message;
     }
-    const handle = await storedDirectory();
-    if (!handle) {
-      state = romSourceState({ supported: true });
-      return;
-    }
-    state = romSourceState({
-      supported: true,
-      folderName: handle.name,
-      accessGranted: await ensureAccess(handle)
-    });
   }
 
   async function pickFolder(): Promise<void> {
@@ -61,7 +70,8 @@
       if (await chooseDirectory()) dispatch('changed');
       await refresh();
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      const message = pickerError(err);
+      if (message) error = message;
     } finally {
       busy = false;
     }

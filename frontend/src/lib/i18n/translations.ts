@@ -309,7 +309,7 @@ export const translations = {
     romsStayLocal: 'Tes ROMs restent sur cette machine. Seule l\'identité du jeu est enregistrée, pour que tes sauvegardes et tes salons la retrouvent.',
     chooseRomFolder: 'Choisir mon dossier de ROMs',
     chooseRomFolderHint: 'Ajoute tous les jeux qu\'il contient, et les retrouve tout seul ensuite',
-    romSource: 'D’où viennent tes ROM',
+    romSource: 'D’où viennent tes ROMs',
     romFolderCurrent: 'Dossier actuel :',
     romFolderChange: 'Changer de dossier',
     romFolderStale: 'Ce navigateur redemande l’autorisation pour',

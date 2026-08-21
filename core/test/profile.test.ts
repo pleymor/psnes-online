@@ -10,6 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { romSourceState } from '../../frontend/src/lib/roms/source-state.js';
+import { pickerError } from '../../frontend/src/lib/roms/picker-error.js';
 import {
   readShaderPreference,
   writeShaderPreference
@@ -134,4 +135,30 @@ test('a preset that was removed from the list is refused, not stored', () => {
   writeShaderPreference(storage, 'crt/crt-easymode');
 
   assert.equal(storage.data.has('psnes-shader'), false);
+});
+
+test('a cancelled directory picker is not reported as an error', () => {
+  // Escape or Cancel on showDirectoryPicker rejects with a DOMException named
+  // AbortError - a decision, not a failure.
+  const err = { name: 'AbortError', message: 'The user aborted a request.' };
+
+  assert.equal(pickerError(err), null);
+});
+
+test('a real Error is reported with its message', () => {
+  const err = new Error('storedDirectory failed');
+
+  assert.equal(pickerError(err), 'storedDirectory failed');
+});
+
+test('a non-Error value is reported as its stringification', () => {
+  assert.equal(pickerError('disk unplugged'), 'disk unplugged');
+});
+
+test('an Error about aborting is still reported unless its name is AbortError', () => {
+  // The function is keyed on the name, not on message text that happens to
+  // mention aborting.
+  const err = new Error('the request was aborted by the network layer');
+
+  assert.equal(pickerError(err), 'the request was aborted by the network layer');
 });
