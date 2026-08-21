@@ -71,12 +71,18 @@
     // bounce every legitimate visitor on first load. userLoading is the
     // signal that the session answer has arrived; only then is a null
     // $user proof of being signed out.
-    const unsubscribe = userLoading.subscribe((loading) => {
-      if (!loading) {
-        if (!$user) void goto('/');
-        unsubscribe();
-      }
+    // Unsubscribing from inside the subscriber would be a reference to a
+    // `const` that is not initialised yet: when the store has already
+    // settled - every client-side navigation here, i.e. clicking the avatar -
+    // the callback runs synchronously during subscribe(). A flag settles it
+    // once and onDestroy does the unsubscribing.
+    let settled = false;
+    const stop = userLoading.subscribe((loading) => {
+      if (loading || settled) return;
+      settled = true;
+      if (!$user) void goto('/');
     });
+    return stop;
   });
 
   onMount(async () => {
