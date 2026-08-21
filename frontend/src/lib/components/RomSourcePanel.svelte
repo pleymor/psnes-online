@@ -162,11 +162,27 @@
 </section>
 
 <style>
+  /* The same card look the profile page gives its own sections. Repeated
+     here rather than shared, because Svelte scopes styles to the component
+     that owns the markup. */
   .rom-source {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 14px;
+    padding: 1.25rem;
+  }
+
+  .rom-source h3 {
+    margin: 0 0 0.25rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #9aa0b4;
   }
 
   h3 {

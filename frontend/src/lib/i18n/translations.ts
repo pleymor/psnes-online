@@ -10,6 +10,7 @@ export const translations = {
     logout: 'Logout',
     backToLibrary: 'Back to the library',
     language: 'Language',
+    logoutFromThisDevice: 'Sign out of this device.',
     logoutFailed: 'Could not log out. You are still signed in.',
 
     // Home page
@@ -267,6 +268,7 @@ export const translations = {
     logout: 'Déconnexion',
     backToLibrary: 'Retour à la bibliothèque',
     language: 'Langue',
+    logoutFromThisDevice: 'Se déconnecter de cet appareil.',
     logoutFailed: 'Impossible de se déconnecter. Vous êtes toujours connecté(e).',
 
     // Home page

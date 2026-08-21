@@ -14,6 +14,7 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import type { KeyConfig } from '$lib/types';
+  import TopBar from '$lib/components/TopBar.svelte';
   import ControlsSettings from '$lib/components/ControlsSettings.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import RomSourcePanel from '$lib/components/RomSourcePanel.svelte';
@@ -25,6 +26,10 @@
 
   const logger = createLogger('ProfilePage');
 
+  // The bar is the same one the library page shows, so the page keeps its
+  // chrome instead of stranding the user with a lone back link. It needs the
+  // active rooms for the friends drawer's join buttons.
+  let activeRooms: any[] = [];
   let keyConfig: KeyConfig | null = null;
   let controlsError = '';
   let shader = '';
@@ -101,6 +106,15 @@
     } catch {
       controlsError = t($language, 'controlsLoadFailed');
     }
+
+    try {
+      const res = await fetch('/api/rooms', { credentials: 'include' });
+      // A drawer that cannot offer "join" is a smaller loss than a page that
+      // fails to render, so this stays quiet on failure.
+      if (res.ok) activeRooms = await res.json();
+    } catch (err) {
+      logger.error('Could not load active rooms', err);
+    }
   });
 
   function chooseShader(id: string): void {
@@ -155,10 +169,10 @@
   }
 </script>
 
-<div class="profile">
-  <a class="back" href="/">← {t($language, 'backToLibrary')}</a>
+<TopBar {activeRooms} />
 
-  <section class="identity">
+<div class="profile">
+  <header class="identity">
     <div class="avatar">
       {#if $user?.avatar}
         <img src={$user.avatar} alt={$user.displayName} />
@@ -167,99 +181,116 @@
       {/if}
     </div>
     <div class="who">
-      <h2>{$user?.displayName ?? ''}</h2>
+      <h1>{$user?.displayName ?? ''}</h1>
       <p class="email">{$user?.email ?? ''}</p>
     </div>
-  </section>
+  </header>
 
-  <RomSourcePanel>
-    <div slot="fallback" class="rom-fallback">
-      <button on:click={() => fileInput.click()} disabled={romBusy}>
-        {t($language, 'chooseOneRom')}
-      </button>
-      <input
-        bind:this={fileInput}
-        type="file"
-        accept={ACCEPT}
-        class="hidden-input"
-        on:change={onFileChosen}
-      />
-      {#if romProgress}
-        <p class="note">{romProgress}</p>
+  <!-- Two columns past 900px. Controls is the tall one, so it gets a column to
+       itself and the short cards stack beside it rather than under it. -->
+  <div class="columns">
+    <section class="card">
+      <h3>{t($language, 'controls')}</h3>
+      {#if keyConfig}
+        <ControlsSettings currentConfig={keyConfig} on:saved={(e) => (keyConfig = e.detail.config)} />
+      {:else if controlsError}
+        <p class="note">{controlsError}</p>
       {/if}
-      {#if romAdded && !romBusy}
-        <p class="note">1 {t($language, 'gamesAdded')}</p>
-      {/if}
-      {#if romError}
-        <p class="note error">{romError}</p>
-      {/if}
-    </div>
-  </RomSourcePanel>
+    </section>
 
-  <section>
-    <h3>{t($language, 'controls')}</h3>
-    {#if keyConfig}
-      <ControlsSettings currentConfig={keyConfig} on:saved={(e) => (keyConfig = e.detail.config)} />
-    {:else if controlsError}
-      <p class="note">{controlsError}</p>
-    {/if}
-  </section>
+    <div class="stack">
+      <RomSourcePanel>
+        <div slot="fallback" class="rom-fallback">
+          <button on:click={() => fileInput.click()} disabled={romBusy}>
+            {t($language, 'chooseOneRom')}
+          </button>
+          <input
+            bind:this={fileInput}
+            type="file"
+            accept={ACCEPT}
+            class="hidden-input"
+            on:change={onFileChosen}
+          />
+          {#if romProgress}
+            <p class="note">{romProgress}</p>
+          {/if}
+          {#if romAdded && !romBusy}
+            <p class="note">1 {t($language, 'gamesAdded')}</p>
+          {/if}
+          {#if romError}
+            <p class="note error">{romError}</p>
+          {/if}
+        </div>
+      </RomSourcePanel>
 
-  <section class="display">
-    <h3>{t($language, 'display')}</h3>
-    <div class="shaders">
-      {#each SHADERS as option}
-        <button class:on={shader === option.id} on:click={() => chooseShader(option.id)}>
-          {t($language, option.name)}
+      <section class="card">
+        <h3>{t($language, 'display')}</h3>
+        <div class="shaders">
+          {#each SHADERS as option}
+            <button class:on={shader === option.id} on:click={() => chooseShader(option.id)}>
+              {t($language, option.name)}
+            </button>
+          {/each}
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>{t($language, 'language')}</h3>
+        <LanguageSelector />
+      </section>
+
+      <section class="card">
+        <h3>{t($language, 'library')}</h3>
+        <button on:click={refreshMetadata} disabled={refreshing}>
+          {refreshing ? t($language, 'updating') : t($language, 'updateMetadata')}
         </button>
-      {/each}
+        {#if refreshMessage}<p class="note">{refreshMessage}</p>{/if}
+      </section>
     </div>
-  </section>
+  </div>
 
-  <section>
-    <h3>{t($language, 'language')}</h3>
-    <LanguageSelector />
-  </section>
-
-  <section>
-    <h3>{t($language, 'library')}</h3>
-    <button on:click={refreshMetadata} disabled={refreshing}>
-      {refreshing ? t($language, 'updating') : t($language, 'updateMetadata')}
-    </button>
-    {#if refreshMessage}<p class="note">{refreshMessage}</p>{/if}
-  </section>
-
-  <section class="danger">
-    <button class="logout" on:click={logout} disabled={loggingOut}>{t($language, 'logout')}</button>
-    {#if logoutMessage}<p class="note">{logoutMessage}</p>{/if}
+  <section class="card danger">
+    <div class="danger-row">
+      <p class="danger-note">{t($language, 'logoutFromThisDevice')}</p>
+      <button class="logout" on:click={logout} disabled={loggingOut}>
+        {t($language, 'logout')}
+      </button>
+    </div>
+    {#if logoutMessage}<p class="note error">{logoutMessage}</p>{/if}
   </section>
 </div>
 
 <style>
   .profile {
-    max-width: 48rem;
+    max-width: 68rem;
     margin: 0 auto;
     padding: 1.5rem;
     display: flex;
     flex-direction: column;
-    gap: 2rem;
+    gap: 1.5rem;
   }
 
-  .back {
-    color: #aaa;
-    text-decoration: none;
-    align-self: flex-start;
+  /* The one look every block on this page shares. Repeated in
+     RomSourcePanel rather than made global, because Svelte scopes styles and
+     that panel owns its own markup. */
+  .card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 14px;
+    padding: 1.25rem;
   }
 
   .identity {
     display: flex;
     align-items: center;
     gap: 1.5rem;
+    padding: 0.5rem 0 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   }
 
   .avatar {
-    width: 6rem;
-    height: 6rem;
+    width: 5.5rem;
+    height: 5.5rem;
     border-radius: 50%;
     overflow: hidden;
     background: #333;
@@ -267,6 +298,7 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    border: 2px solid rgba(102, 126, 234, 0.5);
   }
 
   .avatar img {
@@ -279,30 +311,64 @@
     font-size: 2.5rem;
   }
 
-  h2,
-  h3 {
+  h1 {
     margin: 0;
+    font-size: 1.75rem;
+  }
+
+  h3 {
+    margin: 0 0 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #9aa0b4;
   }
 
   .email {
-    margin: 0.25rem 0 0;
+    margin: 0.35rem 0 0;
     color: #aaa;
+  }
+
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  @media (min-width: 900px) {
+    .columns {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
   }
 
   .shaders {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    margin-top: 0.5rem;
   }
 
   button {
     background: #333;
     border: 2px solid transparent;
     color: #fff;
-    padding: 0.4rem 0.75rem;
-    border-radius: 6px;
+    padding: 0.45rem 0.8rem;
+    border-radius: 8px;
     cursor: pointer;
+    transition:
+      background 0.15s,
+      border-color 0.15s;
+  }
+
+  button:hover:not(:disabled) {
+    background: #3d3d3d;
   }
 
   button.on {
@@ -336,12 +402,32 @@
     display: none;
   }
 
+  /* Framed and labelled rather than a lone red button: the border says the
+     block is different before the colour does. */
   .danger {
-    padding-top: 1rem;
-    border-top: 1px solid #333;
+    border-color: rgba(248, 113, 113, 0.25);
+    background: rgba(248, 113, 113, 0.04);
+  }
+
+  .danger-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .danger-note {
+    margin: 0;
+    color: #aaa;
+    font-size: 0.9rem;
   }
 
   .logout {
     background: #7f1d1d;
+  }
+
+  .logout:hover:not(:disabled) {
+    background: #991b1b;
   }
 </style>

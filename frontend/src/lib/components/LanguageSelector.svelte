@@ -1,52 +1,69 @@
 <script lang="ts">
+  /**
+   * Choosing a language, as two visible choices rather than one toggle.
+   *
+   * A single button showing "EN" cannot say whether that is the current state
+   * or the thing you are about to switch to - the old version's label read as
+   * the state while its tooltip described the action. With only two languages
+   * both fit on screen, so neither reading has to be guessed: each is named,
+   * and the active one is marked.
+   *
+   * This is mounted on the signed-out landing page as well as the profile
+   * page. Someone who reads neither language needs it before signing in,
+   * which is why it cannot live on the profile page alone.
+   */
   import { language } from '$lib/stores/language';
 
-  function toggleLanguage() {
-    language.set($language === 'en' ? 'fr' : 'en');
-  }
-
-  $: currentLang = $language === 'en' ? 'EN' : 'FR';
-  $: currentTitle = $language === 'en' ? 'Switch to Français' : 'Switch to English';
+  const CHOICES = [
+    { id: 'en', label: 'English' },
+    { id: 'fr', label: 'Français' }
+  ] as const;
 </script>
 
-<div class="language-selector">
-  <button
-    class="lang-btn"
-    on:click={toggleLanguage}
-    title={currentTitle}
-  >
-    {currentLang}
-  </button>
+<div class="language-selector" role="group" aria-label="Language">
+  {#each CHOICES as choice}
+    <button
+      class="choice"
+      class:on={$language === choice.id}
+      aria-pressed={$language === choice.id}
+      on:click={() => language.set(choice.id)}
+    >
+      {choice.label}
+    </button>
+  {/each}
 </div>
 
 <style>
   .language-selector {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: inline-flex;
+    padding: 0.2rem;
+    gap: 0.2rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
   }
 
-  .lang-btn {
-    background: rgba(255, 255, 255, 0.1);
-    border: 2px solid rgba(102, 126, 234, 0.3);
+  .choice {
+    background: transparent;
+    border: none;
     border-radius: 8px;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
+    padding: 0.45rem 0.9rem;
+    font-size: 0.9rem;
     font-weight: 600;
+    color: #aaa;
     cursor: pointer;
-    transition: all 0.2s;
-    line-height: 1;
-    color: white;
-    letter-spacing: 0.05em;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
 
-  .lang-btn:hover {
-    background: rgba(102, 126, 234, 0.2);
-    border-color: #667eea;
-    transform: scale(1.05);
+  .choice:hover:not(.on) {
+    background: rgba(255, 255, 255, 0.06);
+    color: #ddd;
   }
 
-  .lang-btn:active {
-    transform: scale(0.95);
+  .choice.on {
+    background: #667eea;
+    color: #fff;
   }
 </style>
