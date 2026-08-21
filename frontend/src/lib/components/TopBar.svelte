@@ -86,6 +86,10 @@
 
 <style>
   .top-bar {
+    /* Pinned, so the drawer below can be positioned against the viewport. */
+    position: sticky;
+    top: 0;
+    z-index: 101;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -139,7 +143,12 @@
   }
 
   .friends-drawer {
-    position: absolute;
+    /* Fixed rather than absolute: the drawer is a SIBLING of the bar, not a
+       child, so there is no positioned ancestor to measure from and absolute
+       would resolve against the document - correct at the top of the page and
+       scrolling away from the bar everywhere else. The bar is pinned to the
+       viewport, so the viewport is the right reference for both. */
+    position: fixed;
     right: 1rem;
     top: 3rem;
     width: 24rem;
