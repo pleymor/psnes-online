@@ -5,7 +5,7 @@ import {
   listGamesWithSaveSummaries, listGamesFor, findGameById, findGameWithSaves,
   findGameByChecksum, findOtherGameWithChecksum, countGamesFor, createGame,
   updateGameChecksum, updateGameMetadata, deleteGame, findOwnedGameId,
-  findChecksumOfOwnedGame, saveSram, findSram
+  findOwnedGameForRoom, saveSram, findSram
 } from '../src/db/games.js';
 import { createSave } from '../src/db/saves.js';
 
@@ -131,12 +131,19 @@ test('ownership checks refuse a game that is not yours', () => {
   const db = migratedDb();
   const mine = insertUser(db);
   const theirs = insertUser(db);
-  const game = createGame(db, { title: 'G', filename: 'g.sfc', crc32: 'DEADBEEF', userId: mine.id, ...NO_METADATA });
+  const game = createGame(db, {
+    title: 'G', filename: 'g.sfc', crc32: 'DEADBEEF', userId: mine.id,
+    ...NO_METADATA, coverUrl: '/covers/g.png'
+  });
 
   assert.equal(findOwnedGameId(db, game.id, mine.id), game.id);
   assert.equal(findOwnedGameId(db, game.id, theirs.id), null);
-  assert.equal(findChecksumOfOwnedGame(db, game.id, mine.id), 'DEADBEEF');
-  assert.equal(findChecksumOfOwnedGame(db, game.id, theirs.id), null);
+  // What a room copies from a game: both facts, or nothing at all. A room built
+  // from someone else's id gets no checksum and no cover, rather than theirs.
+  assert.deepEqual(findOwnedGameForRoom(db, game.id, mine.id), {
+    crc32: 'DEADBEEF', coverUrl: '/covers/g.png'
+  });
+  assert.equal(findOwnedGameForRoom(db, game.id, theirs.id), null);
 });
 
 test('SRAM round-trips as a Buffer and stamps its own timestamp', () => {

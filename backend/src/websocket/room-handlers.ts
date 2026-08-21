@@ -9,7 +9,7 @@ import { cleanupRoomChecksums } from './sync-handlers.js';
 import { cleanupHostReady } from './p2p-handlers.js';
 import { cleanupZnetRoom } from './znet-handlers.js';
 import { getDb, type Database } from '../db/sqlite.js';
-import { findChecksumOfOwnedGame } from '../db/games.js';
+import { findOwnedGameForRoom } from '../db/games.js';
 import { findFriendshipBetween } from '../db/friendships.js';
 import { findUserById } from '../db/users.js';
 import {
@@ -18,6 +18,7 @@ import {
   findInvitationById,
   listPendingInvitationsFor,
   markInvitation,
+  refreshInvitationDeadline,
   type Invitation
 } from '../db/invitations.js';
 import { invitationState } from '../rooms/invitation-state.js';
@@ -105,7 +106,7 @@ export function registerRoomHandlers(
 ) {
   // Create room, with or without a game: a room is now a place where players
   // meet, and the game can be chosen once they are both there.
-  socket.on('room:create', async (data?: { gameId?: string; gameTitle?: string; gameCoverUrl?: string; autoStart?: boolean; emulationMode?: EmulationMode } | null) => {
+  socket.on('room:create', async (data?: { gameId?: string; gameTitle?: string; autoStart?: boolean; emulationMode?: EmulationMode } | null) => {
     const payload = data ?? {};
     // Both fields or neither. `requireGame` refuses a half-filled game, so a
     // room built from one would carry a gameId that no handler would honour.
@@ -127,16 +128,18 @@ export function registerRoomHandlers(
     const roomId = randomUUID();
     const userKeyConfig = await getUserKeyConfig(user.id);
     // Read from the host's library rather than trusting the payload: the guest
-    // will use this checksum to pick a file off their own disk, so it has to
-    // be the one the server recorded.
-    const gameCrc32 = game ? findChecksumOfOwnedGame(getDb(), game.gameId, user.id) : null;
+    // will use this checksum to pick a file off their own disk and the cover is
+    // rendered as an image source, so both have to be what the server recorded.
+    // No game means no facts to copy, so a room cannot end up wearing a cover
+    // for a game it does not have.
+    const facts = game ? findOwnedGameForRoom(getDb(), game.gameId, user.id) : null;
 
     const room: Room = {
       id: roomId,
       gameId: game?.gameId,
       gameTitle: game?.gameTitle,
-      gameCoverUrl: payload.gameCoverUrl,
-      gameCrc32: gameCrc32 ?? undefined,
+      gameCoverUrl: facts?.coverUrl ?? undefined,
+      gameCrc32: facts?.crc32 ?? undefined,
       hostId: user.id,
       createdBy: user.id,
       players: [{
@@ -186,7 +189,7 @@ export function registerRoomHandlers(
   //
   // Callable more than once before the launch: trying a game, seeing the guest
   // does not have it, and picking another is ordinary lobby use, not an error.
-  socket.on('room:choose-game', async (data: { roomId: string; gameId: string; gameTitle: string; gameCoverUrl?: string }) => {
+  socket.on('room:choose-game', async (data: { roomId: string; gameId: string; gameTitle: string }) => {
     const room = getMemberRoom(rooms, data?.roomId, user.id, 'room:choose-game');
     if (!room) {
       // One answer for "no such room" and "you are not in it": room ids travel
@@ -207,17 +210,23 @@ export function registerRoomHandlers(
       return;
     }
 
-    // Read from the chooser's library rather than trusting the payload: the
-    // other player will use this checksum to pick a file off their own disk,
-    // so it has to be the one the server recorded.
-    const gameCrc32 = findChecksumOfOwnedGame(getDb(), game.gameId, user.id);
+    /*
+     * Both facts come from the chooser's library, never from the payload.
+     *
+     * The checksum because the other player picks a file off their own disk
+     * with it. The cover because this handler is the one place where a *guest*
+     * describes a game in someone else's room, and the cover is broadcast to
+     * the host and rendered as an image source - a URL nobody vouched for has
+     * no business getting there.
+     */
+    const facts = findOwnedGameForRoom(getDb(), game.gameId, user.id);
 
     room.gameId = game.gameId;
     room.gameTitle = game.gameTitle;
     // Overwritten, never merged: keeping the previous game's cover next to the
     // new game's title would be visibly wrong.
-    room.gameCoverUrl = data.gameCoverUrl;
-    room.gameCrc32 = gameCrc32 ?? undefined;
+    room.gameCoverUrl = facts?.coverUrl ?? undefined;
+    room.gameCrc32 = facts?.crc32 ?? undefined;
 
     io.to(room.id).emit('room:updated', room);
     await broadcastRoomUpdate(io, room, getUserSocket);
@@ -268,15 +277,13 @@ export function registerRoomHandlers(
         invitationState(invitation, now) === 'pending'
     );
 
-    const invitation =
-      existing ??
-      createInvitation(
-        getDb(),
-        room.id,
-        user.id,
-        data.friendId,
-        new Date(now.getTime() + INVITATION_TTL_MS)
-      );
+    const expiresAt = new Date(now.getTime() + INVITATION_TTL_MS);
+    // The reused row gets a fresh deadline: an invitation re-sent at nine
+    // minutes and thirty seconds would otherwise arrive with thirty seconds to
+    // live, and the inviter has no other way to extend it.
+    const invitation = existing
+      ? refreshInvitationDeadline(getDb(), existing.id, expiresAt)
+      : createInvitation(getDb(), room.id, user.id, data.friendId, expiresAt);
 
     const view = toInvitationView(invitation, room, user);
 
@@ -501,12 +508,23 @@ async function joinRoom(
     return true;
   }
 
+  /*
+   * Read before the capacity check, deliberately.
+   *
+   * With the await between the check and the push, two people accepting an
+   * invitation in the same tick both saw one free seat and both took it: a
+   * three-player room with two players on port 2. It does not happen today
+   * only because `getUserKeyConfig` resolves without ever yielding to the
+   * event loop, which is a property of a function elsewhere and not a promise
+   * this code can rely on. Everything from the check to the push is now
+   * synchronous, so there is no window to lose.
+   */
+  const userKeyConfig = await getUserKeyConfig(user.id);
+
   if (room.players.length >= 2) {
     socket.emit('error', { message: 'Room is full' });
     return false;
   }
-
-  const userKeyConfig = await getUserKeyConfig(user.id);
 
   const player: RoomPlayer = {
     userId: user.id,
@@ -550,26 +568,47 @@ const DISCONNECT_GRACE_MS = 45_000;
 
 const departureKey = (roomId: string, userId: string) => `${roomId}:${userId}`;
 
-/** Removes a player only if they are still gone once the grace period ends. */
+/**
+ * Arms the timer for one seat, replacing whatever was already holding it.
+ *
+ * The timer is `unref`'d, for the same reason the cache's sweep is: a grace
+ * period must never be what keeps a process alive. In production the HTTP
+ * server holds the process open, so it fires exactly as before; anywhere else
+ * - a test, a script - a seat waiting out its forty-five seconds would
+ * otherwise add forty-five seconds to the exit, which is the failure the
+ * cache's own interval used to hide.
+ */
+function armDeparture(key: string, delayMs: number, release: () => void) {
+  clearTimeout(pendingDepartures.get(key));
+
+  const timer = setTimeout(() => {
+    pendingDepartures.delete(key);
+    release();
+  }, delayMs);
+  timer.unref();
+
+  pendingDepartures.set(key, timer);
+}
+
+/**
+ * Removes a player only if they are still gone once the grace period ends.
+ *
+ * `delayMs` exists so a test can watch a grace period elapse in milliseconds
+ * instead of forty-five seconds. Production never passes it.
+ */
 export function scheduleLeaveRoom(
   io: Server,
   socket: Socket,
   roomId: string,
   rooms: Map<string, Room>,
   user: User,
-  getUserSocket: (id: string) => string | undefined
+  getUserSocket: (id: string) => string | undefined,
+  delayMs: number = DISCONNECT_GRACE_MS
 ) {
-  const key = departureKey(roomId, user.id);
-  clearTimeout(pendingDepartures.get(key));
-
-  pendingDepartures.set(
-    key,
-    setTimeout(() => {
-      pendingDepartures.delete(key);
-      logger.info({ roomId, userId: user.id }, 'Grace period elapsed, removing player');
-      void handleLeaveRoom(io, socket, roomId, rooms, user, getUserSocket);
-    }, DISCONNECT_GRACE_MS)
-  );
+  armDeparture(departureKey(roomId, user.id), delayMs, () => {
+    logger.info({ roomId, userId: user.id }, 'Grace period elapsed, removing player');
+    void handleLeaveRoom(io, socket, roomId, rooms, user, getUserSocket);
+  });
 
   logger.debug({ roomId, userId: user.id }, 'Player disconnected, holding their seat');
 }
@@ -601,17 +640,10 @@ export function holdRestoredSeat(
   displayName: string,
   getUserSocket: (id: string) => string | undefined
 ) {
-  const key = departureKey(roomId, userId);
-  clearTimeout(pendingDepartures.get(key));
-
-  pendingDepartures.set(
-    key,
-    setTimeout(() => {
-      pendingDepartures.delete(key);
-      logger.info({ roomId, userId }, 'Restored player did not come back, removing');
-      void handleLeaveRoom(io, null, roomId, rooms, { id: userId, displayName } as User, getUserSocket);
-    }, DISCONNECT_GRACE_MS)
-  );
+  armDeparture(departureKey(roomId, userId), DISCONNECT_GRACE_MS, () => {
+    logger.info({ roomId, userId }, 'Restored player did not come back, removing');
+    void handleLeaveRoom(io, null, roomId, rooms, { id: userId, displayName } as User, getUserSocket);
+  });
 
   logger.debug({ roomId, userId }, 'Holding a restored seat');
 }

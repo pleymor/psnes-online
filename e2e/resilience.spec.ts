@@ -11,10 +11,28 @@ test.describe('backend resilience', () => {
     const cookie = await loginDev('1');
     const socket = await connectSocket(cookie);
 
-    // `room:create` dereferences data.autoStart; an empty payload throws inside
-    // the async handler. This used to kill the process.
-    socket.emit('room:create');
-    socket.emit('room:create', null);
+    /*
+     * Two ways of throwing, one per class the process handler used to die on.
+     *
+     * `room:leave` and `room:selectPort` dereference `data.roomId` with no
+     * payload at all: a synchronous throw inside the listener. `room:create`
+     * with a non-string gameId reaches SQLite's parameter binding, which
+     * refuses a boolean - a rejection inside an async handler, which is the
+     * class that used to terminate the backend.
+     *
+     * `room:create` with no payload is deliberately NOT one of them any more.
+     * It used to throw on `data.autoStart`, but a room without a game is now a
+     * legitimate thing to create, so an empty payload creates one instead of
+     * crashing - which would have left this test provoking nothing while still
+     * passing.
+     */
+    socket.emit('room:leave');
+    socket.emit('room:selectPort', null);
+    socket.emit('room:create', { gameId: true, gameTitle: 'not an id' });
+
+    // These three no longer throw either: every one of them now bails out
+    // through its membership guard when the payload has no roomId. Kept as
+    // cover for those guards, not as provocations.
     socket.emit('game:save');
     socket.emit('sync:checksum');
     socket.emit('p2p:join');

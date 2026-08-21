@@ -4,7 +4,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { Server } from 'socket.io';
+import { Server, type Socket as ServerSocket } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 
 /*
@@ -41,7 +41,9 @@ const { createFriendshipRequest, acceptFriendship } = await import('../src/db/fr
 const {
   createInvitation, findInvitationById, markInvitation, deleteExpiredInvitations
 } = await import('../src/db/invitations.js');
-const { registerRoomHandlers, pendingInvitationsFor } = await import('../src/websocket/room-handlers.js');
+const {
+  registerRoomHandlers, pendingInvitationsFor, scheduleLeaveRoom, cancelScheduledLeave
+} = await import('../src/websocket/room-handlers.js');
 type Room = import('../src/types/index.js').Room;
 type User = import('../src/db/types.js').User;
 
@@ -75,11 +77,17 @@ interface Lobby {
   bob: User;
   /** A stranger: a pending friend request with Alice, never accepted. */
   carol: User;
-  /** Alice's own library, with a checksum the server recorded. */
+  /** Alice's own library, with the checksum and cover the server recorded. */
   gameId: string;
   gameCrc32: string;
+  gameCoverUrl: string;
   otherGameId: string;
   client(user: User): Promise<ClientSocket>;
+  /**
+   * Exactly what `websocket/index.ts` does when a socket drops, except that
+   * the grace period is one a test can watch elapse.
+   */
+  drop(user: User, roomId: string, delayMs?: number): void;
 }
 
 let seq = 0;
@@ -101,22 +109,27 @@ async function withLobby(run: (lobby: Lobby) => Promise<void>): Promise<void> {
   createFriendshipRequest(db, alice.id, carol.id);
 
   const game = createGame(db, {
-    title: 'Chrono Trigger', filename: 'ct.sfc', crc32: 'DEADBEEF', userId: alice.id, ...NO_METADATA
+    title: 'Chrono Trigger', filename: 'ct.sfc', crc32: 'DEADBEEF', userId: alice.id,
+    ...NO_METADATA, coverUrl: '/covers/chrono-trigger.png'
   });
   const otherGame = createGame(db, {
-    title: 'Super Metroid', filename: 'sm.sfc', crc32: 'CAFEBABE', userId: alice.id, ...NO_METADATA
+    title: 'Super Metroid', filename: 'sm.sfc', crc32: 'CAFEBABE', userId: alice.id,
+    ...NO_METADATA, coverUrl: '/covers/super-metroid.png'
   });
 
   const rooms = new Map<string, Room>();
   const socketsByUser = new Map<string, string>();
+  const serverSockets = new Map<string, ServerSocket>();
   const httpServer: HttpServer = createServer();
   const io = new Server(httpServer);
+  const getUserSocket = (id: string) => socketsByUser.get(id);
 
   io.on('connection', socket => {
     const userId = socket.handshake.auth.userId as string;
     const user = findUserById(db, userId)!;
     socketsByUser.set(userId, socket.id);
-    registerRoomHandlers(socket, io, user, rooms, id => socketsByUser.get(id));
+    serverSockets.set(userId, socket);
+    registerRoomHandlers(socket, io, user, rooms, getUserSocket);
   });
 
   await new Promise<void>(done => httpServer.listen(0, done));
@@ -132,8 +145,15 @@ async function withLobby(run: (lobby: Lobby) => Promise<void>): Promise<void> {
     return socket;
   };
 
+  const drop = (user: User, roomId: string, delayMs?: number) =>
+    scheduleLeaveRoom(io, serverSockets.get(user.id)!, roomId, rooms, user, getUserSocket, delayMs);
+
   try {
-    await run({ rooms, alice, bob, carol, gameId: game.id, gameCrc32: 'DEADBEEF', otherGameId: otherGame.id, client });
+    await run({
+      rooms, alice, bob, carol, client, drop,
+      gameId: game.id, gameCrc32: 'DEADBEEF', gameCoverUrl: '/covers/chrono-trigger.png',
+      otherGameId: otherGame.id
+    });
   } finally {
     for (const socket of clients) socket.close();
     await new Promise<void>(done => io.close(() => done()));
@@ -439,8 +459,11 @@ test('choosing the game reaches both players with the server\'s own checksum, an
     for (const view of [await hostSees, await guestSees]) {
       assert.equal(view.gameTitle, 'Chrono Trigger');
       assert.equal(view.gameId, gameId);
-      // Not from the payload: the guest picks a file off their own disk with it.
+      // Neither of these comes from the payload: the other player picks a file
+      // off their own disk with the checksum, and the cover is rendered as an
+      // image source in someone else's room.
       assert.equal(view.gameCrc32, gameCrc32);
+      assert.equal(view.gameCoverUrl, '/covers/chrono-trigger.png');
     }
 
     // Changing one's mind before the launch is ordinary use, not an error.
@@ -449,6 +472,8 @@ test('choosing the game reaches both players with the server\'s own checksum, an
     const after = await rechosen;
     assert.equal(after.gameTitle, 'Super Metroid');
     assert.equal(after.gameCrc32, 'CAFEBABE');
+    // Overwritten, not merged: the previous game's cover would be visibly wrong.
+    assert.equal(after.gameCoverUrl, '/covers/super-metroid.png');
 
     /*
      * And the nuance the room screen has to know about: `Game.id` rows are
@@ -459,6 +484,173 @@ test('choosing the game reaches both players with the server\'s own checksum, an
     const unowned = once<Room>(host, 'room:updated');
     guest.emit('room:choose-game', { roomId: room.id, gameId, gameTitle: 'Chrono Trigger' });
     assert.equal((await unowned).gameCrc32, undefined);
+  });
+});
+
+test('a room takes its cover from the server, and never wears one with no game', async () => {
+  await withLobby(async ({ alice, bob, gameId, client }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    /*
+     * A cover is an image source that the other player's screen renders, so it
+     * comes from the game row the server holds - never from whoever named the
+     * game. And a room with no game has no cover to wear, whatever the payload
+     * asks for.
+     */
+    const bare = once<Room>(host, 'room:created');
+    host.emit('room:create', { gameCoverUrl: 'http://elsewhere.example/x.png' });
+    const bareRoom = await bare;
+    assert.equal(bareRoom.gameCoverUrl, undefined);
+    assert.equal(bareRoom.gameId, undefined);
+
+    const withGame = once<Room>(host, 'room:created');
+    host.emit('room:create', {
+      gameId, gameTitle: 'Chrono Trigger', gameCoverUrl: 'http://elsewhere.example/x.png'
+    });
+    const room = await withGame;
+    assert.equal(room.gameCoverUrl, '/covers/chrono-trigger.png');
+
+    // And the same on the guest's path into someone else's room.
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const acked = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: (await delivered).id });
+    await acked;
+
+    const seen = once<Room>(host, 'room:updated');
+    guest.emit('room:choose-game', {
+      roomId: room.id, gameId, gameTitle: 'Chrono Trigger',
+      gameCoverUrl: 'http://elsewhere.example/x.png'
+    });
+    // The guest does not own this id, so the server has no facts to copy - and
+    // publishes none rather than the ones it was handed.
+    assert.equal((await seen).gameCoverUrl, undefined);
+    assert.equal((await seen).gameCrc32, undefined);
+  });
+});
+
+test('re-inviting restarts the clock instead of handing over the leftovers', async () => {
+  await withLobby(async ({ alice, bob, client }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    // A row about to run out, as if the first invitation had been sent nine and
+    // a half minutes ago. Aged by its deadline, never by waiting.
+    const stale = createInvitation(db, room.id, alice.id, bob.id, new Date(Date.now() + 5_000));
+
+    const delivered = once<{ id: string; expiresAt: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const view = await delivered;
+
+    assert.equal(view.id, stale.id, 'still one invitation, not a second one');
+    // The wire turns a Date into an ISO string, which is why this parses first.
+    assert.ok(
+      new Date(view.expiresAt).getTime() > Date.now() + 9 * 60_000,
+      'a re-invited friend gets the full ten minutes, not thirty seconds'
+    );
+    assert.ok(findInvitationById(db, stale.id)!.expiresAt.getTime() > stale.expiresAt.getTime());
+
+    const rows = db.prepare(`SELECT COUNT(*) AS c FROM "RoomInvitation" WHERE toUserId = ?`)
+      .get(bob.id) as { c: number };
+    assert.equal(rows.c, 1);
+  });
+});
+
+test('a seat is released once the grace period elapses', async () => {
+  await withLobby(async ({ alice, bob, client, rooms, drop }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const acked = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: (await delivered).id });
+    await acked;
+    assert.equal(rooms.get(room.id)!.players.length, 2);
+
+    // Thirty milliseconds instead of forty-five seconds: the same code path,
+    // and the only reason the delay is a parameter.
+    const left = once<{ userId: string }>(host, 'player:left');
+    drop(bob, room.id, 30);
+
+    assert.equal((await left).userId, bob.id);
+    assert.deepEqual(rooms.get(room.id)!.players.map(p => p.userId), [alice.id]);
+  });
+});
+
+test('a dropped socket keeps its seat, and its real timer cannot hold the process open', async () => {
+  await withLobby(async ({ alice, bob, client, rooms, drop }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const acked = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: (await delivered).id });
+    await acked;
+
+    /*
+     * The real forty-five seconds this time, and the timer is deliberately
+     * left armed when the test returns.
+     *
+     * Two things at once. A dropped socket is a blink, not a departure, so the
+     * seat must still be there on the next line - removing it on the spot is
+     * what used to destroy rooms mid-game. And this is the canary for the
+     * timer being `unref`'d: were it not, this single line would add
+     * forty-five seconds to the whole suite's exit.
+     */
+    drop(bob, room.id);
+
+    assert.deepEqual(
+      rooms.get(room.id)!.players.map(p => p.userId),
+      [alice.id, bob.id],
+      'a blink is not a departure'
+    );
+  });
+});
+
+test('a player who comes back inside the grace period keeps their seat', async () => {
+  await withLobby(async ({ alice, bob, client, rooms, drop }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const acked = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: (await delivered).id });
+    await acked;
+
+    drop(bob, room.id, 30);
+    cancelScheduledLeave(room.id, bob.id);
+
+    /*
+     * A second departure is the clock, so that nothing here sleeps: Alice's
+     * timer is armed after Bob's and for the same delay, so when it fires Bob's
+     * deadline has certainly passed. Bob still holding his seat at that point
+     * is proof the cancellation took.
+     */
+    const left = once<{ userId: string }>(guest, 'player:left');
+    drop(alice, room.id, 30);
+
+    assert.equal((await left).userId, alice.id);
+    assert.deepEqual(rooms.get(room.id)!.players.map(p => p.userId), [bob.id]);
   });
 });
 

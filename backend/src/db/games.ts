@@ -220,10 +220,20 @@ export function findOwnedGameId(db: Database, gameId: string, userId: string): s
   return row?.id ?? null;
 }
 
-export function findChecksumOfOwnedGame(db: Database, gameId: string, userId: string): string | null {
-  const row = db.prepare(`SELECT crc32 FROM "Game" WHERE id = ? AND userId = ?`)
-    .get(gameId, userId) as { crc32: string | null } | undefined;
-  return row?.crc32 ?? null;
+/**
+ * The two things a room copies from a game, and only if the game is theirs.
+ *
+ * Neither may come from a client payload: the other player uses `crc32` to
+ * find the file on their own disk, and `coverUrl` is broadcast to them and
+ * rendered as an image source. `room:choose-game` in particular can be called
+ * by the guest, about a room that is not theirs.
+ */
+export function findOwnedGameForRoom(
+  db: Database, gameId: string, userId: string
+): { crc32: string | null; coverUrl: string | null } | null {
+  const row = db.prepare(`SELECT crc32, coverUrl FROM "Game" WHERE id = ? AND userId = ?`)
+    .get(gameId, userId) as { crc32: string | null; coverUrl: string | null } | undefined;
+  return row ?? null;
 }
 
 export function saveSram(db: Database, gameId: string, userId: string, sram: Buffer): void {

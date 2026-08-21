@@ -76,6 +76,21 @@ export function listPendingInvitationsFor(db: Database, userId: string): Invitat
   return rows.map(toInvitation);
 }
 
+/**
+ * Redonne son plein délai à une invitation réutilisée.
+ *
+ * Réinviter est la façon d'atteindre un ami qui était hors ligne il y a une
+ * minute : on garde une seule ligne, mais lui rendre les restes du premier
+ * délai n'est pas une invitation.
+ */
+export function refreshInvitationDeadline(db: Database, id: string, expiresAt: Date): Invitation {
+  db.prepare(`UPDATE "RoomInvitation" SET expiresAt = ? WHERE id = ?`)
+    .run(expiresAt.getTime(), id);
+  const refreshed = findInvitationById(db, id);
+  if (!refreshed) throw new Error('the invitation vanished while its deadline moved');
+  return refreshed;
+}
+
 export function markInvitation(db: Database, id: string, status: InvitationStatus): void {
   db.prepare(`UPDATE "RoomInvitation" SET status = ? WHERE id = ?`).run(status, id);
 }
