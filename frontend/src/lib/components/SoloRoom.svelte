@@ -19,7 +19,7 @@
   import { socket } from '$lib/api/socket';
   import LocateRom from './LocateRom.svelte';
   import { remember, resolveQuietly } from '$lib/roms/provider';
-  import { VALID_SHADER_IDS } from '$lib/shaders';
+  import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import PauseMenu from './PauseMenu.svelte';
   import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
   import {
@@ -203,8 +203,7 @@
     if (!shaderChanged) return;
 
     // Remembered the same way the home page's settings modal remembers it.
-    if (next.shader) localStorage.setItem('psnes-shader', next.shader);
-    else localStorage.removeItem('psnes-shader');
+    writeShaderPreference(localStorage, next.shader);
     await applyShader(next.shader);
   }
 
@@ -373,10 +372,8 @@
         return;
       }
 
-      const storedShader = localStorage.getItem('psnes-shader') || '';
-      if (storedShader && !VALID_SHADER_IDS.includes(storedShader)) {
-        localStorage.removeItem('psnes-shader');
-      } else if (storedShader) {
+      const storedShader = readShaderPreference(localStorage);
+      if (storedShader) {
         display = { ...display, shader: storedShader };
       }
 

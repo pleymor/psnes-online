@@ -15,7 +15,7 @@
   import FriendDetailsModal from '$lib/components/FriendDetailsModal.svelte';
   import ControlsModal from '$lib/components/ControlsModal.svelte';
   import ShaderSelector from '$lib/components/ShaderSelector.svelte';
-  import { VALID_SHADER_IDS } from '$lib/shaders';
+  import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import type { KeyConfig } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
@@ -45,13 +45,7 @@
 
   function loadShaderPreference() {
     if (typeof localStorage !== 'undefined') {
-      const stored = localStorage.getItem('psnes-shader') || '';
-      if (stored && !VALID_SHADER_IDS.includes(stored)) {
-        localStorage.removeItem('psnes-shader');
-        currentShader = '';
-      } else {
-        currentShader = stored;
-      }
+      currentShader = readShaderPreference(localStorage);
     }
   }
 
@@ -59,11 +53,7 @@
     const { shader } = event.detail;
     currentShader = shader;
     if (typeof localStorage !== 'undefined') {
-      if (shader) {
-        localStorage.setItem('psnes-shader', shader);
-      } else {
-        localStorage.removeItem('psnes-shader');
-      }
+      writeShaderPreference(localStorage, shader);
     }
   }
   let userKeyConfig: KeyConfig = {

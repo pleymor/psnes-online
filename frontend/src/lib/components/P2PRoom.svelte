@@ -7,7 +7,7 @@
   import LocateRom from './LocateRom.svelte';
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
-  import { VALID_SHADER_IDS } from '$lib/shaders';
+  import { readShaderPreference } from '$lib/stores/shader-preference';
   import type { KeyConfig } from '$lib/types';
   import { EmulationMode } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
@@ -82,12 +82,7 @@
 
   function getShaderPreference(): string {
     if (typeof localStorage !== 'undefined') {
-      const stored = localStorage.getItem('psnes-shader') || '';
-      if (stored && !VALID_SHADER_IDS.includes(stored)) {
-        localStorage.removeItem('psnes-shader');
-        return '';
-      }
-      return stored;
+      return readShaderPreference(localStorage);
     }
     return '';
   }

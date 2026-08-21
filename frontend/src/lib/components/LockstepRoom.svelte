@@ -21,7 +21,7 @@
   import LocateRom from './LocateRom.svelte';
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
-  import { VALID_SHADER_IDS } from '$lib/shaders';
+  import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
   import {
     AudioSink,
@@ -253,8 +253,7 @@
     display = next;
     if (!shaderChanged) return;
 
-    if (next.shader) localStorage.setItem('psnes-shader', next.shader);
-    else localStorage.removeItem('psnes-shader');
+    writeShaderPreference(localStorage, next.shader);
     await applyShader(next.shader);
   }
 
@@ -454,16 +453,7 @@
 
       // The shader preference is global and already set from the home page's
       // settings modal; the lockstep path simply never honoured it until now.
-      // Read-and-purge like the other two readers (P2PRoom.svelte and
-      // routes/+page.svelte): a stale id left over from a delisted preset
-      // (xbrz-freescale, before it was removed) is dropped here too, rather
-      // than costing this reader alone a CDN round trip and a user-facing
-      // notice for a value the other two would have deleted outright.
-      let storedShader = localStorage.getItem('psnes-shader') || '';
-      if (storedShader && !VALID_SHADER_IDS.includes(storedShader)) {
-        localStorage.removeItem('psnes-shader');
-        storedShader = '';
-      }
+      const storedShader = readShaderPreference(localStorage);
       display = { ...display, shader: storedShader };
 
       renderer = new CanvasRenderer(canvas2d);
