@@ -8,6 +8,8 @@ export const translations = {
     // Navigation
     library: 'Library',
     logout: 'Logout',
+    backToLibrary: 'Back to the library',
+    language: 'Language',
 
     // Home page
     playWithFriends: 'Play classic SNES games with your friends',
@@ -104,6 +106,7 @@ export const translations = {
     metadataUpdated: 'Metadata updated! {updated} game(s) matched, {skipped} skipped.',
     failedToRefreshMetadata: 'Failed to refresh metadata',
     errorRefreshingMetadata: 'Error refreshing metadata',
+    metadataUpdateFailed: 'Could not update the metadata.',
 
     // Delete game
     deleteGame: 'Delete Game?',
@@ -261,6 +264,8 @@ export const translations = {
     // Navigation
     library: 'Bibliothèque',
     logout: 'Déconnexion',
+    backToLibrary: 'Retour à la bibliothèque',
+    language: 'Langue',
 
     // Home page
     playWithFriends: 'Jouez aux jeux SNES classiques avec vos amis',
@@ -357,6 +362,7 @@ export const translations = {
     metadataUpdated: 'Métadonnées mises à jour ! {updated} jeu(x) trouvé(s), {skipped} ignoré(s).',
     failedToRefreshMetadata: 'Échec de la mise à jour des métadonnées',
     errorRefreshingMetadata: 'Erreur lors de la mise à jour des métadonnées',
+    metadataUpdateFailed: 'Impossible de mettre à jour les métadonnées.',
 
     // Delete game
     deleteGame: 'Supprimer le jeu ?',
