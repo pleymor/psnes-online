@@ -125,6 +125,44 @@ app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);
 
 // Session
+/**
+ * Refuses to start in production with a secret missing.
+ *
+ * Every one of these had a silent fallback or a non-null assertion, which is
+ * the wrong shape for a secret: the server starts, looks healthy, and fails
+ * somewhere confusing later. SESSION_SECRET was the worst of them - it fell
+ * back to a value written in this repository, so a missing variable would have
+ * signed every session with a secret anyone can read, and the only visible
+ * symptom would have been players having to sign in again unexpectedly. That
+ * is indistinguishable from an ordinary session expiry, which is exactly why
+ * it needed to be loud.
+ *
+ * Crashing on boot costs a failed deploy, which is noisy, immediate and
+ * touches no data. Starting up wrong costs trust.
+ */
+function requireSecrets(): void {
+  if (process.env.NODE_ENV !== 'production') return;
+
+  const required = ['SESSION_SECRET'];
+  // Only when Google is the auth mode: the alternative mode needs none of them,
+  // and demanding them would break it.
+  if ((process.env.AUTH_MODE || 'google') === 'google') {
+    required.push('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL');
+  }
+
+  const missing = required.filter(name => !process.env[name]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Refusing to start in production without: ${missing.join(', ')}. ` +
+        'These have no safe default - a fallback secret would be public, and ' +
+        'absent Google credentials would let the server run while nobody can ' +
+        'sign in.'
+    );
+  }
+}
+
+requireSecrets();
+
 const sessionMiddleware = session({
   store: new RedisStore({ client: redisClient }),
   secret: process.env.SESSION_SECRET || 'dev-only-insecure-secret',
