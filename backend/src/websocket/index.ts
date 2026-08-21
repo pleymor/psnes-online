@@ -3,7 +3,7 @@ import { Room, User } from '../types/index.js';
 import { getDb } from '../db/sqlite.js';
 import { findUserById } from '../db/users.js';
 import { notifyFriendsStatusChanged, getOnlineFriends } from '../services/friends.js';
-import { registerRoomHandlers, scheduleLeaveRoom } from './room-handlers.js';
+import { pendingInvitationsFor, registerRoomHandlers, scheduleLeaveRoom } from './room-handlers.js';
 import { registerGameHandlers } from './game-handlers.js';
 import { registerP2PHandlers } from './p2p-handlers.js';
 import { registerSyncHandlers } from './sync-handlers.js';
@@ -107,6 +107,12 @@ async function handleConnection(io: Server, socket: Socket) {
   registerSyncHandlers(socket, io, user.id, rooms);
   registerZnetHandlers(socket, user, io, rooms);
   registerRomTransferHandlers(socket, user, io, rooms, getUserSocket);
+
+  // Invitations that were waiting while they were away. Sent before the rooms
+  // list because that list doubles as the "setup finished" signal, and scoped
+  // to invitations addressed to this user: an invitation carries a room id, so
+  // the same discipline applies here as below.
+  socket.emit('lobby:invitations', pendingInvitationsFor(getDb(), user.id, rooms, new Date()));
 
   // Send current rooms list, scoped the same way as GET /api/rooms —
   // broadcasting every room here would hand out room ids (and previously

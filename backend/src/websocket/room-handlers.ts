@@ -8,10 +8,93 @@ import { createLogger } from '../utils/logger.js';
 import { cleanupRoomChecksums } from './sync-handlers.js';
 import { cleanupHostReady } from './p2p-handlers.js';
 import { cleanupZnetRoom } from './znet-handlers.js';
-import { getDb } from '../db/sqlite.js';
+import { getDb, type Database } from '../db/sqlite.js';
 import { findChecksumOfOwnedGame } from '../db/games.js';
+import { findFriendshipBetween } from '../db/friendships.js';
+import { findUserById } from '../db/users.js';
+import {
+  createInvitation,
+  deleteInvitationsForRoom,
+  findInvitationById,
+  listPendingInvitationsFor,
+  markInvitation,
+  type Invitation
+} from '../db/invitations.js';
+import { invitationState } from '../rooms/invitation-state.js';
+import { requireGame } from '../rooms/require-game.js';
+import { getMemberRoom } from './guards.js';
 
 const logger = createLogger('Room');
+
+/**
+ * How long an invitation stands.
+ *
+ * Long enough that a friend who is away from the keyboard can still answer,
+ * short enough that a stale one does not sit in their tray pointing at a room
+ * that has long since been abandoned.
+ */
+const INVITATION_TTL_MS = 10 * 60_000;
+
+/** What a client is told about an invitation it has received. */
+export interface InvitationView {
+  id: string;
+  roomId: string;
+  fromUserId: string;
+  fromDisplayName: string;
+  fromAvatar?: string;
+  /** Undefined while the room has no game yet, which is now an ordinary state. */
+  gameTitle?: string;
+  expiresAt: Date;
+}
+
+function toInvitationView(
+  invitation: Invitation,
+  room: Room,
+  from: { displayName: string; avatar: string | null } | null
+): InvitationView {
+  return {
+    id: invitation.id,
+    roomId: invitation.roomId,
+    fromUserId: invitation.fromUserId,
+    fromDisplayName: from?.displayName ?? 'Unknown player',
+    fromAvatar: from?.avatar ?? undefined,
+    gameTitle: room.gameTitle,
+    expiresAt: invitation.expiresAt
+  };
+}
+
+/**
+ * The invitations a user should see right now: still pending at this instant,
+ * and naming a room that still exists.
+ *
+ * Both filters are needed. `deleteInvitationsForRoom` keeps rows from piling
+ * up when a room dies, but it cannot help an invitation whose room died
+ * between two reads - and an invitation naming a dead room would offer a
+ * client a room id it can do nothing with.
+ *
+ * Only invitations addressed to `userId` are ever returned: an invitation
+ * carries a room id, so the same scoping discipline as `rooms:list` applies.
+ * The instant is a parameter for the same reason `invitationState` takes one.
+ */
+export function pendingInvitationsFor(
+  db: Database,
+  userId: string,
+  rooms: Map<string, Room>,
+  now: Date
+): InvitationView[] {
+  const views: InvitationView[] = [];
+
+  for (const invitation of listPendingInvitationsFor(db, userId)) {
+    if (invitationState(invitation, now) !== 'pending') continue;
+
+    const room = rooms.get(invitation.roomId);
+    if (!room) continue;
+
+    views.push(toInvitationView(invitation, room, findUserById(db, invitation.fromUserId)));
+  }
+
+  return views;
+}
 
 export function registerRoomHandlers(
   socket: Socket,
@@ -20,21 +103,39 @@ export function registerRoomHandlers(
   rooms: Map<string, Room>,
   getUserSocket: (id: string) => string | undefined
 ) {
-  // Create room
-  socket.on('room:create', async (data: { gameId: string; gameTitle: string; gameCoverUrl?: string; autoStart?: boolean; emulationMode?: EmulationMode }) => {
+  // Create room, with or without a game: a room is now a place where players
+  // meet, and the game can be chosen once they are both there.
+  socket.on('room:create', async (data?: { gameId?: string; gameTitle?: string; gameCoverUrl?: string; autoStart?: boolean; emulationMode?: EmulationMode } | null) => {
+    const payload = data ?? {};
+    // Both fields or neither. `requireGame` refuses a half-filled game, so a
+    // room built from one would carry a gameId that no handler would honour.
+    const game = requireGame(payload);
+    if (!game && (payload.gameId || payload.gameTitle)) {
+      socket.emit('error', { message: 'A game needs both an id and a title' });
+      return;
+    }
+
+    const autoStart = payload.autoStart ?? false;
+    // Solo is the only caller that auto-starts, and it always has a game.
+    // Auto-starting without one would put the room straight into `playing`
+    // with nothing to run: a state no screen can render and no core can play.
+    if (autoStart && !game) {
+      socket.emit('error', { message: 'A room cannot start without a game' });
+      return;
+    }
+
     const roomId = randomUUID();
     const userKeyConfig = await getUserKeyConfig(user.id);
     // Read from the host's library rather than trusting the payload: the guest
     // will use this checksum to pick a file off their own disk, so it has to
     // be the one the server recorded.
-    const gameCrc32 = findChecksumOfOwnedGame(getDb(), data.gameId, user.id);
-    const autoStart = data.autoStart ?? false;
+    const gameCrc32 = game ? findChecksumOfOwnedGame(getDb(), game.gameId, user.id) : null;
 
     const room: Room = {
       id: roomId,
-      gameId: data.gameId,
-      gameTitle: data.gameTitle,
-      gameCoverUrl: data.gameCoverUrl,
+      gameId: game?.gameId,
+      gameTitle: game?.gameTitle,
+      gameCoverUrl: payload.gameCoverUrl,
       gameCrc32: gameCrc32 ?? undefined,
       hostId: user.id,
       createdBy: user.id,
@@ -51,7 +152,7 @@ export function registerRoomHandlers(
       // Lockstep by default: both players run the same deterministic core and
       // exchange inputs, so a room cannot end up with two machines quietly
       // diverging the way the dual mode does.
-      emulationMode: data.emulationMode ?? 'lockstep',
+      emulationMode: payload.emulationMode ?? 'lockstep',
       createdAt: new Date()
     };
 
@@ -71,24 +172,82 @@ export function registerRoomHandlers(
 
   // Join room
   socket.on('room:join', async (data: { roomId: string }) => {
-    // A rejoin, including the automatic one after a reconnect, reclaims a seat
-    // that is waiting out its grace period.
-    if (data?.roomId) cancelScheduledLeave(data.roomId, user.id);
-    const room = rooms.get(data.roomId);
+    const room = data?.roomId ? rooms.get(data.roomId) : undefined;
 
     if (!room) {
       socket.emit('error', { message: 'Room not found' });
       return;
     }
 
-    const existingPlayer = room.players.find(p => p.userId === user.id);
-    if (existingPlayer) {
-      socket.join(data.roomId);
-      socket.emit('room:updated', room);
+    await joinRoom(io, socket, room, user, getUserSocket);
+  });
 
-      if (room.status === 'playing') {
-        socket.emit('game:started');
-      }
+  // Choose - or change - the room's game.
+  //
+  // Callable more than once before the launch: trying a game, seeing the guest
+  // does not have it, and picking another is ordinary lobby use, not an error.
+  socket.on('room:choose-game', async (data: { roomId: string; gameId: string; gameTitle: string; gameCoverUrl?: string }) => {
+    const room = getMemberRoom(rooms, data?.roomId, user.id, 'room:choose-game');
+    if (!room) {
+      // One answer for "no such room" and "you are not in it": room ids travel
+      // (friend notifications, the rooms list), so confirming a room exists to
+      // someone who is not in it tells them something they should not learn.
+      socket.emit('error', { message: 'Room not found' });
+      return;
+    }
+
+    if (room.status !== 'waiting') {
+      socket.emit('error', { message: 'The game cannot be changed once the room has started' });
+      return;
+    }
+
+    const game = requireGame(data ?? {});
+    if (!game) {
+      socket.emit('error', { message: 'A game needs both an id and a title' });
+      return;
+    }
+
+    // Read from the chooser's library rather than trusting the payload: the
+    // other player will use this checksum to pick a file off their own disk,
+    // so it has to be the one the server recorded.
+    const gameCrc32 = findChecksumOfOwnedGame(getDb(), game.gameId, user.id);
+
+    room.gameId = game.gameId;
+    room.gameTitle = game.gameTitle;
+    // Overwritten, never merged: keeping the previous game's cover next to the
+    // new game's title would be visibly wrong.
+    room.gameCoverUrl = data.gameCoverUrl;
+    room.gameCrc32 = gameCrc32 ?? undefined;
+
+    io.to(room.id).emit('room:updated', room);
+    await broadcastRoomUpdate(io, room, getUserSocket);
+    logger.info({ roomId: room.id, gameId: game.gameId, by: user.displayName }, 'Room game chosen');
+  });
+
+  // Invite a friend into this room.
+  socket.on('lobby:invite', (data: { roomId: string; friendId: string }) => {
+    // The order of these checks is deliberate: membership first, so someone
+    // outside the room can never learn from an error message whether two other
+    // people are friends, nor how full the room is.
+    const room = getMemberRoom(rooms, data?.roomId, user.id, 'lobby:invite');
+    if (!room) {
+      socket.emit('error', { message: 'Room not found' });
+      return;
+    }
+
+    if (!data?.friendId) {
+      socket.emit('error', { message: 'No friend to invite' });
+      return;
+    }
+
+    const friendship = findFriendshipBetween(getDb(), user.id, data.friendId);
+    if (!friendship || friendship.status !== 'accepted') {
+      socket.emit('error', { message: 'You can only invite a friend' });
+      return;
+    }
+
+    if (room.players.some(p => p.userId === data.friendId)) {
+      socket.emit('error', { message: 'They are already in this room' });
       return;
     }
 
@@ -97,28 +256,116 @@ export function registerRoomHandlers(
       return;
     }
 
-    const userKeyConfig = await getUserKeyConfig(user.id);
+    const now = new Date();
+    // Re-inviting is how you reach a friend who was offline a moment ago, so it
+    // must not pile up rows: an invitation for this same room that is still
+    // pending is re-delivered rather than duplicated, or the friend's tray
+    // would show the same room twice.
+    const existing = listPendingInvitationsFor(getDb(), data.friendId).find(
+      invitation =>
+        invitation.roomId === room.id &&
+        invitation.fromUserId === user.id &&
+        invitationState(invitation, now) === 'pending'
+    );
 
-    const player: RoomPlayer = {
-      userId: user.id,
-      displayName: user.displayName,
-      avatar: user.avatar ?? undefined,
-      port: 2, // Guest always joins as player 2
-      isReady: true, // Always ready by default
-      emulationReady: false,
-      keyConfig: userKeyConfig
-    };
+    const invitation =
+      existing ??
+      createInvitation(
+        getDb(),
+        room.id,
+        user.id,
+        data.friendId,
+        new Date(now.getTime() + INVITATION_TTL_MS)
+      );
 
-    room.players.push(player);
-    socket.join(data.roomId);
+    const view = toInvitationView(invitation, room, user);
 
-    io.to(data.roomId).emit('room:updated', room);
-    await broadcastRoomUpdate(io, room, getUserSocket);
+    // Delivered now if they are connected. Otherwise it simply waits in the
+    // table until they are - which is the whole reason it is persisted.
+    const friendSocket = getUserSocket(data.friendId);
+    if (friendSocket) io.to(friendSocket).emit('lobby:invitation', view);
 
-    if (room.status === 'playing') {
-      socket.emit('game:started');
-      logger.info({ roomId: room.id, guest: user.displayName }, 'Guest joined as Player 2 (game in progress)');
+    socket.emit('lobby:invite-sent', view);
+    logger.info(
+      { roomId: room.id, from: user.id, to: data.friendId, delivered: Boolean(friendSocket), reused: Boolean(existing) },
+      'Invitation sent'
+    );
+  });
+
+  // Accept an invitation and join its room.
+  socket.on('lobby:accept', async (data: { invitationId: string }) => {
+    const invitation = findOwnInvitation(socket, data?.invitationId, user.id);
+    if (!invitation) return;
+
+    // This is where the real instant enters the system: `invitationState`
+    // stays pure and the caller reads the clock.
+    const state = invitationState(invitation, new Date());
+    if (state !== 'pending') {
+      socket.emit('error', {
+        message:
+          state === 'expired'
+            ? 'This invitation has expired'
+            : 'This invitation has already been answered'
+      });
+      return;
     }
+
+    /*
+     * The room has to still be there.
+     *
+     * A room whose last player leaves is deleted, so an invitation can name a
+     * room that is already gone long before its ten minutes are up. Checking
+     * `pending` is not enough - the status says nobody answered, not that
+     * there is anywhere to go.
+     */
+    const room = rooms.get(invitation.roomId);
+    if (!room) {
+      // `declined` is the only terminal state the table has, and terminal is
+      // what this invitation is: nothing can ever make its room exist again.
+      markInvitation(getDb(), invitation.id, 'declined');
+      socket.emit('error', { message: 'That room no longer exists' });
+      return;
+    }
+
+    // Joining goes through the same path as `room:join`, so the player
+    // construction, the port assignment and the broadcast exist once.
+    const joined = await joinRoom(io, socket, room, user, getUserSocket);
+    // Left pending on failure: a full room can free up while the invitation is
+    // still valid, and marking it now would burn it for nothing.
+    if (!joined) return;
+
+    markInvitation(getDb(), invitation.id, 'accepted');
+    socket.emit('lobby:accepted', { invitationId: invitation.id, roomId: room.id });
+    logger.info({ roomId: room.id, userId: user.id }, 'Invitation accepted');
+  });
+
+  // Turn an invitation down.
+  socket.on('lobby:decline', (data: { invitationId: string }) => {
+    const invitation = findOwnInvitation(socket, data?.invitationId, user.id);
+    if (!invitation) return;
+
+    // Deliberately blind to the clock: declining an invitation that has just
+    // expired is not an error, and the outcome the invitee asked for - it
+    // leaves their tray - is the same either way.
+    if (invitation.status !== 'pending') {
+      socket.emit('error', { message: 'This invitation has already been answered' });
+      return;
+    }
+
+    markInvitation(getDb(), invitation.id, 'declined');
+    socket.emit('lobby:declined', { invitationId: invitation.id });
+
+    const inviterSocket = getUserSocket(invitation.fromUserId);
+    if (inviterSocket) {
+      io.to(inviterSocket).emit('lobby:invitation-declined', {
+        invitationId: invitation.id,
+        roomId: invitation.roomId,
+        userId: user.id,
+        displayName: user.displayName
+      });
+    }
+
+    logger.info({ roomId: invitation.roomId, userId: user.id }, 'Invitation declined');
   });
 
   // Leave room
@@ -200,6 +447,89 @@ export function registerRoomHandlers(
     io.to(data.roomId).emit('room:updated', room);
     logger.info({ roomId: room.id, mode: data.emulationMode }, 'Emulation mode changed');
   });
+}
+
+/**
+ * The invitation, only if it was addressed to this user.
+ *
+ * A missing invitation and someone else's invitation get the same answer on
+ * purpose: telling them apart would confirm to a stranger that an invitation
+ * with that id exists. Reports the refusal itself and returns null.
+ */
+function findOwnInvitation(socket: Socket, invitationId: string | undefined, userId: string): Invitation | null {
+  const invitation = invitationId ? findInvitationById(getDb(), invitationId) : null;
+
+  if (!invitation || invitation.toUserId !== userId) {
+    socket.emit('error', { message: 'Invitation not found' });
+    return null;
+  }
+
+  return invitation;
+}
+
+/**
+ * Puts a player in a room and tells everyone entitled to know.
+ *
+ * Shared by `room:join` and `lobby:accept` so that the player construction,
+ * the port assignment and the broadcast exist in one place - three things that
+ * would drift apart in two copies.
+ *
+ * Returns whether the caller is in the room afterwards. The only refusal is a
+ * full room, which it reports to the socket itself.
+ */
+async function joinRoom(
+  io: Server,
+  socket: Socket,
+  room: Room,
+  user: User,
+  getUserSocket: (id: string) => string | undefined
+): Promise<boolean> {
+  // Whichever door they came through, arriving reclaims a seat that is waiting
+  // out its grace period.
+  cancelScheduledLeave(room.id, user.id);
+
+  const existingPlayer = room.players.find(p => p.userId === user.id);
+  if (existingPlayer) {
+    // The reconnection path: the seat is already theirs, so nothing is added
+    // and nobody else has anything to learn.
+    socket.join(room.id);
+    socket.emit('room:updated', room);
+
+    if (room.status === 'playing') {
+      socket.emit('game:started');
+    }
+    return true;
+  }
+
+  if (room.players.length >= 2) {
+    socket.emit('error', { message: 'Room is full' });
+    return false;
+  }
+
+  const userKeyConfig = await getUserKeyConfig(user.id);
+
+  const player: RoomPlayer = {
+    userId: user.id,
+    displayName: user.displayName,
+    avatar: user.avatar ?? undefined,
+    port: 2, // Guest always joins as player 2
+    isReady: true, // Always ready by default
+    emulationReady: false,
+    keyConfig: userKeyConfig
+  };
+
+  room.players.push(player);
+  socket.join(room.id);
+
+  io.to(room.id).emit('room:updated', room);
+  await broadcastRoomUpdate(io, room, getUserSocket);
+
+  if (room.status === 'playing') {
+    socket.emit('game:started');
+    logger.info({ roomId: room.id, guest: user.displayName }, 'Guest joined as Player 2 (game in progress)');
+  }
+
+  return true;
 }
 
 /**
@@ -310,6 +640,10 @@ export async function handleLeaveRoom(
     cleanupRoomChecksums(roomId);
     cleanupHostReady(roomId);
     cleanupZnetRoom(roomId);
+    // Its invitations have nowhere left to lead. This keeps rows from piling
+    // up; it is not what makes `lobby:accept` correct - that comes from the
+    // room-still-exists check there, and neither replaces the other.
+    deleteInvitationsForRoom(getDb(), roomId);
     rooms.delete(roomId);
     io.emit('room:destroyed', { roomId });
   } else {
