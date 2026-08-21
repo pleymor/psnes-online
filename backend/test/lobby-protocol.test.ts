@@ -530,6 +530,65 @@ test('a room takes its cover from the server, and never wears one with no game',
   });
 });
 
+test('the room view says which players have the chosen game\'s ROM', async () => {
+  await withLobby(async ({ alice, bob, gameId, client }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const acked = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: (await delivered).id });
+    await acked;
+
+    // Alice owns this game's checksum in her library; Bob owns no games at
+    // all, so the server, not Bob's word, is what tells the room he lacks it.
+    const updated = once<{ players: { userId: string; rom: string }[] }>(host, 'room:update');
+    host.emit('room:choose-game', { roomId: room.id, gameId, gameTitle: 'Chrono Trigger' });
+    const view = await updated;
+
+    assert.equal(view.players.find(p => p.userId === alice.id)?.rom, 'has');
+    assert.equal(view.players.find(p => p.userId === bob.id)?.rom, 'missing');
+  });
+});
+
+test('a chosen game with no recorded checksum reports rom availability as unknown, not missing', async () => {
+  await withLobby(async ({ alice, bob, client }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const acked = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: (await delivered).id });
+    await acked;
+
+    // Registered with no checksum: nothing to compare against, for anyone.
+    const noChecksumGame = createGame(db, {
+      title: 'Unrecorded Cart', filename: 'unrecorded.sfc', crc32: null, userId: alice.id,
+      ...NO_METADATA
+    });
+
+    const updated = once<{ players: { userId: string; rom: string }[] }>(host, 'room:update');
+    host.emit('room:choose-game', {
+      roomId: room.id, gameId: noChecksumGame.id, gameTitle: 'Unrecorded Cart'
+    });
+    const view = await updated;
+
+    for (const player of view.players) {
+      assert.equal(player.rom, 'unknown');
+    }
+  });
+});
+
 test('re-inviting restarts the clock instead of handing over the leftovers', async () => {
   await withLobby(async ({ alice, bob, client }) => {
     const host = await client(alice);
