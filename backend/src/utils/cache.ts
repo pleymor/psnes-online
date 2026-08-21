@@ -16,6 +16,13 @@ class Cache {
     this.cleanupInterval = setInterval(() => {
       this.cleanup();
     }, 60000);
+    // A cache sweep must never be the reason the process stays alive. Without
+    // this, any test that transitively imports this module - which is every
+    // test of the websocket layer, since the handlers reach it - hangs forever
+    // instead of exiting, which is why that layer had no tests at all. In
+    // production the HTTP server holds the process open, so the sweep still
+    // runs exactly as before.
+    this.cleanupInterval.unref();
   }
 
   get<T>(key: string): T | null {
