@@ -103,7 +103,16 @@ export async function ensureAccess(handle: FileSystemDirectoryHandle): Promise<b
 		requestPermission(d: { mode: string }): Promise<PermissionState>;
 	};
 	if ((await withPermissions.queryPermission({ mode: 'read' })) === 'granted') return true;
-	return (await withPermissions.requestPermission({ mode: 'read' })) === 'granted';
+	try {
+		return (await withPermissions.requestPermission({ mode: 'read' })) === 'granted';
+	} catch {
+		// The spec requires transient activation (a user gesture) for
+		// requestPermission; off a gesture - e.g. called from onMount - it
+		// rejects with a SecurityError instead of resolving to 'denied'. A
+		// permission that cannot even be requested right now is, for every
+		// caller's purposes, simply not granted.
+		return false;
+	}
 }
 
 /* --------------------------------------------------------------- reading */
