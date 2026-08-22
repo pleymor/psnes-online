@@ -7,6 +7,7 @@ import { notifyFriendsRoomStatusChanged } from '../services/friends.js';
 import { createLogger } from '../utils/logger.js';
 import { getMemberRoom } from './guards.js';
 import { requireGame } from '../rooms/require-game.js';
+import { findOwnGameIdForRoom } from '../rooms/own-game.js';
 
 const logger = createLogger('Game');
 
@@ -21,6 +22,22 @@ export function registerGameHandlers(
   socket.on('game:start', async (data: { roomId: string }) => {
     const room = getMemberRoom(rooms, data?.roomId, userId, 'game:start');
     if (!room) return;
+
+    /*
+     * The eleventh guard, and the one whose absence costs the most.
+     *
+     * Ten handlers ask `requireGame`; this one did not, and it is the only one
+     * that moves the room out of `waiting`. Starting with no game left both
+     * screens on a branch that renders nothing, with `room:choose-game` now
+     * refusing because the status had changed and no quit button anywhere:
+     * the only way out was editing the URL. The client disables the button and
+     * `room:create` refuses `autoStart` without a game, so a crafted client is
+     * what it takes - which is reason to guard it, not to leave it open.
+     */
+    if (!requireGame(room)) {
+      socket.emit('error', { message: 'No game has been chosen in this room yet.' });
+      return;
+    }
 
     const playersWithPorts = room.players.filter(p => p.port !== null && p.isReady);
     if (playersWithPorts.length === 0) {
@@ -226,19 +243,40 @@ export function registerGameHandlers(
     const room = getMemberRoom(rooms, data?.roomId, userId, 'game:saveSram');
     if (!room) return;
 
-    const game = requireGame(room);
-    if (!game) {
+    if (!requireGame(room)) {
       socket.emit('error', { message: 'No game has been chosen in this room yet.' });
       return;
     }
 
     try {
+      const db = getDb();
+      /*
+       * The writer's own row, resolved here rather than taken from the room.
+       *
+       * `room.gameId` belongs to whoever chose the game, and since the guest
+       * can choose from his own library that is routinely not the host - who
+       * is the one machine that persists. Combining the room's id with the
+       * caller's own id matched no row at all, and the player was told it
+       * saved.
+       */
+      const ownGameId = findOwnGameIdForRoom(db, room, userId);
+      if (!ownGameId) {
+        socket.emit('error', { message: 'You do not have a copy of this game, so it cannot be saved.' });
+        return;
+      }
+
       const sramBuffer = Buffer.from(data.sramData, 'base64');
 
-      saveSram(getDb(), game.gameId, userId, sramBuffer);
+      // An update that changed nothing is a failure, whatever it looks like.
+      // Acknowledging one is what cost an hour of play.
+      if (saveSram(db, ownGameId, userId, sramBuffer) === 0) {
+        logger.warn({ gameId: ownGameId, userId }, 'SRAM write touched no row');
+        socket.emit('error', { message: 'Your battery save could not be written.' });
+        return;
+      }
 
       socket.emit('game:sramSaved');
-      logger.info({ gameId: game.gameId, size: sramBuffer.length }, 'SRAM saved');
+      logger.info({ gameId: ownGameId, size: sramBuffer.length }, 'SRAM saved');
     } catch (error) {
       logger.error({ err: error }, 'Error saving SRAM');
       socket.emit('error', { message: 'Failed to save SRAM' });
@@ -250,14 +288,25 @@ export function registerGameHandlers(
     const room = getMemberRoom(rooms, data?.roomId, userId, 'game:loadSram');
     if (!room) return;
 
-    const game = requireGame(room);
-    if (!game) {
+    if (!requireGame(room)) {
       socket.emit('error', { message: 'No game has been chosen in this room yet.' });
       return;
     }
 
     try {
-      const stored = findSram(getDb(), game.gameId, userId);
+      const db = getDb();
+      // The same resolution as the write, for the same reason: reading the
+      // room's row would have found nothing and reported "no battery save",
+      // and the cart would have booted empty over an existing one.
+      const ownGameId = findOwnGameIdForRoom(db, room, userId);
+      if (!ownGameId) {
+        // Distinct from "no battery yet", which is an answer. Having no copy
+        // of the cart at all is a refusal, and the player has to see it.
+        socket.emit('error', { message: 'You do not have a copy of this game, so its save cannot be read.' });
+        return;
+      }
+
+      const stored = findSram(db, ownGameId, userId);
 
       if (!stored) {
         socket.emit('game:sramLoaded', { sramData: null });
@@ -269,7 +318,7 @@ export function registerGameHandlers(
         sramData: sramDataBase64,
         updatedAt: stored.sramUpdatedAt
       });
-      logger.info({ gameId: game.gameId, size: stored.sram.length }, 'SRAM loaded');
+      logger.info({ gameId: ownGameId, size: stored.sram.length }, 'SRAM loaded');
     } catch (error) {
       logger.error({ err: error }, 'Error loading SRAM');
       socket.emit('error', { message: 'Failed to load SRAM' });

@@ -169,11 +169,19 @@ test('SRAM writes refuse a game that is not yours', () => {
   const theirs = insertUser(db);
   const game = createGame(db, { title: 'G', filename: 'g.sfc', crc32: 'AAAAAAAA', userId: mine.id, ...NO_METADATA });
 
-  saveSram(db, game.id, theirs.id, Buffer.from([1, 2, 3]));
+  /*
+   * And say so. The `AND userId = ?` makes this a guard as much as a write, and
+   * a guard that neither throws nor returns anything let a caller answer
+   * "saved" over a write that touched no row - which is how an hour of play
+   * went missing once the guest could choose the game.
+   */
+  assert.equal(saveSram(db, game.id, theirs.id, Buffer.from([1, 2, 3])), 0,
+    'a refused write has to report that it changed nothing');
 
   assert.equal(findSram(db, game.id, mine.id), null, 'the write must not have landed');
 
-  saveSram(db, game.id, mine.id, Buffer.from([9, 9, 9]));
+  assert.equal(saveSram(db, game.id, mine.id, Buffer.from([9, 9, 9])), 1,
+    'and the owner\'s own write reports the row it changed');
 
   assert.equal(findSram(db, game.id, theirs.id), null,
     'a guest must not be able to read the host SRAM either');

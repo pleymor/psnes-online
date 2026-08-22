@@ -236,9 +236,19 @@ export function findOwnedGameForRoom(
   return row ?? null;
 }
 
-export function saveSram(db: Database, gameId: string, userId: string, sram: Buffer): void {
-  db.prepare(`UPDATE "Game" SET sram = ?, sramUpdatedAt = ? WHERE id = ? AND userId = ?`)
+/**
+ * Écrit la sauvegarde de pile, et dit combien de lignes ont changé.
+ *
+ * Le compte n'est pas décoratif. Le `AND userId = ?` fait de cette requête une
+ * garde autant qu'une écriture : quand la ligne n'est pas celle de l'appelant,
+ * elle ne touche rien et ne lève rien. Un appelant qui ignorait le résultat a
+ * pu répondre « sauvegardé » pendant une heure de jeu perdue - d'où le retour,
+ * que le gestionnaire doit vérifier avant d'accuser réception.
+ */
+export function saveSram(db: Database, gameId: string, userId: string, sram: Buffer): number {
+  const info = db.prepare(`UPDATE "Game" SET sram = ?, sramUpdatedAt = ? WHERE id = ? AND userId = ?`)
     .run(sram, Date.now(), gameId, userId);
+  return info.changes;
 }
 
 export function findSram(

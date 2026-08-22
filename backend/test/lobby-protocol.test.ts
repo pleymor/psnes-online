@@ -36,7 +36,7 @@ const { getDb } = await import('../src/db/sqlite.js');
 const { migrate } = await import('../src/db/migrate.js');
 const { insertUser } = await import('./helpers.js');
 const { findUserById } = await import('../src/db/users.js');
-const { createGame } = await import('../src/db/games.js');
+const { createGame, findGameById, saveSram } = await import('../src/db/games.js');
 const { createFriendshipRequest, acceptFriendship } = await import('../src/db/friendships.js');
 const {
   createInvitation, findInvitationById, markInvitation, deleteExpiredInvitations
@@ -44,6 +44,7 @@ const {
 const {
   registerRoomHandlers, pendingInvitationsFor, scheduleLeaveRoom, cancelScheduledLeave
 } = await import('../src/websocket/room-handlers.js');
+const { registerGameHandlers } = await import('../src/websocket/game-handlers.js');
 type Room = import('../src/types/index.js').Room;
 type User = import('../src/db/types.js').User;
 
@@ -130,6 +131,10 @@ async function withLobby(run: (lobby: Lobby) => Promise<void>): Promise<void> {
     socketsByUser.set(userId, socket.id);
     serverSockets.set(userId, socket);
     registerRoomHandlers(socket, io, user, rooms, getUserSocket);
+    // The SRAM and launch handlers live here too, and the defect they carried
+    // only shows when a room-handler event (choose-game) and a game-handler
+    // event (saveSram) are driven by two different players in the same room.
+    registerGameHandlers(socket, io, user.id, rooms, getUserSocket);
   });
 
   await new Promise<void>(done => httpServer.listen(0, done));
@@ -820,4 +825,155 @@ test('the boot sweep deletes invitations whose deadline has passed, and only tho
   const onTheDot = createInvitation(db, 'room-boundary', alice.id, bob.id, new Date());
   assert.equal(deleteExpiredInvitations(db, new Date(onTheDot.expiresAt)), 1);
   assert.equal(findInvitationById(db, onTheDot.id), null);
+});
+
+/*
+ * Battery saves, when the guest is the one who chose the game.
+ *
+ * `Game.id` is per-user: two players who own the same ROM own two different
+ * rows. A room only ever holds the *chooser's* id, so the moment the guest
+ * picks the game - the capability this whole branch exists for - that id is
+ * not the host's, and the host is the machine that writes the battery file.
+ * Everything below drives that exact pairing over real sockets.
+ */
+
+/** Invites Bob and seats him, which every SRAM test needs before it can start. */
+async function seat(
+  host: ClientSocket, guest: ClientSocket, roomId: string, bobId: string
+): Promise<void> {
+  const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+  host.emit('lobby:invite', { roomId, friendId: bobId });
+  const acked = once(guest, 'lobby:accepted');
+  guest.emit('lobby:accept', { invitationId: (await delivered).id });
+  await acked;
+}
+
+/** Bob's own copy of the same cart: same checksum, a different row. */
+function bobsOwnCopy(bobId: string) {
+  return createGame(db, {
+    title: 'Chrono Trigger', filename: 'ct.sfc', crc32: 'DEADBEEF', userId: bobId,
+    ...NO_METADATA, coverUrl: '/covers/chrono-trigger.png'
+  });
+}
+
+test('the guest chooses the game and the host saves: the battery lands in the host\'s own row', async () => {
+  await withLobby(async ({ alice, bob, gameId, client }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+    await seat(host, guest, room.id, bob.id);
+
+    // Bob picks the cart out of *his* library, so the room now carries his row.
+    const bobsGame = bobsOwnCopy(bob.id);
+    const chosen = once<Room>(host, 'room:updated');
+    guest.emit('room:choose-game', { roomId: room.id, gameId: bobsGame.id, gameTitle: 'Chrono Trigger' });
+    const withGame = await chosen;
+    assert.equal(withGame.gameId, bobsGame.id, 'the room holds the chooser\'s row, as it always has');
+    assert.equal(withGame.gameCrc32, 'DEADBEEF', 'and the checksum that relates the two rows');
+
+    // Alice is the host, so Alice's machine is the one that persists.
+    const saved = once(host, 'game:sramSaved');
+    host.emit('game:saveSram', { roomId: room.id, sramData: Buffer.from([0x5a, 0x5a, 0x01]).toString('base64') });
+    await saved;
+
+    const aliceRow = findGameById(db, gameId)!;
+    assert.ok(aliceRow.sram, 'Alice\'s own row is where an hour of play has to end up');
+    assert.deepEqual([...aliceRow.sram!], [0x5a, 0x5a, 0x01]);
+    assert.ok(aliceRow.sramUpdatedAt instanceof Date);
+
+    // And nothing was written into somebody else's library on the way.
+    assert.equal(findGameById(db, bobsGame.id)!.sram, null);
+  });
+});
+
+test('the guest chooses the game and the host loads: the host gets their own battery file back', async () => {
+  await withLobby(async ({ alice, bob, gameId, client }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    // An hour of play already on disk, in Alice's row.
+    saveSram(db, gameId, alice.id, Buffer.from([0xa5, 0xa5, 0x02]));
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+    await seat(host, guest, room.id, bob.id);
+
+    const bobsGame = bobsOwnCopy(bob.id);
+    // Bob's copy holds different bytes, so a mix-up cannot pass unnoticed.
+    saveSram(db, bobsGame.id, bob.id, Buffer.from([0xff, 0xff, 0xff]));
+
+    const chosen = once<Room>(host, 'room:updated');
+    guest.emit('room:choose-game', { roomId: room.id, gameId: bobsGame.id, gameTitle: 'Chrono Trigger' });
+    await chosen;
+
+    const loaded = once<{ sramData: string | null }>(host, 'game:sramLoaded');
+    host.emit('game:loadSram', { roomId: room.id });
+    const payload = await loaded;
+
+    assert.ok(payload.sramData, 'the cart must not boot empty on the host\'s own battery file');
+    assert.deepEqual([...Buffer.from(payload.sramData!, 'base64')], [0xa5, 0xa5, 0x02]);
+  });
+});
+
+test('a player with no copy of the room\'s cart is refused out loud, never acknowledged', async () => {
+  await withLobby(async ({ alice, bob, gameId, client }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', { gameId, gameTitle: 'Chrono Trigger' });
+    const room = await created;
+    await seat(host, guest, room.id, bob.id);
+
+    // Bob owns nothing with this checksum: there is no row of his to write to,
+    // and a write that changes nothing must not come back as a success.
+    let acknowledged = false;
+    guest.once('game:sramSaved', () => { acknowledged = true; });
+    const refusedSave = once<{ message: string }>(guest, 'error');
+    guest.emit('game:saveSram', { roomId: room.id, sramData: Buffer.from([1, 2, 3]).toString('base64') });
+    assert.match((await refusedSave).message, /do not have a copy/i);
+    assert.equal(acknowledged, false, 'the old bug was exactly this acknowledgement');
+
+    // Nor may the refusal have reached into the host's library instead.
+    assert.equal(findGameById(db, gameId)!.sram, null);
+
+    let loadedAnyway = false;
+    guest.once('game:sramLoaded', () => { loadedAnyway = true; });
+    const refusedLoad = once<{ message: string }>(guest, 'error');
+    guest.emit('game:loadSram', { roomId: room.id });
+    assert.match((await refusedLoad).message, /do not have a copy/i);
+    assert.equal(loadedAnyway, false, 'and reading someone else\'s battery is not an answer either');
+  });
+});
+
+test('game:start is refused while no game has been chosen', async () => {
+  await withLobby(async ({ alice, bob, client, rooms }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+    await seat(host, guest, room.id, bob.id);
+
+    /*
+     * Reaching this needs a crafted client - the button is disabled and
+     * `room:create` refuses `autoStart` without a game. Guarded anyway,
+     * because the state it produces has no way out: `status` leaves `waiting`,
+     * so `room:choose-game` starts refusing, both screens render nothing, and
+     * there is no quit button on either of them.
+     */
+    let started = false;
+    guest.once('game:started', () => { started = true; });
+    const refused = once<{ message: string }>(host, 'error');
+    host.emit('game:start', { roomId: room.id });
+    assert.match((await refused).message, /No game has been chosen/);
+
+    assert.equal(started, false);
+    assert.equal(rooms.get(room.id)!.status, 'waiting', 'and the room stays where it can still be fixed');
+  });
 });
