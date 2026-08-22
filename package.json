@@ -16,6 +16,7 @@
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:ui": "playwright test --config e2e/playwright.config.ts --ui",
     "core:build": "./core/build.sh",
+    "measure:splits": "node --import tsx core/test/sweep.ts",
     "test:netplay": "node --import tsx --test core/test/netcode.test.ts core/test/relay.test.ts",
     "test:core": "node --import tsx --test core/test/determinism.test.ts core/test/lockstep.test.ts",
     "test:ui": "node --import tsx --test core/test/capture-gate.test.ts core/test/input.test.ts core/test/rom-provider.test.ts core/test/room-snapshot.test.ts core/test/thumbnail.test.ts core/test/saves-api.test.ts core/test/preset.test.ts core/test/video-surface.test.ts core/test/solo.test.ts core/test/profile.test.ts",

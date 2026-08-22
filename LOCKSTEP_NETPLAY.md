@@ -96,30 +96,72 @@ therefore needs only
 D_host + D_guest >= rtt / frameMs
 ```
 
-Neither delay has to cover the one-way trip by itself, so input latency is a
-budget the two players can split unevenly, and the split can be lopsided rather
-than merely uneven. Measured over a simulated 90ms round trip, which needs about
-5.4 frames between the two:
+Neither delay has to cover the one-way trip by itself, so on a steady link
+input latency is a budget the two players can split unevenly. But the sum is
+only half the model, and taking it for the whole of it leads to a bad setting.
 
-| split | sum | leader's stalled ticks in 10s | short end feels |
-|---|---|---|---|
-| 3 / 3 | 6 | 0 | 50ms |
-| 2 / 3 | 5 | 7245 | 33ms |
-| **1 / 5** | **6** | **0** | **17ms** |
-| 1 / 1 | 2 | 9967, and 44fps | 17ms |
+**The sum governs throughput; each delay separately governs how much jitter the
+*partner* can absorb.** A peer holding one frame of lead sends its pads 17ms
+before they are needed, so any jitter makes them late - and the peer waiting on
+them is the one that stutters, not the one that saved the latency. Whoever takes
+the small half does not pay for it; their partner pays, in late frames.
 
-Everything that reaches the budget is clean and everything under it stalls, with
-no credit for being symmetric. So a player on a game that reads input frame by
-frame can sit at one frame while their partner sits at five, and pay 17ms where
-an even split costs 50.
+Measured on the real core with Super Mario World, twenty-second windows against
+an 8/8 reference that is clean in every condition, one network seed per
+condition so the splits are comparable:
 
-`NetplaySession.setInputDelay()` does that, and needs no agreement from the peer:
-pads are keyed by absolute frame, so past the priming window the delay governs
-nothing but how far ahead a peer samples its own input. Tests hold two different
-delays over 90ms and 200ms links and check the machines stay bit-identical. The
-manual floor is one frame where the automatic one is three - the automatic value
-is symmetric, so it has to be safe for both peers at once, while a hand-set value
-is somebody deliberately trading their partner's headroom for their own.
+| link | sum that suffices | lopsided split |
+|---|---|---|
+| 60ms RTT, 3ms jitter | 4 | **works** - 1/5 and 1/3 clean, short end feels 17ms |
+| 60ms RTT, 12ms jitter | ~8 | **fails** - 4/4 clean, 1/7 drops 250-273 frames late |
+| 90ms RTT, 3ms jitter | 6 | **works** - 1/5 clean, short end feels 17ms |
+| 90ms RTT, 20ms jitter | over 8 | **fails** - nothing under 8/8 is clean |
+
+The 4/4-versus-1/7 comparison held across five seeds: the even split was clean
+on three of them and mildly lumpy on two, while the lopsided one lost 250 or
+more frames on every single seed with a worst gap of 40ms each time.
+
+So **jitter sets the delay, not latency**. Holding the round trip at 60ms and
+moving jitter from 3ms to 12ms more than doubles the delay the pair needs. That
+is also the strongest argument for a peer-to-peer data channel: TCP
+retransmission is a jitter source, and the relay runs over socket.io. Removing
+that jitter is worth more than the hop it also saves.
+
+Which is why the stats panel shows it next to the round trip. It cannot come from
+the ping - one sample every two seconds says nothing about variation at frame
+scale - so it is measured over the pad stream instead, the way RFC 3550 computes
+interarrival jitter for RTP: the running mean of how far each packet's spacing
+departs from the spacing it was sent with. Pad packets are the right carrier,
+because the peer emits one per frame it runs and each names the frame it belongs
+to, which gives the intended spacing with no clock to synchronise. Only packets
+whose newest frame has advanced are timed; every pad packet repeats recent frames
+and the engine re-sends the whole reachable range while stalled, so timing the
+rest would measure the re-send policy rather than the link.
+
+Read it as a monotone index, not a calibrated peak. Against a simulated link it
+reports roughly half the peak deviation and flattens out at the top:
+
+| link jitter | reported |
+|---|---|
+| none | 0.5ms |
+| ±5ms | 2.7ms |
+| ±10ms | 5.8ms |
+| ±20ms | 8.4ms |
+| ±40ms | 13.8ms |
+
+In the terms above, a reading under about 2ms is a link where a lopsided split is
+safe; past about 6ms, keep the split even and give the pair more total delay.
+Packet loss also raises it, which is correct: from the receiver's side, a pad
+whose replacement arrives later is indistinguishable from a late one.
+
+`NetplaySession.setInputDelay()` sets one peer's delay and needs no agreement
+from the other: pads are keyed by absolute frame, so past the priming window the
+delay governs nothing but how far ahead a peer samples its own input. Tests hold
+two different delays over 90ms and 200ms links and check the machines stay
+bit-identical. The manual floor is one frame where the automatic one is three -
+the automatic value is symmetric and has to be safe for both peers at once,
+while a hand-set value is somebody deliberately spending their partner's
+headroom, which the table above says to do only on a quiet link.
 
 Note also that a *constant* latency above `D` costs a one-off offset between the
 peers rather than frame rate. Only jitter stalls.
@@ -168,7 +210,7 @@ npm run test:all
 ```
 
 **`core/test/netcode.test.ts`** runs the real engine and the real protocol
-against `FakeCore`, a toy deterministic machine. 41 tests covering the wire
+against `FakeCore`, a toy deterministic machine. 43 tests covering the wire
 format, lockstep under 5% loss and 60ms of jitter, input-delay behaviour,
 desync detection from either side, epoch handling, savestate retransmission,
 and recovery from a total blackout.
@@ -215,6 +257,21 @@ there is none.
 **`e2e/znet-relay.spec.ts`** covers the relay against the running stack (see
 `e2e/README.md` for the prerequisites).
 
+### Measuring, as opposed to testing
+
+`npm run measure:splits` asserts nothing. It answers the question a player asks
+instead of the one a test asks: not "does it stay in sync" but "does the picture
+hold steady". `stats.stalls` cannot say, because the follower waits by
+construction and its counter climbs on a healthy link, so this stamps every
+executed frame with the clock and counts the gaps wider than 1.5 frame times.
+
+Two details it took a wrong answer to learn. It uses **one network seed per
+condition**, because a seed per row compares splits over different networks and
+makes noise look like a finding. And it prints a **generous 8/8 reference first**,
+so that lumpiness present at any delay is not attributed to the split under test.
+`-- --seeds` runs one split pair over five networks, which is what settled the
+even-versus-lopsided question above.
+
 Six real bugs were found by these tests, all before anything ran in a browser.
 Three would have hung a session permanently:
 
@@ -245,7 +302,7 @@ against the unfixed code.
 ## Status
 
 Running in production as the default mode for new rooms, and playable end to
-end. 59 tests, none skipped - 48 for the netcode and the relay, 11 against the
+end. 61 tests, none skipped - 50 for the netcode and the relay, 11 against the
 real wasm core: two independent wasm instances stay bit-identical for 1800 frames
 of pseudo-random two-player input, and full sessions over a simulated 150ms /
 60ms-jitter / 5%-loss link never diverge.
