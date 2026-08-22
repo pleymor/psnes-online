@@ -520,6 +520,10 @@
         isHost,
         // Both peers must agree on the cartridge before a single frame runs.
         romCrc: romCrc32(rom),
+        // The machine's own cadence, not an assumption. A PAL cartridge runs at
+        // 50.007Hz and its frame is 20ms, which changes both how many frames a
+        // round trip needs and what one frame of delay costs the player.
+        fps: core.fps || undefined,
         // Left unset so the host sizes it from the link it actually measures.
         // A hardcoded guess gave 5 frames on every session: fine at 62ms,
         // and one stall per frame at the 145ms the link later drifted to.

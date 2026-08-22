@@ -121,6 +121,17 @@ export interface SessionOptions {
 	retryMs?: number;
 	/** How often to measure RTT, in ms. 0 disables. */
 	pingIntervalMs?: number;
+	/**
+	 * Frames per second of the machine being emulated. PAL is 50.007, NTSC
+	 * 60.0988, and the core reports its own.
+	 *
+	 * The engine needs it twice over: the input delay is counted in frames, so
+	 * the same round trip needs fewer of the longer PAL ones; and the jitter
+	 * estimate compares each pad packet's spacing against the spacing one frame
+	 * implies, so assuming the NTSC frame on a PAL session makes every packet
+	 * look 3.36ms late and reports a steady link as jittery for ever.
+	 */
+	fps?: number;
 	/** Re-send our pads every N consecutive stalled ticks. */
 	stallResendEvery?: number;
 	readLocalInput: () => PadMask;
@@ -150,13 +161,8 @@ const MIN_MANUAL_DELAY = 1;
 /** Hard ceiling. Past sixteen frames the game is unplayable anyway. */
 const MAX_INPUT_DELAY = 16;
 
-/**
- * SNES NTSC frame time. The engine is otherwise cadence-agnostic - the governor
- * owns the clock - but the jitter estimate needs to know what spacing a pad
- * packet per frame implies, and the delay estimator already assumes the same
- * 60.0988Hz by default.
- */
-const FRAME_MS = 1000 / 60.0988;
+/** SNES NTSC, used when the caller does not say what the machine runs at. */
+const DEFAULT_FPS = 60.0988;
 
 /** Round-trip samples the host collects before sizing the input delay. */
 const SIZING_SAMPLES = 5;
@@ -183,7 +189,7 @@ const SIZING_BUDGET_MS = 700;
  * relay's route cache all waking up; it reads far above the link and never
  * repeats. Two slow samples, though, are a slow link, and those still count.
  */
-export function suggestInputDelay(samples: number[] | number, fps = 60.0988): number {
+export function suggestInputDelay(samples: number[] | number, fps = DEFAULT_FPS): number {
 	const all = typeof samples === 'number' ? [samples] : samples;
 	if (all.length === 0) return MIN_INPUT_DELAY;
 	const sorted = [...all].sort((a, b) => a - b);
@@ -191,7 +197,21 @@ export function suggestInputDelay(samples: number[] | number, fps = 60.0988): nu
 	const best = considered[0];
 	const spread = considered[considered.length - 1] - best;
 	const frameMs = 1000 / fps;
-	const needed = Math.ceil((best + spread) / 2 / frameMs) + 1;
+	/*
+	 * Two frames of margin at minimum, and the measured spread on top when it
+	 * asks for more.
+	 *
+	 * The spread was tried as a replacement for the flat two frames and that was
+	 * wrong in production: it is measured over a 300ms burst during the
+	 * handshake, and it cannot see how the relay actually delivers under play.
+	 * A real session sized this way held 0 to 2 frames of the peer's pads and
+	 * stalled twenty-four times a second - the same "50fps, stalling on almost
+	 * every frame" the flat margin had been introduced to cure. Pads do not
+	 * arrive one per frame down a TCP relay; they arrive in clumps, and the
+	 * margin is the buffer that absorbs a clump.
+	 */
+	const margin = Math.max(2, Math.ceil(spread / 2 / frameMs));
+	const needed = Math.ceil(best / 2 / frameMs) + margin;
 	return Math.max(MIN_INPUT_DELAY, Math.min(MAX_INPUT_DELAY, needed));
 }
 
@@ -249,6 +269,7 @@ export class NetplaySession implements TickSource {
 			| 'retryMs'
 			| 'pingIntervalMs'
 			| 'stallResendEvery'
+			| 'fps'
 		>
 	>;
 	private readLocalInput: () => PadMask;
@@ -378,7 +399,8 @@ export class NetplaySession implements TickSource {
 			stateChunkSize: options.stateChunkSize ?? 16 * 1024,
 			retryMs: options.retryMs ?? 1500,
 			pingIntervalMs: options.pingIntervalMs ?? 2000,
-			stallResendEvery: options.stallResendEvery ?? 8
+			stallResendEvery: options.stallResendEvery ?? 8,
+			fps: options.fps || DEFAULT_FPS
 		};
 		this.stats.inputDelay = this.opts.inputDelay;
 		this.epochMaxDelay = this.opts.inputDelay;
@@ -571,7 +593,7 @@ export class NetplaySession implements TickSource {
 				now - this.sizingSince > 1000)
 		) {
 			if (this.sizingSamples.length > 0 && this.autoInputDelay) {
-				const sized = suggestInputDelay(this.sizingSamples);
+				const sized = suggestInputDelay(this.sizingSamples, this.opts.fps);
 				if (sized !== this.opts.inputDelay) {
 					const best = Math.round(Math.min(...this.sizingSamples));
 					this.onEvent({
@@ -793,7 +815,7 @@ export class NetplaySession implements TickSource {
 
 		// What the spacing should have been: the sender emits one packet per frame
 		// it runs, so the frames between the two packets are the intended gap.
-		const expected = (newestFrame - previous.frame) * FRAME_MS;
+		const expected = ((newestFrame - previous.frame) * 1000) / this.opts.fps;
 		const drift = Math.abs(at - previous.at - expected);
 		// RFC 3550's smoothing, gain 1/16: slow enough that one reordered packet
 		// does not move the figure, quick enough to follow a route that changes.

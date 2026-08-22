@@ -41,6 +41,45 @@ function harnessOptions(frames: number, extra: Record<string, unknown> = {}) {
 	};
 }
 
+/* -------------------------------------------------------------- frame rate */
+
+test('the estimator works in the frames the machine actually runs', () => {
+	// A PAL cartridge runs at 50.007Hz, so its frame is 19.997ms rather than
+	// 16.639ms. Sizing a delay in NTSC frames for a PAL game prices the wrong
+	// unit: the same round trip needs fewer of the longer frames, and what the
+	// player feels per frame is 20ms, not 17ms.
+	const PAL = 50.006978908188586;
+	assert.equal(suggestInputDelay([200, 200, 200, 200], PAL), 8);
+	assert.equal(suggestInputDelay([200, 200, 200, 200], 60.0988), 9);
+});
+
+test('jitter is measured against the machine cadence, not an assumed one', async () => {
+	// The estimate compares each pad packet's spacing with the spacing it was
+	// sent at, which is one frame. Assume the NTSC frame on a PAL session and
+	// every packet looks 3.36ms late, so a perfectly steady link reports that
+	// as jitter for ever - which is exactly what a real PAL session reported.
+	const PAL = 50.006978908188586;
+	const reading = async (fps: number) => {
+		const harness = await NetplayHarness.create(
+			harnessOptions(6000, { link: { latency: 25, jitter: 0, seed: 90 }, inputDelay: 6, fps: PAL })
+		);
+		// The harness paces the peers at the cadence under test; the session is
+		// told the same number only in the second case.
+		harness.handshake();
+		harness.run(8_000, { fps });
+		const value = harness.host.session.getStats().jitter;
+		harness.dispose();
+		return value;
+	};
+
+	const told = await reading(PAL);
+	assert.ok(told !== null, 'a running session must produce a reading');
+	assert.ok(
+		told! < 2,
+		`a jitter-free link told the truth about its cadence must read near zero, got ${told!.toFixed(2)}ms`
+	);
+});
+
 /* ------------------------------------------------------------------- jitter */
 
 test('the reported jitter tells a calm link from a nervous one', async () => {
@@ -918,21 +957,23 @@ test('the delay estimator drops the warm-up outlier before measuring spread', ()
 	// and the relay's route cache all waking up. It is not the link, and a
 	// session sized on it pays for a latency that never comes back. One
 	// outlier is warm-up; two are a slow link, and those must still count.
-	assert.equal(suggestInputDelay([400, 40, 41, 40, 42]), 3);
+	assert.equal(suggestInputDelay([400, 40, 41, 40, 42]), 4);
 	assert.ok(
-		suggestInputDelay([400, 400, 40, 41, 40]) > 3,
+		suggestInputDelay([400, 400, 40, 41, 40]) > 4,
 		'two slow samples are a slow link, not a warm-up'
 	);
 });
 
 test('a clean link is sized more tightly than a jittery one', () => {
-	const clean = suggestInputDelay([80, 80, 81, 80, 80]);
-	const jittery = suggestInputDelay([40, 80, 120, 160, 90]);
+	// Same fastest sample in both, so only the spread can move the answer.
+	const clean = suggestInputDelay([80, 80, 80, 80, 80]);
+	const jittery = suggestInputDelay([80, 110, 140, 170, 200]);
 	assert.ok(clean < jittery, `clean=${clean} jittery=${jittery}`);
-	// The clean link must also beat the old fixed two-frame margin. That frame
-	// is what this whole change exists to reclaim, so pin it rather than
-	// asserting a direction.
-	assert.equal(clean, 4);
+	// Pinned rather than asserted as a direction: two frames of margin on a
+	// clean link is the floor a production session proved it needs, and an
+	// earlier version of this file tried to reclaim one of them and caused
+	// twenty-four stalls a second. The spread only ever adds to that floor.
+	assert.equal(clean, 5);
 });
 
 test('the estimator stays inside the bounds the priming window assumes', () => {

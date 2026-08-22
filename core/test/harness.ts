@@ -27,6 +27,8 @@ export interface HarnessOptions {
 	padRedundancy?: number;
 	retryMs?: number;
 	stateChunkSize?: number;
+	/** Emulated frames per second. PAL is 50.007, NTSC 60.0988. */
+	fps?: number;
 	/** Pads indexed by the frame they apply to. */
 	hostInput?: number[];
 	guestInput?: number[];
@@ -80,7 +82,10 @@ export class NetplayHarness {
 			crcInterval: options.crcInterval ?? 60,
 			padRedundancy: options.padRedundancy ?? 6,
 			retryMs: options.retryMs ?? 1500,
-			stateChunkSize: options.stateChunkSize ?? 16 * 1024
+			stateChunkSize: options.stateChunkSize ?? 16 * 1024,
+			// The engine has to know the machine's cadence: it sizes the delay in
+			// frames and measures jitter against the spacing one frame implies.
+			fps: options.fps
 		};
 
 		const attach = (peer: Peer, isHost: boolean, tape: number[]) => {

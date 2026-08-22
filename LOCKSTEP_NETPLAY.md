@@ -72,10 +72,20 @@ lockstep mode simply reports that the core is missing.
 - Local input read while frame `F` runs is scheduled for frame `F+D`, where `D`
   is the input delay. That delay is the window a pad packet has to cross the
   network in. It is sized from a burst of five round-trip samples during the
-  handshake, taking the fastest sample plus the spread around it and discarding
-  the single worst - a session's first ping carries the socket and the relay
-  waking up, reads far above the link, and sizing on it alone priced every match
-  for a latency that never came back.
+  handshake, taking the fastest sample and discarding the single worst - a
+  session's first ping carries the socket and the relay waking up, reads far
+  above the link, and sizing on it alone priced every match for a latency that
+  never came back. On top of the trip go **two frames of margin at minimum**,
+  plus the measured spread when it asks for more.
+
+  That floor is not caution, it is a measured requirement, and it was removed
+  once by mistake. The spread looked like a principled replacement for it, but
+  the spread is gathered over a 300ms burst during the handshake and cannot see
+  how the relay delivers under play: pads do not arrive one per frame down a TCP
+  relay, they arrive in clumps. A production session sized without the floor held
+  0 to 2 frames of the peer's pads and stalled 24 times a second; the same
+  session at two more frames of delay held 5 and stalled not at all. The margin
+  is the buffer that absorbs a clump.
 - A frame does not run until **every** player's pad for it has arrived. If a
   packet is late, the emulator waits. There is no prediction and no rollback.
 - Frames `0..D-1` are primed with neutral pads on both sides: nobody could have
@@ -210,7 +220,7 @@ npm run test:all
 ```
 
 **`core/test/netcode.test.ts`** runs the real engine and the real protocol
-against `FakeCore`, a toy deterministic machine. 43 tests covering the wire
+against `FakeCore`, a toy deterministic machine. 45 tests covering the wire
 format, lockstep under 5% loss and 60ms of jitter, input-delay behaviour,
 desync detection from either side, epoch handling, savestate retransmission,
 and recovery from a total blackout.
@@ -302,7 +312,7 @@ against the unfixed code.
 ## Status
 
 Running in production as the default mode for new rooms, and playable end to
-end. 61 tests, none skipped - 50 for the netcode and the relay, 11 against the
+end. 63 tests, none skipped - 52 for the netcode and the relay, 11 against the
 real wasm core: two independent wasm instances stay bit-identical for 1800 frames
 of pseudo-random two-player input, and full sessions over a simulated 150ms /
 60ms-jitter / 5%-loss link never diverge.
@@ -312,8 +322,9 @@ Known limits:
 - **Two players only.** The protocol carries a player index and the core
   exposes two controller ports; multitap would need both extended.
 - **The input delay is chosen once per epoch.** It comes from a real
-  measurement, but one taken during the handshake, so a link that improves
-  mid-match keeps paying the handshake's price. Adapting it while running needs
+  measurement, but one taken during the handshake - which under-reads this
+  relay: a session measured 66ms while sizing and then ran at a median of 81ms.
+  A link that improves mid-match also keeps paying the handshake's price. Adapting it while running needs
   a signal this engine does not have yet, and the obvious candidate is a trap:
   `stats.stalls` cannot serve, because in lockstep one peer leads and the other
   follows, so the follower stalls constantly on a perfectly healthy link while
