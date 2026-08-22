@@ -681,6 +681,11 @@
         desyncs: s.desyncs,
         epoch: s.epoch,
         rtt: s.rtt === null ? null : Math.round(s.rtt),
+        // Shipped alongside the round trip because it is the half that decides
+        // the delay: at a fixed 60ms round trip, 12ms of jitter needs more than
+        // twice the delay 3ms does. Without it in the log, a report of "it felt
+        // laggy" cannot be told from "the link was unsteady".
+        jitter: s.jitter === null ? null : Math.round(s.jitter * 10) / 10,
         inputDelay: s.inputDelay,
         packets: [s.packetsSent, s.packetsReceived],
         video: frame ? `${frame.width}x${frame.height}` : null,
