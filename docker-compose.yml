@@ -16,6 +16,15 @@ services:
       - DATABASE_URL=file:/app/data/dev.db
     volumes:
       - backend-data:/app/data
+      # The image bakes in the migrations it was built with (backend/Dockerfile:
+      # COPY backend/migrations ./migrations), and this service runs from the
+      # production image. So a migration added since the last build was invisible
+      # here: the runner reported "database is up to date" while the new table was
+      # missing, and the failure only surfaced later as a query against a table
+      # that did not exist. Mounting the directory means a new .sql file is picked
+      # up without a rebuild. Read-only: the runner reads these and only writes to
+      # the database.
+      - ./backend/migrations:/app/migrations:ro
     command: node dist/db/migrate-cli.js
     restart: "no"
 
