@@ -1199,3 +1199,24 @@ test('a withdrawn invitation is not reported to the invitee as one they answered
     assert.doesNotMatch(message, /answered/);
   });
 });
+
+// --- a restart is not a departure -----------------------------------------
+
+test('a restarted seat outlives a deployment, unlike a disconnected one', async () => {
+  // These two were once the same number, and the consequences ran all the way:
+  // a deploy takes two and a half to three minutes, the 45-second seat expired
+  // mid-deploy, the room emptied and was deleted, and the returning player met
+  // "Room not found" on a screen that then waited for ever. The distinction is
+  // the fix, so this guards the distinction rather than either value.
+  const { DISCONNECT_GRACE_MS, RESTART_GRACE_MS } = await import(
+    '../src/websocket/room-handlers.js'
+  );
+  assert.ok(
+    RESTART_GRACE_MS > DISCONNECT_GRACE_MS,
+    'a seat held across a restart must outlast one held across a disconnect'
+  );
+  assert.ok(
+    RESTART_GRACE_MS >= 3 * 60_000,
+    'the longest deployment observed here ran 3m12s; the grace must outlast it'
+  );
+});

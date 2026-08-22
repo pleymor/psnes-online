@@ -133,6 +133,8 @@
   let pendingInvitation: PendingInvitation | null = null;
   /** Whether a public view has landed, so the slower HTTP seed cannot overwrite it. */
   let sawRoomView = false;
+  /** Set when we could not enter at all; the screen stops waiting and says so. */
+  let entryFailed = '';
   let now = Date.now();
   let clock: ReturnType<typeof setInterval> | undefined;
 
@@ -285,6 +287,19 @@
    */
   function handleSocketError(payload: { message?: string }) {
     if (!payload?.message) return;
+    /*
+     * An error that arrives before we ever had a room is fatal for this page,
+     * not a passing complaint: it means we could not get in. Toasting it and
+     * leaving "joining the room" on screen is what made a dead room look like
+     * a slow one, for ever - the observed case being a restart that outlasted
+     * the seat's grace, after which the room was gone and every retry answered
+     * the same way. Once we are in a room, an error is an incident and the
+     * toast is right.
+     */
+    if (!room) {
+      entryFailed = payload.message;
+      return;
+    }
     showNotification(payload.message, 'error');
   }
 
@@ -707,6 +722,10 @@
         {#if !room.gameId}
           <p class="start-hint">{t($language, 'chooseGameToStart')}</p>
         {/if}
+      {:else if entryFailed}
+        <p class="entry-failed">{t($language, 'roomGone')}</p>
+        <p class="entry-failed-detail">{entryFailed}</p>
+        <a class="btn-leave" href="/">{t($language, 'backToLibrary')}</a>
       {:else}
         <p class="loading">{t($language, 'joiningRoom')}</p>
       {/if}
@@ -1052,6 +1071,18 @@
     font-size: 1.125rem;
     border-radius: 8px;
     cursor: pointer;
+  }
+
+  .entry-failed {
+    margin: 0 0 0.25rem;
+    color: #f87171;
+    font-weight: 600;
+  }
+
+  .entry-failed-detail {
+    margin: 0 0 1rem;
+    color: #9aa0b4;
+    font-size: 0.9rem;
   }
 
   .loading {

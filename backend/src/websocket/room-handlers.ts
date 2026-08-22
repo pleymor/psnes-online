@@ -670,7 +670,25 @@ async function joinRoom(
  */
 const pendingDepartures = new Map<string, NodeJS.Timeout>();
 
-const DISCONNECT_GRACE_MS = 45_000;
+export const DISCONNECT_GRACE_MS = 45_000;
+
+/**
+ * How long a seat survives a server restart, as opposed to a departure.
+ *
+ * These are not the same event and should not share a number. A disconnect may
+ * mean the player closed the tab; a restart means WE dropped everyone, through
+ * no action of theirs, and they cannot come back until the process is
+ * listening again. Forty-five seconds is shorter than that takes: a deployment
+ * here runs two and a half to three minutes, and locally the dev server
+ * rebuilds the front end while the browser reloads.
+ *
+ * When it expired the consequences ran all the way: the seat was released, the
+ * room emptied, the room was deleted, the next snapshot recorded nothing, and
+ * the returning player got "Room not found" on a screen that then sat on
+ * "joining" for ever. Five minutes outlasts every restart observed and still
+ * lets a genuinely abandoned room die.
+ */
+export const RESTART_GRACE_MS = 5 * 60_000;
 
 const departureKey = (roomId: string, userId: string) => `${roomId}:${userId}`;
 
@@ -746,7 +764,7 @@ export function holdRestoredSeat(
   displayName: string,
   getUserSocket: (id: string) => string | undefined
 ) {
-  armDeparture(departureKey(roomId, userId), DISCONNECT_GRACE_MS, () => {
+  armDeparture(departureKey(roomId, userId), RESTART_GRACE_MS, () => {
     logger.info({ roomId, userId }, 'Restored player did not come back, removing');
     void handleLeaveRoom(io, null, roomId, rooms, { id: userId, displayName } as User, getUserSocket);
   });
