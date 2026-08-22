@@ -5,9 +5,9 @@
  * regarde. Il se calcule à la lecture, en comparant le délai à un instant
  * qu'on reçoit. L'instant est un paramètre et non `Date.now()` : sans ça,
  * aucun test ne peut faire vieillir une invitation, et l'expiration est
- * précisément ce qu'il faut prouver.
- */
-/**
+ * précisément ce qu'il faut prouver. C'est pourquoi `expired` vit dans
+ * `InvitationState` et jamais dans les quatre valeurs stockables ci-dessous.
+ *
  * `cancelled` is the inviter's side withdrawing, and it is deliberately not
  * `declined`: conflating "they said no" with "I took it back" would put the
  * wrong sentence in front of the invitee and leave the table unreadable

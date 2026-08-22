@@ -3,7 +3,7 @@ import { Room, RoomPlayer, User, EmulationMode } from '../types/index.js';
 import { randomUUID } from 'crypto';
 import { getUserKeyConfig } from '../services/user-config.js';
 import { notifyFriendsRoomStatusChanged, getFriendships } from '../services/friends.js';
-import { toPublicRoom } from './room-view.js';
+import { toPublicRoom, withoutInvitation } from './room-view.js';
 import { createLogger } from '../utils/logger.js';
 import { cleanupRoomChecksums } from './sync-handlers.js';
 import { cleanupHostReady } from './p2p-handlers.js';
@@ -399,7 +399,14 @@ export function registerRoomHandlers(
         message:
           state === 'expired'
             ? 'This invitation has expired'
-            : 'This invitation has already been answered'
+            : state === 'cancelled'
+              // Nobody answered it. "Already answered" here would be the last
+              // place where withdrawing and refusing are the same sentence -
+              // the very conflation the fourth state exists to prevent - and it
+              // is what the invitee reads when their click and the cancellation
+              // cross in flight.
+              ? 'This invitation was withdrawn'
+              : 'This invitation has already been answered'
       });
       return;
     }
@@ -821,8 +828,10 @@ async function notifyFriendsAboutRoom(
   // it belongs to" - and a friend is by definition outside it. Sending the raw
   // room here handed every online friend everybody's key bindings. The friends
   // list only ever reads id, gameTitle, status and the player list, all of
-  // which the public view keeps.
-  const payload = toPublicRoom(room);
+  // which the public view keeps. Minus the pending invitation: every recipient
+  // here is by definition outside the room, and the invitee's name is not
+  // theirs to learn.
+  const payload = withoutInvitation(toPublicRoom(room));
 
   for (const friendship of friendships) {
     const friendId = friendship.initiatorId === userId ? friendship.receiverId : friendship.initiatorId;
@@ -845,16 +854,34 @@ async function broadcastRoomUpdate(
   getUserSocketId: (id: string) => string | undefined
 ) {
   const payload = toPublicRoom(room);
-  const recipients = new Set<string>(room.players.map(p => p.userId));
+  /*
+   * Two payloads, because the audience is two audiences.
+   *
+   * Everything else in this view is about the room itself, and a friend
+   * watching the lobby list is meant to see it. The pending invitation is not:
+   * it names somebody who is not in the room and may be a stranger to the
+   * friend receiving it. Members get it because the panel is built from it;
+   * everyone else gets the room without it.
+   */
+  const forOnlookers = withoutInvitation(payload);
+  const members = new Set<string>(room.players.map(p => p.userId));
+  const onlookers = new Set<string>();
 
   for (const friendship of await getFriendships(room.hostId)) {
-    recipients.add(
-      friendship.initiatorId === room.hostId ? friendship.receiverId : friendship.initiatorId
-    );
+    const friendId =
+      friendship.initiatorId === room.hostId ? friendship.receiverId : friendship.initiatorId;
+    // Disjoint from `members`, so a friend who is also a player still gets
+    // exactly one update - the fuller one.
+    if (!members.has(friendId)) onlookers.add(friendId);
   }
 
-  for (const userId of recipients) {
+  for (const userId of members) {
     const socketId = getUserSocketId(userId);
     if (socketId) io.to(socketId).emit('room:update', payload);
+  }
+
+  for (const userId of onlookers) {
+    const socketId = getUserSocketId(userId);
+    if (socketId) io.to(socketId).emit('room:update', forOnlookers);
   }
 }

@@ -9,7 +9,7 @@ import { registerP2PHandlers } from './p2p-handlers.js';
 import { registerSyncHandlers } from './sync-handlers.js';
 import { registerZnetHandlers } from './znet-handlers.js';
 import { registerRomTransferHandlers } from './rom-transfer.js';
-import { toPublicRoom, visibleRoomsFor } from './room-view.js';
+import { toPublicRoomFor, visibleRoomsFor } from './room-view.js';
 import { createLogger } from '../utils/logger.js';
 import { Presence } from './presence.js';
 
@@ -119,7 +119,9 @@ async function handleConnection(io: Server, socket: Socket) {
   // every player's keyConfig) to anyone who merely opened a socket.
   // Doubles as the "setup finished" signal for clients.
   const visible = await visibleRoomsFor(user.id, rooms);
-  socket.emit('rooms:list', visible.map(toPublicRoom));
+  // Per caller, not per room: a friend's room is listed, but the person it is
+  // waiting on is only named to the people actually in it.
+  socket.emit('rooms:list', visible.map(room => toPublicRoomFor(room, user.id)));
 
   // Notify friends that this user is now online
   await notifyFriendsStatusChanged(io, user.id, true, getUserSocket);

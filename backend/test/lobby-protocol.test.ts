@@ -44,6 +44,7 @@ const {
 const {
   registerRoomHandlers, pendingInvitationsFor, scheduleLeaveRoom, cancelScheduledLeave
 } = await import('../src/websocket/room-handlers.js');
+const { toPublicRoomFor } = await import('../src/websocket/room-view.js');
 const { registerGameHandlers } = await import('../src/websocket/game-handlers.js');
 type Room = import('../src/types/index.js').Room;
 type User = import('../src/db/types.js').User;
@@ -1110,6 +1111,25 @@ test('an invitation that has run out does not block the next one', async () => {
      */
     const ranOut = createInvitation(db, room.id, alice.id, carol.id, past());
 
+    /*
+     * Forced to the front of the ordering, and this is what makes the test a
+     * guard rather than a coin flip.
+     *
+     * `listPendingInvitationsForRoom` orders `createdAt DESC` in epoch
+     * milliseconds. Left alone, Carol's dead row and Bob's live one are written
+     * a millisecond or more apart, so Bob sorts first and an implementation
+     * that read `invitation.status` would *still* answer Bob - the assertion
+     * below would pass and the defect would survive. Only a same-millisecond
+     * tie surfaced Carol, which made detection a function of how fast the
+     * machine was: five runs in nine, measured.
+     *
+     * With Carol pinned first, a status-reading implementation always answers
+     * Carol and always fails. The correct implementation stays deterministic
+     * too, because `invitationState` drops her before ordering can matter.
+     */
+    db.prepare(`UPDATE "RoomInvitation" SET createdAt = ? WHERE id = ?`)
+      .run(Date.now() + 60_000, ranOut.id);
+
     const invited = viewWhere(host, room.id, view => Boolean(view.invitation));
     const delivered = once<{ id: string }>(guest, 'lobby:invitation');
     host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
@@ -1152,5 +1172,90 @@ test('only a member of the room may cancel its invitation, whoever sent it', asy
     host.emit('lobby:cancel', { invitationId: invitation.id });
     assert.equal((await cancelled).invitationId, invitation.id);
     assert.equal(findInvitationById(db, invitation.id)!.status, 'cancelled');
+  });
+});
+
+test('the invitee\'s name reaches the room, and stops there', async () => {
+  await withLobby(async ({ alice, bob, client, rooms }) => {
+    const host = await client(alice);
+
+    /*
+     * A friend of Alice's who is not in the room and has never met Bob.
+     *
+     * The public view goes to the host's friends as well as to the room's
+     * players, which is right for everything else it carries - a friend
+     * watching the lobby list is meant to see the room. The invitation is
+     * different: it names a third person, with their display name and their
+     * avatar. Alice inviting Bob is between Alice and Bob.
+     *
+     * Befriended before the room exists, and that ordering is load-bearing:
+     * `services/friends.getFriendships` caches for thirty seconds, and
+     * `room:create` warms that cache. A friendship accepted after it would not
+     * be seen by any broadcast this test could then make, and the assertion
+     * below would pass for the wrong reason - Dave receiving nothing at all.
+     */
+    const dave = findUserById(db, insertUser(db, { id: `${alice.id}-dave`, displayName: 'Dave' }).id)!;
+    acceptFriendship(db, createFriendshipRequest(db, alice.id, dave.id).id);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const onlooker = await client(dave);
+
+    const memberView = viewWhere(host, room.id, view => Boolean(view.invitation));
+    // The first public view Dave ever sees for this room: he came online after
+    // it was created, so nothing has reached him before this broadcast.
+    const onlookerView = viewWhere(onlooker, room.id, () => true);
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+
+    assert.equal((await memberView).invitation?.toDisplayName, 'Bob',
+      'a member has to see it, or the panel this feature is made of cannot exist');
+    assert.equal((await onlookerView).invitation, undefined,
+      'and an onlooker never learns who was invited');
+
+    /*
+     * The same scoping on the two list paths, which hand out the identical
+     * view: `rooms:list` at connection time and GET /api/rooms. Called
+     * directly - this harness registers only the room handlers, so neither
+     * list is reachable over the socket here, and leaving them uncovered is
+     * how three of the four call sites would drift apart.
+     */
+    const live = rooms.get(room.id)!;
+    assert.ok(toPublicRoomFor(live, alice.id).invitation, 'a member listing rooms still sees it');
+    assert.equal(toPublicRoomFor(live, dave.id).invitation, undefined,
+      'and listing a friend\'s room does not extend to whom they invited');
+  });
+});
+
+test('a withdrawn invitation is not reported to the invitee as one they answered', async () => {
+  await withLobby(async ({ alice, bob, client }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const invitationId = (await delivered).id;
+
+    const cancelled = once(host, 'lobby:cancelled');
+    host.emit('lobby:cancel', { invitationId });
+    await cancelled;
+
+    /*
+     * The mid-click race, which is the only way a real invitee reaches this:
+     * their tray still holds the row when the cancellation lands. Nobody
+     * answered anything, so the sentence must not say they did - that is the
+     * conflation the fourth status exists to prevent, and this is the last
+     * place it survived.
+     */
+    const refused = once<{ message: string }>(guest, 'error');
+    guest.emit('lobby:accept', { invitationId });
+    const message = (await refused).message;
+    assert.match(message, /withdrawn/);
+    assert.doesNotMatch(message, /answered/);
   });
 });

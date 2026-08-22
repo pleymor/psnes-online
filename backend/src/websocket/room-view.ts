@@ -107,6 +107,41 @@ export function toPublicRoom(room: Room) {
   };
 }
 
+/** What every caller of `toPublicRoom` hands on. */
+export type PublicRoom = ReturnType<typeof toPublicRoom>;
+
+/**
+ * The same view with the pending invitation taken out.
+ *
+ * The invitation names a *third* person - display name and avatar - and the
+ * public view travels a long way past the room: `broadcastRoomUpdate` and
+ * `notifyFriendsAboutRoom` send it to every online friend of the host, and
+ * `rooms:list` and GET /api/rooms serve it to anyone who can see the room at
+ * all. Alice inviting Bob is between Alice and Bob; a friend of Alice's who has
+ * never met Bob has no business learning his name from her lobby.
+ *
+ * Nothing renders it today, which is exactly why it has to be cut here rather
+ * than in the screens: the next reader of this payload would inherit the leak
+ * without ever being told there was one.
+ */
+export function withoutInvitation(view: PublicRoom): PublicRoom {
+  return { ...view, invitation: undefined };
+}
+
+/**
+ * The view as `userId` is entitled to see it: with the invitation if they are
+ * in the room, without it otherwise.
+ *
+ * For the list paths, which build one view per room for one specific caller.
+ * `broadcastRoomUpdate` does not use this - it has many recipients for one
+ * room, so it builds the view once and strips a copy, rather than paying for
+ * the whole thing again per friend.
+ */
+export function toPublicRoomFor(room: Room, userId: string): PublicRoom {
+  const view = toPublicRoom(room);
+  return room.players.some(p => p.userId === userId) ? view : withoutInvitation(view);
+}
+
 /** User ids whose rooms `userId` is allowed to see: themselves plus friends. */
 export async function roomAudienceFor(userId: string): Promise<Set<string>> {
   const friendships = await getFriendships(userId);
