@@ -584,6 +584,31 @@
       ...(session?.getStats() ?? {})
     });
 
+    /*
+     * The one writable handle in a production build, and a deliberate
+     * exception to the rule above.
+     *
+     * Input latency is a budget the two players share rather than one each
+     * pays: a frame only needs the peer's pad from `Dpeer` frames back, which
+     * the peer could only send once it held ours from `Dours` frames before
+     * that, so sixty frames per second survives on any split where
+     * `Dhost + Dguest >= rtt / frameMs`. A player on a game that reads frame by
+     * frame can take three frames while the other takes nine, and neither has
+     * to cover the one-way trip alone.
+     *
+     * Which split is worth having is a question about how the game feels, so it
+     * cannot be answered anywhere but on a real link in a real match. Both
+     * players call this, each with their own number. Calling it pins the delay
+     * for this peer, so the handshake's measurement will not undo it; a resync
+     * still re-imposes the host's value on the guest, because priming the
+     * startup pads is the one place the two really must agree.
+     */
+    w.__znetDelay = (frames?: number) => {
+      if (!session) return null;
+      if (typeof frames === 'number') session.setInputDelay(frames);
+      return session.inputDelay;
+    };
+
     if (!import.meta.env.DEV) return;
 
     w.__znetEvents = [];

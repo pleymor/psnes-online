@@ -11,7 +11,7 @@ export { PsnesCore } from './core.js';
 export type { PsnesCoreModule, PsnesCoreFactory, VideoFrame, VideoSurface } from './core.js';
 export { loadCore, coreAvailable } from './loader.js';
 
-export { NetplaySession } from './session.js';
+export { NetplaySession, suggestInputDelay } from './session.js';
 export type {
 	NetplayCore,
 	SessionEvent,
@@ -76,22 +76,4 @@ let CRC_TABLE: Uint32Array | null = null;
  */
 export function normaliseRom(data: Uint8Array): Uint8Array {
 	return data.length % 1024 === 512 ? data.subarray(512) : data;
-}
-
-/**
- * Picks an input delay from the measured round trip.
- *
- * One extra frame of margin beyond the strict requirement: at exactly the
- * threshold, ordinary jitter puts a pad packet one frame late and the session
- * stalls constantly. ZSNES exposes this as a manual setting; the automatic
- * value is a starting point, not a policy.
- */
-export function suggestInputDelay(rttMs: number, fps = 60.0988): number {
-	const frameMs = 1000 / fps;
-	// One-way latency, plus two frames of margin rather than one. A single
-	// frame of headroom is eaten by ordinary jitter: at 120ms round trip the
-	// old formula gave 5 frames for a 60ms one-way trip - 23ms of slack - and
-	// the session ran at 50fps, stalling on almost every frame.
-	const needed = Math.ceil(rttMs / 2 / frameMs) + 2;
-	return Math.max(3, Math.min(16, needed));
 }

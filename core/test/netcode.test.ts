@@ -18,7 +18,11 @@ import {
 	encode,
 	type NetMsg
 } from '../../frontend/src/lib/znet/protocol.js';
-import { NetplaySession, type SessionEvent } from '../../frontend/src/lib/znet/session.js';
+import {
+	NetplaySession,
+	suggestInputDelay,
+	type SessionEvent
+} from '../../frontend/src/lib/znet/session.js';
 import { SimulatedLink } from '../../frontend/src/lib/znet/transport.js';
 import { FakeCore } from './fake-core.js';
 import { NetplayHarness } from './harness.js';
@@ -727,6 +731,91 @@ test('a pinned input delay is never overridden by the measurement', async () => 
 
 	assert.equal(harness.host.session.inputDelay, 4, 'the pinned value must survive');
 	assert.equal(harness.guest.session.inputDelay, 4);
+	harness.dispose();
+});
+
+/* ------------------------------------------------------- sizing the delay */
+
+test('the delay estimator drops the warm-up outlier before measuring spread', () => {
+	// The first round trip of a session carries the socket, the TLS handshake
+	// and the relay's route cache all waking up. It is not the link, and a
+	// session sized on it pays for a latency that never comes back. One
+	// outlier is warm-up; two are a slow link, and those must still count.
+	assert.equal(suggestInputDelay([400, 40, 41, 40, 42]), 3);
+	assert.ok(
+		suggestInputDelay([400, 400, 40, 41, 40]) > 3,
+		'two slow samples are a slow link, not a warm-up'
+	);
+});
+
+test('a clean link is sized more tightly than a jittery one', () => {
+	const clean = suggestInputDelay([80, 80, 81, 80, 80]);
+	const jittery = suggestInputDelay([40, 80, 120, 160, 90]);
+	assert.ok(clean < jittery, `clean=${clean} jittery=${jittery}`);
+	// The clean link must also beat the old fixed two-frame margin. That frame
+	// is what this whole change exists to reclaim, so pin it rather than
+	// asserting a direction.
+	assert.equal(clean, 4);
+});
+
+test('the estimator stays inside the bounds the priming window assumes', () => {
+	assert.equal(suggestInputDelay([1, 1, 1]), 3, 'a LAN still gets the floor');
+	assert.equal(suggestInputDelay([4000, 4000, 4000]), 16, 'a hopeless link is capped');
+});
+
+test('the two delays only have to cover the round trip between them', async () => {
+	// The constraint is on the sum, not on each peer. Frame F on one side needs
+	// the other's pad, emitted D frames earlier, so a steady 60fps requires
+	// `guest_t(F) >= host_t(F - Dh) + L` and the mirror of it; adding the two
+	// leaves `Dh + Dg >= RTT / frameMs`. Neither delay has to cover the one-way
+	// trip on its own, which is what makes the budget transferable: a player who
+	// cannot stand the lag can take the small half of it.
+	const rttFrames = Math.ceil(200 / (1000 / 60.0988)); // 100ms each way
+	const harness = await NetplayHarness.create(
+		harnessOptions(20000, { link: { latency: 100, jitter: 2, seed: 86 }, inputDelay: 8 })
+	);
+	harness.handshake(30_000);
+
+	// Three frames for one player and thirteen for the other: the small half is
+	// well under the six frames the one-way trip alone would demand.
+	harness.host.session.setInputDelay(3);
+	harness.guest.session.setInputDelay(13);
+	assert.ok(3 + 13 >= rttFrames, `the split must still cover the round trip`);
+
+	const before = harness.host.session.getStats().framesRun;
+	harness.run(10_000);
+	const ran = harness.host.session.getStats().framesRun - before;
+
+	// A split that covers the round trip runs at full speed; the latency shows
+	// up as a one-off offset between the peers, not as lost frames.
+	assert.ok(ran > 560, `expected close to 600 frames in 10s, ran ${ran}`);
+	assert.equal(harness.firstDivergence(), null);
+	harness.dispose();
+});
+
+test('peers stay bit-identical while holding different input delays', async () => {
+	// The invariant the whole ratchet rests on: pads are keyed by absolute
+	// frame, so past the startup priming window the delay governs nothing but
+	// how far ahead a peer samples its own input. If that were wrong, two peers
+	// stepping down at different moments would desync, and the ratchet would
+	// need a synchronised switch and a protocol change to go with it.
+	const harness = await NetplayHarness.create(
+		harnessOptions(6000, { link: { latency: 30, jitter: 5, seed: 85 }, inputDelay: 8 })
+	);
+	harness.handshake();
+	harness.run(3_000);
+	harness.clearLogs();
+
+	harness.host.session.setInputDelay(4);
+	harness.run(6_000);
+
+	assert.notEqual(
+		harness.host.session.inputDelay,
+		harness.guest.session.inputDelay,
+		'the test proves nothing unless the two really differ'
+	);
+	assert.equal(harness.firstDivergence(), null);
+	assert.ok(harness.comparedFrames > 200, `only ${harness.comparedFrames} frames were compared`);
 	harness.dispose();
 });
 

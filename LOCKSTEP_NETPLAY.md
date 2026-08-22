@@ -71,7 +71,11 @@ lockstep mode simply reports that the core is missing.
 
 - Local input read while frame `F` runs is scheduled for frame `F+D`, where `D`
   is the input delay. That delay is the window a pad packet has to cross the
-  network in.
+  network in. It is sized from a burst of five round-trip samples during the
+  handshake, taking the fastest sample plus the spread around it and discarding
+  the single worst - a session's first ping carries the socket and the relay
+  waking up, reads far above the link, and sizing on it alone priced every match
+  for a latency that never came back.
 - A frame does not run until **every** player's pad for it has arrived. If a
   packet is late, the emulator waits. There is no prediction and no rollback.
 - Frames `0..D-1` are primed with neutral pads on both sides: nobody could have
@@ -82,6 +86,25 @@ lockstep mode simply reports that the core is missing.
 - Every `crcInterval` frames both peers exchange a checksum. A mismatch makes
   the host ship a full savestate; both sides restart from it under a new
   *epoch*, and packets tagged with the old epoch are discarded.
+
+`D` is not really a per-peer quantity, which is worth knowing before touching
+it. Frame `F` needs the peer's pad from `F - D_peer`, which the peer could only
+have sent once it held ours from `F - D_peer - D_ours`. A sustained 60fps
+therefore needs only
+
+```
+D_host + D_guest >= rtt / frameMs
+```
+
+Neither delay has to cover the one-way trip by itself, so input latency is a
+budget the two players can split unevenly: a 120ms link needs about eight frames
+between them, and whoever minds the lag most can take three while the other
+takes nine. `NetplaySession.setInputDelay()` does that. It needs no agreement
+from the peer, because pads are keyed by absolute frame and past the priming
+window the delay governs nothing but how far ahead a peer samples its own input;
+a test holds two different delays over a 200ms link and checks the two machines
+stay bit-identical. Note also that a *constant* latency above `D` costs a
+one-off offset between the peers rather than frame rate. Only jitter stalls.
 
 The trade-off against rollback is explicit. Lockstep costs `D` frames of input
 latency and freezes when the network does, and in exchange it cannot produce
@@ -126,7 +149,7 @@ npm run test:all
 ```
 
 **`core/test/netcode.test.ts`** runs the real engine and the real protocol
-against `FakeCore`, a toy deterministic machine. 19 tests covering the wire
+against `FakeCore`, a toy deterministic machine. 35 tests covering the wire
 format, lockstep under 5% loss and 60ms of jitter, input-delay behaviour,
 desync detection from either side, epoch handling, savestate retransmission,
 and recovery from a total blackout.
@@ -175,17 +198,25 @@ against the unfixed code.
 ## Status
 
 Running in production as the default mode for new rooms, and playable end to
-end. 43 tests, none skipped: two independent wasm instances stay bit-identical
-for 1800 frames of pseudo-random two-player input, and full sessions over a
-simulated 150ms / 60ms-jitter / 5%-loss link never diverge.
+end. 53 tests, none skipped - 42 for the netcode and the relay, 11 against the
+real wasm core: two independent wasm instances stay bit-identical for 1800 frames
+of pseudo-random two-player input, and full sessions over a simulated 150ms /
+60ms-jitter / 5%-loss link never diverge.
 
 Known limits:
 
 - **Two players only.** The protocol carries a player index and the core
   exposes two controller ports; multitap would need both extended.
-- **The input delay is chosen once**, from a hardcoded 120ms assumption rather
-  than the round trip the session goes on to measure. ZSNES also treats it as a
-  fixed setting, but the value should come from the measurement.
+- **The input delay is chosen once per epoch.** It comes from a real
+  measurement, but one taken during the handshake, so a link that improves
+  mid-match keeps paying the handshake's price. Adapting it while running needs
+  a signal this engine does not have yet, and the obvious candidate is a trap:
+  `stats.stalls` cannot serve, because in lockstep one peer leads and the other
+  follows, so the follower stalls constantly on a perfectly healthy link while
+  the leader never stalls at all. Measured on a 30ms link, the guest logged 494
+  stall episodes over ten seconds and the host zero. The signal that does mean
+  something is the sustained frame rate, since the pair can only hold 60fps when
+  the two delays cover the round trip between them.
 - **A hidden window keeps emulating** by design, driven by a worker timer,
   because a paused peer freezes its partner. That is a deliberate departure
   from what a solo emulator should do.

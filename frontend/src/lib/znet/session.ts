@@ -130,16 +130,46 @@ export interface SessionOptions {
 
 const PLAYER_COUNT = 2;
 
+/** Hard floor on the input delay. Below three frames a stall is the norm. */
+const MIN_INPUT_DELAY = 3;
+/** Hard ceiling. Past sixteen frames the game is unplayable anyway. */
+const MAX_INPUT_DELAY = 16;
+
+/** Round-trip samples the host collects before sizing the input delay. */
+const SIZING_SAMPLES = 5;
+/** Gap between the pings of the sizing burst, in ms. */
+const SIZING_PING_GAP_MS = 60;
+/** How long the host waits for the burst before sizing on what it has. */
+const SIZING_BUDGET_MS = 700;
 /**
- * Frames of input delay for a given round trip.
+ * Frames of input delay for a set of round-trip samples.
  *
- * Duplicated from suggestInputDelay in index.ts rather than imported: this
- * file is deliberately free of imports beyond the protocol and transport, so
- * the netcode can be tested without pulling in the browser-facing barrel.
+ * Lives here rather than in the barrel so the netcode keeps a single copy of
+ * it: this file is deliberately free of imports beyond the protocol and the
+ * transport, and index.ts re-exports this function rather than restating it.
+ *
+ * The question is "how long does a pad packet realistically take to arrive",
+ * not "what was the average round trip". So the estimate works from the
+ * fastest sample plus the spread around it - the pessimistic trip - and adds
+ * one frame of slack. The old formula used a single sample and a flat
+ * two-frame margin, which overpaid on a clean link and underpaid on a
+ * jittery one.
+ *
+ * The single worst sample is discarded before the spread is measured. A
+ * session's first round trip carries the socket, the TLS session and the
+ * relay's route cache all waking up; it reads far above the link and never
+ * repeats. Two slow samples, though, are a slow link, and those still count.
  */
-function suggestedDelay(rttMs: number, fps = 60.0988): number {
+export function suggestInputDelay(samples: number[] | number, fps = 60.0988): number {
+	const all = typeof samples === 'number' ? [samples] : samples;
+	if (all.length === 0) return MIN_INPUT_DELAY;
+	const sorted = [...all].sort((a, b) => a - b);
+	const considered = sorted.length >= 3 ? sorted.slice(0, -1) : sorted;
+	const best = considered[0];
+	const spread = considered[considered.length - 1] - best;
 	const frameMs = 1000 / fps;
-	return Math.max(3, Math.min(16, Math.ceil(rttMs / 2 / frameMs) + 2));
+	const needed = Math.ceil((best + spread) / 2 / frameMs) + 1;
+	return Math.max(MIN_INPUT_DELAY, Math.min(MAX_INPUT_DELAY, needed));
 }
 
 /** Reships tolerated before a host gives up and restarts the handshake. */
@@ -235,8 +265,22 @@ export class NetplaySession implements TickSource {
 
 	/** When the host started waiting for a round-trip sample before shipping. */
 	private sizingSince = 0;
+	/** Raw round-trip samples gathered during the sizing burst. */
+	private sizingSamples: number[] = [];
+	/** Pings the sizing burst has sent so far. */
+	private sizingPings = 0;
 	/** False when the caller pinned the delay, so measurement must not override it. */
-	private readonly autoInputDelay: boolean;
+	private autoInputDelay: boolean;
+
+	/**
+	 * Largest delay used this epoch.
+	 *
+	 * The stall re-send and the history pruner have to reach back as far as the
+	 * peer might still be lagging, which the biggest delay either side has used
+	 * sets - not the current one. Shrinking these windows along with the delay
+	 * would reopen the deadlock the re-send exists to break.
+	 */
+	private epochMaxDelay = 0;
 
 	/** Reships of the current state that have gone unacknowledged. */
 	private shipAttempts = 0;
@@ -288,6 +332,7 @@ export class NetplaySession implements TickSource {
 			stallResendEvery: options.stallResendEvery ?? 8
 		};
 		this.stats.inputDelay = this.opts.inputDelay;
+		this.epochMaxDelay = this.opts.inputDelay;
 
 		this.transport.onMessage((data) => this.handleMessage(data));
 	}
@@ -302,6 +347,60 @@ export class NetplaySession implements TickSource {
 
 	get inputDelay(): number {
 		return this.opts.inputDelay;
+	}
+
+	/**
+	 * Overrides the input delay for this peer alone.
+	 *
+	 * Needs no agreement from the peer, which is the useful part: pads are
+	 * keyed by absolute frame, so past the startup priming window the delay
+	 * governs nothing but how far ahead this side samples its own input.
+	 *
+	 * That makes input latency a budget the two players can split unevenly.
+	 * Sixty frames per second is sustainable whenever the two delays cover the
+	 * round trip between them - `Dh + Dg >= rtt / frameMs`, because a frame
+	 * needs the peer's pad from `Dh` frames ago and the peer's needed ours from
+	 * `Dg` frames before that - so a player who cannot stand the lag can take
+	 * three frames while the other takes nine. Neither has to cover the one-way
+	 * trip alone.
+	 *
+	 * Pins the delay, the same way passing `inputDelay` to the constructor
+	 * does, so measurement will not undo it. A resync still re-imposes the
+	 * host's value on the guest: priming the startup pads does require the two
+	 * to agree.
+	 */
+	setInputDelay(frames: number): void {
+		this.autoInputDelay = false;
+		this.setDelay(Math.max(MIN_INPUT_DELAY, Math.min(MAX_INPUT_DELAY, Math.round(frames))));
+	}
+
+	private setDelay(frames: number): void {
+		const previous = this.opts.inputDelay;
+		this.opts.inputDelay = frames;
+		this.stats.inputDelay = frames;
+		this.epochMaxDelay = Math.max(this.epochMaxDelay, frames);
+
+		if (frames <= previous || this._state !== 'running') return;
+
+		/*
+		 * Raising the delay leaves a hole, and the hole is permanent.
+		 *
+		 * `tick()` only ever fills `frame + delay`, one entry per executed
+		 * frame. Push the horizon out by four frames and the four between the
+		 * old horizon and the new one are skipped for good: nothing targets
+		 * them again as `frame` advances, so the peer waits on pads that will
+		 * never be sent and the session wedges a few frames later.
+		 *
+		 * Repeat the newest pad across the gap. It is the only value available
+		 * without inventing input the player never gave, and repeating recent
+		 * frames is what the pad packets do anyway.
+		 */
+		const mine = this.pads[this.playerIndex];
+		const last = mine.get(this.frame + previous) ?? 0;
+		for (let f = this.frame + previous + 1; f <= this.frame + frames; f++) {
+			if (!mine.has(f)) mine.set(f, last);
+		}
+		this.sendPadRange(this.frame + previous + 1, this.frame + frames);
 	}
 
 	get rtt(): number | null {
@@ -376,26 +475,51 @@ export class NetplaySession implements TickSource {
 			this.sendHello();
 		}
 
-		// Ship the initial state once the link has been measured, or after a
-		// second if it stays quiet - a session that never starts is worse than
-		// one sized on the default.
+		/*
+		 * Keep the sizing burst going.
+		 *
+		 * The delay for the whole session comes out of these few samples, and
+		 * one sample is the worst possible basis: a session's first round trip
+		 * carries the socket and the relay waking up and reads far above the
+		 * link, so sizing on it priced every match for a latency that never
+		 * came back. The pings go out back to back rather than at the leisurely
+		 * running interval, which spends a few hundred milliseconds of
+		 * handshake instead of a frame of latency for the whole session.
+		 */
 		if (
 			this.isHost &&
 			this._state === 'syncing' &&
 			this.stateShippedAt === 0 &&
 			this.sizingSince > 0 &&
-			(this._rtt !== null || now - this.sizingSince > 1000)
+			this.sizingPings < SIZING_SAMPLES &&
+			now - this.lastPingAt >= SIZING_PING_GAP_MS
 		) {
-			if (this._rtt !== null && this.autoInputDelay) {
-				const sized = suggestedDelay(this._rtt);
+			this.sizingPings++;
+			this.ping();
+		}
+
+		// Ship the initial state once the burst is in, or anyway if the link
+		// stays quiet - a session that never starts is worse than one sized on
+		// the default.
+		if (
+			this.isHost &&
+			this._state === 'syncing' &&
+			this.stateShippedAt === 0 &&
+			this.sizingSince > 0 &&
+			(this.sizingSamples.length >= SIZING_SAMPLES ||
+				(this.sizingSamples.length > 0 && now - this.sizingSince > SIZING_BUDGET_MS) ||
+				now - this.sizingSince > 1000)
+		) {
+			if (this.sizingSamples.length > 0 && this.autoInputDelay) {
+				const sized = suggestInputDelay(this.sizingSamples);
 				if (sized !== this.opts.inputDelay) {
+					const best = Math.round(Math.min(...this.sizingSamples));
 					this.onEvent({
 						type: 'state',
-						message: `input delay ${sized} frames for ${Math.round(this._rtt)}ms`
+						message: `input delay ${sized} frames from ${this.sizingSamples.length} samples, best ${best}ms`
 					});
 				}
-				this.opts.inputDelay = sized;
-				this.stats.inputDelay = sized;
+				this.setDelay(sized);
 			}
 			this.sizingSince = 0;
 			this.resetTimeline(this.core.frame);
@@ -492,7 +616,7 @@ export class NetplaySession implements TickSource {
 				// `inputDelay + 1` frames behind us, so a window shorter than
 				// that leaves a hole the re-send never fills and the deadlock
 				// this exists to break simply persists.
-				this.sendPadRange(this.frame - this.opts.inputDelay - 1, target);
+				this.sendPadRange(this.frame - this.epochMaxDelay - 1, target);
 			}
 			this.stallCounter++;
 			return 'stalled';
@@ -642,7 +766,7 @@ export class NetplaySession implements TickSource {
 	private pruneHistory(): void {
 		// Keep well clear of the re-send window: a pruned pad is one we can no
 		// longer retransmit, and the peer may still be waiting for it.
-		const cutoff = this.frame - Math.max(120, this.opts.inputDelay * 4);
+		const cutoff = this.frame - Math.max(120, this.epochMaxDelay * 4);
 		if (cutoff <= this.baseFrame) return;
 		for (let p = 0; p < PLAYER_COUNT; p++) {
 			for (const f of this.pads[p].keys()) {
@@ -721,6 +845,10 @@ export class NetplaySession implements TickSource {
 		this.pads = [new Map(), new Map()];
 		this.localCrcs.clear();
 		this.remoteCrcs.clear();
+		// A new epoch starts from whatever delay the two peers have just agreed
+		// on, so the window that has to reach back over a delay change starts
+		// there too.
+		this.epochMaxDelay = this.opts.inputDelay;
 		this.primeStartupPads(from);
 	}
 
@@ -795,6 +923,10 @@ export class NetplaySession implements TickSource {
 				if (sentAt === undefined) return;
 				this.pendingPings.delete(msg.id);
 				const sample = this.now() - sentAt;
+				// Kept raw, and kept apart from the smoothed number below: the
+				// delay is sized from the spread across these samples, which an
+				// average has already thrown away.
+				if (this.sizingSince > 0) this.sizingSamples.push(sample);
 				// Light smoothing: a single outlier should not move the number
 				// the UI shows, but it should still track a real route change.
 				this._rtt = this._rtt === null ? sample : this._rtt * 0.7 + sample * 0.3;
@@ -831,6 +963,8 @@ export class NetplaySession implements TickSource {
 			 */
 			this.setState('syncing');
 			this.sizingSince = this.now();
+			this.sizingSamples = [];
+			this.sizingPings = 1;
 			this.ping();
 			return;
 		}
