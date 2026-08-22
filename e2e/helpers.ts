@@ -83,6 +83,41 @@ export async function befriendDevUsers(c1: string, c2: string) {
   return friendship;
 }
 
+/**
+ * Seats a guest the way the application now actually requires: as an
+ * invitee, not a trespasser. `room:join` refuses anyone who is not already a
+ * player, so getting a second party into a room means friending the two dev
+ * users first (an invitation can only be sent to an accepted friend, and
+ * `lobby:invite` refuses otherwise) - skipped if they already are, so a spec
+ * that calls this more than once does not keep tearing down and rebuilding
+ * the friendship - then sending the invitation from the host and accepting
+ * it from the guest. Resolves with the `room:updated` payload the guest
+ * receives once it has actually taken its seat, or null if it never arrived,
+ * the same contract `waitForEvent` itself has.
+ */
+export async function seatGuestByInvitation(
+  hostCookie: string,
+  guestCookie: string,
+  host: Socket,
+  guest: Socket,
+  roomId: string,
+  guestUserId: string
+): Promise<unknown> {
+  const friends: Array<{ friend: { id: string } }> = await apiFetch(hostCookie, '/api/friends').then(r => r.json());
+  if (!friends.some(f => f.friend.id === guestUserId)) {
+    await befriendDevUsers(hostCookie, guestCookie);
+  }
+
+  const invited = waitForEvent<{ id: string }>(guest, 'lobby:invitation', 5000);
+  host.emit('lobby:invite', { roomId, friendId: guestUserId });
+  const invitation = await invited;
+  if (!invitation) return null;
+
+  const seated = waitForEvent(guest, 'room:updated', 5000);
+  guest.emit('lobby:accept', { invitationId: invitation.id });
+  return seated;
+}
+
 export const serverIsHealthy = async () =>
   fetch(`${API}/health`)
     .then(r => r.ok)

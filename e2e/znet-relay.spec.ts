@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { Socket } from 'socket.io-client';
 import {
-  loginDev, apiFetch, connectSocket, createRoom, waitForEvent, clearFriendships
+  loginDev, connectSocket, createRoom, waitForEvent, clearFriendships, seatGuestByInvitation
 } from './helpers';
 
 /**
@@ -30,13 +30,19 @@ test.describe('znet relay', () => {
     guest?.close();
   });
 
+  /**
+   * The invitation is the only door in now: seats the guest for real rather
+   * than letting it let itself in, the way a raw `room:join` used to.
+   */
+  async function joinAsGuest(roomId: string) {
+    const seated = await seatGuestByInvitation(hostCookie, guestCookie, host, guest, roomId, 'dev-user-2');
+    if (!seated) throw new Error('guest was never seated');
+  }
+
   test('the room host takes player slot 1 and a member takes slot 2', async () => {
     const room = await createRoom(host, 'Znet Slots');
 
-    await apiFetch(guestCookie, `/api/rooms/${room.id}/join`, { method: 'POST' }).catch(() => {});
-    const joined = waitForEvent<any>(guest, 'room:updated', 5000);
-    guest.emit('room:join', { roomId: room.id });
-    await joined;
+    await joinAsGuest(room.id);
 
     const hostJoined = waitForEvent<any>(host, 'znet:joined', 5000);
     host.emit('znet:join', { roomId: room.id });
@@ -60,9 +66,7 @@ test.describe('znet relay', () => {
 
   test('packets cross the relay byte for byte', async () => {
     const room = await createRoom(host, 'Znet Relay');
-    const joined = waitForEvent<any>(guest, 'room:updated', 5000);
-    guest.emit('room:join', { roomId: room.id });
-    await joined;
+    await joinAsGuest(room.id);
 
     host.emit('znet:join', { roomId: room.id });
     await waitForEvent(host, 'znet:joined', 5000);
@@ -106,9 +110,7 @@ test.describe('znet relay', () => {
 
   test('an oversized packet is dropped without breaking the connection', async () => {
     const room = await createRoom(host, 'Znet Size');
-    const joined = waitForEvent<any>(guest, 'room:updated', 5000);
-    guest.emit('room:join', { roomId: room.id });
-    await joined;
+    await joinAsGuest(room.id);
 
     host.emit('znet:join', { roomId: room.id });
     await waitForEvent(host, 'znet:joined', 5000);

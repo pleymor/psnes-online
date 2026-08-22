@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { Socket } from 'socket.io-client';
 import {
   loginDev, apiFetch, connectSocket, createRoom, waitForEvent,
-  clearFriendships, befriendDevUsers
+  clearFriendships, befriendDevUsers, seatGuestByInvitation
 } from './helpers';
 
 // Events a non-member must never be able to trigger on someone else's room.
@@ -65,9 +65,12 @@ test.describe('room authorization', () => {
   test('a guest who joined the room is allowed to act', async () => {
     const room = await createRoom(host, 'Guest Flow Test');
 
-    const joined = waitForEvent(outsider, 'room:updated', 4000);
-    outsider.emit('room:join', { roomId: room.id });
-    expect(await joined, 'guest must be able to join').not.toBeNull();
+    // `outsider` stops being one here on purpose: the invitation is the only
+    // door in now, so this is what turning it into a genuine member takes -
+    // and the point of the test below is what a genuine member, as opposed
+    // to the host, is allowed to do.
+    const joined = await seatGuestByInvitation(c1, c2, host, outsider, room.id, 'dev-user-2');
+    expect(joined, 'guest must be able to join').not.toBeNull();
 
     // Guests legitimately pause/resume/quit, so membership (not host-only) is
     // the correct gate.

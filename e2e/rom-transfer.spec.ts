@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { Socket } from 'socket.io-client';
 
-import { loginDev, apiFetch, connectSocket, createRoom, waitForEvent, clearFriendships } from './helpers';
+import { loginDev, connectSocket, createRoom, waitForEvent, clearFriendships, seatGuestByInvitation } from './helpers';
 import { crc32 } from '../frontend/src/lib/roms/checksum';
 import { ChunkAssembler, toChunks, type ChunkMessage } from '../frontend/src/lib/roms/transfer';
 
@@ -40,10 +40,10 @@ test.describe('ROM transfer', () => {
 
 	async function roomWithBoth(title: string) {
 		const room = await createRoom(host, title);
-		await apiFetch(guestCookie, `/api/rooms/${room.id}/join`, { method: 'POST' }).catch(() => {});
-		const joined = waitForEvent<unknown>(guest, 'room:updated', 5000);
-		guest.emit('room:join', { roomId: room.id });
-		await joined;
+		// The invitation is the only door in now: seat the guest for real
+		// rather than letting it let itself in.
+		const seated = await seatGuestByInvitation(hostCookie, guestCookie, host, guest, room.id, 'dev-user-2');
+		if (!seated) throw new Error('guest was never seated');
 		return room;
 	}
 
