@@ -146,18 +146,35 @@
     });
   }
 
-  let authMode: 'google' | 'dev' = 'google';
+  // 'unknown' is both the starting point and the failure state. This used to
+  // start at 'google' and stay there whenever /auth/mode did not answer, so a
+  // backend that was simply down rendered a Google sign-in button - a dead end
+  // locally, where the only way in is a dev profile, and one that blamed the
+  // wrong thing: it read as "sign in with Google" when the truth was "no server".
+  // A mode nobody told us is not a mode worth guessing.
+  let authMode: 'google' | 'dev' | 'unknown' = 'unknown';
   let isLoadingAuthMode = true;
 
   async function loadAuthMode() {
+    isLoadingAuthMode = true;
     try {
       const res = await fetch('/auth/mode', { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
+      if (!res.ok) {
+        logger.error('Failed to load auth mode: HTTP', res.status);
+        authMode = 'unknown';
+        return;
+      }
+      const data = await res.json();
+      // An answer we cannot read leaves us as stuck as no answer at all.
+      if (data.mode === 'dev' || data.mode === 'google') {
         authMode = data.mode;
+      } else {
+        logger.error('Unrecognised auth mode:', data.mode);
+        authMode = 'unknown';
       }
     } catch (error) {
       logger.error('Failed to load auth mode:', error);
+      authMode = 'unknown';
     } finally {
       isLoadingAuthMode = false;
     }
@@ -208,7 +225,7 @@
         <LanguageSelector />
 
         {#if isLoadingAuthMode}
-          <div class="loading">Loading...</div>
+          <div class="loading">{t($language, 'loading')}</div>
         {:else if authMode === 'dev'}
           <div class="dev-login">
             <p class="dev-mode-label">🛠️ Development Mode</p>
@@ -223,10 +240,18 @@
               </button>
             </div>
           </div>
-        {:else}
+        {:else if authMode === 'google'}
           <button on:click={login} class="login-btn">
             {t($language, 'signInWithGoogle')}
           </button>
+        {:else}
+          <div class="auth-unavailable" role="alert">
+            <p class="auth-unavailable-title">{t($language, 'authUnavailable')}</p>
+            <p class="auth-unavailable-hint">{t($language, 'authUnavailableHint')}</p>
+            <button on:click={loadAuthMode} class="login-btn">
+              {t($language, 'retry')}
+            </button>
+          </div>
         {/if}
       </div>
     </div>
@@ -421,6 +446,29 @@
 
   .login-btn:hover {
     transform: translateY(-2px);
+  }
+
+  .auth-unavailable {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    align-items: center;
+    width: 100%;
+    max-width: 400px;
+  }
+
+  .auth-unavailable-title {
+    font-size: 1rem;
+    color: #ff5252;
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .auth-unavailable-hint {
+    font-size: 0.9375rem;
+    color: #a0a0a0;
+    margin: 0;
+    line-height: 1.5;
   }
 
   /* Library page styles */

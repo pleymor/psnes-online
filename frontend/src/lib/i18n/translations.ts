@@ -16,6 +16,8 @@ export const translations = {
     // Home page
     playWithFriends: 'Play classic SNES games with your friends',
     signInWithGoogle: 'Sign in with Google',
+    authUnavailable: 'Cannot reach the server',
+    authUnavailableHint: 'Signing in needs the server to say how, and it is not answering. Check that the backend is running, then try again.',
     welcome: 'Welcome',
     goToLibrary: 'Go to my library',
 
@@ -299,6 +301,8 @@ export const translations = {
     // Home page
     playWithFriends: 'Jouez aux jeux SNES classiques avec vos amis',
     signInWithGoogle: 'Se connecter avec Google',
+    authUnavailable: 'Serveur inaccessible',
+    authUnavailableHint: 'La connexion a besoin que le serveur indique comment procéder, et il ne répond pas. Vérifiez que le backend tourne, puis réessayez.',
     welcome: 'Bienvenue',
     goToLibrary: 'Accéder à ma bibliothèque',
 
