@@ -95,6 +95,18 @@ Décision du propriétaire, et c'est le point le plus discutable de cette concep
 
 **Pas de bascule de mode.** Les modes dual, streaming et lockstep restent tels quels — leur suppression a été annulée par le propriétaire le 2026-08-21, et le streaming est le seul chemin pour un invité dont la machine ne fait pas tourner l'émulateur.
 
+## Reporté sciemment : les touches vues par l'autre joueur
+
+Trouvé pendant l'exécution, le 2026-08-22, et **à moitié corrigé**.
+
+`room-view.ts` existe pour retirer le `keyConfig` de chaque joueur avant d'envoyer un salon à un client — « un réglage privé sans usage hors du salon auquel il appartient ». Deux chemins l'ignoraient.
+
+**Corrigé** : `friend:roomCreated` diffusait la salle brute, donc créer un salon envoyait les touches de tous les joueurs à **tous les amis connectés**. Un ami est par définition hors du salon. La notification envoie désormais la vue publique ; la liste d'amis ne lit que l'identifiant, le titre, le statut et les joueurs, donc rien ne change à l'écran.
+
+**Reporté, décision du propriétaire** : les douze émissions de `room:updated` envoient la salle brute aux **membres du salon**, si bien que chaque joueur reçoit les touches de l'autre. Le client n'en lit jamais que les siennes (`room/[id]/+page.svelte`, `currentPlayer?.keyConfig`). C'est donc inutile — mais c'est une personne avec qui on a choisi de jouer, pas une liste d'amis, d'où le report.
+
+Le vrai correctif n'est pas un filtre : c'est de fusionner les deux événements quasi homonymes. `room:updated` porte la salle brute et `room:update` la vue publique, et cette confusion a déjà coûté quelque chose — le champ `rom` ajouté par la tâche 5 était structurellement inatteignable depuis l'écran du salon, qui écoutait le premier, et la tâche 6 a dû le contourner côté client. Les fusionner en un seul événement public, et accuser le changement de touches en salon à son seul auteur, ferme l'exposition et supprime la cause racine du contournement. Douze sites, mécanique, mais c'est un remaniement de protocole qui mérite son propre passage.
+
 ## Le risque à surveiller
 
 C'est le premier morceau de ce découpage qui **touche la base de production**. Le runner de migrations et le backend voyagent dans la même image, et le service `migrations` du dépôt d'infra bloque le démarrage du backend jusqu'à sa réussite : une migration qui ne correspond pas à l'image publiée ne rate pas un déploiement, elle **arrête la production**, parce que `docker compose up` arrête le conteneur en place avant que son remplaçant démarre.
