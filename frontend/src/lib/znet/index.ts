@@ -36,6 +36,8 @@ export type { Transport, SimulatedLinkOptions } from './transport.js';
 
 export { SocketTransport } from './socket-transport.js';
 export type { SocketLike } from './socket-transport.js';
+export { LagTransport, parseLag } from './lag-transport.js';
+export type { LagOptions } from './lag-transport.js';
 
 export { CanvasRenderer, AudioSink, DEFAULT_DISPLAY } from './output.js';
 export type { DisplayOptions, Renderer } from './output.js';

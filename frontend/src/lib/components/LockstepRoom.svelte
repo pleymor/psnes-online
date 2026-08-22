@@ -34,13 +34,16 @@
     type GamepadSource,
     PsnesCore,
     SocketTransport,
+    LagTransport,
+    parseLag,
     loadCore,
     normaliseRom,
     romCrc32,
     aspectRatioOf,
     fitToBox,
     type SessionEvent,
-    type SessionStats
+    type SessionStats,
+    type Transport
   } from '$lib/znet';
 
   const logger = createLogger('LockstepRoom');
@@ -96,7 +99,7 @@
   let core: PsnesCore | null = null;
   let session: NetplaySession | null = null;
   let governor: FrameGovernor | null = null;
-  let transport: SocketTransport | null = null;
+  let transport: Transport | null = null;
   let collector: InputCollector | null = null;
   let renderer: Renderer | null = null;
   let audio: AudioSink | null = null;
@@ -487,6 +490,28 @@
       if (destroyed) return teardown();
 
       transport = new SocketTransport($socket as never, roomId);
+
+      /*
+       * Optional simulated distance, from `?lag=ping[,jitter[,loss]]`.
+       *
+       * Two windows on one desktop reach the relay over loopback, so a local
+       * session runs at a latency no real pair will ever see - which makes the
+       * only question worth asking, how the game *feels* at a given input
+       * delay, untestable without a second house. Set it per window and the
+       * two halves add up the way the relay makes them add up in production.
+       *
+       * A query parameter rather than a console call because the delay is sized
+       * during the handshake: anything applied afterwards is already too late
+       * for the number that matters.
+       */
+      const lag = parseLag(new URLSearchParams(window.location.search).get('lag'));
+      if (lag) {
+        // Warn, not debug. A session quietly running on a link other than the
+        // real one invalidates every conclusion drawn from it, and nothing else
+        // on screen would say so.
+        logger.warn('Simulating network distance', lag);
+        transport = new LagTransport(transport, lag);
+      }
 
       session = new NetplaySession({
         core,

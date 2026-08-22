@@ -23,7 +23,8 @@ import {
 	suggestInputDelay,
 	type SessionEvent
 } from '../../frontend/src/lib/znet/session.js';
-import { SimulatedLink } from '../../frontend/src/lib/znet/transport.js';
+import { SimulatedLink, type Transport } from '../../frontend/src/lib/znet/transport.js';
+import { LagTransport, parseLag } from '../../frontend/src/lib/znet/lag-transport.js';
 import { FakeCore } from './fake-core.js';
 import { NetplayHarness } from './harness.js';
 import { InputTape } from './helpers.js';
@@ -39,6 +40,137 @@ function harnessOptions(frames: number, extra: Record<string, unknown> = {}) {
 		...extra
 	};
 }
+
+/* ------------------------------------------------------- simulated distance */
+
+/** A schedule/cancel pair on a clock the test drives by hand. */
+function fakeClock() {
+	let now = 0;
+	let next = 1;
+	const due = new Map<number, { at: number; fn: () => void }>();
+	return {
+		schedule: (fn: () => void, ms: number) => {
+			const id = next++;
+			due.set(id, { at: now + ms, fn });
+			return id;
+		},
+		cancel: (handle: unknown) => due.delete(handle as number),
+		advance(ms: number) {
+			now += ms;
+			for (const [id, entry] of [...due].sort((a, b) => a[1].at - b[1].at)) {
+				if (entry.at <= now) {
+					due.delete(id);
+					entry.fn();
+				}
+			}
+		},
+		get pending() {
+			return due.size;
+		}
+	};
+}
+
+test('the lag simulator spends half the ping on each one-way hop', () => {
+	// Half each way on purpose. A pad really travels `me -> relay -> peer`, so
+	// its trip costs my half plus my partner's half; each side injecting its own
+	// half on both send and receive reproduces exactly that, and makes the round
+	// trip the session measures come out at ping_a + ping_b.
+	const clock = fakeClock();
+	const sent: Uint8Array[] = [];
+	const got: Uint8Array[] = [];
+	const inner: Transport = {
+		send: (d) => sent.push(d),
+		onMessage: () => {},
+		close: () => {},
+		rtt: null
+	};
+	const lag = new LagTransport(inner, { pingMs: 40, ...clock });
+	lag.onMessage((d) => got.push(d));
+
+	lag.send(new Uint8Array([1, 2, 3]));
+	clock.advance(19);
+	assert.equal(sent.length, 0, 'nothing may leave before the trip is over');
+	clock.advance(2);
+	assert.deepEqual([...sent[0]], [1, 2, 3], 'and it must leave intact at 20ms');
+});
+
+test('the lag simulator copies before it defers', () => {
+	// The session reuses its encode buffers. Holding the caller's view for 20ms
+	// and sending it later would put whatever the next packet wrote on the wire.
+	const clock = fakeClock();
+	const sent: Uint8Array[] = [];
+	const lag = new LagTransport(
+		{ send: (d) => sent.push(d), onMessage: () => {}, close: () => {}, rtt: null },
+		{ pingMs: 40, ...clock }
+	);
+	const buffer = new Uint8Array([7, 7, 7]);
+	lag.send(buffer);
+	buffer.fill(9);
+	clock.advance(50);
+	assert.deepEqual([...sent[0]], [7, 7, 7]);
+});
+
+test('closing the lag simulator cancels what is still in flight', () => {
+	// A delivery that fires after teardown calls a handler whose session is
+	// gone. In a browser that surfaces as an exception from a room the player
+	// already left, with nothing to connect it to.
+	const clock = fakeClock();
+	let delivered = 0;
+	let innerClosed = false;
+	let deliver: (d: Uint8Array) => void = () => {};
+	const lag = new LagTransport(
+		{
+			send: () => {},
+			onMessage: (h) => {
+				deliver = h;
+			},
+			close: () => {
+				innerClosed = true;
+			},
+			rtt: null
+		},
+		{ pingMs: 60, ...clock }
+	);
+	lag.onMessage(() => delivered++);
+
+	deliver(new Uint8Array([1]));
+	lag.send(new Uint8Array([2]));
+	assert.equal(clock.pending, 2, 'both hops should be waiting');
+
+	lag.close();
+	assert.equal(clock.pending, 0, 'close must cancel them, not just ignore them');
+	clock.advance(1000);
+	assert.equal(delivered, 0);
+	assert.equal(innerClosed, true, 'and the wrapped transport must still be closed');
+});
+
+test('the lag simulator drops the share of packets it was asked to', () => {
+	const clock = fakeClock();
+	let arrived = 0;
+	const lag = new LagTransport(
+		{ send: () => arrived++, onMessage: () => {}, close: () => {}, rtt: null },
+		{ pingMs: 40, loss: 0.25, seed: 99, ...clock }
+	);
+	for (let i = 0; i < 400; i++) lag.send(new Uint8Array([i & 0xff]));
+	clock.advance(100);
+	// Reproducible from the seed, so a session that misbehaved can be replayed.
+	assert.ok(arrived > 260 && arrived < 340, `expected roughly 300 of 400, got ${arrived}`);
+});
+
+test('a malformed lag parameter leaves the session on the real link', () => {
+	// Silently running on a different link than you think is worse than the
+	// parameter not working at all.
+	assert.equal(parseLag(null), null);
+	assert.equal(parseLag(''), null);
+	assert.equal(parseLag('soon'), null);
+	assert.equal(parseLag('-5'), null);
+	assert.equal(parseLag('0'), null, 'zero would be a no-op dressed as a setting');
+	assert.equal(parseLag('40,8,2'), null, 'loss is a fraction, not a percentage');
+	assert.equal(parseLag('40,8,0.02,1'), null);
+	assert.deepEqual(parseLag('40'), { pingMs: 40, jitterMs: 0, loss: 0 });
+	assert.deepEqual(parseLag(' 40 , 8 '), { pingMs: 40, jitterMs: 8, loss: 0 });
+	assert.deepEqual(parseLag('40,8,0.02'), { pingMs: 40, jitterMs: 8, loss: 0.02 });
+});
 
 /* ------------------------------------------------------------- wire format */
 

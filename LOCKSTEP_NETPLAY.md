@@ -137,6 +137,7 @@ does go wrong, it goes wrong visibly.
 | `protocol.ts` | Binary wire format |
 | `transport.ts` | Transport interface, plus a simulated link with latency/jitter/loss |
 | `socket-transport.ts` | Transport over the app's socket.io connection |
+| `lag-transport.ts` | Decorator that adds simulated distance to a real transport |
 | `governor.ts` | Real-time driver (rAF, frame pacing, bounded catch-up) |
 | `core.ts` / `loader.ts` | Typed wrapper around the wasm core |
 | `output.ts` / `input.ts` | Canvas, AudioWorklet, and pad collection |
@@ -167,13 +168,41 @@ npm run test:all
 ```
 
 **`core/test/netcode.test.ts`** runs the real engine and the real protocol
-against `FakeCore`, a toy deterministic machine. 36 tests covering the wire
+against `FakeCore`, a toy deterministic machine. 41 tests covering the wire
 format, lockstep under 5% loss and 60ms of jitter, input-delay behaviour,
 desync detection from either side, epoch handling, savestate retransmission,
 and recovery from a total blackout.
 
 **`core/test/relay.test.ts`** starts a real socket.io server running the real
 backend handler and pushes a whole netplay session through it.
+
+### Feeling it locally
+
+Two windows on one desktop reach the relay over loopback, so a local session
+runs at a latency no real pair will ever see. That leaves the one question the
+test suite cannot answer - how the game *feels* at a given input delay, and
+whether a lopsided split beats an even one - needing a second house.
+
+`?lag=ping[,jitter[,loss]]` on the room URL fixes that. It wraps the real
+transport, so the real socket.io path, the real backend and real TCP are all
+still in play, and adds the distance on top. **Half the ping is spent on each
+one-way hop**, which is not an approximation: a pad travels `me -> relay ->
+peer`, so its trip costs my half plus my partner's half, and each window
+injecting its own half in both directions makes the round trip the session
+measures come out at `ping_mine + ping_theirs` - exactly what the relay gives
+you in production.
+
+```
+window 1:  /room/<id>?lag=30
+window 2:  /room/<id>?lag=30,8      # 8ms of jitter on top
+```
+
+That pair reproduces a 60ms round trip, so the estimator sizes three frames and
+`__znetDelay` can then be used to try splits against it. A parameter rather than
+a console call because the delay is sized during the handshake; anything set
+afterwards is too late for the number that matters. A malformed value is refused
+outright and leaves the session on the real link - a session quietly running on
+a different link than you configured invalidates every conclusion drawn from it.
 
 **`core/test/determinism.test.ts`** and **`lockstep.test.ts`** need the built
 core. They check that two wasm instances fed the same pads stay bit-identical
@@ -216,7 +245,7 @@ against the unfixed code.
 ## Status
 
 Running in production as the default mode for new rooms, and playable end to
-end. 54 tests, none skipped - 43 for the netcode and the relay, 11 against the
+end. 59 tests, none skipped - 48 for the netcode and the relay, 11 against the
 real wasm core: two independent wasm instances stay bit-identical for 1800 frames
 of pseudo-random two-player input, and full sessions over a simulated 150ms /
 60ms-jitter / 5%-loss link never diverge.
