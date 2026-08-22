@@ -390,6 +390,13 @@
       logger.error('Failed to load user controls:', error);
     }
 
+    // Checked a second time, and this is the one that matters. The guard above
+    // covers `waitForSocket`, but the controls fetch just above is a real
+    // network round trip - long enough to navigate away inside. Everything
+    // below attaches listeners that outlive this component, one of which
+    // navigates, so a destroyed instance must stop here rather than there.
+    if (!alive) return;
+
     // The lobby's own material: what can be chosen, who can be invited, and
     // who already has the ROM. Not awaited - the room state is what the screen
     // needs first, and each of these fills in its own corner when it lands.

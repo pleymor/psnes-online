@@ -107,6 +107,11 @@ Trouvé pendant l'exécution, le 2026-08-22, et **à moitié corrigé**.
 
 Le vrai correctif n'est pas un filtre : c'est de fusionner les deux événements quasi homonymes. `room:updated` porte la salle brute et `room:update` la vue publique, et cette confusion a déjà coûté quelque chose — le champ `rom` ajouté par la tâche 5 était structurellement inatteignable depuis l'écran du salon, qui écoutait le premier, et la tâche 6 a dû le contourner côté client. Les fusionner en un seul événement public, et accuser le changement de touches en salon à son seul auteur, ferme l'exposition et supprime la cause racine du contournement. Onze sites — deux dans `game-handlers.ts`, neuf dans `room-handlers.ts` ; `room:created` n'en fait pas partie, n'allant qu'au créateur avec ses propres touches. Mécanique, mais c'est un remaniement de protocole qui mérite son propre passage.
 
+**Deux pièges pour qui fera cette fusion**, trouvés pendant les revues et notés ici pour ne pas les redécouvrir :
+
+- La fusion concerne **deux** événements, pas trois. `friend:roomStatusChanged` ne se replie pas : son cas `destroyed` n'a aucun équivalent en `room:update`, puisqu'un salon supprimé n'a plus de vue publique à publier.
+- Et `game:start` (`game-handlers.ts`) fait passer le statut à `playing` en émettant `room:updated` **aux seuls membres**, sans jamais appeler `broadcastRoomUpdate`. Les amis n'apprennent donc ce passage que par `friend:roomStatusChanged`. Fusionner sans ajouter un `broadcastRoomUpdate` à cet endroit ferait silencieusement disparaître l'information pour eux.
+
 ## Le risque à surveiller
 
 C'est le premier morceau de ce découpage qui **touche la base de production**. Le runner de migrations et le backend voyagent dans la même image, et le service `migrations` du dépôt d'infra bloque le démarrage du backend jusqu'à sa réussite : une migration qui ne correspond pas à l'image publiée ne rate pas un déploiement, elle **arrête la production**, parce que `docker compose up` arrête le conteneur en place avant que son remplaçant démarre.
