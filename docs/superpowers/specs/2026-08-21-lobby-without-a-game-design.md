@@ -47,7 +47,9 @@ Le choix du jeu est révocable jusqu'au lancement, parce que c'est une conversat
 
 ## Le solo ne change pas
 
-▶ sur un jeu continue de créer un salon **avec** son jeu et de démarrer aussitôt : `autoStart` existe déjà et met le statut à `playing` sans passer par une salle d'attente (`room-handlers.ts:50` et `:65`).
+▶ sur un jeu continue de créer un salon **avec** son jeu, exactement comme avant.
+
+**Correction du 2026-08-22 : cette section affirmait que ▶ « démarre aussitôt ». C'est faux, et ça l'était déjà quand je l'ai écrit.** `autoStart` existe bien dans le protocole et met le statut à `playing`, mais le client envoie `autoStart: false` (`routes/+page.svelte:124`) et l'historique montre qu'il n'a jamais envoyé autre chose. ▶ a toujours mené à l'écran de salle, où l'on presse démarrer. Rien n'a changé — c'est la description qui était fausse, et elle aurait fait passer le comportement normal pour une régression au moment de vérifier.
 
 C'est délibéré et c'est la décision du propriétaire. Faire passer le solo par un salon vide ajouterait deux écrans au cas le plus fréquent, et obligerait à refaire un chemin qui fonctionne. Le salon est la porte du multijoueur, pas de tout.
 

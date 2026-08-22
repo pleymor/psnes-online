@@ -63,7 +63,7 @@ En mode dev (`AUTH_MODE=dev`), l'accueil déconnecté affiche deux boutons, « D
 - [ ] **Inviter l'autre joueur.** L'invitation apparaît dans sa barre du haut, sans rechargement.
 - [ ] Il **accepte** : il rejoint le salon, les deux le voient à deux joueurs.
 - [ ] **Chacun à son tour choisit un jeu.** Le choix est révocable jusqu'au lancement, et le picker ne doit proposer que **ses propres** jeux.
-- [ ] L'indicateur de ROM apparaît à côté de chaque joueur. **Trois états** : possédée, absente, et *inconnue* — ce dernier quand le jeu choisi n'a pas de checksum enregistré, et il ne doit pas ressembler à « absente ».
+- [ ] L'indicateur de ROM apparaît à côté de chaque joueur. **Deux états atteignables à la main** : possédée et absente. Le troisième, *inconnue*, n'est pas produisible depuis l'interface — le sélecteur désactive les jeux sans checksum — donc ne pas le chercher ; il est couvert par les tests.
 - [ ] **Lancer depuis l'un**, jouer, sauvegarder, quitter. **Relancer depuis l'autre** : les sauvegardes doivent suivre **celui qui a lancé**.
 - [ ] Recharger la page d'un joueur : son siège est conservé (délai de grâce de 45 s) et l'indicateur de ROM **revient** au lieu de rester vide.
 
@@ -78,8 +78,8 @@ En mode dev (`AUTH_MODE=dev`), l'accueil déconnecté affiche deux boutons, « D
 
 ### Ce qui ne doit **pas** avoir changé
 
-- [ ] **▶ sur un jeu lance toujours le solo directement**, sans passer par un salon.
-- [ ] Se reconnecter après une coupure réseau **rend le siège** au lieu de le refuser — c'est le point le plus facile à casser en fermant l'ancienne porte.
+- [ ] **▶ sur un jeu mène toujours à l'écran de salle avec ce jeu déjà choisi**, où l'on presse démarrer. Ne pas s'attendre à un lancement immédiat : le client envoie `autoStart: false` et l'a toujours fait. La spec disait le contraire ; elle avait tort, et c'est corrigé.
+- [ ] Se reconnecter après une coupure réseau **rend le siège**, mais seulement **dans les 45 secondes** — c'est le délai de grâce. Recharger la page passe dessous sans peine ; couper le réseau une minute entière ne passe pas, et il n'y a alors **aucun chemin de retour** : il faut une nouvelle invitation. C'est la conséquence directe de la porte qu'on vient de fermer, et il faut savoir si elle est acceptable avant de fusionner.
 - [ ] La liste d'amis reste cliquable pour ouvrir la fiche d'un ami, même si le bouton « rejoindre » a disparu.
 - [ ] Un ami qui crée un salon puis choisit son jeu : la ligne de statut doit apprendre le titre, pas rester figée.
 
@@ -89,6 +89,14 @@ Quatre fichiers Playwright asseyaient un invité par un `room:join` brut, ce que
 
 - [ ] Lancer `npm run test:e2e` contre une pile à jour. C'est le **seul** endroit qui exercera la nouvelle porte à travers la vraie session et Passport.
 - [ ] `e2e/probe-lockstep.mjs` est laissé cassé sciemment : script manuel, dans aucun script npm ni aucune CI. Il échouera à son étape d'entrée d'invité.
+
+### Trois défauts connus, à ne pas redécouvrir
+
+La revue finale les a trouvés après l'écriture de ce relevé. Ils sont écrits ici pour que la passe manuelle serve à trouver ce que personne n'a vu, pas à retrouver ceux-là.
+
+- **Une invitation n'est visible que si l'invité se trouve sur l'accueil ou son profil à cet instant précis**, et elle est perdue dès qu'il navigue ailleurs. La liste n'est envoyée qu'à la connexion du socket, et la barre du haut n'existe pas sur l'écran de salle. Quelqu'un qui attend dans son propre salon vide ne verra jamais l'invitation qu'on lui envoie.
+- **Passé 45 secondes, un membre est enfermé dehors** d'un salon qui existe encore, sans chemin de retour.
+- **`game:start` est la onzième garde oubliée** : rien ne vérifie qu'un jeu est choisi. Inatteignable depuis l'interface (le bouton est désactivé), mais un client bricolé produit un salon dont les deux écrans sont blancs et dont on ne sort qu'en éditant l'URL. En cours de correction avec le défaut de sauvegarde.
 
 ## Reporté sciemment
 
