@@ -97,14 +97,32 @@ D_host + D_guest >= rtt / frameMs
 ```
 
 Neither delay has to cover the one-way trip by itself, so input latency is a
-budget the two players can split unevenly: a 120ms link needs about eight frames
-between them, and whoever minds the lag most can take three while the other
-takes nine. `NetplaySession.setInputDelay()` does that. It needs no agreement
-from the peer, because pads are keyed by absolute frame and past the priming
-window the delay governs nothing but how far ahead a peer samples its own input;
-a test holds two different delays over a 200ms link and checks the two machines
-stay bit-identical. Note also that a *constant* latency above `D` costs a
-one-off offset between the peers rather than frame rate. Only jitter stalls.
+budget the two players can split unevenly, and the split can be lopsided rather
+than merely uneven. Measured over a simulated 90ms round trip, which needs about
+5.4 frames between the two:
+
+| split | sum | leader's stalled ticks in 10s | short end feels |
+|---|---|---|---|
+| 3 / 3 | 6 | 0 | 50ms |
+| 2 / 3 | 5 | 7245 | 33ms |
+| **1 / 5** | **6** | **0** | **17ms** |
+| 1 / 1 | 2 | 9967, and 44fps | 17ms |
+
+Everything that reaches the budget is clean and everything under it stalls, with
+no credit for being symmetric. So a player on a game that reads input frame by
+frame can sit at one frame while their partner sits at five, and pay 17ms where
+an even split costs 50.
+
+`NetplaySession.setInputDelay()` does that, and needs no agreement from the peer:
+pads are keyed by absolute frame, so past the priming window the delay governs
+nothing but how far ahead a peer samples its own input. Tests hold two different
+delays over 90ms and 200ms links and check the machines stay bit-identical. The
+manual floor is one frame where the automatic one is three - the automatic value
+is symmetric, so it has to be safe for both peers at once, while a hand-set value
+is somebody deliberately trading their partner's headroom for their own.
+
+Note also that a *constant* latency above `D` costs a one-off offset between the
+peers rather than frame rate. Only jitter stalls.
 
 The trade-off against rollback is explicit. Lockstep costs `D` frames of input
 latency and freezes when the network does, and in exchange it cannot produce
@@ -149,7 +167,7 @@ npm run test:all
 ```
 
 **`core/test/netcode.test.ts`** runs the real engine and the real protocol
-against `FakeCore`, a toy deterministic machine. 35 tests covering the wire
+against `FakeCore`, a toy deterministic machine. 36 tests covering the wire
 format, lockstep under 5% loss and 60ms of jitter, input-delay behaviour,
 desync detection from either side, epoch handling, savestate retransmission,
 and recovery from a total blackout.
@@ -198,7 +216,7 @@ against the unfixed code.
 ## Status
 
 Running in production as the default mode for new rooms, and playable end to
-end. 53 tests, none skipped - 42 for the netcode and the relay, 11 against the
+end. 54 tests, none skipped - 43 for the netcode and the relay, 11 against the
 real wasm core: two independent wasm instances stay bit-identical for 1800 frames
 of pseudo-random two-player input, and full sessions over a simulated 150ms /
 60ms-jitter / 5%-loss link never diverge.

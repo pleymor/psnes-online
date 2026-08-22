@@ -130,8 +130,23 @@ export interface SessionOptions {
 
 const PLAYER_COUNT = 2;
 
-/** Hard floor on the input delay. Below three frames a stall is the norm. */
+/**
+ * Floor for the *automatic* delay, which is symmetric: both peers get the same
+ * number, so three each covers a round trip of about 100ms with no stalls at
+ * all. Lowering it would have to be paid for by everybody, including the pairs
+ * whose link cannot afford it.
+ */
 const MIN_INPUT_DELAY = 3;
+/**
+ * Floor for a delay someone set on purpose.
+ *
+ * Because the requirement is on the sum, a peer can sit well under the
+ * automatic floor as long as its partner sits above: on a 90ms round trip a
+ * 1/5 split runs with exactly as few stalls as 3/3 and the player on the short
+ * end feels 17ms instead of 50. Zero is not offered - with no lead at all every
+ * frame waits a full one-way trip.
+ */
+const MIN_MANUAL_DELAY = 1;
 /** Hard ceiling. Past sixteen frames the game is unplayable anyway. */
 const MAX_INPUT_DELAY = 16;
 
@@ -371,7 +386,7 @@ export class NetplaySession implements TickSource {
 	 */
 	setInputDelay(frames: number): void {
 		this.autoInputDelay = false;
-		this.setDelay(Math.max(MIN_INPUT_DELAY, Math.min(MAX_INPUT_DELAY, Math.round(frames))));
+		this.setDelay(Math.max(MIN_MANUAL_DELAY, Math.min(MAX_INPUT_DELAY, Math.round(frames))));
 	}
 
 	private setDelay(frames: number): void {

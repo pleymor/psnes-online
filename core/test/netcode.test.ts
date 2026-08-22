@@ -793,6 +793,46 @@ test('the two delays only have to cover the round trip between them', async () =
 	harness.dispose();
 });
 
+test('one peer can sit under the automatic floor if its partner sits above', async () => {
+	// The pay-off of the delay being a shared budget. On a 90ms round trip the
+	// pair needs about 5.4 frames between them; a 1/5 split supplies six, so the
+	// player on the short end feels one frame of lag - 17ms - where the even 3/3
+	// split makes both feel three. Measured side by side, 1/5 stalls the leader
+	// exactly as little as 3/3 does, and 2/3 (five frames, but short of the
+	// requirement) stalls it thousands of times.
+	const stalls: Record<string, number> = {};
+	for (const [name, dh, dg] of [
+		['even', 3, 3],
+		['uneven', 1, 5]
+	] as const) {
+		const harness = await NetplayHarness.create(
+			harnessOptions(6000, { link: { latency: 45, jitter: 3, seed: 87 }, inputDelay: 6 })
+		);
+		harness.handshake(30_000);
+		harness.host.session.setInputDelay(dh);
+		harness.guest.session.setInputDelay(dg);
+		harness.run(2_000);
+
+		// Measured after the split has settled: the frames right after a change
+		// are still draining the old queue.
+		const before = harness.host.session.getStats().stalledTicks;
+		harness.clearLogs();
+		harness.run(10_000);
+		stalls[name] = harness.host.session.getStats().stalledTicks - before;
+
+		assert.equal(harness.host.session.inputDelay, dh, 'the manual floor must allow one frame');
+		assert.equal(harness.firstDivergence(), null, `${name} split diverged`);
+		harness.dispose();
+	}
+
+	assert.equal(stalls.even, 0, `the even split is the control: ${stalls.even}`);
+	assert.equal(
+		stalls.uneven,
+		0,
+		`an uneven split covering the same budget must be just as clean: ${stalls.uneven}`
+	);
+});
+
 test('peers stay bit-identical while holding different input delays', async () => {
 	// The invariant the whole ratchet rests on: pads are keyed by absolute
 	// frame, so past the startup priming window the delay governs nothing but
