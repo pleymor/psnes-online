@@ -683,7 +683,13 @@
                 </div>
                 <p class="panel-hint">{t($language, 'onlyOneInvitation')}</p>
               </div>
-            {:else if showInvite}
+            <!-- The same capacity condition as the button that opens this.
+                 `showInvite` is sticky on purpose - cancelling an invitation
+                 should hand the list straight back - but the room filling up
+                 is the one case where the list must close on its own, and
+                 without this it reappeared the moment the invitation stopped
+                 being pending, which is exactly when the guest arrived. -->
+            {:else if showInvite && room.players.length < 2}
               <div class="panel">
                 {#if friends.length === 0}
                   <p class="panel-empty">{t($language, 'noFriendsYet')}</p>
