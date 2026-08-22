@@ -173,9 +173,19 @@ export function registerRoomHandlers(
     }
   });
 
-  // Join room
+  // Join room - a return trip, now that the invitation is the only door in.
+  //
+  // Every legitimate caller is already a player by the time this arrives:
+  // `room:create` seats its creator, `lobby:accept` seats an invitee through
+  // the same `joinRoom` below, and the room page emits this event at mount
+  // and again on reconnect - by which point the seat is already theirs, and
+  // `joinRoom`'s existing-player branch is what actually answers it. So this
+  // event no longer needs to accept a stranger at all: `getMemberRoom` gives
+  // a non-member the same "Room not found" every other room-scoped event
+  // gives them, rather than a different answer that would confirm the room
+  // exists.
   socket.on('room:join', async (data: { roomId: string }) => {
-    const room = data?.roomId ? rooms.get(data.roomId) : undefined;
+    const room = getMemberRoom(rooms, data?.roomId, user.id, 'room:join');
 
     if (!room) {
       socket.emit('error', { message: 'Room not found' });

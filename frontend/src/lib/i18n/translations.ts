@@ -34,7 +34,6 @@ export const translations = {
     cannotAddYourself: 'Cannot add yourself as a friend',
     online: 'Online',
     offline: 'Offline',
-    joinGame: 'Join',
 
     // Friend details
     friendDetails: 'Friend Details',
@@ -314,7 +313,6 @@ export const translations = {
     cannotAddYourself: 'Impossible de s\'ajouter soi-même',
     online: 'En ligne',
     offline: 'Hors ligne',
-    joinGame: 'Rejoindre',
 
     // Friend details
     friendDetails: 'Détails de l\'ami',

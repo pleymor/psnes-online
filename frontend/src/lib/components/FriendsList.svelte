@@ -3,7 +3,6 @@
   import { socket } from '$lib/api/socket';
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
-  import { goto } from '$app/navigation';
   import { t } from '$lib/i18n/translations';
   import { createLogger } from '$lib/utils/logger';
 
@@ -303,10 +302,6 @@
     friendRequests = friendRequests.filter(r => r.id !== friendshipId);
   }
 
-  function joinFriend(roomId: string) {
-    goto(`/room/${roomId}`);
-  }
-
   function openFriendDetails(friendData: any) {
     dispatch('friendClicked', friendData);
   }
@@ -428,11 +423,6 @@
                 {/if}
               </div>
             </div>
-            {#if room?.status === 'waiting' && (room.createdBy || room.hostId) === friendData.friend.id}
-              <button class="btn-join" on:click|stopPropagation={() => joinFriend(room.id)}>
-                {t($language, 'joinGame')}
-              </button>
-            {/if}
           </div>
         {/each}
       {/if}
@@ -453,15 +443,13 @@
       {#each friends as friendData}
         {@const room = friendRooms.get(friendData.friend.id)}
         {@const isOnline = onlineFriends.get(friendData.friend.id)}
-        {@const isCreator = room && (room.createdBy || room.hostId) === friendData.friend.id}
-        {@const canJoin = isCreator && room?.status === 'waiting'}
         {@const isPlaying = room !== undefined}
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         <div
           class="compact-badge-container"
           role="button"
           tabindex="0"
-          on:click={() => canJoin ? joinFriend(room.id) : openFriendDetails(friendData)}
+          on:click={() => openFriendDetails(friendData)}
           title={friendData.friend.displayName}
         >
           <div class="compact-avatar">
@@ -781,25 +769,6 @@
 
   .info .offline-status {
     color: #888;
-  }
-
-  .btn-join {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.875rem;
-    font-weight: 500;
-    transition: all 0.2s;
-    white-space: nowrap;
-    flex-shrink: 0; /* Prevent button from shrinking */
-  }
-
-  .btn-join:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
   }
 
   .empty {

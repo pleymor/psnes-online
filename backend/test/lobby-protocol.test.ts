@@ -752,6 +752,30 @@ test('a member can still rejoin, and a room that is gone answers instead of thro
   });
 });
 
+test('room:join is a return trip, not a door: a non-member is refused while a seated player still gets back in', async () => {
+  await withLobby(async ({ alice, bob, client, rooms }) => {
+    const host = await client(alice);
+    const stranger = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    // Bob was never invited - the invitation is the only door now, and
+    // `room:join` gives him the same answer any other room-scoped event gives
+    // a non-member, rather than letting him in.
+    const refused = once<{ message: string }>(stranger, 'error');
+    stranger.emit('room:join', { roomId: room.id });
+    assert.equal((await refused).message, 'Room not found');
+    assert.deepEqual(rooms.get(room.id)!.players.map(p => p.userId), [alice.id]);
+
+    // Alice, already seated, still gets back in through the same event.
+    const rejoined = once<Room>(host, 'room:updated');
+    host.emit('room:join', { roomId: room.id });
+    assert.equal((await rejoined).players.length, 1);
+  });
+});
+
 test('the connection-time list keeps only live invitations naming live rooms', async () => {
   const alice = insertUser(db, { displayName: 'Alice' });
   const carol = insertUser(db, { displayName: 'Carol' });
