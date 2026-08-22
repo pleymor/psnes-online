@@ -41,6 +41,51 @@ function harnessOptions(frames: number, extra: Record<string, unknown> = {}) {
 	};
 }
 
+/* ------------------------------------------------------------------- jitter */
+
+test('the reported jitter tells a calm link from a nervous one', async () => {
+	// Jitter, not latency, is what forces the input delay up: holding the round
+	// trip at 60ms and moving jitter from 3ms to 12ms more than doubles the delay
+	// the pair needs. So it has to be on screen next to the round trip, and it
+	// cannot come from the ping - one sample every two seconds says nothing about
+	// variation at frame scale. Pad packets arrive sixty times a second, and
+	// their spacing is the measurement.
+	const reading = async (jitter: number) => {
+		const harness = await NetplayHarness.create(
+			harnessOptions(6000, { link: { latency: 30, jitter, seed: 88 }, inputDelay: 6 })
+		);
+		harness.handshake();
+		harness.run(8_000);
+		const value = harness.host.session.getStats().jitter;
+		harness.dispose();
+		return value;
+	};
+
+	const calm = await reading(2);
+	const nervous = await reading(20);
+
+	assert.ok(calm !== null, 'a running session must produce a reading');
+	assert.ok(nervous !== null);
+	assert.ok(calm! < 6, `a 2ms link must read low, got ${calm!.toFixed(1)}ms`);
+	assert.ok(
+		nervous! > calm! * 2,
+		`a 20ms link must read far higher: calm=${calm!.toFixed(1)} nervous=${nervous!.toFixed(1)}`
+	);
+});
+
+test('jitter is unknown until pads are actually flowing', async () => {
+	// Reporting zero before anything has arrived would read as a perfect link,
+	// which is the one number a player should never be shown for free.
+	const harness = await NetplayHarness.create(
+		harnessOptions(2000, { link: { latency: 30, seed: 89 }, inputDelay: 4 })
+	);
+	assert.equal(harness.host.session.getStats().jitter, null, 'nothing measured yet');
+	harness.handshake();
+	harness.run(4_000);
+	assert.notEqual(harness.host.session.getStats().jitter, null, 'and known once it runs');
+	harness.dispose();
+});
+
 /* ------------------------------------------------------- simulated distance */
 
 /** A schedule/cancel pair on a clock the test drives by hand. */

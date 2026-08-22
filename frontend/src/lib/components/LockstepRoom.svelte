@@ -1125,7 +1125,9 @@
     <button class="action" on:click={() => openPauseMenu(isFullscreen)}>☰ Menu (Esc)</button>
     {#if stats}
       <span class="summary">
-        {stats.rtt ? `${Math.round(stats.rtt)} ms` : '— ms'} · delay {stats.inputDelay}f
+        {stats.rtt ? `${Math.round(stats.rtt)} ms` : '— ms'}{stats.jitter === null
+          ? ''
+          : ` ±${stats.jitter.toFixed(1)}`} · delay {stats.inputDelay}f
       </span>
     {/if}
   </div>
@@ -1152,6 +1154,14 @@
     <dl class="stats" on:mouseenter={holdChrome} on:mouseleave={releaseChrome}>
       <div><dt>Frame</dt><dd>{stats.frame}</dd></div>
       <div><dt>Round trip</dt><dd>{stats.rtt ? `${Math.round(stats.rtt)} ms` : '—'}</dd></div>
+      <!-- Next to the round trip on purpose: latency alone costs a one-off offset
+           between the peers, and it is the variation that leaves a pad late for
+           the frame that needed it. At a fixed 60ms round trip, a link with 12ms
+           of jitter needs more than twice the delay of one with 3ms. -->
+      <div>
+        <dt>Jitter</dt>
+        <dd>{stats.jitter === null ? '—' : `${stats.jitter.toFixed(1)} ms`}</dd>
+      </div>
       <div><dt>Input delay</dt><dd>{stats.inputDelay} frames</dd></div>
       <div><dt>Stalls</dt><dd>{stats.stalls}</dd></div>
       <div><dt>Desyncs</dt><dd>{stats.desyncs}</dd></div>

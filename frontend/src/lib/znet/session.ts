@@ -150,6 +150,14 @@ const MIN_MANUAL_DELAY = 1;
 /** Hard ceiling. Past sixteen frames the game is unplayable anyway. */
 const MAX_INPUT_DELAY = 16;
 
+/**
+ * SNES NTSC frame time. The engine is otherwise cadence-agnostic - the governor
+ * owns the clock - but the jitter estimate needs to know what spacing a pad
+ * packet per frame implies, and the delay estimator already assumes the same
+ * 60.0988Hz by default.
+ */
+const FRAME_MS = 1000 / 60.0988;
+
 /** Round-trip samples the host collects before sizing the input delay. */
 const SIZING_SAMPLES = 5;
 /** Gap between the pings of the sizing burst, in ms. */
@@ -200,6 +208,16 @@ export interface SessionStats {
 	stalledTicks: number;
 	inputDelay: number;
 	rtt: number | null;
+	/**
+	 * Variation in how the peer's pads arrive, in ms, or null before any have.
+	 *
+	 * The number that decides the input delay. Latency alone costs a one-off
+	 * offset between the peers; it is the *variation* that leaves a pad late for
+	 * the frame that needed it, so at a fixed 60ms round trip a link with 12ms of
+	 * jitter needs more than twice the delay of one with 3ms. Shown next to the
+	 * round trip because a player tuning the delay is really tuning against this.
+	 */
+	jitter: number | null;
 	epoch: number;
 	desyncs: number;
 	resyncs: number;
@@ -275,6 +293,21 @@ export class NetplaySession implements TickSource {
 	private nextPingId = 1;
 	private _rtt: number | null = null;
 
+	/**
+	 * Interarrival jitter over the pad stream, the way RFC 3550 computes it for
+	 * RTP: the running mean of how far each packet's spacing departs from the
+	 * spacing it was sent with.
+	 *
+	 * Pad packets are the right carrier for it. The peer emits one per frame it
+	 * executes, so they sample the path sixty times a second and they each name
+	 * the frame they belong to - which gives the intended spacing for free, with
+	 * no clock to synchronise. Deriving it from the ping instead would sample
+	 * once every two seconds and say nothing about variation at frame scale.
+	 */
+	private _jitter: number | null = null;
+	/** Arrival time and newest frame of the last pad packet that advanced. */
+	private lastPadArrival: { at: number; frame: number } | null = null;
+
 	/** Debounces the rejoin handling so a duplicate HELLO cannot loop. */
 	private lastRejoinAt = 0;
 
@@ -316,6 +349,7 @@ export class NetplaySession implements TickSource {
 		stalledTicks: 0,
 		inputDelay: 0,
 		rtt: null,
+		jitter: null,
 		epoch: 0,
 		desyncs: 0,
 		resyncs: 0,
@@ -422,13 +456,24 @@ export class NetplaySession implements TickSource {
 		return this._rtt;
 	}
 
+	get jitter(): number | null {
+		return this._jitter;
+	}
+
 	getStats(): SessionStats {
 		const padsAhead = this.pads.map((map) => {
 			let ahead = 0;
 			while (map.has(this.frame + ahead)) ahead++;
 			return ahead;
 		});
-		return { ...this.stats, frame: this.frame, rtt: this._rtt, epoch: this.epoch, padsAhead };
+		return {
+			...this.stats,
+			frame: this.frame,
+			rtt: this._rtt,
+			jitter: this._jitter,
+			epoch: this.epoch,
+			padsAhead
+		};
 	}
 
 	/** Begins the handshake. Both peers call this; order does not matter. */
@@ -729,6 +774,33 @@ export class NetplaySession implements TickSource {
 		this.transport.send(encode(msg));
 	}
 
+	/**
+	 * Folds one pad packet's arrival into the jitter estimate.
+	 *
+	 * Only packets whose newest frame has advanced count. Every pad packet
+	 * repeats the last few frames the sender already transmitted, and the engine
+	 * re-sends the whole reachable range while stalled, so a great many arrivals
+	 * carry nothing new - timing those would measure the re-send policy rather
+	 * than the link.
+	 */
+	private sampleJitter(newestFrame: number): void {
+		const at = this.now();
+		const previous = this.lastPadArrival;
+		if (previous === null || newestFrame <= previous.frame) {
+			if (previous === null) this.lastPadArrival = { at, frame: newestFrame };
+			return;
+		}
+
+		// What the spacing should have been: the sender emits one packet per frame
+		// it runs, so the frames between the two packets are the intended gap.
+		const expected = (newestFrame - previous.frame) * FRAME_MS;
+		const drift = Math.abs(at - previous.at - expected);
+		// RFC 3550's smoothing, gain 1/16: slow enough that one reordered packet
+		// does not move the figure, quick enough to follow a route that changes.
+		this._jitter = this._jitter === null ? drift : this._jitter + (drift - this._jitter) / 16;
+		this.lastPadArrival = { at, frame: newestFrame };
+	}
+
 	private hasAllPads(frame: number): boolean {
 		for (let p = 0; p < PLAYER_COUNT; p++) {
 			if (!this.pads[p].has(frame)) return false;
@@ -864,6 +936,9 @@ export class NetplaySession implements TickSource {
 		// on, so the window that has to reach back over a delay change starts
 		// there too.
 		this.epochMaxDelay = this.opts.inputDelay;
+		// Frame numbers mean something different on a new timeline, so the
+		// spacing measured across the seam would be nonsense.
+		this.lastPadArrival = null;
 		this.primeStartupPads(from);
 	}
 
@@ -1015,6 +1090,8 @@ export class NetplaySession implements TickSource {
 	): void {
 		if (epoch !== this.epoch) return; // belongs to a timeline we abandoned
 		if (playerIndex === this.playerIndex || playerIndex >= PLAYER_COUNT) return;
+
+		this.sampleJitter(baseFrame + pads.length - 1);
 
 		const map = this.pads[playerIndex];
 		for (let i = 0; i < pads.length; i++) {
