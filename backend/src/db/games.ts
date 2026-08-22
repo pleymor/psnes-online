@@ -213,7 +213,15 @@ export function deleteGame(db: Database, id: string): void {
   db.prepare(`DELETE FROM "Game" WHERE id = ?`).run(id);
 }
 
-/** Ownership check for the save path: returns the id only if the game is theirs. */
+/**
+ * Ownership check for the save path: returns the id only if the game is theirs.
+ *
+ * Never pair this with `room.gameId`. A room stores the row of whoever CHOSE
+ * the game, and Game.id is per-user, so that pairing silently matches nobody
+ * when the other player is the one acting - which is exactly how battery saves
+ * were lost under a success acknowledgement. Use `findOwnGameIdForRoom` in
+ * `rooms/own-game.ts`, which resolves by the room's checksum instead.
+ */
 export function findOwnedGameId(db: Database, gameId: string, userId: string): string | null {
   const row = db.prepare(`SELECT id FROM "Game" WHERE id = ? AND userId = ?`)
     .get(gameId, userId) as { id: string } | undefined;

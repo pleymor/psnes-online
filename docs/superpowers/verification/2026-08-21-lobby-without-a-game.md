@@ -4,20 +4,20 @@ Branche `lobby-without-a-game`, 20 commits, 32 fichiers, +3683 / −215. Ce rele
 
 ## Ce qui est vérifié mécaniquement
 
-Lancé sur `e4b2a1c` :
+Lancé sur `ad93225` :
 
 ```
-npm run test:all                      37 / 11 / 112 / 108  — 0 échec, 31 s
+npm run test:all                      37 / 11 / 112 / 112  — 0 échec, 31 s
 npm run check --workspace frontend    0 erreur, 16 avertissements
 npm run build --workspace frontend    exit 0
 npx tsc --noEmit -p backend/tsconfig.json   exit 0
 ```
 
-La suite backend est passée de **66 à 108 tests** pendant ce morceau. Avant lui, la couche websocket n'en avait **aucun** — non par nature, mais parce qu'un `setInterval` de nettoyage de cache n'était pas `unref()` et bloquait indéfiniment tout runner qui importait ces fichiers. Une ligne l'a débloquée.
+La suite backend est passée de **66 à 112 tests** pendant ce morceau. Avant lui, la couche websocket n'en avait **aucun** — non par nature, mais parce qu'un `setInterval` de nettoyage de cache n'était pas `unref()` et bloquait indéfiniment tout runner qui importait ces fichiers. Une ligne l'a débloquée.
 
 ### Ce que les tests prouvent réellement
 
-Les 25 tests du protocole de salon tournent contre un **vrai** `http.Server` et une **vraie** paire client/serveur socket.io sur du TCP, avec les gestionnaires de production. Ce n'est pas un appel de fonction déguisé.
+Les 29 tests du protocole de salon tournent contre un **vrai** `http.Server` et une **vraie** paire client/serveur socket.io sur du TCP, avec les gestionnaires de production. Ce n'est pas un appel de fonction déguisé.
 
 Une seule chose y est court-circuitée : le serveur réel lit l'identité dans la session Express, alors que le harnais l'injecte dans la poignée de main. **Le chemin cookie / session / Passport n'est donc couvert par aucun test automatique** — et cette limite n'est pas née avec ce morceau, elle a toujours existé pour ce fichier.
 
@@ -90,13 +90,23 @@ Quatre fichiers Playwright asseyaient un invité par un `room:join` brut, ce que
 - [ ] Lancer `npm run test:e2e` contre une pile à jour. C'est le **seul** endroit qui exercera la nouvelle porte à travers la vraie session et Passport.
 - [ ] `e2e/probe-lockstep.mjs` est laissé cassé sciemment : script manuel, dans aucun script npm ni aucune CI. Il échouera à son étape d'entrée d'invité.
 
+### La perte de sauvegardes, corrigée — et ce qu'elle laisse derrière
+
+Le défaut le plus grave de cette branche, trouvé par la revue finale et corrigé : quand **l'invité choisissait le jeu** et que l'hôte jouait, la sauvegarde de pile n'écrivait **rien** et le jeu annonçait pourtant un succès. Chaque joueur a sa propre ligne pour la même cartouche ; le salon retenait celle du choisisseur, l'écriture exigeait celle de l'écrivain. Corrigé : les deux sens résolvent la ligne du bon joueur par le checksum du salon, et une écriture qui ne change aucune ligne **refuse** au lieu d'accuser réception.
+
+Deux conséquences subsistent volontairement, et il faut les connaître avant de tester :
+
+- **La ligne de l'autre joueur n'est jamais écrite.** Chacun sauvegarde dans la sienne, donc deux bibliothèques pour une cartouche, dont une qui ne bouge plus.
+- **Les sauvegardes d'état (le menu pause), pas la pile, refusent visiblement** quand l'hôte n'est pas le propriétaire du jeu choisi : la liste répond 403 et affiche « ce jeu n'est pas le vôtre ». C'est délibéré — corriger l'écriture seule transformerait un refus visible en succès invisible, puisque la liste est servie par une route REST qui filtre par propriétaire. La case « les sauvegardes doivent suivre celui qui a lancé » plus haut **rencontrera ce refus** si l'invité a choisi le jeu. Ce n'est pas une régression à diagnostiquer.
+- Un joueur qui fournit la ROM depuis son disque sans l'avoir dans sa bibliothèque **peut jouer toute la session sans pouvoir sauvegarder**, avec une pause de cinq secondes au démarrage. Bruyant et correct — il n'y a aucune ligne où écrire — et son badge ROM l'annonce avant le lancement.
+
 ### Trois défauts connus, à ne pas redécouvrir
 
 La revue finale les a trouvés après l'écriture de ce relevé. Ils sont écrits ici pour que la passe manuelle serve à trouver ce que personne n'a vu, pas à retrouver ceux-là.
 
 - **Une invitation n'est visible que si l'invité se trouve sur l'accueil ou son profil à cet instant précis**, et elle est perdue dès qu'il navigue ailleurs. La liste n'est envoyée qu'à la connexion du socket, et la barre du haut n'existe pas sur l'écran de salle. Quelqu'un qui attend dans son propre salon vide ne verra jamais l'invitation qu'on lui envoie.
 - **Passé 45 secondes, un membre est enfermé dehors** d'un salon qui existe encore, sans chemin de retour.
-- **`game:start` est la onzième garde oubliée** : rien ne vérifie qu'un jeu est choisi. Inatteignable depuis l'interface (le bouton est désactivé), mais un client bricolé produit un salon dont les deux écrans sont blancs et dont on ne sort qu'en éditant l'URL. En cours de correction avec le défaut de sauvegarde.
+- **`game:start` était la onzième garde oubliée** — rien ne vérifiait qu'un jeu était choisi, et un client bricolé produisait un salon aux deux écrans blancs dont on ne sortait qu'en éditant l'URL. **Corrigé**, et le test le prouve. Mentionné ici seulement pour que personne ne parte le chercher.
 
 ## Reporté sciemment
 
