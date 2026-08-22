@@ -17,6 +17,7 @@ import {
   deleteInvitationsForRoom,
   findInvitationById,
   listPendingInvitationsFor,
+  listPendingInvitationsForRoom,
   markInvitation,
   refreshInvitationDeadline,
   type Invitation
@@ -244,7 +245,7 @@ export function registerRoomHandlers(
   });
 
   // Invite a friend into this room.
-  socket.on('lobby:invite', (data: { roomId: string; friendId: string }) => {
+  socket.on('lobby:invite', async (data: { roomId: string; friendId: string }) => {
     // The order of these checks is deliberate: membership first, so someone
     // outside the room can never learn from an error message whether two other
     // people are friends, nor how full the room is.
@@ -276,16 +277,34 @@ export function registerRoomHandlers(
     }
 
     const now = new Date();
+    /*
+     * One pending invitation per room, and this is where that is enforced.
+     *
+     * The screen replaces the friend list with a single "waiting for X, cancel"
+     * panel, so a second invitation would have nowhere to appear; but the rule
+     * lives here rather than in the UI because two tabs would otherwise
+     * disagree with the server about what the room is waiting on.
+     *
+     * `invitationState` and not the stored column: nothing writes `expired`
+     * when it happens, so a row that ran out ten minutes ago still reads
+     * `pending` and would block every later invitation forever.
+     */
+    const pendingHere = listPendingInvitationsForRoom(getDb(), room.id).filter(
+      invitation => invitationState(invitation, now) === 'pending'
+    );
+
     // Re-inviting is how you reach a friend who was offline a moment ago, so it
     // must not pile up rows: an invitation for this same room that is still
     // pending is re-delivered rather than duplicated, or the friend's tray
     // would show the same room twice.
-    const existing = listPendingInvitationsFor(getDb(), data.friendId).find(
-      invitation =>
-        invitation.roomId === room.id &&
-        invitation.fromUserId === user.id &&
-        invitationState(invitation, now) === 'pending'
-    );
+    const existing = pendingHere.find(invitation => invitation.toUserId === data.friendId);
+
+    if (!existing && pendingHere.length > 0) {
+      socket.emit('error', {
+        message: 'Someone has already been invited to this room. Cancel that invitation first.'
+      });
+      return;
+    }
 
     const expiresAt = new Date(now.getTime() + INVITATION_TTL_MS);
     // The reused row gets a fresh deadline: an invitation re-sent at nine
@@ -303,10 +322,68 @@ export function registerRoomHandlers(
     if (friendSocket) io.to(friendSocket).emit('lobby:invitation', view);
 
     socket.emit('lobby:invite-sent', view);
+    // The public view now carries this invitation, and it is what makes the
+    // invite panel give way to "waiting for X" on every member's screen and
+    // survive a reload.
+    await broadcastRoomUpdate(io, room, getUserSocket);
     logger.info(
       { roomId: room.id, from: user.id, to: data.friendId, delivered: Boolean(friendSocket), reused: Boolean(existing) },
       'Invitation sent'
     );
+  });
+
+  /*
+   * Take back the room's pending invitation.
+   *
+   * Any member may cancel, not only whoever sent it. That is the same rule the
+   * rest of this room already follows - either player chooses the game, either
+   * player launches - and with one invitation per room there is exactly one
+   * thing to take back.
+   */
+  socket.on('lobby:cancel', async (data: { invitationId: string }) => {
+    const invitation = data?.invitationId
+      ? findInvitationById(getDb(), data.invitationId)
+      : null;
+
+    if (!invitation) {
+      socket.emit('error', { message: 'Invitation not found' });
+      return;
+    }
+
+    // Membership of the invitation's own room, checked the way every other
+    // room-scoped event checks it. A non-member gets the same answer as for an
+    // id that does not exist, so a stranger holding a room id learns nothing
+    // about whether an invitation is outstanding in it.
+    const room = getMemberRoom(rooms, invitation.roomId, user.id, 'lobby:cancel');
+    if (!room) {
+      socket.emit('error', { message: 'Invitation not found' });
+      return;
+    }
+
+    if (invitation.status !== 'pending') {
+      socket.emit('error', { message: 'This invitation has already been answered' });
+      return;
+    }
+
+    // `cancelled`, never `declined`: the invitee did not turn anything down,
+    // and a table that cannot tell the two apart cannot be read later.
+    markInvitation(getDb(), invitation.id, 'cancelled');
+
+    socket.emit('lobby:cancelled', { invitationId: invitation.id, roomId: room.id });
+
+    // It has to leave the invitee's tray, or they accept something that no
+    // longer exists and get an error for their trouble.
+    const inviteeSocket = getUserSocket(invitation.toUserId);
+    if (inviteeSocket) {
+      io.to(inviteeSocket).emit('lobby:invitation-cancelled', {
+        invitationId: invitation.id,
+        roomId: invitation.roomId
+      });
+    }
+
+    // And the room view loses it, which is what brings the invite panel back.
+    await broadcastRoomUpdate(io, room, getUserSocket);
+    logger.info({ roomId: room.id, invitationId: invitation.id, by: user.id }, 'Invitation cancelled');
   });
 
   // Accept an invitation and join its room.
@@ -337,8 +414,10 @@ export function registerRoomHandlers(
      */
     const room = rooms.get(invitation.roomId);
     if (!room) {
-      // `declined` is the only terminal state the table has, and terminal is
-      // what this invitation is: nothing can ever make its room exist again.
+      // Terminal is what this invitation is - nothing can ever make its room
+      // exist again - and `declined` is the terminal state that fits: the
+      // invitee is the one holding it, and nobody in the room withdrew it,
+      // which is all `cancelled` is ever allowed to mean.
       markInvitation(getDb(), invitation.id, 'declined');
       socket.emit('error', { message: 'That room no longer exists' });
       return;
@@ -352,12 +431,16 @@ export function registerRoomHandlers(
     if (!joined) return;
 
     markInvitation(getDb(), invitation.id, 'accepted');
+    // `joinRoom` broadcast the room view while this row was still pending, so
+    // that view still names an invitation for a player who is now sitting in
+    // the room. One more broadcast, after the mark, is what clears it.
+    await broadcastRoomUpdate(io, room, getUserSocket);
     socket.emit('lobby:accepted', { invitationId: invitation.id, roomId: room.id });
     logger.info({ roomId: room.id, userId: user.id }, 'Invitation accepted');
   });
 
   // Turn an invitation down.
-  socket.on('lobby:decline', (data: { invitationId: string }) => {
+  socket.on('lobby:decline', async (data: { invitationId: string }) => {
     const invitation = findOwnInvitation(socket, data?.invitationId, user.id);
     if (!invitation) return;
 
@@ -381,6 +464,12 @@ export function registerRoomHandlers(
         displayName: user.displayName
       });
     }
+
+    // The room is no longer waiting on anyone, so its view has to say so and
+    // the invite panel comes back on its own. The room may already be gone -
+    // an invitation outlives the room it names.
+    const declinedRoom = rooms.get(invitation.roomId);
+    if (declinedRoom) await broadcastRoomUpdate(io, declinedRoom, getUserSocket);
 
     logger.info({ roomId: invitation.roomId, userId: user.id }, 'Invitation declined');
   });

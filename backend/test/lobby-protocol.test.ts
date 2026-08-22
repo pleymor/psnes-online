@@ -977,3 +977,180 @@ test('game:start is refused while no game has been chosen', async () => {
     assert.equal(rooms.get(room.id)!.status, 'waiting', 'and the room stays where it can still be fixed');
   });
 });
+
+/**
+ * What the public room view says about the invitation a room is waiting on.
+ *
+ * `expiresAt` is a string here and not a `Date`: Socket.IO serialises dates on
+ * the way out and never revives them, so this is what a client actually holds.
+ */
+interface RoomView {
+  id: string;
+  invitation?: { id: string; toUserId: string; toDisplayName: string; expiresAt: string };
+}
+
+/**
+ * The next `room:update` for this room that satisfies `matches`.
+ *
+ * Not `once`: a single room produces several public views in quick succession
+ * - created, seated, invited - and taking whichever arrives first is how this
+ * file would start failing on a busy machine. Still a wait for an event and
+ * never for a duration.
+ */
+function viewWhere(
+  socket: ClientSocket, roomId: string, matches: (view: RoomView) => boolean, ms = 5000
+): Promise<RoomView> {
+  return new Promise<RoomView>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off('room:update', onView);
+      reject(new Error('timed out waiting for a matching room:update'));
+    }, ms);
+
+    function onView(view: RoomView) {
+      if (view?.id !== roomId || !matches(view)) return;
+      clearTimeout(timer);
+      socket.off('room:update', onView);
+      resolve(view);
+    }
+
+    socket.on('room:update', onView);
+  });
+}
+
+test('a room takes one invitation at a time, and refuses the second', async () => {
+  await withLobby(async ({ alice, bob, client }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    // A second accepted friend, so the refusal below can only be about the
+    // invitation already standing: `lobby:invite` checks friendship before
+    // anything else, and Carol's request with Alice was never accepted.
+    const dave = insertUser(db, { id: `${room.id}-dave`, displayName: 'Dave' });
+    acceptFriendship(db, createFriendshipRequest(db, alice.id, dave.id).id);
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    await delivered;
+
+    // Racing three friends is what this gives up, and it is given up on the
+    // server: a rule only the screen enforced would let two tabs disagree with
+    // it about what the room is waiting on.
+    const refused = once<{ message: string }>(host, 'error');
+    host.emit('lobby:invite', { roomId: room.id, friendId: dave.id });
+    assert.match((await refused).message, /already been invited/);
+
+    const rows = db.prepare(`SELECT COUNT(*) AS c FROM "RoomInvitation" WHERE roomId = ?`)
+      .get(room.id) as { c: number };
+    assert.equal(rows.c, 1, 'a refused invitation is one that was never written');
+  });
+});
+
+test('cancelling takes the invitation out of the room view, so the invite panel comes back', async () => {
+  await withLobby(async ({ alice, bob, client }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const invited = viewWhere(host, room.id, view => Boolean(view.invitation));
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const invitationId = (await delivered).id;
+
+    /*
+     * The room view is the whole point of the feature. Hiding the friend list
+     * on the strength of a local flag would be a fact about one browser tab: a
+     * reload would offer the panel again while the invitation was still
+     * running, and would go on hiding it once the invitation had expired.
+     */
+    const waiting = await invited;
+    assert.equal(waiting.invitation?.id, invitationId);
+    assert.equal(waiting.invitation?.toUserId, bob.id);
+    assert.equal(waiting.invitation?.toDisplayName, 'Bob', 'the screen names who is being waited on');
+    assert.ok(new Date(waiting.invitation!.expiresAt).getTime() > Date.now(),
+      'and says when the wait runs out');
+
+    const cleared = viewWhere(host, room.id, view => !view.invitation);
+    const droppedFromTray = once<{ invitationId: string }>(guest, 'lobby:invitation-cancelled');
+    host.emit('lobby:cancel', { invitationId });
+
+    assert.equal((await cleared).invitation, undefined,
+      'the panel comes back because the room says so, not because a tab decided to');
+    assert.equal((await droppedFromTray).invitationId, invitationId,
+      'the invitee must lose it, or they accept something that no longer exists');
+
+    // Withdrawn is not refused. Reusing `declined` would put the wrong sentence
+    // in front of the invitee and leave the table unreadable afterwards.
+    assert.equal(findInvitationById(db, invitationId)!.status, 'cancelled');
+  });
+});
+
+test('an invitation that has run out does not block the next one', async () => {
+  await withLobby(async ({ alice, bob, carol, client }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    /*
+     * Aged by its deadline, never by waiting.
+     *
+     * Nothing writes `expired` into the table when it happens - there is nobody
+     * watching as the ten minutes pass - so this row goes on reading `pending`
+     * forever. A handler that trusted the column would let it lock Alice out of
+     * inviting anybody, in a room whose invitation nobody can even see.
+     */
+    const ranOut = createInvitation(db, room.id, alice.id, carol.id, past());
+
+    const invited = viewWhere(host, room.id, view => Boolean(view.invitation));
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const invitation = await delivered;
+
+    assert.notEqual(invitation.id, ranOut.id, 'the dead row is not reused, it is ignored');
+    assert.equal((await invited).invitation?.toUserId, bob.id,
+      'and the room shows the live invitation, not the one that ran out');
+    assert.equal(findInvitationById(db, ranOut.id)!.status, 'pending',
+      'the dead row still reads pending: the column has never been the state');
+  });
+});
+
+test('only a member of the room may cancel its invitation, whoever sent it', async () => {
+  await withLobby(async ({ alice, bob, carol, client }) => {
+    const host = await client(alice);
+    const stranger = await client(carol);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    /*
+     * Planted with Bob as the sender, which no handler produces today - a room
+     * holding a pending invitation holds exactly one player, so the sender and
+     * the only member are the same person. It is what makes the rule visible:
+     * Alice may cancel because she is in the room, not because she sent it.
+     */
+    const invitation = createInvitation(db, room.id, bob.id, carol.id, future());
+
+    // The same answer as for an id that does not exist. Telling the two apart
+    // would confirm to an outsider that a room they are not in is waiting on
+    // somebody - and Carol here is the invitee, which still is not membership.
+    const refused = once<{ message: string }>(stranger, 'error');
+    stranger.emit('lobby:cancel', { invitationId: invitation.id });
+    assert.equal((await refused).message, 'Invitation not found');
+    assert.equal(findInvitationById(db, invitation.id)!.status, 'pending');
+
+    const cancelled = once<{ invitationId: string }>(host, 'lobby:cancelled');
+    host.emit('lobby:cancel', { invitationId: invitation.id });
+    assert.equal((await cancelled).invitationId, invitation.id);
+    assert.equal(findInvitationById(db, invitation.id)!.status, 'cancelled');
+  });
+});

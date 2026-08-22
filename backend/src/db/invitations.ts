@@ -77,6 +77,23 @@ export function listPendingInvitationsFor(db: Database, userId: string): Invitat
 }
 
 /**
+ * Les invitations encore en attente pour ce salon, les plus récentes d'abord.
+ *
+ * `status = 'pending'` est le filtre grossier, celui que l'index
+ * `RoomInvitation_roomId_idx` permet de payer une fois ; l'expiration, elle, ne
+ * s'écrit jamais en base, donc l'appelant repasse chaque ligne par
+ * `invitationState`. Renvoyer ce que la colonne raconte comme si c'était l'état
+ * réel est exactement la façon dont une invitation périmée continuerait de
+ * bloquer la suivante.
+ */
+export function listPendingInvitationsForRoom(db: Database, roomId: string): Invitation[] {
+  const rows = db.prepare(
+    `SELECT * FROM "RoomInvitation" WHERE roomId = ? AND status = 'pending' ORDER BY createdAt DESC`
+  ).all(roomId) as InvitationRow[];
+  return rows.map(toInvitation);
+}
+
+/**
  * Redonne son plein délai à une invitation réutilisée.
  *
  * Réinviter est la façon d'atteindre un ami qui était hors ligne il y a une

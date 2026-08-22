@@ -118,6 +118,18 @@
     forget(invitationId);
   }
 
+  /**
+   * The room took its invitation back.
+   *
+   * It leaves the tray without a word: the invitee never asked for anything, so
+   * there is nothing to report to them - but leaving the row would offer an
+   * invitation the server now refuses, and the only thing accepting it could
+   * earn them is an error.
+   */
+  function handleCancelled({ invitationId }: { invitationId: string }) {
+    forget(invitationId);
+  }
+
   function forget(invitationId: string) {
     answering = null;
     invitationError = '';
@@ -165,6 +177,7 @@
     sock.on('lobby:invitation', handleInvitation);
     sock.on('lobby:accepted', handleAccepted);
     sock.on('lobby:declined', handleDeclined);
+    sock.on('lobby:invitation-cancelled', handleCancelled);
     sock.on('error', handleError);
   });
 
@@ -176,6 +189,7 @@
     $socket.off('lobby:invitation', handleInvitation);
     $socket.off('lobby:accepted', handleAccepted);
     $socket.off('lobby:declined', handleDeclined);
+    $socket.off('lobby:invitation-cancelled', handleCancelled);
     $socket.off('error', handleError);
   });
 
