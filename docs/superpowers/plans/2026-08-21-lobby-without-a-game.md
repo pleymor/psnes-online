@@ -6,7 +6,7 @@
 
 **Architecture :** `gameId` et `gameTitle` deviennent optionnels sur `Room` plutôt que d'introduire une entité `Lobby`, parce que `Room` sait déjà faire l'appartenance, la présence, la persistance et la reprise après reconnexion. Les dix sites qui exigent un jeu passent par un accesseur unique. Les invitations sont persistées dans une table neuve, avec une machine à états pure dont l'horloge est un paramètre.
 
-**Pile :** TypeScript, better-sqlite3 sans ORM, Socket.IO, SvelteKit 1 / Svelte 4, tests `node:test` via tsx.
+**Pile :** TypeScript, better-sqlite3 sans ORM, Socket.IO, SvelteKit 2 (2.48.5 installé) / Svelte 4, tests `node:test` via tsx.
 
 **Spec :** `docs/superpowers/specs/2026-08-21-lobby-without-a-game-design.md`
 
