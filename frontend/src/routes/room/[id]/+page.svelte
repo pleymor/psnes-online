@@ -13,7 +13,7 @@
   import LockstepRoom from '$lib/components/LockstepRoom.svelte';
   import SoloRoom from '$lib/components/SoloRoom.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
-  import type { Room, KeyConfig, RomAvailability } from '$lib/types';
+  import type { Room, KeyConfig } from '$lib/types';
   import { EmulationMode } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
 
@@ -104,19 +104,6 @@
   $: chosenGame = room?.gameId
     ? { id: room.gameId, title: room.gameTitle ?? '', crc32: room.gameCrc32 }
     : null;
-
-  /**
-   * Whether each player has the room's ROM, as the server worked it out.
-   *
-   * Kept beside `room` rather than inside it because the two arrive on
-   * different events. This screen's room state comes from `room:updated`, which
-   * is the raw room - every player's keyConfig, and no `rom` at all - while
-   * `rom` is computed only for the public view, broadcast as `room:update`.
-   * Seeded from GET /api/rooms, which serves that same public view, because
-   * `room:join` answers a player who already has a seat with `room:updated`
-   * alone: without the seed the indicator would be blank after every reload.
-   */
-  let romByUserId = new Map<string, RomAvailability>();
 
   /** The library to choose from, and the friends who can be invited into it. */
   let friends: { friendshipId: string; friend: { id: string; displayName: string; avatar?: string } }[] = [];
@@ -259,30 +246,23 @@
   }
 
   /**
-   * The public view of this room, which is the only payload carrying `rom`.
+   * The public view of this room, which is the only payload carrying the
+   * pending invitation.
    *
-   * Only the ROM column is taken from it: it has no keyConfig, so it cannot
+   * `room` itself comes from `room:updated`, the raw room with every player's
+   * keyConfig; this one is `toPublicRoom`, broadcast as `room:update`, and it
+   * is read only for the invitation - it has no keyConfig, so it cannot
    * replace `room` without dropping the local player's controls.
    */
   function handleRoomView(view: {
     id: string;
-    players?: { userId: string; rom?: RomAvailability }[];
     invitation?: PendingInvitation;
   }) {
     if (view?.id !== roomId) return;
     sawRoomView = true;
-    romByUserId = readRomColumn(view.players);
     // Absent means the room is waiting on nobody - invited and then cancelled,
     // answered, or run out - and that is what brings the friend list back.
     pendingInvitation = view.invitation ?? null;
-  }
-
-  function readRomColumn(players?: { userId: string; rom?: RomAvailability }[]) {
-    const next = new Map<string, RomAvailability>();
-    for (const player of players ?? []) {
-      if (player.rom) next.set(player.userId, player.rom);
-    }
-    return next;
   }
 
   function showNotification(message: string, type: 'success' | 'error' = 'success') {
@@ -351,27 +331,27 @@
     }
   }
 
-  async function seedRomColumn() {
+  /**
+   * Seeds the pending invitation from the HTTP room list, for the reload path.
+   *
+   * The reload path, and the only one there is: rejoining a seat you already
+   * hold answers with `room:updated` alone, which carries no invitation, so
+   * without this the panel would come back on every reload while the
+   * invitation was still running.
+   */
+  async function seedPendingInvitation() {
     try {
       const res = await fetch('/api/rooms', { credentials: 'include' });
       if (!res.ok) return;
       const rooms: {
         id: string;
-        players?: { userId: string; rom?: RomAvailability }[];
         invitation?: PendingInvitation;
       }[] = await res.json();
       const mine = rooms.find(r => r.id === roomId);
       if (!mine) return;
-      // Never over a live broadcast: this fetch was issued before `room:join`,
-      // so a `room:update` can land first and this answer is the older one.
-      if (romByUserId.size === 0) romByUserId = readRomColumn(mine.players);
-      // The reload path, and the only one there is: rejoining a seat you
-      // already hold answers with `room:updated` alone, which carries no
-      // invitation, so without this the panel would come back on every reload
-      // while the invitation was still running.
       if (!sawRoomView) pendingInvitation = mine.invitation ?? null;
     } catch (error) {
-      logger.error('Failed to read who has the ROM:', error);
+      logger.error('Failed to read the pending invitation:', error);
     }
   }
 
@@ -484,11 +464,12 @@
     if (!alive) return;
 
     // The lobby's own material: what can be chosen, who can be invited, and
-    // who already has the ROM. Not awaited - the room state is what the screen
-    // needs first, and each of these fills in its own corner when it lands.
+    // the invitation this room may already be waiting on. Not awaited - the
+    // room state is what the screen needs first, and each of these fills in
+    // its own corner when it lands.
     void loadMyGames();
     void loadFriends();
-    void seedRomColumn();
+    void seedPendingInvitation();
 
     // Join room
     sock.emit('room:join', { roomId });
@@ -587,7 +568,7 @@
       {/if}
 
       {#if room}
-        <RoomPlayers {room} {roomId} rom={romByUserId} />
+        <RoomPlayers {room} {roomId} />
 
         <!-- Emulation Mode selector (only shown when 2+ players).
              Three modes now rather than two, so a segmented control replaces

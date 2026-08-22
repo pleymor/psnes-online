@@ -3,42 +3,19 @@
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
-  import type { RomAvailability } from '$lib/types';
 
   export let room: any;
   export let roomId: string;
-  /**
-   * Who has the room's ROM, keyed by user id, as the server worked it out.
-   *
-   * A map rather than a field on `room` because the two arrive on different
-   * events - see the room page, which owns it. A player with no entry has not
-   * been described yet, which is not the same as `unknown`: `unknown` is the
-   * server saying there is nothing to compare. No entry means no badge.
-   */
-  export let rom: Map<string, RomAvailability> = new Map();
 
   $: player1 = room?.players?.find((p: any) => p.port === 1);
   $: player2 = room?.players?.find((p: any) => p.port === 2);
   $: currentPlayer = room?.players?.find((p: any) => p.userId === $user?.id);
   $: currentPlayerPort = currentPlayer?.port;
-
-  // Nothing to have before a game is picked, so no badge until there is one.
-  $: gameChosen = Boolean(room?.gameId);
-  $: player1Rom = player1 ? rom.get(player1.userId) : undefined;
-  $: player2Rom = player2 ? rom.get(player2.userId) : undefined;
+  $: player1IsHost = Boolean(player1) && player1.userId === room?.hostId;
+  $: player2IsHost = Boolean(player2) && player2.userId === room?.hostId;
 
   // Check if only 1 player in the room (single-player mode)
   $: isSinglePlayer = room?.players?.length === 1;
-
-  /**
-   * Three states, three labels - and `unknown` is not a quieter `missing`.
-   *
-   * `missing` says the server looked and this player does not have the ROM.
-   * `unknown` says the chosen game carries no checksum, so there was nothing to
-   * look for; claiming they do not have it would be a lie the server never told.
-   */
-  const romLabels = { has: 'romHas', missing: 'romMissing', unknown: 'romUnknown' } as const;
-  const romMarks = { has: '✓', missing: '✗', unknown: '?' } as const;
 
   /**
    * What clicking a slot would actually do, as a sentence.
@@ -92,11 +69,8 @@
       <img src={player1.avatar} alt="" class="avatar" />
     {/if}
     <span class="player-name">{player1?.displayName || '—'}</span>
-    {#if gameChosen && player1Rom}
-      <span class="rom rom-{player1Rom}" title={player1Rom === 'unknown' ? t($language, 'romUnknownHint') : ''}>
-        <span aria-hidden="true">{romMarks[player1Rom]}</span>
-        {t($language, romLabels[player1Rom])}
-      </span>
+    {#if player1IsHost}
+      <span class="host-note">{t($language, 'hostSavesNote')}</span>
     {/if}
     {#if player1Action}
       <span class="slot-action">{player1Action}</span>
@@ -117,11 +91,8 @@
       <img src={player2.avatar} alt="" class="avatar" />
     {/if}
     <span class="player-name">{player2?.displayName || '—'}</span>
-    {#if gameChosen && player2Rom}
-      <span class="rom rom-{player2Rom}" title={player2Rom === 'unknown' ? t($language, 'romUnknownHint') : ''}>
-        <span aria-hidden="true">{romMarks[player2Rom]}</span>
-        {t($language, romLabels[player2Rom])}
-      </span>
+    {#if player2IsHost}
+      <span class="host-note">{t($language, 'hostSavesNote')}</span>
     {/if}
     {#if player2Action}
       <span class="slot-action">{player2Action}</span>
@@ -223,37 +194,11 @@
     font-size: 1.1rem;
   }
 
-  .rom {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 0.2rem 0.55rem;
-    border-radius: 999px;
-    border: 1px solid transparent;
-  }
-
-  .rom-has {
-    background: rgba(76, 175, 80, 0.15);
-    border-color: rgba(76, 175, 80, 0.5);
-    color: #7bd47f;
-  }
-
-  .rom-missing {
-    background: rgba(244, 67, 54, 0.15);
-    border-color: rgba(244, 67, 54, 0.5);
-    color: #f08a80;
-  }
-
-  /* Deliberately neither green nor red: "we cannot tell" is its own answer, and
-     dressing it in the missing colours would read as "does not have it". */
-  .rom-unknown {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: #55556b;
-    color: #a5a5bd;
-    font-style: italic;
-    cursor: help;
+  /* Small on purpose: it names a consequence, not a status to react to. */
+  .host-note {
+    font-size: 0.7rem;
+    color: #9aa0b4;
+    text-align: center;
   }
 
   @media (max-width: 480px) {

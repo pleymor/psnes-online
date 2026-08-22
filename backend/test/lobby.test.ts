@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { requireGame } from '../src/rooms/require-game.js';
 import { invitationState } from '../src/rooms/invitation-state.js';
-import { romAvailability } from '../src/rooms/rom-availability.js';
 import {
   createInvitation,
   findInvitationById,
@@ -56,23 +55,6 @@ test('une invitation expire à la seconde exacte, pas après', () => {
   // La limite est celle qui se trompe : à l'instant pile, elle est expirée.
   const at = plus(600_000);
   assert.equal(invitationState({ status: 'pending', expiresAt: at }, at), 'expired');
-});
-
-test('la ROM est possédée quand le joueur a la ligne', () => {
-  assert.equal(romAvailability({ gameCrc32: 'abc', playerOwnsChecksum: true }), 'has');
-});
-
-test('la ROM manque quand le joueur ne l a pas', () => {
-  assert.equal(romAvailability({ gameCrc32: 'abc', playerOwnsChecksum: false }), 'missing');
-});
-
-test('sans checksum enregistré la réponse est inconnue, pas manquante', () => {
-  // La colonne crc32 de Game est nullable. Dire "ne l'a pas" ici serait faux.
-  assert.equal(romAvailability({ gameCrc32: undefined, playerOwnsChecksum: false }), 'unknown');
-});
-
-test('sans jeu choisi la réponse est inconnue', () => {
-  assert.equal(romAvailability({ gameCrc32: null, playerOwnsChecksum: false }), 'unknown');
 });
 
 test('une invitation créée se relit avec les mêmes champs, et ses dates sont des Date', () => {

@@ -484,8 +484,7 @@ test('choosing the game reaches both players with the server\'s own checksum, an
     /*
      * And the nuance the room screen has to know about: `Game.id` rows are
      * per-user, so a chooser who does not own the id gets no checksum rather
-     * than someone else's. The room keeps a game with no checksum, which is
-     * exactly the case `romAvailability` reports as `unknown`.
+     * than someone else's.
      */
     const unowned = once<Room>(host, 'room:updated');
     guest.emit('room:choose-game', { roomId: room.id, gameId, gameTitle: 'Chrono Trigger' });
@@ -533,65 +532,6 @@ test('a room takes its cover from the server, and never wears one with no game',
     // publishes none rather than the ones it was handed.
     assert.equal((await seen).gameCoverUrl, undefined);
     assert.equal((await seen).gameCrc32, undefined);
-  });
-});
-
-test('the room view says which players have the chosen game\'s ROM', async () => {
-  await withLobby(async ({ alice, bob, gameId, client }) => {
-    const host = await client(alice);
-    const guest = await client(bob);
-
-    const created = once<Room>(host, 'room:created');
-    host.emit('room:create', {});
-    const room = await created;
-
-    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
-    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
-    const acked = once(guest, 'lobby:accepted');
-    guest.emit('lobby:accept', { invitationId: (await delivered).id });
-    await acked;
-
-    // Alice owns this game's checksum in her library; Bob owns no games at
-    // all, so the server, not Bob's word, is what tells the room he lacks it.
-    const updated = once<{ players: { userId: string; rom: string }[] }>(host, 'room:update');
-    host.emit('room:choose-game', { roomId: room.id, gameId, gameTitle: 'Chrono Trigger' });
-    const view = await updated;
-
-    assert.equal(view.players.find(p => p.userId === alice.id)?.rom, 'has');
-    assert.equal(view.players.find(p => p.userId === bob.id)?.rom, 'missing');
-  });
-});
-
-test('a chosen game with no recorded checksum reports rom availability as unknown, not missing', async () => {
-  await withLobby(async ({ alice, bob, client }) => {
-    const host = await client(alice);
-    const guest = await client(bob);
-
-    const created = once<Room>(host, 'room:created');
-    host.emit('room:create', {});
-    const room = await created;
-
-    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
-    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
-    const acked = once(guest, 'lobby:accepted');
-    guest.emit('lobby:accept', { invitationId: (await delivered).id });
-    await acked;
-
-    // Registered with no checksum: nothing to compare against, for anyone.
-    const noChecksumGame = createGame(db, {
-      title: 'Unrecorded Cart', filename: 'unrecorded.sfc', crc32: null, userId: alice.id,
-      ...NO_METADATA
-    });
-
-    const updated = once<{ players: { userId: string; rom: string }[] }>(host, 'room:update');
-    host.emit('room:choose-game', {
-      roomId: room.id, gameId: noChecksumGame.id, gameTitle: 'Unrecorded Cart'
-    });
-    const view = await updated;
-
-    for (const player of view.players) {
-      assert.equal(player.rom, 'unknown');
-    }
   });
 });
 

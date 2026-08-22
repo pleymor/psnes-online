@@ -13,16 +13,6 @@ export interface KeyConfig {
   select: string;
 }
 
-/**
- * Whether a player has the room's ROM, as the server records it - with a third
- * state that is not politeness.
- *
- * `unknown` means the chosen game has no recorded checksum, so there is nothing
- * to compare and no answer to give. Showing it as "does not have it" would be a
- * claim the server never made.
- */
-export type RomAvailability = 'has' | 'missing' | 'unknown';
-
 export interface RoomPlayer {
   userId: string;
   displayName: string;
@@ -30,14 +20,6 @@ export interface RoomPlayer {
   port: 1 | 2 | null;
   isReady: boolean;
   keyConfig: KeyConfig;
-  /**
-   * Optional because only the *public* room view carries it.
-   *
-   * `room:updated` sends the raw room - keyConfig included, `rom` absent -
-   * while `room:update` sends `toPublicRoom`, which computes it. A screen that
-   * wants the indicator has to read it from the public view.
-   */
-  rom?: RomAvailability;
 }
 
 // Emulation Mode types

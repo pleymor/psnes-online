@@ -1,11 +1,9 @@
 import { Room } from '../types/index.js';
 import { getFriendships } from '../services/friends.js';
 import { getDb, type Database } from '../db/sqlite.js';
-import { findGameByChecksum } from '../db/games.js';
 import { findUserById } from '../db/users.js';
 import { listPendingInvitationsForRoom } from '../db/invitations.js';
 import { invitationState } from '../rooms/invitation-state.js';
-import { romAvailability } from '../rooms/rom-availability.js';
 
 /** The room's one outstanding invitation, as the two members see it. */
 export interface PendingInvitationView {
@@ -87,22 +85,12 @@ export function toPublicRoom(room: Room) {
      * running, and would go on hiding it once the invitation had expired.
      */
     invitation: pendingInvitationOf(db, room.id),
-    // One indexed lookup per player, not per view construction: two players
-    // and a unique index on Game(userId, crc32) keep this cheap. Never ask the
-    // client whether it has the ROM - that is a question it would answer on
-    // its own honour.
     players: room.players.map(p => ({
       userId: p.userId,
       displayName: p.displayName,
       avatar: p.avatar,
       port: p.port,
-      isReady: p.isReady,
-      rom: romAvailability({
-        gameCrc32: room.gameCrc32,
-        playerOwnsChecksum: room.gameCrc32
-          ? findGameByChecksum(db, p.userId, room.gameCrc32) !== null
-          : false
-      })
+      isReady: p.isReady
     }))
   };
 }
