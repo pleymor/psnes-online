@@ -2,7 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { Room, RoomPlayer, User, EmulationMode } from '../types/index.js';
 import { randomUUID } from 'crypto';
 import { getUserKeyConfig } from '../services/user-config.js';
-import { notifyFriendsAboutRoom, notifyFriendsRoomStatusChanged, getFriendships } from '../services/friends.js';
+import { notifyFriendsRoomStatusChanged, getFriendships } from '../services/friends.js';
 import { toPublicRoom } from './room-view.js';
 import { createLogger } from '../utils/logger.js';
 import { cleanupRoomChecksums } from './sync-handlers.js';
@@ -693,6 +693,45 @@ export async function handleLeaveRoom(
 
     io.to(roomId).emit('room:updated', room);
     await broadcastRoomUpdate(io, room, getUserSocket);
+  }
+}
+
+/**
+ * Tells the host's friends a room now exists.
+ *
+ * Lives here rather than in `services/friends.ts`, where it used to, because it
+ * needs `toPublicRoom` and `room-view.ts` needs `getFriendships` - so the two
+ * modules imported each other. That cycle resolved only because ESM hoists
+ * function declarations and neither module touched the other while evaluating;
+ * the first top-level statement either one gained would have broken it. The
+ * websocket layer is where this function's dependencies already live.
+ *
+ * The view is built once, not once per friend: it runs an indexed checksum
+ * lookup per player, and N online friends were paying for N identical copies.
+ * Its sibling below has always done it this way.
+ */
+async function notifyFriendsAboutRoom(
+  io: Server,
+  userId: string,
+  room: Room,
+  getUserSocket: (id: string) => string | undefined
+) {
+  const friendships = await getFriendships(userId);
+  // The public view, not the raw room. room-view.ts exists to drop each
+  // player's keyConfig - "a private input setting with no use outside the room
+  // it belongs to" - and a friend is by definition outside it. Sending the raw
+  // room here handed every online friend everybody's key bindings. The friends
+  // list only ever reads id, gameTitle, status and the player list, all of
+  // which the public view keeps.
+  const payload = toPublicRoom(room);
+
+  for (const friendship of friendships) {
+    const friendId = friendship.initiatorId === userId ? friendship.receiverId : friendship.initiatorId;
+    const friendSocketId = getUserSocket(friendId);
+
+    if (friendSocketId) {
+      io.to(friendSocketId).emit('friend:roomCreated', { userId, room: payload });
+    }
   }
 }
 

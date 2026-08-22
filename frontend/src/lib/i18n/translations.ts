@@ -400,8 +400,8 @@ export const translations = {
     // Room
     loading: 'Chargement...',
     startGame: 'Démarrer le jeu',
-    leaveRoom: 'Quitter la room',
-    joiningRoom: 'Connexion à la room...',
+    leaveRoom: 'Quitter le salon',
+    joiningRoom: 'Connexion au salon...',
     createRoom: 'Créer un salon',
     noGameChosen: 'Aucun jeu choisi',
     chooseGame: 'Choisir un jeu',

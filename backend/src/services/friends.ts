@@ -3,7 +3,6 @@ import { getDb } from '../db/sqlite.js';
 import { listAcceptedFriendshipsFor, listAcceptedFriendshipsWithProfiles } from '../db/friendships.js';
 import type { Friendship } from '../db/types.js';
 import { cache } from '../utils/cache.js';
-import { toPublicRoom } from '../websocket/room-view.js';
 
 export async function getFriendships(userId: string): Promise<Friendship[]> {
   const cacheKey = `friendships:${userId}`;
@@ -15,28 +14,6 @@ export async function getFriendships(userId: string): Promise<Friendship[]> {
   }
 
   return friendships;
-}
-
-export async function notifyFriendsAboutRoom(io: Server, userId: string, room: any, getUserSocket: (id: string) => string | undefined) {
-  const friendships = await getFriendships(userId);
-
-  friendships.forEach(friendship => {
-    const friendId = friendship.initiatorId === userId ? friendship.receiverId : friendship.initiatorId;
-    const friendSocketId = getUserSocket(friendId);
-
-    if (friendSocketId) {
-      io.to(friendSocketId).emit('friend:roomCreated', {
-        userId,
-        // The public view, not the raw room. room-view.ts exists to drop each
-        // player's keyConfig - "a private input setting with no use outside
-        // the room it belongs to" - and a friend is by definition outside it.
-        // Sending the raw room here handed every online friend everybody's key
-        // bindings. The friends list only ever reads id, gameTitle, status and
-        // the player list, all of which the public view keeps.
-        room: toPublicRoom(room)
-      });
-    }
-  });
 }
 
 export async function notifyFriendsRoomStatusChanged(

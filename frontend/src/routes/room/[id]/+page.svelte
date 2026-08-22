@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { socket, waitForSocket } from '$lib/api/socket';
-  import { goto } from '$app/navigation';
+  import { goto, replaceState } from '$app/navigation';
   import { page } from '$app/stores';
   import { user } from '$lib/stores/user';
   import { games } from '$lib/stores/games';
@@ -145,6 +145,16 @@
    */
   let arrivedByInvitation = false;
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * Whether this component is still mounted.
+   *
+   * `onMount` registers its listeners after an await while `onDestroy` runs
+   * synchronously, so a short-lived visit can destroy the component inside that
+   * window. A leaked `handleGameStarted` would then set `document.body.overflow`
+   * to hidden on whatever page the player actually ended up on, and no `off`
+   * would ever come for it.
+   */
+  let alive = true;
 
   function handleReconnect() {
     logger.info('Socket reconnected, rejoining room');
@@ -340,6 +350,30 @@
     arrivedByInvitation = $page.url.searchParams.get('from') === 'invitation';
 
     const sock = await waitForSocket();
+    // The component can be gone by now - a click through to another page while
+    // the layout is still awaiting /auth/me is enough. `onDestroy` has already
+    // run, so anything registered past this point would never be removed.
+    if (!alive) return;
+
+    /*
+     * The parameter is read once and then spent.
+     *
+     * The message it triggers is about *this arrival*, and a parameter left in
+     * the address bar outlives the arrival: it survives a reload, a bookmark, a
+     * copied link and the back button, firing for people who were never invited
+     * and re-firing for the one who was - which teaches the player that the
+     * toast means nothing. `replaceState` strips it with no navigation and no
+     * load run.
+     *
+     * After the await, not before, and not for tidiness: on a cold load this
+     * component's onMount runs synchronously while SvelteKit is still
+     * constructing the root, before the router marks itself started - and
+     * `replaceState` throws there in development. Waiting for the socket puts
+     * us well past it, because the socket is not created until the layout has
+     * finished awaiting /auth/me.
+     */
+    if (arrivedByInvitation) replaceState(`/room/${roomId}`, $page.state);
+
     if (!sock) {
       goto('/');
       return;
@@ -382,6 +416,8 @@
   });
 
   onDestroy(() => {
+    alive = false;
+
     if ($socket) {
       $socket.emit('room:leave', { roomId });
       // With the handler, not without: a bare off('connect') removes every

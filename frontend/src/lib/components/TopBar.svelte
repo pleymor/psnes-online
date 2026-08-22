@@ -54,6 +54,16 @@
   let answering: string | null = null;
   let now = Date.now();
   let clock: ReturnType<typeof setInterval> | undefined;
+  /**
+   * Whether this bar is still mounted.
+   *
+   * The listeners below go on after an await while `onDestroy` runs
+   * synchronously, so a cold load of `/` that the player clicks away from
+   * before `/auth/me` resolves destroys this component inside that window.
+   * Five handlers would then be left on the shared socket with no `off` ever
+   * coming for them - one of which calls `goto`.
+   */
+  let alive = true;
 
   /**
    * The invitations still standing at this instant.
@@ -149,7 +159,7 @@
     // socket yet and the invitations the server pushes at connection time
     // would land on nobody.
     const sock = await waitForSocket();
-    if (!sock) return;
+    if (!sock || !alive) return;
 
     sock.on('lobby:invitations', handleInvitations);
     sock.on('lobby:invitation', handleInvitation);
@@ -159,6 +169,7 @@
   });
 
   onDestroy(() => {
+    alive = false;
     clearInterval(clock);
     if (!$socket) return;
     $socket.off('lobby:invitations', handleInvitations);
@@ -233,6 +244,13 @@
 
       {#each liveInvitations as invitation (invitation.id)}
         <div class="invite">
+          <div class="invite-avatar">
+            {#if invitation.fromAvatar}
+              <img src={invitation.fromAvatar} alt="" />
+            {:else}
+              👤
+            {/if}
+          </div>
           <div class="invite-info">
             <strong>{t($language, 'invitedYou', { name: invitation.fromDisplayName })}</strong>
             <!-- A room can be waiting with no game at all now, so there is
@@ -359,11 +377,30 @@
     border-top: 1px solid #2e2e2e;
   }
 
+  .invite-avatar {
+    flex-shrink: 0;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #333;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .invite-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
   .invite-info {
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
     min-width: 0;
+    flex: 1;
   }
 
   .invite-info strong {

@@ -29,6 +29,28 @@
   let onlineFriends = new Map<string, boolean>(); // userId -> online status
   let selectedFriend: any = null;
 
+  /**
+   * A friend's room, as it is now rather than as it was created.
+   *
+   * `friend:roomCreated` fires exactly once, at `room:create`. Everything that
+   * happens to the room afterwards - and choosing the game is now something
+   * that happens afterwards - travels on `room:update`, which the host's
+   * friends already receive and which nothing outside the room screen listened
+   * to. Without this, a friend who created an empty lobby and then picked a
+   * game stayed « in a room » for the rest of the session, with a Join button
+   * and no way to learn what the game was. Reopening the drawer did not help:
+   * the block below refills from the page's copy, fetched once.
+   *
+   * Keyed by `createdBy` like every other writer here, so the three sources
+   * agree on which friend a room belongs to.
+   */
+  function handleRoomUpdate(room: any) {
+    const creatorId = room?.createdBy || room?.hostId;
+    if (!creatorId) return;
+    friendRooms.set(creatorId, room);
+    friendRooms = friendRooms; // Trigger reactivity
+  }
+
   // Reactive statement to merge API rooms with WebSocket rooms
   $: {
     // Update friendRooms with rooms from API (indexed by creator, not current host)
@@ -78,6 +100,8 @@
       friendRooms.set(userId, room);
       friendRooms = friendRooms; // Trigger reactivity
     });
+
+    $socket?.on('room:update', handleRoomUpdate);
 
     $socket?.on('friend:roomStatusChanged', ({ userId, roomId, status }: any) => {
       if (status === 'destroyed') {
@@ -144,6 +168,10 @@
     $socket?.off('friend:removed');
     $socket?.off('friend:roomCreated');
     $socket?.off('friend:roomStatusChanged');
+    // Named, unlike its neighbours: `room:update` is the one event here that
+    // another screen also listens to, and a bare off() would take its listener
+    // down too.
+    $socket?.off('room:update', handleRoomUpdate);
   });
 
   async function searchUsers() {
