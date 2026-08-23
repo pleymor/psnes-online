@@ -538,6 +538,28 @@ export class NetplaySession implements TickSource {
 		this.setDelay(Math.max(MIN_MANUAL_DELAY, Math.min(MAX_INPUT_DELAY, Math.round(frames))));
 	}
 
+	/**
+	 * Hands the delay back to the strain loop after it was pinned.
+	 *
+	 * Does not re-run the handshake sizing - that measurement is long gone, and
+	 * it under-reads this relay anyway. It hands control over from wherever the
+	 * delay currently sits, and the loop converges from there: up on ten strained
+	 * seconds, down on a clean window.
+	 *
+	 * This exists because a label that lies is worse than a setting that is
+	 * missing. The room's trade-off can go back to automatic mid-game, and
+	 * without this the menu said "automatic" while the engine stayed pinned - a
+	 * real session sat at two frames, below the automatic floor, while its peer
+	 * lost frames in a third of its seconds and nothing was coming to help.
+	 */
+	resumeAutomaticDelay(): void {
+		if (this.autoInputDelay) return;
+		this.autoInputDelay = true;
+		// Start the evidence fresh: what the link did while nobody was acting on
+		// it should not spend its first frame the instant control returns.
+		this.resetStrainWindow();
+	}
+
 	private setDelay(frames: number): void {
 		const previous = this.opts.inputDelay;
 		this.opts.inputDelay = frames;

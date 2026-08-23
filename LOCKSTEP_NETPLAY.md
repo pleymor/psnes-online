@@ -294,9 +294,17 @@ setting you cannot reach from the pause menu is a setting nobody uses. And it is
 remembered **per game** on the creator's machine, so one answer for the
 platformer and another for the fighter, set once each.
 
-`auto` chosen mid-game does not un-pin what pinning disabled - it applies from
-the next session. The log says so rather than letting it look like nothing
-happened.
+`auto` chosen mid-game hands control genuinely back, through
+`resumeAutomaticDelay()`. It does not re-run the handshake sizing - that
+measurement is long gone and under-reads this relay anyway - it lets the loop
+take over from wherever the delay sits and converge from there.
+
+That method exists because the first version only changed the label, and the
+result was found in production within the hour: a room read `automatic` and sat
+at **two** frames - below the automatic floor of three, so provably still pinned
+- while its peer lost frames in a third of its seconds and nothing was coming to
+help. A setting that lies about what the engine is doing is worse than no setting
+at all.
 
 ### The relay
 

@@ -760,7 +760,10 @@
       session.setInputDelay(LOW_DELAY_FRAMES);
       logger.info('Latency mode: lowest', { frames: LOW_DELAY_FRAMES });
     } else {
-      logger.info('Latency mode: automatic', { note: 'applies from the next session if it was pinned' });
+      // Genuinely hands control back, rather than only changing the label. The
+      // loop takes over from wherever the delay sits and converges from there.
+      session.resumeAutomaticDelay();
+      logger.info('Latency mode: automatic', { frames: session.inputDelay });
     }
   }
 

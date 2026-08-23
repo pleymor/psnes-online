@@ -256,6 +256,31 @@ test('a fed peer never makes the delay creep', async () => {
 	harness.dispose();
 });
 
+test('handing control back to the loop really hands it back', async () => {
+	// Pinning switches the loop off, which is the point. But the room's setting
+	// can go back to automatic mid-game, and if that only changed a label the
+	// menu would claim the engine was protecting the other player while it was
+	// not. Found in production: a session read "automatic" and sat at two frames
+	// - below the automatic floor, so provably still pinned - while the peer lost
+	// frames in a third of its seconds.
+	const harness = await NetplayHarness.create(
+		harnessOptions(20000, { link: { latency: 30, jitter: 12, seed: 99 }, hungerSeconds: 3 })
+	);
+	harness.handshake(30_000);
+	harness.host.session.setInputDelay(1);
+	harness.run(20_000);
+	assert.equal(harness.host.session.inputDelay, 1, 'pinned means pinned');
+
+	harness.host.session.resumeAutomaticDelay();
+	harness.run(20_000);
+	assert.ok(
+		harness.host.session.inputDelay > 1,
+		`handing control back must let the loop act: still ${harness.host.session.inputDelay}`
+	);
+	assert.equal(harness.firstDivergence(), null);
+	harness.dispose();
+});
+
 test('a pinned delay is never raised behind the player\'s back', async () => {
 	// Same contract the measurement already honours: a hand-set value is the
 	// escape hatch, and an escape hatch that moves on its own is not one.
