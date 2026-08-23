@@ -93,6 +93,11 @@ lockstep mode simply reports that the core is missing.
 - Each pad packet repeats the last few frames the sender already transmitted.
   A dropped packet then costs nothing, where asking for a retransmit would cost
   a full round trip with both peers stalled.
+- Each pad packet also carries one byte of **strain**: how many of the sender's
+  last 128 frames arrived late. A peer that is losing frames cannot fix it
+  itself, because what keeps its frames on time is its *partner's* delay
+  arriving early enough. So it reports, and the partner adds a frame. One-way
+  only: this never lowers a delay.
 - Every `crcInterval` frames both peers exchange a checksum. A mismatch makes
   the host ship a full savestate; both sides restart from it under a new
   *epoch*, and packets tagged with the old epoch are discarded.
@@ -197,6 +202,31 @@ does go wrong, it goes wrong visibly.
 The engine owns no timers on purpose. That is what lets the test suite drive
 whole sessions through a virtual clock, at full CPU speed and reproducibly.
 
+### Three attempts at one control loop
+
+Sizing the delay from a measurement is easy. Adjusting it while playing took
+three tries, and the first two failed the same way: they read a number that
+measures the follower's ordinary position rather than its distress. In lockstep
+one peer always runs at the edge of the other's production, so on a *flawless*
+link the follower's counters look alarming.
+
+| signal | why it failed |
+|---|---|
+| `stats.stalls` | The follower logged 494 stall episodes in ten seconds on a 30ms link while the leader logged zero. The loop walked the delay down while latency climbed. |
+| `padsAhead` depth | Same trap, one layer in: the follower legitimately holds ~0 frames of its partner's pads because it has consumed them. A healthy session crept to the ceiling. |
+| late frames | Works. Measured against a deliberately generous split the follower lost **no** frames while its stalled-tick count ran into the thousands; a genuinely tight split on a jittery link lost 26 per 128-frame window. |
+
+The discriminating question turned out to be not "is this peer waiting" - it
+always is - but "are its frames arriving on time". A frame gap wider than 1.5
+times the machine's own frame is a stutter a player sees, and that is what
+travels in the `strain` byte. `npm run measure:splits` counts the same thing
+offline, deliberately, so the two agree.
+
+The loop only raises, and each raise demands twice the evidence of the last.
+That asymmetry is the honest trade rather than caution: a frame too generous
+costs 17 to 20ms of input latency, and a frame too tight costs the *other*
+player several visible stutters a second.
+
 ### The relay
 
 `backend/src/websocket/znet-handlers.ts` plays the part ZSNES gives its netplay
@@ -220,7 +250,7 @@ npm run test:all
 ```
 
 **`core/test/netcode.test.ts`** runs the real engine and the real protocol
-against `FakeCore`, a toy deterministic machine. 45 tests covering the wire
+against `FakeCore`, a toy deterministic machine. 48 tests covering the wire
 format, lockstep under 5% loss and 60ms of jitter, input-delay behaviour,
 desync detection from either side, epoch handling, savestate retransmission,
 and recovery from a total blackout.
@@ -312,7 +342,7 @@ against the unfixed code.
 ## Status
 
 Running in production as the default mode for new rooms, and playable end to
-end. 63 tests, none skipped - 52 for the netcode and the relay, 11 against the
+end. 66 tests, none skipped - 55 for the netcode and the relay, 11 against the
 real wasm core: two independent wasm instances stay bit-identical for 1800 frames
 of pseudo-random two-player input, and full sessions over a simulated 150ms /
 60ms-jitter / 5%-loss link never diverge.
@@ -321,10 +351,12 @@ Known limits:
 
 - **Two players only.** The protocol carries a player index and the core
   exposes two controller ports; multitap would need both extended.
-- **The input delay is chosen once per epoch.** It comes from a real
-  measurement, but one taken during the handshake - which under-reads this
-  relay: a session measured 66ms while sizing and then ran at a median of 81ms.
-  A link that improves mid-match also keeps paying the handshake's price. Adapting it while running needs
+- **The input delay only ever goes up.** The handshake under-reads this relay -
+  a session measured 66ms while sizing and then ran at a median of 81ms - so the
+  strain loop exists to close that gap while playing. But it closes it in one
+  direction: a link that *improves* mid-match keeps paying, and the only way
+  down is `__znetDelay(n)` by hand. Lowering automatically was attempted twice
+  and abandoned twice, for the reason in the next section. Adapting it while running needs
   a signal this engine does not have yet, and the obvious candidate is a trap:
   `stats.stalls` cannot serve, because in lockstep one peer leads and the other
   follows, so the follower stalls constantly on a perfectly healthy link while

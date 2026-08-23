@@ -41,6 +41,76 @@ function harnessOptions(frames: number, extra: Record<string, unknown> = {}) {
 	};
 }
 
+/* ------------------------------------------------------ feeding the peer */
+
+test('a peer losing frames gets fed, and the feeding stops when it is fed', async () => {
+	// What keeps a peer's frames on time is *our* delay arriving early enough,
+	// and nothing the peer controls, so it reports and we act. Measured in
+	// production: a peer holding zero frames of its partner's pads stalled 24
+	// times a second, and its partner adding two frames took that to zero.
+	//
+	// The link matters here. A steady one with an adequate sum loses no frames
+	// even when the follower stalls hundreds of times - that case is covered
+	// below and must *not* trip this. It takes real jitter to hurt.
+	const harness = await NetplayHarness.create(
+		harnessOptions(20000, { link: { latency: 30, jitter: 12, seed: 91 }, hungerFrames: 30 })
+	);
+	harness.handshake(30_000);
+	harness.run(2_000);
+
+	// setDelay, not setInputDelay: automatic sizing has to stay on, since
+	// pinning by hand is exactly what must disable this.
+	const host = harness.host.session as unknown as { setDelay(n: number): void };
+	host.setDelay(1);
+	harness.run(20_000);
+
+	const fed = harness.host.session.inputDelay;
+	assert.ok(fed > 1, `the host must feed a peer losing frames: still ${fed}`);
+	assert.equal(harness.firstDivergence(), null, 'feeding the peer must not desync');
+	assert.equal(harness.host.session.state, 'running');
+
+	// And it has to settle rather than climb to the ceiling: each step demands
+	// twice the evidence, so a link needing four frames does not reach sixteen.
+	harness.run(30_000);
+	assert.ok(
+		harness.host.session.inputDelay <= fed + 2,
+		`the delay must settle, not creep: ${fed} -> ${harness.host.session.inputDelay}`
+	);
+	harness.dispose();
+});
+
+test('a fed peer never makes the delay creep', async () => {
+	// The loop only ever raises, so a healthy session must not trip it at all;
+	// otherwise every long match would drift to the ceiling.
+	const harness = await NetplayHarness.create(
+		harnessOptions(8000, { link: { latency: 15, jitter: 2, seed: 92 }, hungerFrames: 40 })
+	);
+	harness.handshake(30_000);
+	const sized = harness.host.session.inputDelay;
+	harness.run(20_000);
+
+	assert.equal(
+		harness.host.session.inputDelay,
+		sized,
+		'a link with room to spare must be left alone'
+	);
+	harness.dispose();
+});
+
+test('a pinned delay is never raised behind the player\'s back', async () => {
+	// Same contract the measurement already honours: a hand-set value is the
+	// escape hatch, and an escape hatch that moves on its own is not one.
+	const harness = await NetplayHarness.create(
+		harnessOptions(8000, { link: { latency: 45, jitter: 4, seed: 93 }, hungerFrames: 40 })
+	);
+	harness.handshake(30_000);
+	harness.host.session.setInputDelay(1);
+	harness.run(15_000);
+
+	assert.equal(harness.host.session.inputDelay, 1, 'the pinned value must survive a hungry peer');
+	harness.dispose();
+});
+
 /* -------------------------------------------------------------- frame rate */
 
 test('the estimator works in the frames the machine actually runs', () => {
@@ -261,7 +331,14 @@ test('a malformed lag parameter leaves the session on the real link', () => {
 test('every message survives a round trip', () => {
 	const messages: NetMsg[] = [
 		{ type: MsgType.Hello, protocol: 1, romCrc: 0xdeadbeef, playerIndex: 1, playerCount: 2 },
-		{ type: MsgType.Pads, playerIndex: 1, epoch: 3, baseFrame: 123456, pads: [0, PAD.A, 0x0fff] },
+		{
+			type: MsgType.Pads,
+			playerIndex: 1,
+			epoch: 3,
+			baseFrame: 123456,
+			strain: 7,
+			pads: [0, PAD.A, 0x0fff]
+		},
 		{ type: MsgType.Crc, playerIndex: 0, epoch: 3, frame: 900, crc: 0xffffffff },
 		{
 			type: MsgType.State,
@@ -303,6 +380,7 @@ test('a pad packet stays small enough never to fragment', () => {
 		playerIndex: 0,
 		epoch: 0,
 		baseFrame: 100000,
+		strain: 4,
 		pads: new Array(10).fill(PAD.A)
 	});
 	assert.ok(packet.length <= 32, `pad packet is ${packet.length} bytes`);

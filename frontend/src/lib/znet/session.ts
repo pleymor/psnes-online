@@ -132,6 +132,14 @@ export interface SessionOptions {
 	 * look 3.36ms late and reports a steady link as jittery for ever.
 	 */
 	fps?: number;
+	/**
+	 * Pad packets reporting a starving peer before this side adds a frame.
+	 *
+	 * The evidence has to be sustained, because a single hungry report is
+	 * ordinary jitter. 0 disables the loop and leaves the delay wherever the
+	 * handshake put it.
+	 */
+	hungerFrames?: number;
 	/** Re-send our pads every N consecutive stalled ticks. */
 	stallResendEvery?: number;
 	readLocalInput: () => PadMask;
@@ -163,6 +171,29 @@ const MAX_INPUT_DELAY = 16;
 
 /** SNES NTSC, used when the caller does not say what the machine runs at. */
 const DEFAULT_FPS = 60.0988;
+
+/** Window over which late frames are counted, and reported to the peer. */
+const STRAIN_WINDOW = 128;
+
+/**
+ * A frame gap this much wider than the machine's own is a stutter a player sees.
+ * The same threshold the offline instrument uses, so the two agree.
+ */
+const LATE_FACTOR = 1.5;
+
+/**
+ * Late frames per window at which the peer is judged to be in trouble.
+ *
+ * Zero is the healthy figure, including for the follower: measured against a
+ * deliberately generous split, the follower lost no frames at all while its
+ * stalled-tick count ran into the thousands. A tight split cost 250 late frames
+ * in twenty seconds, which is about 27 per window - so this sits well clear of
+ * both.
+ */
+const STRAIN_AT = 6;
+
+/** Pad packets of sustained strain before a peer adds a frame, by default. */
+const DEFAULT_HUNGER_FRAMES = 120;
 
 /** Round-trip samples the host collects before sizing the input delay. */
 const SIZING_SAMPLES = 5;
@@ -270,6 +301,7 @@ export class NetplaySession implements TickSource {
 			| 'pingIntervalMs'
 			| 'stallResendEvery'
 			| 'fps'
+			| 'hungerFrames'
 		>
 	>;
 	private readLocalInput: () => PadMask;
@@ -308,6 +340,29 @@ export class NetplaySession implements TickSource {
 
 	/** Consecutive stalled ticks, used to pace pad re-sends. */
 	private stallCounter = 0;
+
+	/**
+	 * Leaky evidence that the peer is losing frames, from the strain it reports.
+	 *
+	 * Leaky rather than consecutive: a single strained packet is ordinary jitter
+	 * and must not count, but a run of them broken by one good packet still has
+	 * to. Every raise then demands twice the evidence of the last, so the first
+	 * frame is cheap to give and the sixth is not given lightly.
+	 */
+	private peerHunger = 0;
+	private hungerNeeded = 0;
+
+	/**
+	 * "Was this frame late", as a ring over the last window, with its sum.
+	 *
+	 * A ring rather than a running total, because the figure has to *fall* again
+	 * once a rough patch passes. A total would keep an old outage on the books
+	 * for the rest of the session and hold the delay up with it.
+	 */
+	private lateRing = new Uint8Array(STRAIN_WINDOW);
+	private lateAt = 0;
+	private lateCount = 0;
+	private lastFrameAt: number | null = null;
 
 	private peerHello = false;
 	private pendingPings = new Map<number, number>();
@@ -400,10 +455,12 @@ export class NetplaySession implements TickSource {
 			retryMs: options.retryMs ?? 1500,
 			pingIntervalMs: options.pingIntervalMs ?? 2000,
 			stallResendEvery: options.stallResendEvery ?? 8,
-			fps: options.fps || DEFAULT_FPS
+			fps: options.fps || DEFAULT_FPS,
+			hungerFrames: options.hungerFrames ?? DEFAULT_HUNGER_FRAMES
 		};
 		this.stats.inputDelay = this.opts.inputDelay;
 		this.epochMaxDelay = this.opts.inputDelay;
+		this.hungerNeeded = this.opts.hungerFrames;
 
 		this.transport.onMessage((data) => this.handleMessage(data));
 	}
@@ -708,6 +765,7 @@ export class NetplaySession implements TickSource {
 		const pad1 = this.pads[0].get(this.frame) ?? 0;
 		const pad2 = this.pads[1].get(this.frame) ?? 0;
 
+		this.noteFrameTiming();
 		this.core.runFrame(pad1, pad2);
 		const executed = this.frame;
 		this.frame++;
@@ -823,6 +881,56 @@ export class NetplaySession implements TickSource {
 		this.lastPadArrival = { at, frame: newestFrame };
 	}
 
+	/** Notes whether the frame about to run is arriving late. */
+	private noteFrameTiming(): void {
+		const at = this.now();
+		const previous = this.lastFrameAt;
+		this.lastFrameAt = at;
+		if (previous === null) return;
+		const late = at - previous > (1000 / this.opts.fps) * LATE_FACTOR ? 1 : 0;
+		this.lateCount += late - this.lateRing[this.lateAt];
+		this.lateRing[this.lateAt] = late;
+		this.lateAt = (this.lateAt + 1) % STRAIN_WINDOW;
+	}
+
+	/**
+	 * Adds a frame of delay when the peer says it is losing frames.
+	 *
+	 * This is the one adjustment the side that needs it cannot make: what keeps
+	 * a peer's frames on time is *our* input delay arriving early enough, and
+	 * nothing the peer controls itself. So it reports, and we act.
+	 *
+	 * One-way on purpose - it only ever raises. Lowering is what two earlier
+	 * attempts got wrong, both times by reading a signal that measures the
+	 * follower's ordinary position rather than its distress. The asymmetry is
+	 * also the honest trade: a frame too generous costs 17 to 20ms of latency,
+	 * a frame too tight costs the other player several stutters a second.
+	 *
+	 * A hand-pinned delay is left alone, exactly as the handshake measurement
+	 * leaves it alone: an escape hatch that moves by itself is not one.
+	 */
+	private notePeerStrain(strain: number): void {
+		if (!this.autoInputDelay || this.opts.hungerFrames <= 0) return;
+		if (this._state !== 'running') return;
+
+		if (strain < STRAIN_AT) {
+			if (this.peerHunger > 0) this.peerHunger--;
+			return;
+		}
+		if (++this.peerHunger < this.hungerNeeded) return;
+
+		this.peerHunger = 0;
+		if (this.opts.inputDelay >= MAX_INPUT_DELAY) return;
+		this.setDelay(this.opts.inputDelay + 1);
+		// Twice the evidence for the next one. A link that needs six frames will
+		// get there; one that needs four will not sail past it on noise.
+		this.hungerNeeded *= 2;
+		this.onEvent({
+			type: 'state',
+			message: `input delay up to ${this.opts.inputDelay} frames to keep the other player smooth`
+		});
+	}
+
 	private hasAllPads(frame: number): boolean {
 		for (let p = 0; p < PLAYER_COUNT; p++) {
 			if (!this.pads[p].has(frame)) return false;
@@ -852,6 +960,9 @@ export class NetplaySession implements TickSource {
 			playerIndex: this.playerIndex,
 			epoch: this.epoch,
 			baseFrame: upTo - run.length + 1,
+			// How deep our own reserve of the peer's pads is. Only the peer can
+			// do anything about it, since it is the peer's delay that fills it.
+			strain: this.lateCount,
 			pads: run
 		});
 	}
@@ -961,6 +1072,14 @@ export class NetplaySession implements TickSource {
 		// Frame numbers mean something different on a new timeline, so the
 		// spacing measured across the seam would be nonsense.
 		this.lastPadArrival = null;
+		this.peerHunger = 0;
+		this.hungerNeeded = this.opts.hungerFrames;
+		// A resync's own gap is not strain, and neither is anything measured on
+		// the timeline we just abandoned.
+		this.lastFrameAt = null;
+		this.lateRing.fill(0);
+		this.lateCount = 0;
+		this.lateAt = 0;
 		this.primeStartupPads(from);
 	}
 
@@ -1012,7 +1131,7 @@ export class NetplaySession implements TickSource {
 			case MsgType.Hello:
 				return this.onHello(msg.protocol, msg.romCrc);
 			case MsgType.Pads:
-				return this.onPads(msg.playerIndex, msg.epoch, msg.baseFrame, msg.pads);
+				return this.onPads(msg.playerIndex, msg.epoch, msg.baseFrame, msg.pads, msg.strain);
 			case MsgType.Crc:
 				return this.onCrc(msg.epoch, msg.frame, msg.crc);
 			case MsgType.State:
@@ -1108,12 +1227,14 @@ export class NetplaySession implements TickSource {
 		playerIndex: number,
 		epoch: number,
 		baseFrame: number,
-		pads: PadMask[]
+		pads: PadMask[],
+		peerStrain: number
 	): void {
 		if (epoch !== this.epoch) return; // belongs to a timeline we abandoned
 		if (playerIndex === this.playerIndex || playerIndex >= PLAYER_COUNT) return;
 
 		this.sampleJitter(baseFrame + pads.length - 1);
+		this.notePeerStrain(peerStrain);
 
 		const map = this.pads[playerIndex];
 		for (let i = 0; i < pads.length; i++) {

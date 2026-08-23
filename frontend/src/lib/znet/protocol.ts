@@ -8,7 +8,13 @@
  * only message that ships continuously.
  */
 
-export const PROTOCOL_VERSION = 1;
+/**
+ * 2 added `strain` to the pad packet. A mismatch fails the handshake rather than
+ * degrading, which is right: both peers load the same deployed bundle, and a
+ * peer that silently ignored the field would starve its partner with no way for
+ * either to find out why.
+ */
+export const PROTOCOL_VERSION = 2;
 
 export enum MsgType {
 	Hello = 1,
@@ -61,6 +67,22 @@ export interface PadsMsg {
 	playerIndex: number;
 	epoch: number;
 	baseFrame: number;
+	/**
+	 * How many of the sender's last 128 frames arrived late, capped at 255.
+	 *
+	 * Late means a gap wider than 1.5 times the machine's frame, which is a
+	 * stutter a player sees. This is the one number that separates a peer in
+	 * trouble from a peer merely following: in lockstep one side always runs at
+	 * the edge of the other's production, so its buffer sits near zero and its
+	 * stall counter climbs even on a flawless link - but its frames still land on
+	 * time. Measured against a deliberately generous split, the follower's late
+	 * count was zero while its stalled-tick count was in the thousands.
+	 *
+	 * It travels because the fix does not belong to the peer that needs it: what
+	 * fills a peer's buffer is its *partner's* input delay, and nothing it
+	 * controls itself.
+	 */
+	strain: number;
 	pads: PadMask[];
 }
 
@@ -140,15 +162,20 @@ export function encode(msg: NetMsg): Uint8Array {
 			return buf;
 		}
 		case MsgType.Pads: {
-			const buf = new Uint8Array(8 + msg.pads.length * 2);
+			// A nine-byte header: the buffer report did not fit in the eight the
+			// packet used to carry, and stealing spare bits from playerIndex or
+			// the pad count would have saved one byte on a packet that already
+			// has room to spare before it fragments.
+			const buf = new Uint8Array(9 + msg.pads.length * 2);
 			const view = new DataView(buf.buffer);
 			buf[0] = MsgType.Pads;
 			buf[1] = msg.playerIndex;
 			buf[2] = msg.epoch;
 			buf[3] = msg.pads.length;
 			view.setUint32(4, msg.baseFrame >>> 0, true);
+			buf[8] = Math.max(0, Math.min(255, msg.strain | 0));
 			for (let i = 0; i < msg.pads.length; i++) {
-				view.setUint16(8 + i * 2, msg.pads[i] & 0xffff, true);
+				view.setUint16(9 + i * 2, msg.pads[i] & 0xffff, true);
 			}
 			return buf;
 		}
@@ -219,18 +246,19 @@ export function decode(data: Uint8Array): NetMsg | null {
 				playerCount: data[7]
 			};
 		case MsgType.Pads: {
-			if (data.length < 8) return null;
+			if (data.length < 9) return null;
 			const count = data[3];
-			if (data.length < 8 + count * 2) return null;
+			if (data.length < 9 + count * 2) return null;
 			const pads: number[] = new Array(count);
 			for (let i = 0; i < count; i++) {
-				pads[i] = view.getUint16(8 + i * 2, true);
+				pads[i] = view.getUint16(9 + i * 2, true);
 			}
 			return {
 				type: MsgType.Pads,
 				playerIndex: data[1],
 				epoch: data[2],
 				baseFrame: view.getUint32(4, true),
+				strain: data[8],
 				pads
 			};
 		}
