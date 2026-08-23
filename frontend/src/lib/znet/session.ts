@@ -192,8 +192,18 @@ const LATE_FACTOR = 1.5;
  */
 const STRAIN_AT = 6;
 
-/** Pad packets of sustained strain before a peer adds a frame, by default. */
-const DEFAULT_HUNGER_FRAMES = 120;
+/**
+ * Pad packets of sustained strain before a peer adds a frame.
+ *
+ * **Zero: the loop is off.** It wedged a production session on its first step -
+ * thirteen flawless seconds at 50fps, then the raise landed and the host lost
+ * its own pad for the frame it was about to run, so both peers waited for ever
+ * on a pad nobody would produce. The strain byte still travels and is still
+ * measured, because that half is sound and worth having on screen; only the
+ * reaction is disabled until the raise is proven safe by a test that reproduces
+ * the wedge. Tests pass it explicitly.
+ */
+const DEFAULT_HUNGER_FRAMES = 0;
 
 /** Round-trip samples the host collects before sizing the input delay. */
 const SIZING_SAMPLES = 5;
