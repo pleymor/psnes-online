@@ -12,7 +12,7 @@
    * lives in the aria-label, which is also what a screen reader reads.
    */
   import { createEventDispatcher } from 'svelte';
-  import { shortLabelList, type Button } from '$lib/controls/binding';
+  import { shortLabel, type Button } from '$lib/controls/binding';
 
   export let bindings: Record<Button, string[]>;
   export let capturing: Button | null = null;
@@ -43,7 +43,7 @@
   const DPAD: Array<{ b: Button; x: number; y: number; hit: { x: number; y: number; w: number; h: number } }> = [
     { b: 'up', x: 131, y: 96, hit: { x: 112, y: 74, w: 38, h: 31 } },
     { b: 'down', x: 131, y: 168, hit: { x: 112, y: 143, w: 38, h: 31 } },
-    { b: 'left', x: 90, y: 131, hit: { x: 55, y: 105, w: 57, h: 38 } },
+    { b: 'left', x: 100, y: 131, hit: { x: 81, y: 105, w: 31, h: 38 } },
     { b: 'right', x: 162, y: 131, hit: { x: 150, y: 105, w: 31, h: 38 } }
   ];
 
@@ -59,6 +59,20 @@
     { b: 'select', x: 198, tx: 224, label: 'SELECT', lx: 206 },
     { b: 'start', x: 258, tx: 284, label: 'START', lx: 300 }
   ];
+
+  /**
+   * Splits a button's codes the way the drawing needs, not the way prose
+   * needs. `shortLabelList` (binding.ts) fuses "first code" and "+n more"
+   * into one string for tables and tooltips; on the drawing that string can
+   * run to six characters ("B14 +1"), which is wider than the tightest slot
+   * (the d-pad's arms). Keeping the two apart lets the "+n" render at a
+   * fraction of the size instead of tripling the label's width.
+   */
+  function splitLabel(codes: string[]): { main: string; extra: number } {
+    const bound = codes.filter((code) => code !== '');
+    if (bound.length === 0) return { main: '—', extra: 0 };
+    return { main: shortLabel(bound[0]), extra: bound.length - 1 };
+  }
 
   function choose(button: Button) {
     if (!interactive) return;
@@ -95,6 +109,7 @@
 
   <!-- shoulder buttons -->
   {#each SHOULDERS as shoulder}
+    {@const parts = splitLabel(bindings[shoulder.b])}
     <g
       class="hit"
       class:capturing={capturing === shoulder.b}
@@ -108,7 +123,12 @@
     >
       <rect x={shoulder.x} y="6" width="108" height="30" rx="12" fill="url(#snes-shoulder)" stroke="#7b7b8a" stroke-width="1.6" />
       <text x={shoulder.x + 22} y="27" class="glyph">{shoulder.letter}</text>
-      <text x={shoulder.x + 72} y="27" class="binding dark">{shortLabelList(bindings[shoulder.b])}</text>
+      {#if parts.extra > 0}
+        <text x={shoulder.x + 66} y="27" class="binding dark">{parts.main}</text>
+        <text x={shoulder.x + 92} y="27" class="binding dark extra">+{parts.extra}</text>
+      {:else}
+        <text x={shoulder.x + 72} y="27" class="binding dark">{parts.main}</text>
+      {/if}
     </g>
   {/each}
 
@@ -117,9 +137,10 @@
   <!-- d-pad -->
   <g fill="#41414c" stroke="#2a2a33" stroke-width="1.6">
     <rect x="112" y="74" width="38" height="100" rx="6" />
-    <rect x="50" y="105" width="131" height="38" rx="6" />
+    <rect x="81" y="105" width="100" height="38" rx="6" />
   </g>
   {#each DPAD as dir}
+    {@const parts = splitLabel(bindings[dir.b])}
     <g
       class="hit"
       class:capturing={capturing === dir.b}
@@ -132,12 +153,18 @@
       on:keydown={(e) => onKey(e, dir.b)}
     >
       <rect x={dir.hit.x} y={dir.hit.y} width={dir.hit.w} height={dir.hit.h} fill="transparent" />
-      <text x={dir.x} y={dir.y} class="binding light">{shortLabelList(bindings[dir.b])}</text>
+      {#if parts.extra > 0}
+        <text x={dir.x - 6} y={dir.y} class="binding light">{parts.main}</text>
+        <text x={dir.x + 15} y={dir.y} class="binding light extra">+{parts.extra}</text>
+      {:else}
+        <text x={dir.x} y={dir.y} class="binding light">{parts.main}</text>
+      {/if}
     </g>
   {/each}
 
   <!-- face buttons -->
   {#each FACE_BUTTONS as face}
+    {@const parts = splitLabel(bindings[face.b])}
     <g
       class="hit"
       class:capturing={capturing === face.b}
@@ -151,12 +178,18 @@
     >
       <circle cx={face.cx} cy={face.cy} r={FACE.r} fill={face.fill} stroke={face.stroke} stroke-width="1.6" />
       <text x={face.cx} y={face.cy - 4} class="glyph on-colour">{face.letter}</text>
-      <text x={face.cx} y={face.cy + 13} class="binding light">{shortLabelList(bindings[face.b])}</text>
+      {#if parts.extra > 0}
+        <text x={face.cx - 6} y={face.cy + 13} class="binding light">{parts.main}</text>
+        <text x={face.cx + 15} y={face.cy + 13} class="binding light extra">+{parts.extra}</text>
+      {:else}
+        <text x={face.cx} y={face.cy + 13} class="binding light">{parts.main}</text>
+      {/if}
     </g>
   {/each}
 
   <!-- select and start -->
   {#each PILLS as pill}
+    {@const parts = splitLabel(bindings[pill.b])}
     <g
       class="hit"
       class:capturing={capturing === pill.b}
@@ -170,7 +203,12 @@
     >
       <g transform="rotate(-18 252 160)">
         <rect x={pill.x} y="150" width="52" height="19" rx="9.5" fill="#6b6b78" stroke="#494954" stroke-width="1.3" />
-        <text x={pill.tx} y="164" class="binding light small">{shortLabelList(bindings[pill.b])}</text>
+        {#if parts.extra > 0}
+          <text x={pill.tx - 6} y="164" class="binding light small">{parts.main}</text>
+          <text x={pill.tx + 10} y="164" class="binding light small extra">+{parts.extra}</text>
+        {:else}
+          <text x={pill.tx} y="164" class="binding light small">{parts.main}</text>
+        {/if}
       </g>
       <text x={pill.lx} y="196" class="glyph faint">{pill.label}</text>
     </g>
@@ -210,6 +248,14 @@
 
   .binding.small {
     font-size: 14px;
+  }
+
+  /* The "+n" for a button bound to more than one code. Kept separate from
+     the main label (rather than folded into one "B14 +1" string) so it
+     costs a fraction of a character slot instead of tripling the label's
+     width - the d-pad's arms are the tightest slots on the pad. */
+  .binding.extra {
+    font-size: 11px;
   }
 
   .light {
