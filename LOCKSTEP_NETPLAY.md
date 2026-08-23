@@ -227,6 +227,24 @@ That asymmetry is the honest trade rather than caution: a frame too generous
 costs 17 to 20ms of input latency, and a frame too tight costs the *other*
 player several visible stutters a second.
 
+Getting the signal right was not the hard part. **Raising the delay at all is**,
+and it shipped broken: a real session ran thirteen flawless seconds at 50fps and
+then froze permanently on the loop's very first step. Raising the delay has to
+fill the frames between the old horizon and the new one, because `tick()` only
+ever fills `frame + delay` and nothing revisits what it skipped. The fill was
+written for that, and started one frame too high.
+
+The off-by-one is worth stating exactly, because it is invisible from the code.
+A raise arrives *between* ticks, on a socket callback, and `tick()` samples
+before it runs - so the newest pad we hold targets `(frame - 1) + previous`, one
+lower than it looks. Filling from `frame + previous + 1` therefore leaves exactly
+one hole, at `frame + previous`, which is the very frame the peer needs first.
+Both sides then wait for ever on a pad nobody will ever produce.
+
+The regression test raises the delay at twelve different packet phases, because a
+single phase hides it: whether the raise lands before or after this tick's sample
+depends on how the jitter happened to space the arrivals.
+
 ### The relay
 
 `backend/src/websocket/znet-handlers.ts` plays the part ZSNES gives its netplay
@@ -250,7 +268,7 @@ npm run test:all
 ```
 
 **`core/test/netcode.test.ts`** runs the real engine and the real protocol
-against `FakeCore`, a toy deterministic machine. 48 tests covering the wire
+against `FakeCore`, a toy deterministic machine. 49 tests covering the wire
 format, lockstep under 5% loss and 60ms of jitter, input-delay behaviour,
 desync detection from either side, epoch handling, savestate retransmission,
 and recovery from a total blackout.
@@ -342,7 +360,7 @@ against the unfixed code.
 ## Status
 
 Running in production as the default mode for new rooms, and playable end to
-end. 66 tests, none skipped - 55 for the netcode and the relay, 11 against the
+end. 67 tests, none skipped - 56 for the netcode and the relay, 11 against the
 real wasm core: two independent wasm instances stay bit-identical for 1800 frames
 of pseudo-random two-player input, and full sessions over a simulated 150ms /
 60ms-jitter / 5%-loss link never diverge.

@@ -195,15 +195,10 @@ const STRAIN_AT = 6;
 /**
  * Pad packets of sustained strain before a peer adds a frame.
  *
- * **Zero: the loop is off.** It wedged a production session on its first step -
- * thirteen flawless seconds at 50fps, then the raise landed and the host lost
- * its own pad for the frame it was about to run, so both peers waited for ever
- * on a pad nobody would produce. The strain byte still travels and is still
- * measured, because that half is sound and worth having on screen; only the
- * reaction is disabled until the raise is proven safe by a test that reproduces
- * the wedge. Tests pass it explicitly.
+ * At 50 to 60 packets a second this is a little over two seconds of sustained
+ * evidence for the first frame, and it doubles for each one after.
  */
-const DEFAULT_HUNGER_FRAMES = 0;
+const DEFAULT_HUNGER_FRAMES = 120;
 
 /** Round-trip samples the host collects before sizing the input delay. */
 const SIZING_SAMPLES = 5;
@@ -534,11 +529,30 @@ export class NetplaySession implements TickSource {
 		 * frames is what the pad packets do anyway.
 		 */
 		const mine = this.pads[this.playerIndex];
-		const last = mine.get(this.frame + previous) ?? 0;
-		for (let f = this.frame + previous + 1; f <= this.frame + frames; f++) {
+
+		/*
+		 * The gap starts at `frame + previous`, not one above it.
+		 *
+		 * A raise arrives between ticks, and `tick()` samples before it runs, so
+		 * the newest pad we hold targets `(frame - 1) + previous` - one lower
+		 * than it looks. Starting the fill one frame too high left exactly one
+		 * hole, at the very frame the peer would need first, and the session
+		 * wedged the instant it reached it: thirteen flawless seconds, then a
+		 * permanent freeze on the first step. The `has` guard below makes the
+		 * lower bound safe either way, so it costs nothing to start low.
+		 */
+		let last = 0;
+		for (let f = this.frame + previous; f >= this.frame; f--) {
+			const held = mine.get(f);
+			if (held !== undefined) {
+				last = held;
+				break;
+			}
+		}
+		for (let f = this.frame + previous; f <= this.frame + frames; f++) {
 			if (!mine.has(f)) mine.set(f, last);
 		}
-		this.sendPadRange(this.frame + previous + 1, this.frame + frames);
+		this.sendPadRange(this.frame + previous, this.frame + frames);
 	}
 
 	get rtt(): number | null {

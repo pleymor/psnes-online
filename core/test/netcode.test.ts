@@ -43,6 +43,46 @@ function harnessOptions(frames: number, extra: Record<string, unknown> = {}) {
 
 /* ------------------------------------------------------ feeding the peer */
 
+test('raising the delay leaves no hole in our own pads, at any phase', async () => {
+	// The wedge this exists to prevent, found in production and reproduced here.
+	// A raise arrives between ticks, and `tick()` samples before it runs, so the
+	// newest pad we hold targets `(frame - 1) + previous` - one lower than it
+	// looks. Filling from one frame too high left exactly one hole, at the very
+	// frame the peer needed first: thirteen flawless seconds at 50fps, then both
+	// peers frozen for good on the first step the loop took.
+	//
+	// Twelve phases because a single one hides it: the hole only matters when the
+	// raise lands before this tick has sampled, and where that falls depends on
+	// how the jitter happened to space the packets.
+	for (let seed = 1; seed <= 12; seed++) {
+		const harness = await NetplayHarness.create(
+			harnessOptions(20000, { link: { latency: 31, jitter: 12, seed }, inputDelay: 4 })
+		);
+		harness.handshake(30_000);
+		harness.run(600 + seed * 149);
+
+		const host = harness.host.session as unknown as {
+			setDelay(n: number): void;
+			pads: Array<Map<number, number>>;
+			frame: number;
+			playerIndex: number;
+		};
+		host.setDelay(5);
+
+		const mine = host.pads[host.playerIndex];
+		const missing: number[] = [];
+		for (let f = host.frame; f <= host.frame + 5; f++) if (!mine.has(f)) missing.push(f);
+		assert.deepEqual(missing, [], `hole in our own pads at seed ${seed}`);
+
+		const before = harness.host.session.getStats().framesRun;
+		harness.run(4_000);
+		const ran = harness.host.session.getStats().framesRun - before;
+		assert.ok(ran > 100, `wedged after the raise at seed ${seed}: ran ${ran}`);
+		assert.equal(harness.firstDivergence(), null, `diverged at seed ${seed}`);
+		harness.dispose();
+	}
+});
+
 test('a peer losing frames gets fed, and the feeding stops when it is fed', async () => {
 	// What keeps a peer's frames on time is *our* delay arriving early enough,
 	// and nothing the peer controls, so it reports and we act. Measured in
