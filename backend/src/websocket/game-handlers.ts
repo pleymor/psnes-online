@@ -7,6 +7,7 @@ import { notifyFriendsRoomStatusChanged } from '../services/friends.js';
 import { createLogger } from '../utils/logger.js';
 import { getMemberRoom } from './guards.js';
 import { requireGame } from '../rooms/require-game.js';
+import { saveSuitsRoom } from '../rooms/save-suits-room.js';
 import { findOwnGameIdForRoom } from '../rooms/own-game.js';
 import { onlinePlayers } from '../rooms/online-players.js';
 
@@ -222,6 +223,20 @@ export function registerGameHandlers(
 
       if (save.game.userId !== userId) {
         socket.emit('error', { message: 'Not authorized to load this save' });
+        return;
+      }
+
+      // Owning the save was the only thing checked here, so a save from a
+      // different game reached the emulator and produced a machine in a state
+      // that never existed. Matched on the checksum rather than the game id:
+      // each player has their own Game row for the same ROM, so a guest's save
+      // never shares the room's gameId.
+      if (!saveSuitsRoom(room.gameCrc32, save.game.crc32)) {
+        socket.emit('error', { message: 'That save belongs to a different game' });
+        logger.warn(
+          { saveId: data.saveId, roomCrc32: room.gameCrc32, saveCrc32: save.game.crc32 },
+          'Refused a save that does not belong to the room game'
+        );
         return;
       }
 
