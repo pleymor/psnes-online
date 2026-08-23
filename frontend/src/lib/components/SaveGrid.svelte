@@ -304,16 +304,38 @@
     .pick {
       flex-wrap: wrap;
       gap: 0.5rem;
+      padding: 0.45rem;
     }
 
     .shot {
-      width: 56px;
-      height: 42px;
+      width: 48px;
+      height: 36px;
+      order: 1;
     }
 
+    /*
+     * The text gets the whole width, and the label moves up beside the
+     * thumbnail to give it to them.
+     *
+     * Measured rather than guessed, after two wrong estimates: sharing the
+     * first line left `.meta` 107px for 122px of date, and no amount of
+     * trimming padding closed a fifteen-pixel gap. On its own row it has 178px,
+     * which holds a full date in either language and still has room for a
+     * longer one.
+     */
     .action {
-      flex-basis: 100%;
+      order: 2;
+      flex: 1;
       text-align: right;
+    }
+
+    .meta {
+      order: 3;
+      flex-basis: 100%;
+    }
+
+    .meta strong {
+      font-size: 0.875rem;
     }
   }
 
