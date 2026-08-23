@@ -7,6 +7,10 @@ import {
   findGameByChecksum, findOtherGameWithChecksum, countGamesFor, createGame,
   updateGameChecksum, updateGameMetadata, deleteGame
 } from '../db/games.js';
+import { findGameMetadataById, insertCommunityMetadata } from '../db/game-metadata.js';
+import { findLinkByChecksum, linkChecksum } from '../db/metadata-links.js';
+import { invalidateMetadataCache } from '../services/metadata-loader.js';
+import { sanitiseEntry } from './entry-input.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
 import { asyncHandler } from '../middleware/async-handler.js';
@@ -117,6 +121,70 @@ gamesRouter.patch('/:gameId/checksum', asyncHandler(async (req, res) => {
   const updated = updateGameChecksum(db, game.id, checksum);
   logger.info({ gameId: game.id, checksum }, 'Game re-linked to a local ROM');
   res.json(updated);
+}));
+
+/**
+ * Says which game a ROM is, for everyone.
+ *
+ * Either the player points at an entry that already exists, or they write one.
+ * Both end in the same place: a row in "GameMetadataChecksum" claiming this
+ * dump's CRC32. That row is a fact about the world rather than about this
+ * player, which is why it reaches every other owner of the same dump - and why
+ * creating an entry without linking it is not offered: the entry exists
+ * *because* a ROM was looking for it.
+ */
+gamesRouter.post('/:gameId/identify', asyncHandler(async (req, res) => {
+  const user = req.user as User;
+  const { metadataId, entry } = req.body ?? {};
+
+  const db = getDb();
+  const game = findGameById(db, req.params.gameId);
+  if (!game) return res.status(404).json({ error: 'Game not found' });
+  if (game.userId !== user.id) return res.status(403).json({ error: 'Not authorized' });
+  if (!game.crc32) {
+    return res.status(400).json({ error: 'Link a ROM to this game before identifying it' });
+  }
+
+  const claimed = findLinkByChecksum(db, game.crc32);
+  if (claimed) {
+    if (claimed.metadataId === metadataId) {
+      // Idempotent rather than a conflict: pressing the button twice, or two
+      // tabs agreeing, is not an error.
+      return res.json({ metadataId: claimed.metadataId });
+    }
+    // Not really a failure. If this dump is claimed, its metadata already
+    // applies everywhere - so the caller is looking at a stale library, and the
+    // useful answer is what the dump actually is.
+    return res.status(409).json({
+      error: 'This ROM has already been identified',
+      metadata: findGameMetadataById(db, claimed.metadataId)
+    });
+  }
+
+  if (typeof metadataId === 'string') {
+    if (!findGameMetadataById(db, metadataId)) {
+      return res.status(404).json({ error: 'No such catalogue entry' });
+    }
+    linkChecksum(db, { crc32: game.crc32, metadataId, contributedBy: user.id });
+    logger.info({ crc32: game.crc32, metadataId, by: user.id }, 'ROM linked to a catalogue entry');
+    return res.json({ metadataId });
+  }
+
+  if (entry !== undefined) {
+    const checksum = game.crc32;
+    const created = db.transaction(() => {
+      const meta = insertCommunityMetadata(db, sanitiseEntry(entry, game.title), user.id);
+      linkChecksum(db, { crc32: checksum, metadataId: meta.id, contributedBy: user.id });
+      return meta;
+    })();
+    // The cache feeds the title matcher and the search: without this the entry
+    // would not be findable until the container restarted.
+    invalidateMetadataCache();
+    logger.info({ crc32: checksum, metadataId: created.id, by: user.id }, 'Catalogue entry contributed');
+    return res.json({ metadataId: created.id, metadata: created });
+  }
+
+  return res.status(400).json({ error: 'Either metadataId or entry is required' });
 }));
 
 gamesRouter.delete('/:gameId', asyncHandler(async (req, res) => {
