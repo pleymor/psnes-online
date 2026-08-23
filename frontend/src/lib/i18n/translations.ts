@@ -242,6 +242,24 @@ export const translations = {
     failedToSaveControls: 'Failed to save controls configuration',
     failedToResetControls: 'Failed to reset controls',
 
+    // Two-player controls
+    inputSources: 'Sources',
+    keyboardSource: 'Keyboard',
+    noController: 'No controller',
+    allFreeControllers: 'All free controllers',
+    detectController: 'Detect',
+    pressButtonOnController: 'Press a button on player {player}\'s controller',
+    editingKeyboard: 'Keyboard',
+    editingController: 'Controller',
+    standardMapping: 'Reset to standard mapping',
+    boundToKey: 'bound to {key}',
+    boundToPadButton: 'bound to controller button {index}',
+    boundToPadAxis: 'bound to controller axis {index} {dir}',
+    unboundBinding: 'not bound',
+    alsoUsedByPlayer: 'Also used by player {player} ({button})',
+    playerInactive: 'This player has no device yet, so port 2 stays silent.',
+    detectCancelled: 'No controller answered.',
+
     // Saves
     saves: 'Saves',
     saveState: 'Save State',
@@ -554,6 +572,24 @@ export const translations = {
     confirmResetControls: 'Réinitialiser tous les contrôles aux paramètres par défaut ?',
     failedToSaveControls: 'Échec de la sauvegarde de la configuration des contrôles',
     failedToResetControls: 'Échec de la réinitialisation des contrôles',
+
+    // Contrôles à deux joueurs
+    inputSources: 'Sources',
+    keyboardSource: 'Clavier',
+    noController: 'Aucune manette',
+    allFreeControllers: 'Toutes les manettes libres',
+    detectController: 'Détecter',
+    pressButtonOnController: 'Appuie sur un bouton de la manette du joueur {player}',
+    editingKeyboard: 'Clavier',
+    editingController: 'Manette',
+    standardMapping: 'Repartir du mappage standard',
+    boundToKey: 'lié à {key}',
+    boundToPadButton: 'lié au bouton {index} de la manette',
+    boundToPadAxis: 'lié à l\'axe {index} {dir} de la manette',
+    unboundBinding: 'non lié',
+    alsoUsedByPlayer: 'Aussi utilisé par le joueur {player} ({button})',
+    playerInactive: 'Ce joueur n\'a pas encore de périphérique : le port 2 reste muet.',
+    detectCancelled: 'Aucune manette n\'a répondu.',
 
     // Saves
     saves: 'Sauvegardes',
