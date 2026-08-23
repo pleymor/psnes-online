@@ -9,7 +9,7 @@
  * at different times on the two peers.
  */
 
-import type { PlayerControls, InputSources, Button } from '../controls/binding.js';
+import type { PlayerControls, InputSources, Button, PadCodeDescriptor } from '../controls/binding.js';
 import { BUTTONS, parsePadCode } from '../controls/binding.js';
 import { PAD, type PadMask } from './protocol.js';
 
@@ -30,8 +30,14 @@ const BUTTON_BITS: Record<Button, number> = {
 
 const AXIS_THRESHOLD = 0.5;
 
-/** Tout écouter : le défaut d'un joueur seul, et rien d'autre. */
-const EVERYTHING: InputSources = { keyboard: true, pads: 'all' };
+/**
+ * Tout écouter : le défaut d'un joueur seul, et rien d'autre.
+ *
+ * Frozen, and shared by every collector that does not pass its own sources:
+ * `getSources()` must never hand out this exact object, or a caller mutating
+ * it would corrupt the default for every collector created afterwards.
+ */
+const EVERYTHING: InputSources = Object.freeze({ keyboard: true, pads: 'all' });
 
 export class InputCollector {
 	private held = new Set<string>();
@@ -41,7 +47,13 @@ export class InputCollector {
 	 * silence si jamais il arrivait quand même jusqu'ici.
 	 */
 	private keyBits: Array<[string, number]> = [];
-	private padBits: Array<[string, number]> = [];
+	/**
+	 * Descripteurs déjà résolus plutôt que des codes bruts : `read()` tourne à
+	 * 60 Hz, et reparser chaque code manette à chaque frame pour chaque pad
+	 * ferait de l'ordre du millier d'objets par seconde de garbage - une pause
+	 * du GC dans l'émulateur s'entend comme un accroc audio.
+	 */
+	private padBits: Array<[PadCodeDescriptor, number]> = [];
 	private sources: InputSources = EVERYTHING;
 	private attached = false;
 	private onKeyDown = (e: KeyboardEvent) => this.handleKey(e, true);
@@ -61,7 +73,9 @@ export class InputCollector {
 			const key = controls.keys[button];
 			if (key) this.keyBits.push([key, bit]);
 			for (const code of controls.pad[button] ?? []) {
-				if (code) this.padBits.push([code, bit]);
+				if (!code) continue;
+				const descriptor = parsePadCode(code);
+				if (descriptor) this.padBits.push([descriptor, bit]);
 			}
 		}
 	}
@@ -78,16 +92,17 @@ export class InputCollector {
 		this.sources = sources;
 	}
 
+	/** Une copie : muter la valeur reçue ne doit pas toucher ce joueur. */
 	getSources(): InputSources {
-		return this.sources;
+		return { ...this.sources };
 	}
 
 	attach(target: Window = window): void {
 		if (this.attached) return;
 		target.addEventListener('keydown', this.onKeyDown);
 		target.addEventListener('keyup', this.onKeyUp);
-		// Perdre le focus une touche enfoncée la laisserait tenue pour
-		// toujours, et en lockstep c'est un bouton bloqué sur les deux machines.
+		// Losing focus with a key down would otherwise leave it held forever,
+		// and in lockstep that is a stuck button on both machines.
 		target.addEventListener('blur', this.onBlur);
 		this.attached = true;
 	}
@@ -101,7 +116,7 @@ export class InputCollector {
 		this.attached = false;
 	}
 
-	/** Le masque à envoyer pour la prochaine frame. */
+	/** The pad mask to send for the next scheduled frame. */
 	read(): PadMask {
 		let mask = 0;
 		if (this.sources.keyboard) {
@@ -121,8 +136,8 @@ export class InputCollector {
 		for (const pad of navigator.getGamepads()) {
 			if (!pad?.connected) continue;
 			if (pads !== 'all' && !pads.includes(pad.index)) continue;
-			for (const [code, bit] of this.padBits) {
-				if (readPadCode(pad, code)) mask |= bit;
+			for (const [descriptor, bit] of this.padBits) {
+				if (readPadCode(pad, descriptor)) mask |= bit;
 			}
 		}
 		return mask;
@@ -137,18 +152,16 @@ export class InputCollector {
 	}
 }
 
-function readPadCode(pad: Gamepad, code: string): boolean {
-	const described = parsePadCode(code);
-	if (!described) return false;
+function readPadCode(pad: Gamepad, described: PadCodeDescriptor): boolean {
 	if (described.kind === 'button') return pad.buttons[described.index]?.pressed ?? false;
 	const value = pad.axes[described.index] ?? 0;
 	return described.dir === 'minus' ? value < -AXIS_THRESHOLD : value > AXIS_THRESHOLD;
 }
 
 /**
- * Une vraie manette ne peut pas rapporter deux directions opposées à la fois,
- * et certains jeux prennent des chemins réellement indéfinis quand ils en
- * voient. Laisser tomber la seconde garde les deux pairs sur le chemin défini.
+ * Real controllers cannot report opposing directions at once, and some games
+ * take genuinely undefined paths when they see it. Dropping the second
+ * direction here keeps both peers on the defined path.
  */
 function sanitise(mask: number): number {
 	if ((mask & (PAD.LEFT | PAD.RIGHT)) === (PAD.LEFT | PAD.RIGHT)) mask &= ~PAD.RIGHT;

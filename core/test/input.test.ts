@@ -346,8 +346,10 @@ test('un joueur sans clavier ignore les touches', () => {
 		const collector = new InputCollector(CONTROLS, { keyboard: false, pads: [] });
 		collector.attach(win as never);
 
-		win.fire('keydown', { code: 'KeyX' });
+		let prevented = false;
+		win.fire('keydown', { code: 'KeyX', preventDefault: () => { prevented = true; } });
 		assert.equal(collector.read(), 0, 'le clavier du J1 ne doit pas atteindre le J2');
+		assert.equal(prevented, false, 'un joueur sans clavier ne doit pas voler la touche à la page');
 
 		collector.detach(win as never);
 	});
@@ -363,6 +365,13 @@ test('couper le clavier relâche ce qui était tenu', () => {
 
 		collector.setSources({ keyboard: false, pads: 'all' });
 		assert.equal(collector.read(), 0, 'sinon la direction reste bloquée pour toujours');
+
+		// La touche est toujours tenue en interne à ce stade : ce n'est que
+		// parce que `read()` ignore le clavier que le masque précédent valait
+		// 0. Rallumer le clavier sans avoir vidé `held` referait apparaître
+		// UP tout seul, alors que rien n'a été réappuyé.
+		collector.setSources({ keyboard: true, pads: 'all' });
+		assert.equal(collector.read(), 0, 'sans le vidage, UP resterait bloqué après le retour du clavier');
 
 		collector.detach(win as never);
 	});
@@ -389,5 +398,33 @@ test('deux boutons enfoncés en même temps donnent leurs deux bits', () => {
 	withGamepads([{ index: 0, buttons: [1, 9] }], () => {
 		const collector = new InputCollector(CONTROLS, { keyboard: false, pads: [0] });
 		assert.equal(collector.read(), PAD.A | PAD.START);
+	});
+});
+
+test('sanitise() s’applique aussi au masque venu de la manette', () => {
+	// STANDARD_PAD lie chaque direction à la fois à un bouton et à un axe : le
+	// bouton 14 est LEFT, et le stick poussé à droite est aussi RIGHT. Une
+	// vraie manette rapporte les deux si le d-pad et le stick se contredisent,
+	// et sanitise() doit trancher pour ce masque-là exactement comme pour le
+	// clavier.
+	withGamepads([{ index: 0, buttons: [14], axes: [1, 0] }], () => {
+		const collector = new InputCollector(CONTROLS, ALL);
+		const mask = collector.read();
+		assert.notEqual(mask & PAD.LEFT, 0, 'le bouton d-pad doit compter');
+		assert.equal(mask & PAD.RIGHT, 0, 'la seconde direction opposée doit être coupée');
+	});
+});
+
+test('un même code lié à deux boutons donne les deux bits', () => {
+	// Une paire par code plutôt qu'une Map : si jamais un tel conflit arrive
+	// jusqu'ici (la config normalisée le refuse, mais un stockage ou un pair
+	// réseau pourrait le fournir quand même), les deux boutons doivent quand
+	// même s'allumer plutôt que l'un d'eux disparaître silencieusement.
+	withGamepads([{ index: 0, buttons: [0] }], () => {
+		const collector = new InputCollector(
+			{ keys: KEY_CONFIG, pad: { ...STANDARD_PAD, a: ['PadButton0'] } },
+			ALL
+		);
+		assert.equal(collector.read(), (PAD.A | PAD.B), 'PadButton0 est lié à B par défaut et à A ici');
 	});
 });
