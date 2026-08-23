@@ -258,8 +258,16 @@
     font-size: 11px;
   }
 
+  /* A thin dark outline behind the fill keeps a light label readable where
+     it bleeds off its dark arm onto the lighter body, or sits on a
+     brightened (pressed) button - same dark as the d-pad's own stroke, so
+     it reads as part of the drawing rather than as bolding. */
   .light {
     fill: #fff;
+    paint-order: stroke fill;
+    stroke: #2a2a33;
+    stroke-width: 3px;
+    stroke-linejoin: round;
   }
 
   .dark {
