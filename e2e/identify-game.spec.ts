@@ -9,6 +9,7 @@
 
 import { test, expect } from '@playwright/test';
 import { loginDev, apiFetch } from './helpers';
+import { makePng } from './png-fixture';
 
 /**
  * A CRC32 nothing has ever claimed, fresh for every test that needs one.
@@ -108,6 +109,83 @@ test.describe('completing the games database', () => {
 		} finally {
 			await apiFetch(one, `/api/games/${gameOne.id}`, { method: 'DELETE' });
 			await apiFetch(two, `/api/games/${gameTwo.id}`, { method: 'DELETE' });
+		}
+	});
+
+	test('a cover is stored, served back byte for byte, and visible to everyone', async () => {
+		const cookie = await loginDev('1');
+		const other = await loginDev('2');
+		const game = await addGame(cookie, freshCrc(), 'illustrated.sfc');
+		const png = makePng(16, 16);
+
+		try {
+			const { metadataId } = await (
+				await apiFetch(cookie, `/api/games/${game.id}/identify`, {
+					method: 'POST',
+					body: JSON.stringify({ entry: { title: 'Illustrated Game' } })
+				})
+			).json();
+
+			const put = await apiFetch(cookie, `/api/metadata/${metadataId}/cover`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'image/png' },
+				body: png
+			});
+			expect(put.status).toBe(200);
+			const { coverUrl } = await put.json();
+
+			// The URL carries the write's timestamp, which is what lets the
+			// response be cached hard without a replacement going unseen.
+			expect(coverUrl).toMatch(/^\/api\/covers\/[0-9a-f-]+\?v=\d+$/);
+
+			// The library now offers it as the game's cover, through the same
+			// coverUrl field the cards already read.
+			const listed = await libraryEntry(cookie, game.id);
+			expect(listed.coverUrl).toBe(coverUrl);
+
+			// Any signed-in player can fetch it, and the bytes are unchanged.
+			const got = await apiFetch(other, coverUrl);
+			expect(got.status).toBe(200);
+			expect(got.headers.get('content-type')).toBe('image/png');
+			expect(Buffer.from(await got.arrayBuffer()).equals(png)).toBe(true);
+		} finally {
+			await apiFetch(cookie, `/api/games/${game.id}`, { method: 'DELETE' });
+		}
+	});
+
+	test('an oversized cover is refused as too large, not as a server fault', async () => {
+		const cookie = await loginDev('1');
+		const game = await addGame(cookie, freshCrc(), 'oversized.sfc');
+
+		try {
+			const { metadataId } = await (
+				await apiFetch(cookie, `/api/games/${game.id}/identify`, {
+					method: 'POST',
+					body: JSON.stringify({ entry: { title: 'Oversized' } })
+				})
+			).json();
+
+			// A real PNG header followed by padding, comfortably over the 400 KB
+			// body limit. A large *picture* would not do: these fixtures are
+			// smooth gradients, and a 700x700 one deflates to about 50 KB. The
+			// padding is never inspected either way -- the body limit trips
+			// before any handler sees the bytes, which is the point being tested.
+			const huge = Buffer.concat([makePng(8, 8), Buffer.alloc(500 * 1024)]);
+			expect(huge.length).toBeGreaterThan(400 * 1024);
+
+			const refused = await apiFetch(cookie, `/api/metadata/${metadataId}/cover`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'image/png' },
+				body: huge
+			});
+
+			// Answering 500 here would tell the player "internal server error"
+			// for a picture that is merely too big, and they would retry it
+			// unchanged. This is the assertion that keeps that from returning.
+			expect(refused.status).toBe(413);
+			expect((await refused.json()).error).toBe('That file is too large');
+		} finally {
+			await apiFetch(cookie, `/api/games/${game.id}`, { method: 'DELETE' });
 		}
 	});
 
