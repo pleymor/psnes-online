@@ -245,6 +245,15 @@ earlier attempts lowered on `stats.stalls` and on buffer depth, and both read th
 follower's ordinary position as distress. "Not one strained second in thirty"
 says something real.
 
+The two floors are not the same number, because a guess and a measurement do not
+deserve the same caution. The **estimate** never sizes below three: it comes from
+five pings over 300ms, that burst under-reads this relay, and being a frame too
+tight costs the *other* player stutter. The **walk** goes down to two, because
+thirty consecutive seconds without a single late frame is real evidence and the
+loop takes the frame straight back if it turns out wrong. Two is not theoretical:
+a real pair on a 52ms relay path played at two frames each with strain at zero on
+both sides, and said it was the best the game had felt.
+
 The asymmetry is the whole of the hysteresis: **thirty clean seconds to give a
 frame back, ten strained ones to take it.** Quick to protect the other player,
 slow to reclaim latency for this one. A link sitting exactly on a frame boundary
@@ -329,7 +338,7 @@ npm run test:all
 ```
 
 **`core/test/netcode.test.ts`** runs the real engine and the real protocol
-against `FakeCore`, a toy deterministic machine. 53 tests covering the wire
+against `FakeCore`, a toy deterministic machine. 55 tests covering the wire
 format, lockstep under 5% loss and 60ms of jitter, input-delay behaviour,
 desync detection from either side, epoch handling, savestate retransmission,
 and recovery from a total blackout.
@@ -421,7 +430,7 @@ against the unfixed code.
 ## Status
 
 Running in production as the default mode for new rooms, and playable end to
-end. 71 tests, none skipped - 60 for the netcode and the relay, 11 against the
+end. 73 tests, none skipped - 62 for the netcode and the relay, 11 against the
 real wasm core: two independent wasm instances stay bit-identical for 1800 frames
 of pseudo-random two-player input, and full sessions over a simulated 150ms /
 60ms-jitter / 5%-loss link never diverge.

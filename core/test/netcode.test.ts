@@ -191,6 +191,29 @@ test('one rough patch costs nothing; a link that keeps misbehaving costs a frame
 	);
 });
 
+test('a quiet link is walked down to two frames, but never sized there', async () => {
+	// A real pair on a 52ms link ran at two frames each with strain at zero on
+	// both sides - so two is reachable, and the loop should find it. But the
+	// handshake must not *start* there: it estimates from five pings over 300ms
+	// and under-reads this relay, and being a frame too tight costs the other
+	// player stutter. Guessing low is not the same as measuring low.
+	const harness = await NetplayHarness.create(
+		harnessOptions(40000, { link: { latency: 12, jitter: 1, seed: 100 }, hungerSeconds: 10 })
+	);
+	harness.handshake(30_000);
+	const sized = harness.host.session.inputDelay;
+	assert.ok(sized >= 3, `the handshake must not size below three: got ${sized}`);
+
+	harness.run(200_000);
+	assert.equal(
+		harness.host.session.inputDelay,
+		2,
+		`a link this quiet must be walked to two: got ${harness.host.session.inputDelay}`
+	);
+	assert.equal(harness.firstDivergence(), null);
+	harness.dispose();
+});
+
 test('a link that recovers gets its frames back', async () => {
 	// The ratchet used to be one-way, and on a link with a bad patch it climbed
 	// and stayed there: a real session reached eight frames - 160ms - and had no
@@ -214,7 +237,9 @@ test('a link that recovers gets its frames back', async () => {
 	harness.run(600_000);
 	const good = harness.host.session.inputDelay;
 	assert.ok(good < bad, `a recovered link must give frames back: ${bad} -> ${good}`);
-	assert.ok(good >= 3, `but never below the automatic floor: got ${good}`);
+	// Two is where the walk stops: reachable on a good link, and proven so by a
+	// real pair, but never guessed at by the handshake.
+	assert.ok(good >= 2, `but never below the walking floor: got ${good}`);
 	assert.equal(harness.firstDivergence(), null, 'coming down must not desync');
 	harness.dispose();
 });

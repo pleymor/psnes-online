@@ -151,12 +151,27 @@ export interface SessionOptions {
 const PLAYER_COUNT = 2;
 
 /**
- * Floor for the *automatic* delay, which is symmetric: both peers get the same
- * number, so three each covers a round trip of about 100ms with no stalls at
- * all. Lowering it would have to be paid for by everybody, including the pairs
- * whose link cannot afford it.
+ * Floor for the *estimate*, which is a guess and has to be a cautious one.
+ *
+ * It comes from five pings over 300ms, and that burst under-reads this relay:
+ * one session measured 66ms while sizing and then ran at a median of 81ms.
+ * Being a frame too tight costs the *other* player stutter, so the handshake
+ * starts no lower than three whatever it thinks it saw. The loop may go lower
+ * than this, but only on evidence - see MIN_AUTO_DELAY.
  */
 const MIN_INPUT_DELAY = 3;
+
+/**
+ * Floor for where the loop may *walk* the delay, which is a measurement.
+ *
+ * Two frames is reachable and correct on a good link: a real pair on a 52ms
+ * relay path played at two each with strain at zero on both sides, and their own
+ * verdict was that it was the best the game had felt. Thirty consecutive seconds
+ * without a single late frame is a far better reason to sit at two than a
+ * handshake's opinion, and if it turns out wrong the loop takes the frame back
+ * within ten strained seconds.
+ */
+const MIN_AUTO_DELAY = 2;
 /**
  * Floor for a delay someone set on purpose.
  *
@@ -1074,7 +1089,7 @@ export class NetplaySession implements TickSource {
 		if (
 			this.observedSeconds >= STRAIN_WINDOW_SECONDS &&
 			this.strainedCount === 0 &&
-			this.opts.inputDelay - 1 >= MIN_INPUT_DELAY
+			this.opts.inputDelay - 1 >= MIN_AUTO_DELAY
 		) {
 			this.setDelay(this.opts.inputDelay - 1);
 			this.resetStrainWindow();
