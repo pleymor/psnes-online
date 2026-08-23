@@ -19,7 +19,8 @@ import {
 	loadAssignments,
 	padDisplayName,
 	resolveSources,
-	saveAssignments
+	saveAssignments,
+	withSingleAuto
 } from '../../frontend/src/lib/znet/devices.js';
 
 /** Un `localStorage` de test : la même API, en mémoire. */
@@ -200,4 +201,60 @@ test('énumérer les pads survit à l’absence d’API', () => {
 		[{ index: 0, id: 'Un pad' }],
 		'les pads virtuels et déconnectés ne comptent pas'
 	);
+});
+
+test("withSingleAuto démote le J2 quand les deux sont 'auto'", () => {
+	const demoted = withSingleAuto({
+		p1: { keyboard: true, gamepad: 'auto' },
+		p2: { keyboard: false, gamepad: 'auto' }
+	});
+	assert.deepEqual(demoted, {
+		p1: { keyboard: true, gamepad: 'auto' },
+		p2: { keyboard: false, gamepad: null }
+	});
+
+	const untouched = {
+		p1: { keyboard: true, gamepad: 'auto' as const },
+		p2: { keyboard: false, gamepad: null }
+	};
+	assert.deepEqual(withSingleAuto(untouched), untouched, 'un seul auto ne change rien');
+});
+
+test("un stockage bricolé avec les deux joueurs en 'auto' est corrigé au chargement", () => {
+	const storage = fakeStorage({
+		[DEVICES_STORAGE_KEY]: JSON.stringify({
+			p1: { keyboard: true, gamepad: 'auto' },
+			p2: { keyboard: false, gamepad: 'auto' }
+		})
+	});
+
+	assert.deepEqual(loadAssignments(storage).p2.gamepad, null);
+});
+
+test("deux 'auto' en mémoire ne redonnent pas le bug d'origine : le J1 prend tout, le J2 rien", () => {
+	// C'est le test de non-régression du symptôme original : sans la garde
+	// dans resolveSources, `claimed.p1 = claimed.p2 = []` et les deux joueurs
+	// recevraient tous les pads.
+	const sources = resolveSources(
+		{
+			p1: { keyboard: true, gamepad: 'auto' },
+			p2: { keyboard: false, gamepad: 'auto' }
+		},
+		PADS
+	);
+
+	assert.deepEqual(sources.p1.pads, [0, 1]);
+	assert.deepEqual(sources.p2.pads, []);
+});
+
+test('un champ gamepad corrompu ne fait pas perdre le choix clavier valide du joueur', () => {
+	const storage = fakeStorage({
+		[DEVICES_STORAGE_KEY]: JSON.stringify({
+			p1: { keyboard: false, gamepad: 'garbage' }
+		})
+	});
+
+	const assignments = loadAssignments(storage);
+	assert.equal(assignments.p1.keyboard, false, 'le clavier désactivé volontairement doit survivre');
+	assert.equal(assignments.p1.gamepad, 'auto', 'seul le champ invalide retombe sur le défaut');
 });

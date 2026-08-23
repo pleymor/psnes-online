@@ -47,7 +47,25 @@ export function defaultAssignments(): Assignments {
 	};
 }
 
-export const DEFAULT_ASSIGNMENTS = defaultAssignments();
+/**
+ * Au plus un `'auto'`, et c'est le J1.
+ *
+ * L'UI n'offre `'auto'` qu'au premier joueur, mais rien ne garantit que l'état
+ * en mémoire vienne de l'UI : une clé de stockage modifiée à la main, ou une
+ * construction directe qui saute `loadAssignments`, peut très bien donner
+ * `'auto'` aux deux. Sans ce garde-fou, `resolveSources` verrait alors les
+ * deux joueurs comme n'ayant rien revendiqué et donnerait tous les pads aux
+ * deux à la fois - le symptôme même que cette fonctionnalité corrige. Le J2
+ * est démoté en silence plutôt que de recevoir une erreur : cet état n'est
+ * pas atteignable par l'UI, et un utilisateur qui ne l'a pas créé n'a pas à en
+ * être informé.
+ */
+export function withSingleAuto(assignments: Assignments): Assignments {
+	if (assignments.p1.gamepad === 'auto' && assignments.p2.gamepad === 'auto') {
+		return { ...assignments, p2: { ...assignments.p2, gamepad: null } };
+	}
+	return assignments;
+}
 
 /** Un joueur joue dès qu'il a de quoi appuyer. C'est toute l'activation. */
 export function isPlayerActive(assignment: Assignment): boolean {
@@ -86,10 +104,9 @@ function normaliseGamepad(raw: unknown): GamepadAssignment | undefined {
 function normaliseAssignment(raw: unknown, fallback: Assignment): Assignment {
 	const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
 	const gamepad = normaliseGamepad(source.gamepad);
-	if (gamepad === undefined) return { ...fallback };
 	return {
 		keyboard: typeof source.keyboard === 'boolean' ? source.keyboard : fallback.keyboard,
-		gamepad
+		gamepad: gamepad === undefined ? fallback.gamepad : gamepad
 	};
 }
 
@@ -125,15 +142,15 @@ export function loadAssignments(storage: Storage): Assignments {
 		try {
 			const parsed = JSON.parse(raw) as Record<string, unknown>;
 			const defaults = defaultAssignments();
-			return {
+			return withSingleAuto({
 				p1: normaliseAssignment(parsed.p1, defaults.p1),
 				p2: normaliseAssignment(parsed.p2, defaults.p2)
-			};
+			});
 		} catch {
 			// Une clé illisible n'est pas une raison de refuser de jouer.
 		}
 	}
-	return migrateLegacy(storage) ?? defaultAssignments();
+	return withSingleAuto(migrateLegacy(storage) ?? defaultAssignments());
 }
 
 export function saveAssignments(storage: Storage, assignments: Assignments): void {
@@ -167,6 +184,7 @@ export function resolveSources(
 	assignments: Assignments,
 	pads: PadInfo[]
 ): { p1: InputSources; p2: InputSources } {
+	assignments = withSingleAuto(assignments);
 	const claimed = {
 		p1: resolveExplicit(assignments.p1.gamepad, pads),
 		p2: resolveExplicit(assignments.p2.gamepad, pads)
