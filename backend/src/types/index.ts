@@ -21,6 +21,15 @@ export interface Room {
   status: 'waiting' | 'playing' | 'paused';
   emulationMode: EmulationMode;
   createdAt: Date;
+  /**
+   * When the last member went away, or absent while somebody is still here.
+   *
+   * A room no longer dies when it empties, so this is what eventually kills
+   * one. Set and cleared in exactly one place - `rooms/presence.ts` - because
+   * three call sites trigger the transition and a room whose flag disagrees
+   * with its occupants either lives for ever or vanishes under two players.
+   */
+  abandonedAt?: Date;
 }
 
 export interface RoomPlayer {
