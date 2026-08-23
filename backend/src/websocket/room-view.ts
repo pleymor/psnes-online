@@ -4,6 +4,7 @@ import { getDb, type Database } from '../db/sqlite.js';
 import { findUserById } from '../db/users.js';
 import { listPendingInvitationsForRoom } from '../db/invitations.js';
 import { invitationState } from '../rooms/invitation-state.js';
+import { onlinePlayers } from '../rooms/online-players.js';
 
 /** The room's one outstanding invitation, as the two members see it. */
 export interface PendingInvitationView {
@@ -90,7 +91,10 @@ export function toPublicRoom(room: Room) {
       displayName: p.displayName,
       avatar: p.avatar,
       port: p.port,
-      isReady: p.isReady
+      isReady: p.isReady,
+      // Normalised rather than passed through: a member restored from an older
+      // snapshot has no value, and the screens must read that as away.
+      online: p.online === true
     }))
   };
 }
@@ -141,11 +145,16 @@ export async function roomAudienceFor(userId: string): Promise<Set<string>> {
 }
 
 export function isRoomVisibleTo(room: Room, userId: string, audience: Set<string>): boolean {
-  return (
-    room.players.some(p => p.userId === userId) ||
-    audience.has(room.createdBy) ||
-    audience.has(room.hostId)
-  );
+  // A member sees their own room whatever its state - that is the door back in,
+  // and the home screen finds the room to resume through exactly this list.
+  if (room.players.some(p => p.userId === userId)) return true;
+
+  // Friends see it only while somebody is in it. Rooms no longer die when they
+  // empty, so without this a friend shows as "in a room" all night in a lobby
+  // nobody has opened since yesterday.
+  if (onlinePlayers(room).length === 0) return false;
+
+  return audience.has(room.createdBy) || audience.has(room.hostId);
 }
 
 /** Active rooms `userId` may see: their own, plus their friends'. */

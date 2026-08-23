@@ -946,6 +946,38 @@ function viewWhere(
   });
 }
 
+test('game:start is refused while the other player is away', async () => {
+  await withLobby(async ({ alice, bob, client, gameId, drop }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const acked = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: (await delivered).id });
+    await acked;
+
+    host.emit('room:choose-game', { roomId: room.id, gameId, gameTitle: 'Chrono Trigger' });
+    await once(host, 'room:updated');
+
+    await drop(bob);
+
+    /*
+     * The failure this prevents has no error message of its own: lockstep waits
+     * for both cores, so starting against an absent player leaves two screens
+     * waiting for each other with nothing to click. A refusal is the only
+     * outcome anybody can act on.
+     */
+    const refused = once<{ message: string }>(host, 'error');
+    host.emit('game:start', { roomId: room.id });
+    assert.match((await refused).message, /away|not here|connected/i);
+  });
+});
+
 test('a room takes one invitation at a time, and refuses the second', async () => {
   await withLobby(async ({ alice, bob, client }) => {
     const host = await client(alice);

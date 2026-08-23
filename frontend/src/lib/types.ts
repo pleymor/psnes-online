@@ -19,6 +19,13 @@ export interface RoomPlayer {
   avatar?: string;
   port: 1 | 2 | null;
   isReady: boolean;
+  /**
+   * Whether this member has a socket connected right now.
+   *
+   * Optional because `room:updated` carries the raw server room, where a member
+   * restored from an older snapshot has no value for it. Absent means away.
+   */
+  online?: boolean;
   keyConfig: KeyConfig;
 }
 

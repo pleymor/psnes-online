@@ -15,6 +15,7 @@
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
   import type { Room, KeyConfig } from '$lib/types';
   import { EmulationMode } from '$lib/types';
+  import { onlinePlayers } from '$lib/rooms/online-players';
   import { createLogger } from '$lib/utils/logger';
 
   const logger = createLogger('RoomPage');
@@ -67,8 +68,15 @@
   // Determine if current player is the room host
   $: isRoomHost = room?.hostId === $user?.id;
 
-  // Check if only 1 player in the room (single-player mode)
-  $: isSinglePlayer = room?.players.length === 1;
+  /*
+   * Online, not member count.
+   *
+   * A partner who closed their tab is still in `room.players`, so counting
+   * members here would put a single player into netplay: two cores exchanging
+   * inputs with nobody on the other end. The invite panel still counts members
+   * - an away member's seat is theirs - which is why these two disagree.
+   */
+  $: isSinglePlayer = room ? onlinePlayers(room).length <= 1 : true;
 
   // Determine effective emulation mode for game start
   $: effectiveEmulationMode = isSinglePlayer ? EmulationMode.SINGLE : room?.emulationMode;

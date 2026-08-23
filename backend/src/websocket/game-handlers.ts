@@ -8,6 +8,7 @@ import { createLogger } from '../utils/logger.js';
 import { getMemberRoom } from './guards.js';
 import { requireGame } from '../rooms/require-game.js';
 import { findOwnGameIdForRoom } from '../rooms/own-game.js';
+import { onlinePlayers } from '../rooms/online-players.js';
 
 const logger = createLogger('Game');
 
@@ -39,9 +40,23 @@ export function registerGameHandlers(
       return;
     }
 
-    const playersWithPorts = room.players.filter(p => p.port !== null && p.isReady);
-    if (playersWithPorts.length === 0) {
+    const seated = room.players.filter(p => p.port !== null && p.isReady);
+    if (seated.length === 0) {
       socket.emit('error', { message: 'At least one player must select a controller port' });
+      return;
+    }
+
+    /*
+     * A seat is not a presence.
+     *
+     * A member who closed their tab keeps their port - it is theirs, and giving
+     * it away is the thing this release exists to stop - so `seated` says
+     * nothing about whether they are here. Lockstep waits for both cores, so
+     * starting without them hangs both screens with no error and no way out but
+     * the URL bar. There is no message for that failure; this refusal is it.
+     */
+    if (seated.some(p => p.online !== true)) {
+      socket.emit('error', { message: 'A player is away. Wait for them to come back before starting.' });
       return;
     }
 
@@ -71,8 +86,11 @@ export function registerGameHandlers(
     logger.info({ roomId: room.id, player: player.displayName }, 'Player emulator ready');
 
     // Check if all players with ports are ready
-    const playersWithPorts = room.players.filter(p => p.port !== null);
-    const allReady = playersWithPorts.every(p => p.emulationReady);
+    // Online, deliberately: an away member holding a port would never report
+    // its emulator ready, so `game:go` would never be sent and the start would
+    // stall in silence.
+    const seatedAndHere = onlinePlayers(room).filter(p => p.port !== null);
+    const allReady = seatedAndHere.length > 0 && seatedAndHere.every(p => p.emulationReady);
 
     if (allReady) {
       logger.info({ roomId: room.id }, 'All players ready, sending game:go');
