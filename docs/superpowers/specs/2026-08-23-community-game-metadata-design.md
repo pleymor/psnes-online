@@ -148,7 +148,9 @@ Conséquence assumée : créer une fiche avec image, c'est deux requêtes. L'ord
 
 ### `GET /api/covers/:metadataId`
 
-Sert le BLOB avec le `coverMime` validé et `Cache-Control: public, max-age=86400`, comme les avatars. Derrière `requireAuth`, contrairement aux avatars : c'est du contenu uploadé par un joueur, et un `<img>` de même origine envoie le cookie de session, donc l'authentification ne coûte rien à l'affichage.
+Sert le BLOB avec le `coverMime` validé. Derrière `requireAuth`, contrairement aux avatars : c'est du contenu uploadé par un joueur, et un `<img>` de même origine envoie le cookie de session, donc l'authentification ne coûte rien à l'affichage.
+
+**L'URL porte la date de l'écriture** — `coverUrl = /api/covers/<id>?v=<millis>` — ce qui permet un `Cache-Control: public, max-age=31536000, immutable`. Sans cette version, la seule valeur de cache honnête serait courte : remplacer une jaquette laisserait tous les clients l'ayant déjà chargée sur l'ancienne image jusqu'à expiration. Le suffixe coûte cinq caractères et supprime le problème.
 
 ## La résolution à la lecture
 
