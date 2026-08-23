@@ -12,21 +12,19 @@ import assert from 'node:assert/strict';
 
 import { InputCollector } from '../../frontend/src/lib/znet/input.js';
 import { PAD } from '../../frontend/src/lib/znet/protocol.js';
+import { STANDARD_PAD } from '../../frontend/src/lib/controls/binding.js';
 
 const KEY_CONFIG = {
-	up: 'ArrowUp',
-	down: 'ArrowDown',
-	left: 'ArrowLeft',
-	right: 'ArrowRight',
-	a: 'KeyX',
-	b: 'KeyZ',
-	x: 'KeyS',
-	y: 'KeyA',
-	l: 'KeyQ',
-	r: 'KeyW',
-	start: 'Enter',
-	select: 'ShiftRight'
+	up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
+	a: 'KeyX', b: 'KeyZ', x: 'KeyS', y: 'KeyA',
+	l: 'KeyQ', r: 'KeyW', start: 'Enter', select: 'ShiftRight'
 };
+
+/** Le joueur par défaut : ce clavier, et le mappage manette standard. */
+const CONTROLS = { keys: KEY_CONFIG, pad: STANDARD_PAD };
+
+/** Tout écouter, ce que fait un joueur seul. */
+const ALL: { keyboard: boolean; pads: 'all' } = { keyboard: true, pads: 'all' };
 
 /** Minimal stand-in for the pieces of `window` the collector touches. */
 function fakeWindow() {
@@ -69,7 +67,7 @@ function withoutGamepads<T>(fn: () => T): T {
 test('a pressed key becomes the right pad bit', () => {
 	withoutGamepads(() => {
 		const win = fakeWindow();
-		const collector = new InputCollector(KEY_CONFIG);
+		const collector = new InputCollector(CONTROLS);
 		collector.attach(win as never);
 
 		assert.equal(collector.read(), 0, 'nothing held means an empty mask');
@@ -90,7 +88,7 @@ test('a pressed key becomes the right pad bit', () => {
 test('every configured button maps to a distinct bit', () => {
 	withoutGamepads(() => {
 		const win = fakeWindow();
-		const collector = new InputCollector(KEY_CONFIG);
+		const collector = new InputCollector(CONTROLS);
 		collector.attach(win as never);
 
 		const seen = new Map<number, string>();
@@ -112,7 +110,7 @@ test('every configured button maps to a distinct bit', () => {
 test('unmapped keys are ignored', () => {
 	withoutGamepads(() => {
 		const win = fakeWindow();
-		const collector = new InputCollector(KEY_CONFIG);
+		const collector = new InputCollector(CONTROLS);
 		collector.attach(win as never);
 
 		win.fire('keydown', { code: 'KeyP' });
@@ -125,7 +123,7 @@ test('unmapped keys are ignored', () => {
 test('opposing directions are never reported together', () => {
 	withoutGamepads(() => {
 		const win = fakeWindow();
-		const collector = new InputCollector(KEY_CONFIG);
+		const collector = new InputCollector(CONTROLS);
 		collector.attach(win as never);
 
 		win.fire('keydown', { code: 'ArrowLeft' });
@@ -141,7 +139,7 @@ test('opposing directions are never reported together', () => {
 test('losing focus releases everything', () => {
 	withoutGamepads(() => {
 		const win = fakeWindow();
-		const collector = new InputCollector(KEY_CONFIG);
+		const collector = new InputCollector(CONTROLS);
 		collector.attach(win as never);
 
 		win.fire('keydown', { code: 'ArrowUp' });
@@ -159,10 +157,10 @@ test('losing focus releases everything', () => {
 test('a remapped config takes effect and drops the old binding', () => {
 	withoutGamepads(() => {
 		const win = fakeWindow();
-		const collector = new InputCollector(KEY_CONFIG);
+		const collector = new InputCollector(CONTROLS);
 		collector.attach(win as never);
 
-		collector.setKeyConfig({ ...KEY_CONFIG, a: 'KeyM' });
+		collector.setControls({ ...CONTROLS, keys: { ...KEY_CONFIG, a: 'KeyM' } });
 
 		win.fire('keydown', { code: 'KeyM' });
 		assert.equal(collector.read(), PAD.A, 'the new binding must work');
@@ -178,7 +176,7 @@ test('a remapped config takes effect and drops the old binding', () => {
 test('detach stops listening', () => {
 	withoutGamepads(() => {
 		const win = fakeWindow();
-		const collector = new InputCollector(KEY_CONFIG);
+		const collector = new InputCollector(CONTROLS);
 		collector.attach(win as never);
 		collector.detach(win as never);
 
@@ -190,16 +188,20 @@ test('detach stops listening', () => {
 
 /* ---------------------------------------------------------------- gamepads */
 
-/** Installs fake pads on globalThis.navigator for the duration of `fn`. */
-function withGamepads<T>(pads: Array<{ index: number; buttons: number[] }>, fn: () => T): T {
+/** Installe de faux pads sur globalThis.navigator le temps de `fn`. */
+function withGamepads<T>(
+	pads: Array<{ index: number; buttons: number[]; axes?: number[] }>,
+	fn: () => T
+): T {
 	const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
 	const fake = {
 		getGamepads: () =>
 			pads.map((p) => ({
 				index: p.index,
+				id: `Fake pad ${p.index}`,
 				connected: true,
 				buttons: Array.from({ length: 16 }, (_, i) => ({ pressed: p.buttons.includes(i) })),
-				axes: [0, 0]
+				axes: p.axes ?? [0, 0]
 			}))
 	};
 	Object.defineProperty(globalThis, 'navigator', { value: fake, configurable: true });
@@ -211,19 +213,17 @@ function withGamepads<T>(pads: Array<{ index: number; buttons: number[] }>, fn: 
 	}
 }
 
-test("'auto' merges every pad, which is what makes one controller drive two windows", () => {
-	// Not a bug in itself - it is right for one player at one machine - but it
-	// is why an explicit choice has to exist.
+test("tout écouter reste le défaut d'un joueur seul", () => {
 	withGamepads([{ index: 0, buttons: [1] }], () => {
-		const collector = new InputCollector(KEY_CONFIG, 'auto');
-		assert.equal(collector.read(), PAD.A, 'button 1 is A');
+		const collector = new InputCollector(CONTROLS, ALL);
+		assert.equal(collector.read(), PAD.A, 'le bouton 1 est A dans le mappage standard');
 	});
 });
 
 test("'off' leaves the player on the keyboard alone", () => {
 	const win = fakeWindow();
 	withGamepads([{ index: 0, buttons: [1] }], () => {
-		const collector = new InputCollector(KEY_CONFIG, 'off');
+		const collector = new InputCollector(CONTROLS, { keyboard: true, pads: [] });
 		collector.attach(win as never);
 		assert.equal(collector.read(), 0, 'the pad must be ignored entirely');
 
@@ -240,8 +240,8 @@ test('an explicit index listens to that pad and no other', () => {
 			{ index: 1, buttons: [3] } // X
 		],
 		() => {
-			const first = new InputCollector(KEY_CONFIG, 0);
-			const second = new InputCollector(KEY_CONFIG, 1);
+			const first = new InputCollector(CONTROLS, { keyboard: true, pads: [0] });
+			const second = new InputCollector(CONTROLS, { keyboard: true, pads: [1] });
 			assert.equal(first.read(), PAD.A);
 			assert.equal(second.read(), PAD.X);
 
@@ -252,24 +252,142 @@ test('an explicit index listens to that pad and no other', () => {
 	);
 });
 
-test('the source can be changed at runtime and the pads enumerated', () => {
+test('les sources changent en cours de route', () => {
 	withGamepads([{ index: 0, buttons: [1] }, { index: 2, buttons: [] }], () => {
-		const collector = new InputCollector(KEY_CONFIG, 'auto');
-		assert.deepEqual(collector.connectedGamepads(), [0, 2]);
-
+		const collector = new InputCollector(CONTROLS, ALL);
 		assert.equal(collector.read(), PAD.A);
-		collector.setGamepadSource('off');
+
+		collector.setSources({ keyboard: true, pads: [] });
 		assert.equal(collector.read(), 0);
-		collector.setGamepadSource(2);
-		assert.equal(collector.read(), 0, 'pad 2 has nothing pressed');
-		collector.setGamepadSource(0);
+
+		collector.setSources({ keyboard: true, pads: [2] });
+		assert.equal(collector.read(), 0, 'le pad 2 n’a rien d’enfoncé');
+
+		collector.setSources({ keyboard: true, pads: [0] });
 		assert.equal(collector.read(), PAD.A);
 	});
 });
 
 test('a missing gamepad API is not an error', () => {
 	// node has none, and neither do some locked-down browser contexts.
-	const collector = new InputCollector(KEY_CONFIG, 'auto');
+	const collector = new InputCollector(CONTROLS, ALL);
 	assert.equal(collector.read(), 0);
-	assert.deepEqual(collector.connectedGamepads(), []);
+});
+
+/* --------------------------------------------- la config manette est lue */
+
+test('le mappage standard donne les mêmes bits que la table en dur qu’il remplace', () => {
+	// Le test anti-régression du morceau : l'ancienne lecture était une table
+	// codée en dur que la config ne pouvait pas influencer.
+	const expected: Array<[number, number]> = [
+		[0, PAD.B], [1, PAD.A], [2, PAD.Y], [3, PAD.X],
+		[4, PAD.L], [5, PAD.R], [8, PAD.SELECT], [9, PAD.START],
+		[12, PAD.UP], [13, PAD.DOWN], [14, PAD.LEFT], [15, PAD.RIGHT]
+	];
+
+	for (const [button, bit] of expected) {
+		withGamepads([{ index: 0, buttons: [button] }], () => {
+			const collector = new InputCollector(CONTROLS, ALL);
+			assert.equal(collector.read(), bit, `le bouton ${button} doit donner ${bit}`);
+		});
+	}
+});
+
+test('le stick gauche fait toujours la croix', () => {
+	// Il la faisait par une règle en dur. Il la fait maintenant par deux codes
+	// PadAxis du mappage standard, et il doit la faire pareil.
+	const cases: Array<[number[], number]> = [
+		[[-1, 0], PAD.LEFT],
+		[[1, 0], PAD.RIGHT],
+		[[0, -1], PAD.UP],
+		[[0, 1], PAD.DOWN],
+		[[0.3, 0.3], 0]
+	];
+
+	for (const [axes, bit] of cases) {
+		withGamepads([{ index: 0, buttons: [], axes }], () => {
+			const collector = new InputCollector(CONTROLS, ALL);
+			assert.equal(collector.read(), bit, `axes ${JSON.stringify(axes)}`);
+		});
+	}
+});
+
+test('une liaison manette réassignée prend effet', () => {
+	withGamepads([{ index: 0, buttons: [7] }], () => {
+		const collector = new InputCollector(
+			{ keys: KEY_CONFIG, pad: { ...STANDARD_PAD, a: ['PadButton7'] } },
+			ALL
+		);
+		assert.equal(collector.read(), PAD.A, 'le bouton 7 est devenu A');
+	});
+
+	withGamepads([{ index: 0, buttons: [1] }], () => {
+		const collector = new InputCollector(
+			{ keys: KEY_CONFIG, pad: { ...STANDARD_PAD, a: ['PadButton7'] } },
+			ALL
+		);
+		assert.equal(collector.read(), 0, 'et le bouton 1 ne l’est plus');
+	});
+});
+
+test('un emplacement manette vidé ne répond à rien', () => {
+	withGamepads([{ index: 0, buttons: [1] }], () => {
+		const collector = new InputCollector(
+			{ keys: KEY_CONFIG, pad: { ...STANDARD_PAD, a: [] } },
+			ALL
+		);
+		assert.equal(collector.read(), 0);
+	});
+});
+
+test('un joueur sans clavier ignore les touches', () => {
+	const win = fakeWindow();
+	withoutGamepads(() => {
+		const collector = new InputCollector(CONTROLS, { keyboard: false, pads: [] });
+		collector.attach(win as never);
+
+		win.fire('keydown', { code: 'KeyX' });
+		assert.equal(collector.read(), 0, 'le clavier du J1 ne doit pas atteindre le J2');
+
+		collector.detach(win as never);
+	});
+});
+
+test('couper le clavier relâche ce qui était tenu', () => {
+	const win = fakeWindow();
+	withoutGamepads(() => {
+		const collector = new InputCollector(CONTROLS, ALL);
+		collector.attach(win as never);
+		win.fire('keydown', { code: 'ArrowUp' });
+		assert.equal(collector.read(), PAD.UP);
+
+		collector.setSources({ keyboard: false, pads: 'all' });
+		assert.equal(collector.read(), 0, 'sinon la direction reste bloquée pour toujours');
+
+		collector.detach(win as never);
+	});
+});
+
+test('deux joueurs sur deux pads ne se croisent pas', () => {
+	withGamepads(
+		[
+			{ index: 0, buttons: [1] }, // A
+			{ index: 1, buttons: [3] } // X
+		],
+		() => {
+			const first = new InputCollector(CONTROLS, { keyboard: false, pads: [0] });
+			const second = new InputCollector(CONTROLS, { keyboard: false, pads: [1] });
+
+			assert.equal(first.read(), PAD.A);
+			assert.equal(second.read(), PAD.X);
+			assert.equal(first.read() & second.read(), 0, 'aucun recouvrement');
+		}
+	);
+});
+
+test('deux boutons enfoncés en même temps donnent leurs deux bits', () => {
+	withGamepads([{ index: 0, buttons: [1, 9] }], () => {
+		const collector = new InputCollector(CONTROLS, { keyboard: false, pads: [0] });
+		assert.equal(collector.read(), PAD.A | PAD.START);
+	});
 });

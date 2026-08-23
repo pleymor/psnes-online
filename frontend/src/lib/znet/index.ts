@@ -49,7 +49,18 @@ export type { Preset, PresetPass, PresetResult } from './preset.js';
 export { loadShaderPreset, presetUrl, SHADER_BASE_URL } from './shader-source.js';
 export type { LoadedPreset, LoadedPass, LoadResult } from './shader-source.js';
 export { InputCollector } from './input.js';
-export type { GamepadSource } from './input.js';
+
+export {
+	connectedPads,
+	defaultAssignments,
+	isPlayerActive,
+	loadAssignments,
+	padDisplayName,
+	resolveSources,
+	saveAssignments,
+	DEVICES_STORAGE_KEY
+} from './devices.js';
+export type { Assignment, Assignments, GamepadRef, GamepadAssignment, PadInfo } from './devices.js';
 
 /** CRC32 of the ROM, used to refuse a session between mismatched cartridges. */
 export function romCrc32(data: Uint8Array): number {
