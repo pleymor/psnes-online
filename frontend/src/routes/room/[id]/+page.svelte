@@ -193,6 +193,14 @@
    * a word would be pretending this was an ordinary arrival.
    */
   let arrivedByInvitation = false;
+  /**
+   * The save this room was opened on, if the library sent us here to resume.
+   *
+   * Carried down to whichever emulator component runs, which asks the server
+   * for it once the session is playing. Nothing here applies it: the existing
+   * `game:load` / `game:loaded` pair does, exactly as the pause menu does.
+   */
+  let resumeSaveId: string | null = null;
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   /**
    * Whether this component is still mounted.
@@ -438,6 +446,10 @@
 
   onMount(async () => {
     arrivedByInvitation = $page.url.searchParams.get('from') === 'invitation';
+    // Read once at mount, not reactively: which save this room was opened on is
+    // a fact about the arrival. Rereading it would re-apply the save if the URL
+    // were ever revisited mid-session.
+    resumeSaveId = $page.url.searchParams.get('save');
 
     const sock = await waitForSocket();
     // The component can be gone by now - a click through to another page while
@@ -769,7 +781,7 @@
     {#if activeEmulationMode === EmulationMode.SINGLE}
       <!-- Solo runs on the znet stack too now, so it gets the same core,
            renderer, shaders and save chrome the lockstep room has. -->
-      <SoloRoom {roomId} gameId={chosenGame.id} gameCrc32={chosenGame.crc32} gameTitle={chosenGame.title} {keyConfig} />
+      <SoloRoom {roomId} gameId={chosenGame.id} gameCrc32={chosenGame.crc32} gameTitle={chosenGame.title} {keyConfig} {resumeSaveId} />
     {:else if activeEmulationMode === EmulationMode.LOCKSTEP}
       <!-- Lockstep runs on its own deterministic core and its own relay, so it
            shares nothing with the WebRTC path in P2PRoom. -->
@@ -782,6 +794,7 @@
         {keyConfig}
         latencyMode={room?.latencyMode ?? 'auto'}
         canSetLatency={isRoomCreator}
+        {resumeSaveId}
       />
     {:else}
       <!-- P2PRoom handles the dual and streaming modes -->

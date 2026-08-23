@@ -3,10 +3,20 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import type { Game } from '$lib/stores/games';
+  import SaveGrid from './SaveGrid.svelte';
+  import type { SaveSummary } from '$lib/saves/api';
 
   export let game: Game;
 
   const dispatch = createEventDispatcher();
+
+  /**
+   * The saves as the library already knows them.
+   *
+   * `/api/games` carries a summary per slot - name, thumbnail, timestamps -
+   * with the savestate left behind, so this screen needs no request of its own.
+   */
+  $: saves = (game.saves ?? []) as SaveSummary[];
 
   function close() {
     dispatch('close');
@@ -111,6 +121,24 @@
           <span class="filename">{game.filename}</span>
         </div>
 
+        {#if game.crc32 && saves.length > 0}
+          <!--
+            Starting from a save, rather than starting and then loading one.
+            The grid is handed its list rather than asked to fetch: /api/games
+            already carried these summaries here without the savestates
+            themselves, which are about a megabyte each.
+          -->
+          <section class="resume">
+            <h3>{t($language, 'resumeAGame')}</h3>
+            <SaveGrid
+              gameId={game.id}
+              preloaded={saves}
+              actionLabel={t($language, 'resumeFromHere')}
+              on:select={(e) => dispatch('resume', e.detail.id)}
+            />
+          </section>
+        {/if}
+
         {#if game.crc32}
           <!-- Always offered once there is a checksum to claim, not only when
                the game is unknown: a sparse entry is worth completing too. -->
@@ -126,6 +154,19 @@
 </div>
 
 <style>
+  .resume {
+    margin-top: 1.25rem;
+  }
+
+  .resume h3 {
+    margin: 0 0 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #9aa0b4;
+  }
+
   .identify {
     margin-top: 1rem;
     align-self: flex-start;

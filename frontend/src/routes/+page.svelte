@@ -148,14 +148,38 @@
     openRoom({});
   }
 
-  function openRoom(payload: { gameId?: string; gameTitle?: string; autoStart?: boolean }) {
+  /**
+   * Opens a room on a game, already at one of its saves.
+   *
+   * Reuses the ordinary path deliberately: the save is applied by the same
+   * `game:load` the pause menu has always used, once the session is actually
+   * running. So this only has to carry which save as far as the room, and
+   * `autoStart` is left alone - the player still presses start, exactly as the
+   * play button on a card does.
+   */
+  function resumeFromSave(game: Game, saveId: string) {
+    if (!game.crc32) {
+      gameToLink = game;
+      return;
+    }
+    openRoom({ gameId: game.id, gameTitle: game.title, autoStart: false }, saveId);
+  }
+
+  function openRoom(
+    payload: { gameId?: string; gameTitle?: string; autoStart?: boolean },
+    resumeSaveId?: string
+  ) {
     if (!$socket) return;
 
     $socket.emit('room:create', payload);
 
     // Wait for room created event
     $socket.once('room:created', (room: any) => {
-      goto(`/room/${room.id}`);
+      // In the URL rather than in a store, like the `?from=invitation` this
+      // page already sets: it survives a reload, and it is visible when
+      // something goes wrong.
+      const query = resumeSaveId ? `?save=${encodeURIComponent(resumeSaveId)}` : '';
+      goto(`/room/${room.id}${query}`);
     });
   }
 
@@ -335,6 +359,7 @@
       game={selectedGame}
       on:close={() => selectedGame = null}
       on:identify={() => { gameToIdentify = selectedGame; selectedGame = null; }}
+      on:resume={(e) => { const g = selectedGame; selectedGame = null; if (g) resumeFromSave(g, e.detail); }}
     />
   {/if}
 
