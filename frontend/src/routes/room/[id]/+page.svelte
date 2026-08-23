@@ -13,6 +13,7 @@
   import LockstepRoom from '$lib/components/LockstepRoom.svelte';
   import SoloRoom from '$lib/components/SoloRoom.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
+  import ConfirmModal from '$lib/components/ConfirmModal.svelte';
   import type { Room, KeyConfig } from '$lib/types';
   import { EmulationMode } from '$lib/types';
   import { onlinePlayers } from '$lib/rooms/online-players';
@@ -522,7 +523,15 @@
     alive = false;
 
     if ($socket) {
-      $socket.emit('room:leave', { roomId });
+      /*
+       * No `room:leave` here, deliberately, and this line is the whole point of
+       * the release.
+       *
+       * Emitting it on unmount made navigating to the library a permanent
+       * departure - and the last one out destroyed the room - which is why
+       * playing together twice took two invitations. Leaving is a button now,
+       * and going away is just a socket that is no longer here.
+       */
       // With the handler, not without: a bare off('connect') removes every
       // connect listener on the shared socket, including the ones that keep
       // the reconnection banner and the netplay slot alive.
@@ -549,7 +558,23 @@
     $socket?.emit('game:start', { roomId });
   }
 
+  let confirmingLeave = false;
+
+  /*
+   * The only path that gives up a seat.
+   *
+   * This used to be a bare `goto('/')`, because `onDestroy` emitted
+   * `room:leave` for it - which is exactly the coupling this release removes.
+   * With the unmount silent, the event has to be sent from here or nobody could
+   * ever give up a seat at all.
+   *
+   * Confirmed because it is not undoable from this side: the other player has
+   * to invite you again, and if you were the last one out the room goes with
+   * its invitations.
+   */
   function leaveRoom() {
+    confirmingLeave = false;
+    $socket?.emit('room:leave', { roomId });
     goto('/');
   }
 
@@ -722,7 +747,7 @@
           <button on:click={startGame} class="btn-start" disabled={!canStartGame || !room.gameId}>
             {t($language, 'startGame')}
           </button>
-          <button on:click={leaveRoom} class="btn-leave">
+          <button on:click={() => (confirmingLeave = true)} class="btn-leave">
             {t($language, 'leaveRoom')}
           </button>
         </div>
@@ -770,6 +795,17 @@
     </div>
   {/if}
 </div>
+
+{#if confirmingLeave}
+  <ConfirmModal
+    title={t($language, 'leaveRoom')}
+    message={t($language, 'leaveRoomWarning')}
+    confirmText={t($language, 'leaveRoom')}
+    danger={true}
+    on:confirm={leaveRoom}
+    on:cancel={() => (confirmingLeave = false)}
+  />
+{/if}
 
 <style>
   .room-container {
