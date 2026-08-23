@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db/sqlite.js';
 import { findControlsConfig, updateControlsConfig } from '../db/users.js';
 import { requireAuth } from '../middleware/auth.js';
+import { cache } from '../utils/cache.js';
 import {
   getDefaultControlsConfig,
   isValidControlsConfig,
@@ -48,6 +49,12 @@ userRouter.put('/controls', requireAuth, asyncHandler(async (req, res) => {
     const config = normaliseControlsConfig(req.body);
     updateControlsConfig(getDb(), userId, JSON.stringify(config));
 
+    // Invalidate the room's cached KeyConfig, as the friendship endpoints do
+    // on their own writes (backend/src/api/friends.ts). Without this, a
+    // player who rebinds and immediately joins a room plays for up to five
+    // minutes with the config they just replaced.
+    cache.delete(`keyconfig:${userId}`);
+
     res.json({ message: 'Controls configuration updated successfully', config });
   } catch (error) {
     logger.error({ err: error }, 'Error updating controls config');
@@ -62,6 +69,7 @@ userRouter.post('/controls/reset', requireAuth, asyncHandler(async (req, res) =>
     const defaultConfig = getDefaultControlsConfig();
 
     updateControlsConfig(getDb(), userId, JSON.stringify(defaultConfig));
+    cache.delete(`keyconfig:${userId}`);
 
     res.json({ message: 'Controls reset to defaults', config: defaultConfig });
   } catch (error) {

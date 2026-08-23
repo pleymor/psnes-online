@@ -90,16 +90,17 @@ export function getDefaultControlsConfig(): ControlsConfig {
   };
 }
 
-function normalisePlayer(raw: any, defaults: KeyConfig): PlayerControls {
+function normalisePlayer(raw: unknown, defaults: KeyConfig): PlayerControls {
   const player = defaultPlayer(defaults);
-  const rawKeys = (raw && typeof raw.keys === 'object' && raw.keys) || {};
-  const rawPad = (raw && typeof raw.pad === 'object' && raw.pad) || null;
+  const source = (raw && typeof raw === 'object' ? raw : {}) as { keys?: unknown; pad?: unknown };
+  const rawKeys = (source.keys && typeof source.keys === 'object' ? source.keys : {}) as Record<string, unknown>;
+  const rawPad = (source.pad && typeof source.pad === 'object' ? source.pad : null) as Record<string, unknown> | null;
 
   for (const button of BUTTONS) {
     if (rawPad) {
       const value = rawPad[button];
       if (Array.isArray(value)) {
-        player.pad[button] = value.filter((code: unknown) => typeof code === 'string' && PAD_CODE.test(code));
+        player.pad[button] = value.filter((code): code is string => typeof code === 'string' && PAD_CODE.test(code));
       } else if (typeof value === 'string' && PAD_CODE.test(value)) {
         player.pad[button] = [value];
       }
@@ -125,19 +126,20 @@ function normalisePlayer(raw: any, defaults: KeyConfig): PlayerControls {
  * Called on every read, including on its own output: it must be idempotent,
  * and the test requires it.
  */
-export function normaliseControlsConfig(raw: any): ControlsConfig {
+export function normaliseControlsConfig(raw: unknown): ControlsConfig {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    if (raw.version === 2) {
+    const source = raw as Record<string, unknown>;
+    if (source.version === 2) {
       return {
         version: 2,
-        p1: normalisePlayer(raw.p1, getDefaultKeyConfig()),
-        p2: normalisePlayer(raw.p2, getDefaultP2KeyConfig())
+        p1: normalisePlayer(source.p1, getDefaultKeyConfig()),
+        p2: normalisePlayer(source.p2, getDefaultP2KeyConfig())
       };
     }
-    if (isValidKeyConfig(raw)) {
+    if (isValidKeyConfig(source)) {
       return {
         version: 2,
-        p1: normalisePlayer({ keys: raw }, getDefaultKeyConfig()),
+        p1: normalisePlayer({ keys: source }, getDefaultKeyConfig()),
         p2: defaultPlayer(getDefaultP2KeyConfig())
       };
     }
@@ -145,28 +147,54 @@ export function normaliseControlsConfig(raw: any): ControlsConfig {
   return getDefaultControlsConfig();
 }
 
-function isCompletePlayer(raw: any): boolean {
+/**
+ * Whether `raw` has the complete v2 shape: all twelve buttons present, each
+ * `keys[b]` a string and each `pad[b]` an array of strings.
+ *
+ * Deliberately permissive on *value*: `''` and `[]` are the documented way to
+ * mark a button unbound (the sequence-binding UI has a Tab-to-skip step for
+ * exactly this, `shortLabel('')` renders an unbound slot as `—`, and the
+ * input collector skips falsy codes) - so a button with nothing bound on
+ * either table is a choice, not a hole, and passes here. What this guards
+ * against is a missing slot: a button absent from `keys` or `pad` entirely,
+ * which nothing downstream would notice until that button silently never
+ * fires.
+ */
+function isCompletePlayer(raw: unknown): boolean {
   if (!raw || typeof raw !== 'object') return false;
-  if (!raw.keys || typeof raw.keys !== 'object') return false;
-  if (!raw.pad || typeof raw.pad !== 'object') return false;
-  return BUTTONS.every(
-    (button) =>
-      typeof raw.keys[button] === 'string' &&
-      Array.isArray(raw.pad[button]) &&
-      raw.pad[button].every((code: unknown) => typeof code === 'string')
-  );
+  const source = raw as Record<string, unknown>;
+  if (!source.keys || typeof source.keys !== 'object') return false;
+  if (!source.pad || typeof source.pad !== 'object') return false;
+  const keys = source.keys as Record<string, unknown>;
+  const pad = source.pad as Record<string, unknown>;
+  return BUTTONS.every((button) => {
+    const padValue = pad[button];
+    return (
+      typeof keys[button] === 'string' &&
+      Array.isArray(padValue) &&
+      padValue.every((code: unknown) => typeof code === 'string')
+    );
+  });
 }
 
 /**
  * What we accept to write into the database.
  *
  * Both shapes, because a tab left open on the old frontend still saves a bare
- * `KeyConfig`, and a 400 would be incomprehensible to it. Nothing incomplete,
- * though: a config with holes would produce a button that does not respond,
- * and nothing downstream would catch it.
+ * `KeyConfig`, and a 400 would be incomprehensible to it. What "valid" means
+ * differs between the two, though: `isValidKeyConfig` (the v1 path, kept
+ * unchanged for its other callers) still requires every key non-empty, so a
+ * legacy client cannot save an unbound button at all. The v2 path is looser
+ * by design - `''` and `[]` are legitimate values there, see
+ * `isCompletePlayer` - so it only enforces *shape*: every button present,
+ * with a string in `keys` and an array in `pad`. What is refused either way
+ * is an incomplete shape: a missing button produces one that silently never
+ * fires, and nothing downstream would catch it.
  */
-export function isValidControlsConfig(raw: any): boolean {
+export function isValidControlsConfig(raw: unknown): boolean {
   if (isValidKeyConfig(raw)) return true;
-  if (!raw || typeof raw !== 'object' || raw.version !== 2) return false;
-  return isCompletePlayer(raw.p1) && isCompletePlayer(raw.p2);
+  if (!raw || typeof raw !== 'object') return false;
+  const source = raw as Record<string, unknown>;
+  if (source.version !== 2) return false;
+  return isCompletePlayer(source.p1) && isCompletePlayer(source.p2);
 }
