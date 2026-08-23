@@ -316,8 +316,9 @@ export interface ConflictReport {
 
 function padsOverlap(a: PadSelection, b: PadSelection): boolean {
 	if (a === 'all' || b === 'all') {
-		// `'all'` n'est vide que s'il n'y a aucun pad, et dans ce cas l'autre
-		// sélection est vide aussi : se croire non chevauchant serait faux.
+		// Deux `'all'` se chevauchent même sans rien de branché : le premier
+		// pad à apparaître serait pris par les deux. Une liste explicitement
+		// vide, elle, n'écoute rien et ne chevauche rien.
 		return a === 'all' ? b === 'all' || b.length > 0 : a.length > 0;
 	}
 	return a.some((index) => b.includes(index));
@@ -335,7 +336,7 @@ function entries(codesOf: (button: Button) => string[], player: 1 | 2) {
 }
 
 function emptyMaps() {
-	return { keys: new Map() as ConflictMap, pad: new Map() as ConflictMap };
+	return { keys: new Map<Button, ConflictOwner[]>(), pad: new Map<Button, ConflictOwner[]>() };
 }
 
 /**
@@ -387,7 +388,9 @@ export function findConflicts(
 		for (const owners of byCode.values()) {
 			for (const owner of owners) {
 				const others = owners.filter(
-					(other) => other !== owner && (other.player === owner.player || shared)
+					(other) =>
+						(other.button !== owner.button || other.player !== owner.player) &&
+						(other.player === owner.player || shared)
 				);
 				if (others.length === 0) continue;
 				const side = owner.player === 1 ? report.p1 : report.p2;

@@ -239,6 +239,11 @@ test('même bouton manette sur la MÊME manette : conflit', () => {
 
 	assert.equal(report.p1.pad.size, 12, 'les douze emplacements se marchent dessus');
 	assert.deepEqual(report.p1.pad.get('a'), [{ player: 2, button: 'a' }]);
+	assert.deepEqual(
+		report.p1.pad.get('up'),
+		[{ player: 2, button: 'up' }],
+		'les deux codes de la croix (bouton + axe) ne comptent le même coupable qu’une fois'
+	);
 });
 
 test("'all' intersecte tout ce qui est connecté", () => {
@@ -247,7 +252,27 @@ test("'all' intersecte tout ce qui est connecté", () => {
 		p2: { keyboard: false, pads: [1] }
 	});
 
-	assert.ok(report.count > 0, "'all' inclut le pad 1");
+	// Les deux joueurs portent le même mappage standard : les douze boutons se
+	// marchent dessus, dans les deux sens.
+	assert.equal(report.count, 24, "'all' inclut le pad 1");
+});
+
+test("'all' contre 'all' : chevauchement même sans manette connue", () => {
+	const report = findConflicts(config({ keys: DEFAULT_P1_KEYS }, { keys: DEFAULT_P2_KEYS }), {
+		p1: { keyboard: false, pads: 'all' },
+		p2: { keyboard: false, pads: 'all' }
+	});
+
+	assert.equal(report.count, 24, "le premier pad à apparaître serait pris par les deux");
+});
+
+test("'all' contre une liste vide : aucun chevauchement", () => {
+	const report = findConflicts(config({ keys: DEFAULT_P1_KEYS }, { keys: DEFAULT_P2_KEYS }), {
+		p1: { keyboard: false, pads: 'all' },
+		p2: { keyboard: false, pads: [] }
+	});
+
+	assert.equal(report.count, 0, "une liste vide n'écoute rien");
 });
 
 test('un doublon manette chez un seul joueur : conflit', () => {
@@ -257,6 +282,33 @@ test('un doublon manette chez un seul joueur : conflit', () => {
 	);
 
 	assert.deepEqual([...report.p1.pad.keys()].sort(), ['a', 'b']);
+});
+
+test('un bouton à deux codes visant deux coupables différents : les deux sont accumulés', () => {
+	// La croix de P1 (up) porte PadButton12 ET PadAxis1Minus. On fait prendre
+	// chacun de ces deux codes par un bouton DIFFÉRENT chez P2, pour vérifier
+	// que les deux coupables s'accumulent plutôt que le second n'écrase le
+	// premier.
+	const report = findConflicts(
+		config(
+			{ keys: DEFAULT_P1_KEYS },
+			{
+				keys: DEFAULT_P2_KEYS,
+				pad: {
+					up: [], down: [], left: [], right: [],
+					a: [], b: [], x: ['PadButton12'], y: ['PadAxis1Minus'],
+					l: [], r: [], start: [], select: []
+				}
+			}
+		),
+		{ p1: { keyboard: true, pads: [0] }, p2: { keyboard: false, pads: [0] } }
+	);
+
+	assert.deepEqual(report.p1.pad.get('up'), [
+		{ player: 2, button: 'x' },
+		{ player: 2, button: 'y' }
+	]);
+	assert.equal(report.count, 3, 'up (chez P1) + x et y (chez P2)');
 });
 
 test('les emplacements non liés ne sont jamais en conflit', () => {
