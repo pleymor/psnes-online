@@ -69,6 +69,9 @@
       <img src={player1.avatar} alt="" class="avatar" />
     {/if}
     <span class="player-name">{player1?.displayName || '—'}</span>
+    {#if player1 && player1.online !== true}
+      <span class="player-away">{t($language, 'playerAway')}</span>
+    {/if}
     {#if player1IsHost}
       <span class="host-note">{t($language, 'hostSavesNote')}</span>
     {/if}
@@ -91,6 +94,9 @@
       <img src={player2.avatar} alt="" class="avatar" />
     {/if}
     <span class="player-name">{player2?.displayName || '—'}</span>
+    {#if player2 && player2.online !== true}
+      <span class="player-away">{t($language, 'playerAway')}</span>
+    {/if}
     {#if player2IsHost}
       <span class="host-note">{t($language, 'hostSavesNote')}</span>
     {/if}
@@ -101,6 +107,14 @@
 </div>
 
 <style>
+  /* Information, not an alarm: the seat is still theirs and they are expected
+     back, so this says where they are without shouting about it. */
+  .player-away {
+    font-size: 0.8rem;
+    opacity: 0.6;
+    font-style: italic;
+  }
+
   .players {
     display: flex;
     gap: 2rem;

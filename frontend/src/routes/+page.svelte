@@ -24,6 +24,17 @@
   let gameToDelete: Game | null = null;
   let activeRooms: any[] = [];
 
+  /*
+   * The room you are already a member of, if any.
+   *
+   * `/api/rooms` and `rooms:list` both already carry it - a member always sees
+   * their own room, whatever its state - so this door needs no new event and no
+   * new field. One room at a time is what makes `find` the right call rather
+   * than a list.
+   */
+  $: myRoom = activeRooms.find((r) => r.players?.some((p: any) => p.userId === $user?.id));
+  $: myPartner = myRoom?.players?.find((p: any) => p.userId !== $user?.id);
+
   async function loadGames() {
     const res = await fetch('/api/games', { credentials: 'include' });
     if (res.ok) {
@@ -268,9 +279,20 @@
           <h1>{t($language, 'library')}</h1>
           <p class="subtitle">{$games.length} {$games.length === 1 ? t($language, 'game') : t($language, 'games')}</p>
         </div>
-        <button class="btn-create-room" on:click={createEmptyRoom}>
-          {t($language, 'createRoom')}
-        </button>
+        <!-- The room you already have takes the slot, rather than sitting next
+             to a button that would silently give it up: creating one leaves the
+             one you are in. -->
+        {#if myRoom}
+          <button class="btn-create-room" on:click={() => goto(`/room/${myRoom.id}`)}>
+            {myPartner
+              ? `${t($language, 'resumeRoomWith')} ${myPartner.displayName}`
+              : t($language, 'resumeRoom')}
+          </button>
+        {:else}
+          <button class="btn-create-room" on:click={createEmptyRoom}>
+            {t($language, 'createRoom')}
+          </button>
+        {/if}
       </div>
 
       <div class="content-wrapper">
