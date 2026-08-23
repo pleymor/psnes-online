@@ -272,6 +272,32 @@ The regression test raises the delay at twelve different packet phases, because 
 single phase hides it: whether the raise lands before or after this tick's sample
 depends on how the jitter happened to space the arrivals.
 
+### Which trade the game wants
+
+The loop optimises for the *other* player's picture, and that is not always what
+a game wants. Where two players take turns - a platformer level handed back and
+forth - a frame dropped on the partner's screen costs nobody anything, and the
+lowest delay is simply correct. Where they fight frame by frame, both need the
+picture steady and the loop should have its way. It is a property of the game,
+not of the link.
+
+So the room carries a `latencyMode`: `auto` runs the loop, `low` pins two frames
+and thereby switches the loop off, since pinning and refusing the trade are the
+same statement. The room's creator sets it, `room:setLatencyMode` broadcasts it,
+and each peer applies it to its own session - no protocol change, because the
+delay is local past the priming window.
+
+Two details that are deliberate. It may be changed **while playing**, unlike
+`emulationMode`, which would tear down a running session; changing the input
+delay mid-game is covered by the twelve-phase regression test above, and a
+setting you cannot reach from the pause menu is a setting nobody uses. And it is
+remembered **per game** on the creator's machine, so one answer for the
+platformer and another for the fighter, set once each.
+
+`auto` chosen mid-game does not un-pin what pinning disabled - it applies from
+the next session. The log says so rather than letting it look like nothing
+happened.
+
 ### The relay
 
 `backend/src/websocket/znet-handlers.ts` plays the part ZSNES gives its netplay

@@ -16,6 +16,10 @@ import {
   readShaderPreference,
   writeShaderPreference
 } from '../../frontend/src/lib/stores/shader-preference.js';
+import {
+  readLatencyPreference,
+  writeLatencyPreference
+} from '../../frontend/src/lib/stores/latency-preference.js';
 
 /** A storage that records what was done to it. */
 function fakeStorage(initial: Record<string, string> = {}) {
@@ -186,4 +190,46 @@ test('an uppercase extension is accepted, matching the lowercased comparison', (
   // The old modal lowercased the extension before comparing; losing that
   // would reject a file it used to take.
   assert.equal(romFileProblem('Chrono Trigger.SFC', 1024), null);
+});
+
+/* ------------------------------------------------- the latency preference */
+
+test('the latency choice is remembered per game, not per profile', () => {
+  // Which way to trade latency against the other player's smoothness belongs to
+  // the game: a Mario level handed back and forth does not care if the partner
+  // drops a frame, and a fighting game cares about nothing else. One setting for
+  // the whole profile would have to be flipped on every change of title.
+  const storage = fakeStorage();
+  writeLatencyPreference(storage, 'mario', 'low');
+  assert.equal(readLatencyPreference(storage, 'mario'), 'low');
+  assert.equal(readLatencyPreference(storage, 'dbz'), 'auto', 'another game is untouched');
+});
+
+test('the automatic mode is the default and leaves nothing behind', () => {
+  // Storing the default would leave an entry that reads, to anyone looking at
+  // the profile later, like a decision somebody made.
+  const storage = fakeStorage();
+  assert.equal(readLatencyPreference(storage, 'mario'), 'auto');
+  writeLatencyPreference(storage, 'mario', 'low');
+  writeLatencyPreference(storage, 'mario', 'auto');
+  assert.equal(storage.data.size, 0, 'going back to the default clears the entry');
+  assert.equal(readLatencyPreference(storage, 'mario'), 'auto');
+});
+
+test('a latency value this build does not understand is purged', () => {
+  // The same trap the shader preference already fell into once: an unreadable
+  // value that stays in the profile for ever, meaning the default while looking
+  // like a setting.
+  const storage = fakeStorage({ 'psnes-latency:mario': 'rollback' });
+  assert.equal(readLatencyPreference(storage, 'mario'), 'auto');
+  assert.deepEqual(storage.removed, ['psnes-latency:mario']);
+});
+
+test('a room with no game yet is not stored against an empty key', () => {
+  // Rooms exist before a game is chosen, and `psnes-latency:` with nothing after
+  // it would be read back by the next gameless room as somebody's choice.
+  const storage = fakeStorage();
+  writeLatencyPreference(storage, '', 'low');
+  assert.equal(storage.data.size, 0);
+  assert.equal(readLatencyPreference(storage, ''), 'auto');
 });

@@ -1,5 +1,5 @@
 import { Server, Socket } from 'socket.io';
-import { Room, RoomPlayer, User, EmulationMode } from '../types/index.js';
+import { Room, RoomPlayer, User, EmulationMode, LatencyMode } from '../types/index.js';
 import { randomUUID } from 'crypto';
 import { getUserKeyConfig } from '../services/user-config.js';
 import { notifyFriendsRoomStatusChanged, getFriendships } from '../services/friends.js';
@@ -157,6 +157,7 @@ export function registerRoomHandlers(
       // exchange inputs, so a room cannot end up with two machines quietly
       // diverging the way the dual mode does.
       emulationMode: payload.emulationMode ?? 'lockstep',
+      latencyMode: 'auto',
       createdAt: new Date()
     };
 
@@ -543,6 +544,27 @@ export function registerRoomHandlers(
 
     player.isReady = !player.isReady;
     io.to(data.roomId).emit('room:updated', room);
+  });
+
+  /*
+   * Set the latency trade-off. Creator only, like the emulation mode - but
+   * allowed while playing, which the emulation mode is not.
+   *
+   * Swapping emulator mode mid-game would tear down a running session; changing
+   * the input delay only changes how far ahead each peer samples its own input,
+   * which the engine handles while running and which a regression test covers at
+   * twelve packet phases. The setting exists to be reached from the pause menu,
+   * so refusing it there would leave it nowhere useful.
+   */
+  socket.on('room:setLatencyMode', (data: { roomId: string; latencyMode: LatencyMode }) => {
+    const room = rooms.get(data.roomId);
+    if (!room) return;
+    if (room.createdBy !== user.id) return;
+    if (data.latencyMode !== 'auto' && data.latencyMode !== 'low') return;
+
+    room.latencyMode = data.latencyMode;
+    io.to(data.roomId).emit('room:updated', room);
+    logger.info({ roomId: room.id, latencyMode: data.latencyMode }, 'Latency mode changed');
   });
 
   // Set emulation mode (only room creator can change)

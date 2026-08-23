@@ -31,6 +31,13 @@ export enum EmulationMode {
                               // until every player's pad for it has arrived
 }
 
+/**
+ * Re-declared rather than imported from the store that owns it, so the Room
+ * shape stays readable on its own. The two must agree; there is one test that
+ * checks the store's own values.
+ */
+export type LatencyMode = 'auto' | 'low';
+
 export interface Room {
   id: string;
   /**
@@ -49,6 +56,13 @@ export interface Room {
   players: RoomPlayer[];
   status: 'waiting' | 'playing';
   emulationMode: EmulationMode;
+  /**
+   * How this room trades input latency against the other player's smoothness.
+   * Belongs to the game, not the link: turn-taking games do not care about a
+   * frame dropped on the partner's screen, simultaneous ones care about little
+   * else. Unlike the emulation mode it may change mid-game.
+   */
+  latencyMode: LatencyMode;
   /**
    * An ISO string, not a Date: this arrives over Socket.IO, which serialises
    * dates and never revives them. It was typed `Date` here and no caller had
