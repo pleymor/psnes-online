@@ -33,11 +33,15 @@ export interface ThumbnailSize {
  * before the first frame was drawn) still yields at least one pixel, because a
  * zero-sized canvas throws.
  */
-export function thumbnailSize(srcWidth: number, srcHeight: number): ThumbnailSize {
-  const width = Math.max(1, Math.min(THUMBNAIL_WIDTH, Math.round(srcWidth) || 1));
+export function scaledSize(srcWidth: number, srcHeight: number, maxWidth: number): ThumbnailSize {
+  const width = Math.max(1, Math.min(maxWidth, Math.round(srcWidth) || 1));
   const ratio = srcWidth > 0 ? width / srcWidth : 1;
   const height = Math.max(1, Math.round((srcHeight || 1) * ratio));
   return { width, height };
+}
+
+export function thumbnailSize(srcWidth: number, srcHeight: number): ThumbnailSize {
+  return scaledSize(srcWidth, srcHeight, THUMBNAIL_WIDTH);
 }
 
 /**
