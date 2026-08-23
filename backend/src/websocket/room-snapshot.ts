@@ -74,6 +74,10 @@ export function deserialiseRooms(raw: string | null): Map<string, Room> {
     if (!room?.id || !Array.isArray(room.players) || room.players.length === 0) continue;
     // JSON has no date type, and the rest of the app calls Date methods here.
     room.createdAt = new Date(room.createdAt);
+    // Same reason as createdAt: `isAbandoned` calls getTime() on this. Left
+    // undefined when absent - a room whose members were all present when the
+    // snapshot was written has no deadline running.
+    if (room.abandonedAt) room.abandonedAt = new Date(room.abandonedAt);
     rooms.set(room.id, room);
   }
 
@@ -81,16 +85,20 @@ export function deserialiseRooms(raw: string | null): Map<string, Room> {
 }
 
 /**
- * Loads the snapshot into `rooms` and holds every restored player's seat.
+ * Loads the snapshot into `rooms`.
  *
- * Every player is disconnected by definition at this point, so each one gets
- * the ordinary departure grace period: a room nobody comes back to then dies
- * exactly as it would have if the server had never restarted. `holdSeat` is
- * injected rather than imported so this stays testable without a socket.
+ * Everyone is disconnected by definition at this point, which is now an
+ * ordinary state rather than an emergency: each restored member comes back as
+ * away, and a room nobody returns to dies on the abandonment clock like any
+ * other. The old five-minute restart grace existed because the alternative was
+ * losing the room outright; there is no longer anything to lose.
+ *
+ * `onRestored` is injected rather than imported so this stays testable without
+ * a socket.
  */
 export async function restoreRooms(
   rooms: Map<string, Room>,
-  holdSeat: (roomId: string, userId: string) => void,
+  onRestored: (room: Room) => void,
   store: Store = getRedis() as unknown as Store
 ): Promise<number> {
   let raw: string | null = null;
@@ -107,7 +115,7 @@ export async function restoreRooms(
   const restored = deserialiseRooms(raw);
   for (const [id, room] of restored) {
     rooms.set(id, room);
-    for (const player of room.players) holdSeat(id, player.userId);
+    onRestored(room);
   }
 
   lastWritten = serialiseRooms(rooms);

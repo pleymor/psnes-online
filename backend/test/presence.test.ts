@@ -12,6 +12,8 @@ import assert from 'node:assert/strict';
 
 import { onlinePlayers } from '../src/rooms/online-players.js';
 import { ABANDON_AFTER_MS, abandonedRoomIds, isAbandoned } from '../src/rooms/abandonment.js';
+import { markOffline, markOnline } from '../src/rooms/presence.js';
+import type { Room } from '../src/types/index.js';
 
 const player = (userId: string, online: boolean) =>
   ({ userId, displayName: userId, port: null, isReady: true, emulationReady: false, online }) as never;
@@ -74,4 +76,69 @@ test('the sweep names the abandoned rooms and leaves the others alone', () => {
   ]);
 
   assert.deepEqual(abandonedRoomIds(rooms as never, AT), ['stale']);
+});
+
+// --- the transition itself, which three call sites must not contradict ------
+
+const roomWith = (...players: Array<{ userId: string; online: boolean }>) =>
+  ({
+    id: 'r',
+    players: players.map(p => ({
+      ...p,
+      displayName: p.userId,
+      port: null,
+      isReady: true,
+      emulationReady: false
+    }))
+  }) as never as Room;
+
+test('going away flips the flag and leaves the seat alone', () => {
+  const room = roomWith({ userId: 'alice', online: true }, { userId: 'bob', online: true });
+  markOffline(room, 'alice', AT);
+
+  assert.deepEqual(room.players.map(p => p.userId), ['alice', 'bob']);
+  assert.equal(room.players[0].online, false);
+});
+
+test('the room is only marked abandoned once the last member has gone', () => {
+  const room = roomWith({ userId: 'alice', online: true }, { userId: 'bob', online: true });
+
+  markOffline(room, 'alice', AT);
+  assert.equal(room.abandonedAt, undefined, 'bob is still here');
+
+  markOffline(room, 'bob', AT);
+  assert.deepEqual(room.abandonedAt, AT);
+});
+
+test('the first member back clears the abandonment', () => {
+  const room = roomWith({ userId: 'alice', online: false }, { userId: 'bob', online: false });
+  room.abandonedAt = ago(60_000);
+
+  markOnline(room, 'alice');
+  assert.equal(room.abandonedAt, undefined);
+});
+
+/*
+ * The failure this guards is a room that outlives everything and cannot be
+ * reached: nobody is in it, so nobody can dissolve it, and with no
+ * `abandonedAt` the sweep never names it either.
+ */
+test('a stranger changes nothing, and cannot strand the room', () => {
+  const room = roomWith({ userId: 'alice', online: true });
+
+  assert.equal(markOffline(room, 'carol', AT), false);
+  assert.equal(room.abandonedAt, undefined, 'alice is still here');
+});
+
+test('going away twice does not move the deadline', () => {
+  const room = roomWith({ userId: 'alice', online: true });
+
+  markOffline(room, 'alice', ago(60_000));
+  markOffline(room, 'alice', AT);
+
+  assert.deepEqual(
+    room.abandonedAt,
+    ago(60_000),
+    'the clock started when they left, not when we noticed again'
+  );
 });

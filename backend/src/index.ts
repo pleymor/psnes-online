@@ -19,7 +19,7 @@ import { avatarsRouter } from './api/avatars.js';
 import { logsRouter } from './api/logs.js';
 import { initializeWebSocket, getRooms, getUserSocket } from './websocket/index.js';
 import { flushRooms, restoreRooms, startRoomSnapshots } from './websocket/room-snapshot.js';
-import { holdRestoredSeat } from './websocket/room-handlers.js';
+import { markOffline } from './rooms/presence.js';
 import { connectRedis } from './db/redis.js';
 import { getDb } from './db/sqlite.js';
 import { deleteExpiredInvitations } from './db/invitations.js';
@@ -253,9 +253,12 @@ try {
 
 // Before the port opens, so the first client to reconnect finds its room
 // already there rather than racing the restore.
-await restoreRooms(rooms, (roomId, userId) => {
-  const player = rooms.get(roomId)?.players.find(p => p.userId === userId);
-  holdRestoredSeat(io, roomId, rooms, userId, player?.displayName ?? userId, getUserSocket);
+const bootedAt = new Date();
+await restoreRooms(rooms, room => {
+  // A restart dropped everybody, through no action of theirs. An existing
+  // `abandonedAt` is kept by markOffline: the deadline began when the room
+  // emptied, and a deploy must not hand an abandoned room another twelve hours.
+  for (const player of room.players) markOffline(room, player.userId, bootedAt);
 });
 startRoomSnapshots(rooms);
 
