@@ -221,3 +221,70 @@ export function normaliseControlsConfig(raw: unknown): ControlsConfig {
 	}
 	return defaultControlsConfig();
 }
+
+/* ------------------------------------------------------------- affichage */
+
+export type CodeDescription =
+	| { kind: 'keyboard'; code: string }
+	| { kind: 'padButton'; index: number }
+	| { kind: 'padAxis'; index: number; dir: 'plus' | 'minus' }
+	| { kind: 'unbound' };
+
+/**
+ * Ce qu'un code est, sans dire comment on le nomme.
+ *
+ * Le composant traduit ; ce module reste testable sans store de langue.
+ */
+export function describeCode(code: string): CodeDescription {
+	if (!code) return { kind: 'unbound' };
+	const pad = parsePadCode(code);
+	if (pad) {
+		return pad.kind === 'button'
+			? { kind: 'padButton', index: pad.index }
+			: { kind: 'padAxis', index: pad.index, dir: pad.dir };
+	}
+	return { kind: 'keyboard', code };
+}
+
+/** Les touches dont le nom court n'est pas déductible du code. */
+const SHORT_KEYS: Record<string, string> = {
+	ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+	Enter: '⏎', NumpadEnter: '⏎', Space: '␣', Tab: '⇥', Backspace: '⌫', Escape: 'Esc',
+	ShiftLeft: '⇧G', ShiftRight: '⇧D',
+	ControlLeft: '⌃G', ControlRight: '⌃D',
+	AltLeft: '⌥G', AltRight: '⌥D'
+};
+
+/**
+ * Ce qui s'écrit sur un bouton du dessin.
+ *
+ * Court par obligation : dans le panneau de pause, le dessin fait 280 px de
+ * large, et un libellé de plus de trois caractères n'y tient pas. La forme
+ * longue existe, dans l'`aria-label`.
+ */
+export function shortLabel(code: string): string {
+	const described = describeCode(code);
+	switch (described.kind) {
+		case 'unbound':
+			return '—';
+		case 'padButton':
+			return `B${described.index}`;
+		case 'padAxis':
+			return `A${described.index}${described.dir === 'minus' ? '−' : '+'}`;
+		case 'keyboard': {
+			const known = SHORT_KEYS[described.code];
+			if (known) return known;
+			if (described.code.startsWith('Key')) return described.code.slice(3);
+			if (described.code.startsWith('Digit')) return described.code.slice(5);
+			if (described.code.startsWith('Numpad')) return `N${described.code.slice(6)}`;
+			return described.code;
+		}
+	}
+}
+
+export function shortLabelList(codes: string[]): string {
+	const bound = codes.filter((code) => code !== '');
+	if (bound.length === 0) return '—';
+	const extra = bound.length - 1;
+	return extra > 0 ? `${shortLabel(bound[0])} +${extra}` : shortLabel(bound[0]);
+}

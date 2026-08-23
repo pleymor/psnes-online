@@ -16,10 +16,13 @@ import {
 	DEFAULT_P2_KEYS,
 	STANDARD_PAD,
 	defaultControlsConfig,
+	describeCode,
 	isPadCode,
 	legacyToPadCode,
 	normaliseControlsConfig,
-	parsePadCode
+	parsePadCode,
+	shortLabel,
+	shortLabelList
 } from '../../frontend/src/lib/controls/binding.js';
 
 const V1 = {
@@ -128,4 +131,38 @@ test('les codes non-manette sont écartés de la table manette', () => {
 		p1: { keys: V1, pad: { ...STANDARD_PAD, a: ['KeyX', 'PadButton1', 7] } }
 	});
 	assert.deepEqual(config.p1.pad.a, ['PadButton1']);
+});
+
+/* ------------------------------------------------------------- affichage */
+
+test('un code se décrit sans avoir besoin de mots', () => {
+	assert.deepEqual(describeCode('KeyX'), { kind: 'keyboard', code: 'KeyX' });
+	assert.deepEqual(describeCode('PadButton2'), { kind: 'padButton', index: 2 });
+	assert.deepEqual(describeCode('PadAxis0Minus'), { kind: 'padAxis', index: 0, dir: 'minus' });
+	assert.deepEqual(describeCode(''), { kind: 'unbound' });
+});
+
+test('les formes courtes tiennent sur un bouton', () => {
+	assert.equal(shortLabel('KeyX'), 'X');
+	assert.equal(shortLabel('Digit1'), '1');
+	assert.equal(shortLabel('ArrowUp'), '↑');
+	assert.equal(shortLabel('ArrowLeft'), '←');
+	assert.equal(shortLabel('Enter'), '⏎');
+	assert.equal(shortLabel('Space'), '␣');
+	assert.equal(shortLabel('ShiftRight'), '⇧D');
+	assert.equal(shortLabel('ShiftLeft'), '⇧G');
+	assert.equal(shortLabel('ControlLeft'), '⌃G');
+	assert.equal(shortLabel('AltRight'), '⌥D');
+	assert.equal(shortLabel('Escape'), 'Esc', 'un code inconnu du dictionnaire garde un nom lisible');
+	assert.equal(shortLabel('PadButton2'), 'B2');
+	assert.equal(shortLabel('PadAxis0Minus'), 'A0−');
+	assert.equal(shortLabel('PadAxis1Plus'), 'A1+');
+	assert.equal(shortLabel(''), '—');
+});
+
+test('une liste dit son premier code et compte le reste', () => {
+	assert.equal(shortLabelList([]), '—');
+	assert.equal(shortLabelList(['PadButton12']), 'B12');
+	assert.equal(shortLabelList(['PadButton12', 'PadAxis1Minus']), 'B12 +1');
+	assert.equal(shortLabelList(['PadButton12', 'PadAxis1Minus', 'PadButton3']), 'B12 +2');
 });
