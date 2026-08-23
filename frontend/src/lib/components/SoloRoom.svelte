@@ -46,6 +46,14 @@
   export let gameCrc32: string | null = null;
   export let gameTitle: string = '';
   export let keyConfig: KeyConfig;
+  /**
+   * A save to open on, when the library sent us here to resume one.
+   *
+   * Asked for once the session is already running, through the same
+   * `game:load` the pause menu uses - so there is no second way to apply a
+   * savestate, and this cannot get out of step with the one that exists.
+   */
+  export let resumeSaveId: string | null = null;
 
   const logger = createLogger('SoloRoom');
 
@@ -424,6 +432,14 @@
 
       phase = 'playing';
       statusText = '';
+
+      // After the listener is registered and the session is running, which is
+      // the only order that works: the reply carries the savestate and there
+      // would be nothing to apply it to a moment earlier.
+      if (resumeSaveId) {
+        $socket?.emit('game:load', { roomId, saveId: resumeSaveId });
+        resumeSaveId = null; // Once. A reconnect must not rewind the game.
+      }
 
       // After the session is running, so a slow CDN cannot delay the picture.
       if (display.shader) void applyShader(display.shader);

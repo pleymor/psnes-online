@@ -20,8 +20,18 @@
   /** Shown on each tile's action button - "load" or "overwrite". */
   export let actionLabel: string;
   export let busy = false;
+  /**
+   * Saves the caller already holds, if it does.
+   *
+   * The library gets summaries with every game from `/api/games`, blob-free.
+   * Asking `/api/games/:id/saves` for them again would download the savestates
+   * themselves - about a megabyte each - to draw a list of thumbnails, on a
+   * screen a player opens out of curiosity. So the caller may hand them over
+   * and this grid will not fetch.
+   */
+  export let preloaded: SaveSummary[] | null = null;
 
-  const dispatch = createEventDispatcher<{ select: SaveSummary }>();
+  const dispatch = createEventDispatcher<{ select: SaveSummary; deleted: SaveSummary }>();
 
   let saves: SaveSummary[] = [];
   let failure: LoadFailure | null = null;
@@ -64,10 +74,32 @@
     }
 
     notifications.show(t($language, 'saveDeleted'), 'success');
+
+    /*
+     * A preloaded list belongs to the caller, and reloading would only re-read
+     * the same stale array - the deleted row would come straight back. Drop it
+     * here so the list is right immediately, and tell the caller so its own
+     * copy stops disagreeing with us.
+     */
+    if (preloaded) {
+      preloaded = preloaded.filter((s) => s.id !== target.id);
+      dispatch('deleted', target);
+      return;
+    }
+
     await reload();
   }
 
   export async function reload() {
+    // Nothing to reload when the caller owns the list: there was no request to
+    // fail, so there is no retry to offer either.
+    if (preloaded) {
+      saves = byNewest(preloaded);
+      failure = null;
+      loading = false;
+      return;
+    }
+
     loading = true;
     const result = await fetchSaves(gameId);
     loading = false;
@@ -84,6 +116,17 @@
 
   onMount(reload);
 
+  // A preloaded list can be replaced under us - the library reloads after a
+  // save is written - so follow it rather than only reading it once at mount.
+  $: if (preloaded) {
+    saves = byNewest(preloaded);
+    failure = null;
+    loading = false;
+  }
+
+  // `formatDate` used to live here. `saveIdentity` replaces it: the tile now
+  // decides between one line and two rather than always printing both, which
+  // is what stopped the date being painted across the action label.
 </script>
 
 {#if loading}

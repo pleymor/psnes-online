@@ -68,6 +68,15 @@
   /** Whether this player is the creator, and so may change it. */
   export let canSetLatency = false;
   export let keyConfig: KeyConfig;
+  /**
+   * A save to open on, when the library sent us here to resume one.
+   *
+   * Asked for once the session reports itself running, through the same
+   * `game:load` the pause menu uses: the host reseeds the session from the
+   * state and the guest is handed the machine, which is already the safe path
+   * for loading a save mid-match. Nothing new touches the sync.
+   */
+  export let resumeSaveId: string | null = null;
   /** Frames of input delay. 0 asks for a value derived from the measured RTT. */
   export let inputDelay = 0;
 
@@ -1016,6 +1025,12 @@
         if (event.message === 'running') {
           phase = 'playing';
           statusText = '';
+          // Once, and only here: 'running' comes back after a resync too, and
+          // re-sending this would rewind a match that had moved on.
+          if (resumeSaveId) {
+            $socket?.emit('game:load', { roomId, saveId: resumeSaveId });
+            resumeSaveId = null;
+          }
         } else if (event.message === 'syncing') {
           statusText = 'Synchronising with the host…';
         } else if (event.message === 'resyncing') {

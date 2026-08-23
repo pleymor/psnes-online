@@ -115,11 +115,26 @@
     font-style: italic;
   }
 
+  /**
+   * Two columns of equal width, whatever is written in them.
+   *
+   * These were flex items sized by their content, and only one of them is the
+   * host - so "Host - saves live on their account" (longer still in French) sat
+   * on one line and made that card visibly wider than its neighbour. The action
+   * line does it too, since "Swap with <name>" carries a name and "Take this
+   * controller" does not.
+   *
+   * `minmax(0, 1fr)` rather than `1fr` is what actually fixes it: a bare `1fr`
+   * means `minmax(auto, 1fr)`, and that `auto` floor lets the content push the
+   * column wider again. With zero, the columns are equal by construction and
+   * the sentence wraps instead.
+   */
   .players {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 2rem;
-    justify-content: center;
-    margin: 1rem 0;
+    max-width: 520px;
+    margin: 1rem auto;
   }
 
   .player {
@@ -135,7 +150,9 @@
     font-size: 1rem;
     cursor: pointer;
     transition: all 0.2s;
-    min-width: 180px;
+    /* A display name with no spaces would otherwise be an unbreakable line and
+       widen its column past the other's, which is the whole thing being fixed. */
+    overflow-wrap: anywhere;
   }
 
   .player:hover:not(:disabled) {
@@ -217,8 +234,7 @@
 
   @media (max-width: 480px) {
     .players {
-      flex-direction: column;
-      align-items: center;
+      grid-template-columns: 1fr;
     }
   }
 </style>
