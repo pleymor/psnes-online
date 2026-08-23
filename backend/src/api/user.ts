@@ -1,9 +1,12 @@
 import { Router } from 'express';
-import type { KeyConfig } from '../types';
 import { getDb } from '../db/sqlite.js';
 import { findControlsConfig, updateControlsConfig } from '../db/users.js';
 import { requireAuth } from '../middleware/auth.js';
-import { getDefaultKeyConfig, isValidKeyConfig } from '../utils/key-config.js';
+import {
+  getDefaultControlsConfig,
+  isValidControlsConfig,
+  normaliseControlsConfig
+} from '../utils/key-config.js';
 import { createLogger } from '../utils/logger.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 
@@ -19,11 +22,12 @@ userRouter.get('/controls', requireAuth, asyncHandler(async (req, res) => {
 
     if (!stored) {
       // Return default configuration if none saved
-      return res.json(getDefaultKeyConfig());
+      return res.json(getDefaultControlsConfig());
     }
 
-    const config = JSON.parse(stored);
-    res.json(config);
+    // Normalised here rather than on the frontend: the database still holds
+    // one-player configs, and only one place should know how to read those.
+    res.json(normaliseControlsConfig(JSON.parse(stored)));
   } catch (error) {
     logger.error({ err: error }, 'Error fetching controls config');
     res.status(500).json({ error: 'Failed to fetch controls configuration' });
@@ -34,13 +38,14 @@ userRouter.get('/controls', requireAuth, asyncHandler(async (req, res) => {
 userRouter.put('/controls', requireAuth, asyncHandler(async (req, res) => {
   try {
     const userId = (req.user as any).id;
-    const config: KeyConfig = req.body;
 
-    // Validate the configuration
-    if (!isValidKeyConfig(config)) {
+    // Validate the configuration - accepts both the legacy bare KeyConfig
+    // and the two-player shape, but never something incomplete.
+    if (!isValidControlsConfig(req.body)) {
       return res.status(400).json({ error: 'Invalid controls configuration' });
     }
 
+    const config = normaliseControlsConfig(req.body);
     updateControlsConfig(getDb(), userId, JSON.stringify(config));
 
     res.json({ message: 'Controls configuration updated successfully', config });
@@ -50,11 +55,11 @@ userRouter.put('/controls', requireAuth, asyncHandler(async (req, res) => {
   }
 }));
 
-// Reset user's controls to default
+// Reset user's controls to default - both players, both tables
 userRouter.post('/controls/reset', requireAuth, asyncHandler(async (req, res) => {
   try {
     const userId = (req.user as any).id;
-    const defaultConfig = getDefaultKeyConfig();
+    const defaultConfig = getDefaultControlsConfig();
 
     updateControlsConfig(getDb(), userId, JSON.stringify(defaultConfig));
 
@@ -64,4 +69,3 @@ userRouter.post('/controls/reset', requireAuth, asyncHandler(async (req, res) =>
     res.status(500).json({ error: 'Failed to reset controls configuration' });
   }
 }));
-
