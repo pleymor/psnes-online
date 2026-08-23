@@ -274,6 +274,17 @@ export interface SessionStats {
 	 * round trip because a player tuning the delay is really tuning against this.
 	 */
 	jitter: number | null;
+	/**
+	 * Our own late frames over the last 128, and the last figure the peer sent.
+	 *
+	 * Both belong on the wire to the server, not only on screen: `peerStrain` is
+	 * what the delay loop reacts to, and a loop whose input is invisible in
+	 * production cannot be told apart from a loop that is broken. A per-second
+	 * `fps` average cannot stand in for either - it reads a flat 50 through a
+	 * burst of 40ms hitches, which is exactly the thing a player notices.
+	 */
+	strain: number;
+	peerStrain: number;
 	epoch: number;
 	desyncs: number;
 	resyncs: number;
@@ -356,6 +367,8 @@ export class NetplaySession implements TickSource {
 	 */
 	private peerHunger = 0;
 	private hungerNeeded = 0;
+	/** The last strain the peer reported, kept for the diagnostics. */
+	private _peerStrain = 0;
 
 	/**
 	 * "Was this frame late", as a ring over the last window, with its sum.
@@ -431,6 +444,8 @@ export class NetplaySession implements TickSource {
 		inputDelay: 0,
 		rtt: null,
 		jitter: null,
+		strain: 0,
+		peerStrain: 0,
 		epoch: 0,
 		desyncs: 0,
 		resyncs: 0,
@@ -574,6 +589,8 @@ export class NetplaySession implements TickSource {
 			frame: this.frame,
 			rtt: this._rtt,
 			jitter: this._jitter,
+			strain: this.lateCount,
+			peerStrain: this._peerStrain,
 			epoch: this.epoch,
 			padsAhead
 		};
@@ -934,6 +951,9 @@ export class NetplaySession implements TickSource {
 	 * leaves it alone: an escape hatch that moves by itself is not one.
 	 */
 	private notePeerStrain(strain: number): void {
+		// Recorded before the gates below, so the diagnostics show what the peer
+		// reported even when this side is pinned and will not act on it.
+		this._peerStrain = strain;
 		if (!this.autoInputDelay || this.opts.hungerFrames <= 0) return;
 		if (this._state !== 'running') return;
 

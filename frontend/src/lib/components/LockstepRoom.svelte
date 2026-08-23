@@ -690,6 +690,11 @@
         // twice the delay 3ms does. Without it in the log, a report of "it felt
         // laggy" cannot be told from "the link was unsteady".
         jitter: s.jitter === null ? null : Math.round(s.jitter * 10) / 10,
+        // Late frames, ours and the peer's. `fps` above is a per-second average
+        // and reads a flat 50 straight through a burst of 40ms hitches, which is
+        // precisely what a player reports as "it dropped frames".
+        strain: s.strain,
+        peerStrain: s.peerStrain,
         inputDelay: s.inputDelay,
         packets: [s.packetsSent, s.packetsReceived],
         video: frame ? `${frame.width}x${frame.height}` : null,

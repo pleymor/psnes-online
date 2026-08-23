@@ -41,6 +41,36 @@ function harnessOptions(frames: number, extra: Record<string, unknown> = {}) {
 	};
 }
 
+test('strain is reported, and a calm link reports none', async () => {
+	// The loop's own input has to be visible, in the stats and in the shipped
+	// telemetry: a loop whose input cannot be read in production is
+	// indistinguishable from a loop that is broken, which is exactly the position
+	// a real session left me in.
+	const calm = await NetplayHarness.create(
+		harnessOptions(8000, { link: { latency: 20, jitter: 2, seed: 94 }, inputDelay: 6 })
+	);
+	calm.handshake();
+	calm.run(10_000);
+	const quiet = calm.host.session.getStats();
+	assert.equal(quiet.strain, 0, `a calm link with room must lose no frames, got ${quiet.strain}`);
+	assert.equal(quiet.peerStrain, 0, 'and the peer must report none either');
+	calm.dispose();
+
+	// A split far too tight for the link has to show up as late frames on at
+	// least one side, or the number is measuring nothing.
+	const tight = await NetplayHarness.create(
+		harnessOptions(8000, { link: { latency: 45, jitter: 20, seed: 95 }, inputDelay: 1 })
+	);
+	tight.handshake();
+	tight.run(12_000);
+	const hurt = tight.host.session.getStats();
+	assert.ok(
+		hurt.strain > 0 || hurt.peerStrain > 0,
+		`a starved pair must report strain: ours ${hurt.strain}, theirs ${hurt.peerStrain}`
+	);
+	tight.dispose();
+});
+
 /* ------------------------------------------------------ feeding the peer */
 
 test('raising the delay leaves no hole in our own pads, at any phase', async () => {
