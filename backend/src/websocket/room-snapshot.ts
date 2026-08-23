@@ -6,9 +6,33 @@ const logger = createLogger('RoomSnapshot');
 
 const KEY = 'psnes:rooms:v1';
 const VERSION = 1;
-/** A backstop, so a long outage cannot resurrect a stale world. */
-const TTL_SECONDS = 3600;
+/**
+ * A storage bound, not a lifetime.
+ *
+ * It used to be an hour and to double as the staleness rule, which it did
+ * badly: "stored a long time ago" and "abandoned a long time ago" are different
+ * questions, and only the second one has an answer worth acting on. The
+ * abandonment sweep answers that one now, at restore, so this only has to
+ * outlast any outage a snapshot should survive.
+ */
+export const TTL_SECONDS = 24 * 60 * 60;
 const INTERVAL_MS = 1000;
+
+/**
+ * How many idle ticks before the key is touched.
+ *
+ * `writeSnapshot` skips writing when nothing changed, which means a world that
+ * stops changing stops refreshing its key - and a durable room at rest is
+ * exactly the state that never changes. An hour against a twenty-four hour TTL
+ * leaves room for twenty-two missed refreshes in a row.
+ *
+ * Counted in ticks rather than measured against a clock: the interval is one
+ * second, so counting is deterministic and a test drives it by calling the
+ * function, without any time passing.
+ */
+export const REFRESH_EVERY_TICKS = 3600;
+
+let idleTicks = 0;
 
 /**
  * The subset of the Redis client this module uses, so tests can pass a stub.
@@ -16,6 +40,8 @@ const INTERVAL_MS = 1000;
 interface Store {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, options: { EX: number }): Promise<unknown>;
+  /** Pushes the deadline back without rewriting a body that has not changed. */
+  expire(key: string, seconds: number): Promise<unknown>;
 }
 
 interface Snapshot {
@@ -136,7 +162,18 @@ export async function writeSnapshot(
   if (!hasReadSucceeded && rooms.size === 0) return false;
 
   const body = serialiseRooms(rooms);
-  if (body === lastWritten) return false;
+  if (body === lastWritten) {
+    if (++idleTicks < REFRESH_EVERY_TICKS) return false;
+    idleTicks = 0;
+    try {
+      await store.expire(KEY, TTL_SECONDS);
+    } catch (err) {
+      logger.error({ err }, 'Could not refresh the room snapshot deadline');
+    }
+    return false;
+  }
+
+  idleTicks = 0;
 
   try {
     await store.set(KEY, body, { EX: TTL_SECONDS });
@@ -181,5 +218,6 @@ export async function flushRooms(
 export function resetSnapshotStateForTest(): void {
   lastWritten = '';
   hasReadSucceeded = false;
+  idleTicks = 0;
   stopRoomSnapshots();
 }

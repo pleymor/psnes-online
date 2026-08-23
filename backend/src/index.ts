@@ -22,7 +22,8 @@ import { flushRooms, restoreRooms, startRoomSnapshots } from './websocket/room-s
 import { markOffline } from './rooms/presence.js';
 import { connectRedis } from './db/redis.js';
 import { getDb } from './db/sqlite.js';
-import { deleteExpiredInvitations } from './db/invitations.js';
+import { deleteExpiredInvitations, deleteInvitationsForRoom } from './db/invitations.js';
+import { abandonedRoomIds } from './rooms/abandonment.js';
 import { refreshGameMetadata } from './services/metadata-loader.js';
 import { ensureAvatarsDir } from './utils/avatar.js';
 import { requestLogger } from './middleware/logger.js';
@@ -260,6 +261,30 @@ await restoreRooms(rooms, room => {
   // emptied, and a deploy must not hand an abandoned room another twelve hours.
   for (const player of room.players) markOffline(room, player.userId, bootedAt);
 });
+
+/**
+ * Destroys the rooms nobody came back to.
+ *
+ * Running this at restore is what makes the snapshot TTL a storage bound rather
+ * than a lifetime: however long the key sat in Redis, what decides a room's
+ * fate is how long it has been empty.
+ */
+function sweepAbandonedRooms(now: Date) {
+  for (const roomId of abandonedRoomIds(rooms, now)) {
+    rooms.delete(roomId);
+    deleteInvitationsForRoom(getDb(), roomId);
+    logger.info({ roomId }, 'Swept a room nobody came back to');
+  }
+}
+
+sweepAbandonedRooms(bootedAt);
+
+// Hourly: twelve hours is the deadline, so an hour of slack costs nothing and
+// keeps this off the hot path. `unref` for the usual reason - a sweep must
+// never be what holds the process open.
+const abandonmentSweep = setInterval(() => sweepAbandonedRooms(new Date()), 60 * 60_000);
+abandonmentSweep.unref();
+
 startRoomSnapshots(rooms);
 
 const PORT = process.env.PORT || 3000;
