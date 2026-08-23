@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { Database } from './sqlite.js';
 import type { Game, Save, SaveSummary } from './types.js';
+import { mergeIdentity, needsIdentification, type IdentityFields } from './game-identity.js';
 
 export interface GameWithSaveSummaries extends Game {
   saves: SaveSummary[];
+  /** The catalogue entry this game's dump is linked to, if anyone has said. */
+  metadataId: string | null;
+  /** Whether to offer the player the chance to say what this game is. */
+  needsIdentification: boolean;
 }
 
 export interface GameWithSaves extends Game {
@@ -82,8 +87,28 @@ export function listGamesFor(db: Database, userId: string): Game[] {
  * megabyte per slot and the listing never used it.
  */
 export function listGamesWithSaveSummaries(db: Database, userId: string): GameWithSaveSummaries[] {
-  const games = db.prepare(`SELECT * FROM "Game" WHERE userId = ? ORDER BY uploadedAt DESC`)
-    .all(userId) as GameRow[];
+  // The two joins are what make a contribution retroactive: the identity is
+  // resolved on the way out rather than copied into the row at creation, so a
+  // link posted today reaches a game added a month ago. A NULL g.crc32 matches
+  // nothing, which is the right answer for a row that predates local ROMs.
+  const games = db.prepare(`
+    SELECT g.*,
+           k.metadataId AS linkedMetadataId,
+           m.title AS metaTitle, m.genre AS metaGenre, m.publisher AS metaPublisher,
+           m.developer AS metaDeveloper, m.releaseDate AS metaReleaseDate,
+           m.players AS metaPlayers, m.region AS metaRegion,
+           m.description AS metaDescription, m.coverUrl AS metaCoverUrl
+    FROM "Game" g
+    LEFT JOIN "GameMetadataChecksum" k ON k.crc32 = g.crc32
+    LEFT JOIN "GameMetadata" m ON m.id = k.metadataId
+    WHERE g.userId = ?
+    ORDER BY g.uploadedAt DESC
+  `).all(userId) as (GameRow & {
+    linkedMetadataId: string | null;
+    metaTitle: string | null; metaGenre: string | null; metaPublisher: string | null;
+    metaDeveloper: string | null; metaReleaseDate: string | null; metaPlayers: string | null;
+    metaRegion: string | null; metaDescription: string | null; metaCoverUrl: string | null;
+  })[];
   if (games.length === 0) return [];
 
   const summaries = db.prepare(`
@@ -107,7 +132,26 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
     byGame.set(s.gameId, list);
   }
 
-  return games.map(g => ({ ...toGame(g), saves: byGame.get(g.id) ?? [] }));
+  return games.map(row => {
+    const identity: IdentityFields | null = row.linkedMetadataId === null ? null : {
+      title: row.metaTitle,
+      genre: row.metaGenre,
+      publisher: row.metaPublisher,
+      developer: row.metaDeveloper,
+      releaseDate: row.metaReleaseDate,
+      players: row.metaPlayers,
+      region: row.metaRegion,
+      description: row.metaDescription,
+      coverUrl: row.metaCoverUrl
+    };
+    const game = toGame(row);
+    return {
+      ...mergeIdentity(game, identity),
+      saves: byGame.get(row.id) ?? [],
+      metadataId: row.linkedMetadataId,
+      needsIdentification: needsIdentification(game, identity)
+    };
+  });
 }
 
 export function findGameWithSaves(db: Database, id: string): GameWithSaves | null {

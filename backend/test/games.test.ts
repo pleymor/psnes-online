@@ -8,6 +8,8 @@ import {
   findOwnedGameForRoom, saveSram, findSram
 } from '../src/db/games.js';
 import { createSave } from '../src/db/saves.js';
+import { insertCommunityMetadata } from '../src/db/game-metadata.js';
+import { linkChecksum } from '../src/db/metadata-links.js';
 
 const NO_METADATA = {
   genre: null, publisher: null, developer: null, releaseDate: null,
@@ -200,4 +202,89 @@ test('a large savestate blob survives the round trip intact', () => {
 
   assert.equal(read.data.length, big.length);
   assert.ok(read.data.equals(big), 'the blob must come back byte for byte');
+});
+
+/** A community entry with only the fields a test cares about filled in. */
+function contribute(db: ReturnType<typeof migratedDb>, userId: string, over: Record<string, string | null>) {
+  return insertCommunityMetadata(db, {
+    title: 'Untitled', altTitle: null, genre: null, publisher: null, developer: null,
+    releaseDate: null, players: null, region: null, description: null, ...over
+  } as Parameters<typeof insertCommunityMetadata>[1], userId);
+}
+
+test('the library resolves a game through its checksum link', () => {
+  const db = migratedDb();
+  const user = insertUser(db);
+  const game = createGame(db, {
+    title: 'smw.sfc', filename: 'smw.sfc', crc32: 'DEADBEEF',
+    userId: user.id, ...NO_METADATA
+  });
+  const meta = contribute(db, user.id, {
+    title: 'Super Mario World', genre: 'Platform', publisher: 'Nintendo', players: '2'
+  });
+  linkChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: user.id });
+
+  const [listed] = listGamesWithSaveSummaries(db, user.id);
+
+  // Nothing was written to the Game row: the link is resolved on the way out,
+  // which is why a contribution reaches players who added the ROM long ago.
+  assert.equal(listed.title, 'Super Mario World');
+  assert.equal(listed.genre, 'Platform');
+  assert.equal(listed.players, '2');
+  assert.equal(listed.metadataId, meta.id);
+  assert.equal(listed.needsIdentification, false);
+  assert.equal(findGameById(db, game.id)!.title, 'smw.sfc', 'the stored row is untouched');
+});
+
+test('another player with the same dump gets the same identity for free', () => {
+  const db = migratedDb();
+  const one = insertUser(db);
+  const two = insertUser(db);
+  createGame(db, { title: 'rom.sfc', filename: 'rom.sfc', crc32: 'DEADBEEF', userId: one.id, ...NO_METADATA });
+  createGame(db, { title: 'copy.sfc', filename: 'copy.sfc', crc32: 'DEADBEEF', userId: two.id, ...NO_METADATA });
+
+  const meta = contribute(db, one.id, { title: 'Rendering Ranger R2' });
+  linkChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: one.id });
+
+  const [seenByTwo] = listGamesWithSaveSummaries(db, two.id);
+
+  assert.equal(seenByTwo.title, 'Rendering Ranger R2');
+  assert.equal(seenByTwo.needsIdentification, false);
+});
+
+test('an unrecognised game reports that it needs identifying', () => {
+  const db = migratedDb();
+  const user = insertUser(db);
+  createGame(db, { title: 'unknown.sfc', filename: 'unknown.sfc', crc32: 'CAFEBABE', userId: user.id, ...NO_METADATA });
+
+  const [listed] = listGamesWithSaveSummaries(db, user.id);
+
+  assert.equal(listed.needsIdentification, true);
+  assert.equal(listed.metadataId, null);
+});
+
+test('a game a title match already described is not asked to be identified', () => {
+  const db = migratedDb();
+  const user = insertUser(db);
+  createGame(db, {
+    title: 'Super Metroid', filename: 'sm.sfc', crc32: 'CAFEBABE', userId: user.id,
+    ...NO_METADATA, genre: 'Action'
+  });
+
+  const [listed] = listGamesWithSaveSummaries(db, user.id);
+
+  assert.equal(listed.needsIdentification, false, 'one known field is enough to stay quiet');
+});
+
+test('a game with no checksum at all does not break the join', () => {
+  const db = migratedDb();
+  const user = insertUser(db);
+  // Pre-local-ROM rows: LinkRom has to attach a checksum before there is
+  // anything to identify, so the join cannot match and must not throw either.
+  createGame(db, { title: 'Legacy', filename: 'legacy.sfc', crc32: null, userId: user.id, ...NO_METADATA });
+
+  const [listed] = listGamesWithSaveSummaries(db, user.id);
+
+  assert.equal(listed.metadataId, null);
+  assert.equal(listed.title, 'Legacy');
 });
