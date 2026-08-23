@@ -8,7 +8,7 @@
    * right now" (keyboard or pad, two independent tables and both live).
    */
   import { createEventDispatcher, onDestroy } from 'svelte';
-  import { language } from '$lib/stores/language';
+  import { language, type Language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { CaptureGate } from '$lib/controls/capture-gate';
   import SnesPad from './SnesPad.svelte';
@@ -20,14 +20,30 @@
     shortLabel,
     type Button,
     type ConflictMap,
+    type InputSources,
+    type PadSelection,
     type PlayerControls as PlayerControlsConfig
   } from '$lib/controls/binding';
-  import { connectedPads, padDisplayName, type Assignment, type PadInfo } from '$lib/znet/devices';
+  import {
+    connectedPads,
+    isPlayerActive,
+    padDisplayName,
+    type Assignment,
+    type PadInfo
+  } from '$lib/znet/devices';
 
   export let player: 1 | 2;
   export let controls: PlayerControlsConfig;
   export let assignment: Assignment;
   export let pads: PadInfo[] = [];
+  /**
+   * This player's already-resolved sources (`resolveSources`, devices.ts).
+   * Not derived locally: this component only ever sees its own assignment,
+   * and re-deriving "which pads are mine" from that alone can't exclude the
+   * pads the other player has explicitly claimed - only the parent, which
+   * holds both assignments, can resolve that correctly.
+   */
+  export let sources: InputSources;
   export let conflicts: { keys: ConflictMap; pad: ConflictMap };
   /** `'auto'` is offered only to P1: for a second player it is a trap. */
   export let allowAuto = false;
@@ -77,29 +93,48 @@
 
   $: activeConflicts = new Set(conflicts[editing].keys());
 
-  /** The long form of a binding, for the drawing's aria-label. */
-  function describe(button: Button): string {
-    const codes = editing === 'keys' ? [controls.keys[button]] : controls.pad[button];
+  /**
+   * The long form of a binding, for the drawing's aria-label.
+   *
+   * Takes `playerControls`/`editingTable`/`lang` as explicit parameters
+   * rather than reading `controls`/`editing`/`$language` off the closure:
+   * Svelte's compiler derives a reactive statement's dependencies from the
+   * identifiers it can see written *in that statement*, not from what a
+   * called function reads internally. A call site of `describe(button)`
+   * alone would give the `$: descriptions = …` statement below an empty
+   * dependency set, and it would run once at mount and never again - the bug
+   * this shape avoids.
+   */
+  function describe(
+    button: Button,
+    playerControls: PlayerControlsConfig,
+    editingTable: 'keys' | 'pad',
+    lang: Language
+  ): string {
+    const codes = editingTable === 'keys' ? [playerControls.keys[button]] : playerControls.pad[button];
     const first = codes.find(Boolean);
-    if (!first) return t($language, 'unboundBinding');
+    if (!first) return t(lang, 'unboundBinding');
     const described = describeCode(first);
     if (described.kind === 'keyboard') {
-      return t($language, 'boundToKey', { key: shortLabel(described.code) });
+      return t(lang, 'boundToKey', { key: shortLabel(described.code) });
     }
     if (described.kind === 'padButton') {
-      return t($language, 'boundToPadButton', { index: described.index });
+      return t(lang, 'boundToPadButton', { index: described.index });
     }
     if (described.kind === 'padAxis') {
-      return t($language, 'boundToPadAxis', {
+      return t(lang, 'boundToPadAxis', {
         index: described.index,
         dir: described.dir === 'minus' ? '−' : '+'
       });
     }
-    return t($language, 'unboundBinding');
+    return t(lang, 'unboundBinding');
   }
 
+  // `controls`, `editing` and `$language` appear literally here so the
+  // statement actually recomputes on rebind, table switch and language
+  // change - see the note on `describe` above.
   $: descriptions = Object.fromEntries(
-    BUTTONS.map((button) => [button, describe(button)])
+    BUTTONS.map((button) => [button, describe(button, controls, editing, $language)])
   ) as Record<Button, string>;
 
   /* ------------------------------------------------------------- capture */
@@ -235,23 +270,20 @@
     pressedCodes = [];
   }
 
-  function myPadIndices(): number[] | 'all' {
-    if (detecting) return 'all';
-    const { gamepad } = assignment;
-    if (gamepad === null) return [];
-    if (gamepad === 'auto') return 'all';
-    const found = pads.find((pad) => pad.id === gamepad.id) ?? pads.find((p) => p.index === gamepad.index);
-    return found ? [found.index] : [];
-  }
-
   function poll() {
-    const mine = myPadIndices();
+    // Detection is the one case with no resolved `sources` to read yet: the
+    // pad isn't assigned, so every pad has to be listened to. Everywhere
+    // else, `sources.pads` (resolved once by the parent from both players'
+    // assignments) is the only correct answer - see the note on the
+    // `sources` prop above.
+    const mine: PadSelection = detecting ? 'all' : sources.pads;
+    const allPads = navigator.getGamepads();
     const active: string[] = [];
     let source: number | null = null;
 
     for (const pad of connectedPads()) {
       if (mine !== 'all' && !mine.includes(pad.index)) continue;
-      const live = navigator.getGamepads()[pad.index];
+      const live = allPads[pad.index];
       if (!live) continue;
       for (let i = 0; i < live.buttons.length; i++) {
         if (live.buttons[i]?.pressed) {
@@ -358,7 +390,7 @@
   <header>
     <h4>{t($language, player === 1 ? 'player1' : 'player2')}</h4>
 
-    <div class="sources">
+    <div class="sources" role="group" aria-label={t($language, 'inputSources')}>
       <label>
         <input
           type="checkbox"
@@ -379,18 +411,32 @@
         {/each}
       </select>
 
-      <button type="button" disabled={busy || detecting} on:click={startDetecting}>
+      <button
+        type="button"
+        disabled={busy || detecting || capturing !== null}
+        on:click={startDetecting}
+      >
         {t($language, 'detectController')}
       </button>
     </div>
   </header>
 
   <div class="tables" role="group">
-    <button type="button" class:on={editing === 'keys'} on:click={() => (editing = 'keys')}>
+    <button
+      type="button"
+      class:on={editing === 'keys'}
+      disabled={capturing !== null}
+      on:click={() => (editing = 'keys')}
+    >
       {t($language, 'editingKeyboard')}
     </button>
     {#if hasPad}
-      <button type="button" class:on={editing === 'pad'} on:click={() => (editing = 'pad')}>
+      <button
+        type="button"
+        class:on={editing === 'pad'}
+        disabled={capturing !== null}
+        on:click={() => (editing = 'pad')}
+      >
         {t($language, 'editingController')}
       </button>
     {/if}
@@ -403,12 +449,12 @@
     conflicts={activeConflicts}
     labels={buttonLabels}
     {descriptions}
-    interactive={!busy}
+    interactive={!busy && !detecting}
     on:select={(e) => startCapture(e.detail.button)}
   />
 
   <div class="actions">
-    <button type="button" disabled={busy || capturing !== null} on:click={startSequence}>
+    <button type="button" disabled={busy || capturing !== null || detecting} on:click={startSequence}>
       🎮 {t($language, 'configureAllButtons')}
     </button>
     {#if editing === 'pad'}
@@ -436,7 +482,7 @@
     </p>
   {:else if notice}
     <p class="hint">{notice}</p>
-  {:else if player === 2 && assignment.gamepad === null && !assignment.keyboard}
+  {:else if player === 2 && !isPlayerActive(assignment)}
     <p class="hint quiet">{t($language, 'playerInactive')}</p>
   {/if}
 
