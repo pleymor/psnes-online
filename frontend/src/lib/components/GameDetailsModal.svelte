@@ -110,12 +110,39 @@
           <span class="label">{t($language, 'romFile')}</span>
           <span class="filename">{game.filename}</span>
         </div>
+
+        {#if game.crc32}
+          <!-- Always offered once there is a checksum to claim, not only when
+               the game is unknown: a sparse entry is worth completing too. -->
+          <button class="identify" on:click={() => dispatch('identify')}>
+            {game.needsIdentification
+              ? t($language, 'identifyGame')
+              : t($language, 'completeEntry')}
+          </button>
+        {/if}
       </div>
     </div>
   </div>
 </div>
 
 <style>
+  .identify {
+    margin-top: 1rem;
+    align-self: flex-start;
+    background: transparent;
+    border: 1px solid #3d3d52;
+    color: #b7b7cc;
+    border-radius: 6px;
+    padding: 0.45rem 1rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .identify:hover {
+    border-color: #667eea;
+    color: #fff;
+  }
+
   .modal-overlay {
     position: fixed;
     top: 0;

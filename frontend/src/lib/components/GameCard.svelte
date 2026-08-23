@@ -50,6 +50,14 @@
         {t($language, 'needsRom')}
       </div>
     {/if}
+    {#if game.needsIdentification && game.crc32}
+      <!-- Only when a checksum exists: without one there is nothing to
+           identify yet, and "ROM to locate" is the truer thing to say. The two
+           badges sit on opposite corners because a card can carry both. -->
+      <div class="needs-identification" title={t($language, 'identifyExplain')}>
+        {t($language, 'needsIdentification')}
+      </div>
+    {/if}
     <div class="hover-overlay">
       <div class="info-icon">ℹ️</div>
       <div class="info-text">{t($language, 'clickForDetails')}</div>
@@ -75,6 +83,19 @@
 </div>
 
 <style>
+  .needs-identification {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 2;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(102, 126, 234, 0.92);
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 600;
+  }
+
   .needs-rom {
     position: absolute;
     top: 0.5rem;

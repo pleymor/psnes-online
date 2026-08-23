@@ -10,6 +10,7 @@
   import GameCard from '$lib/components/GameCard.svelte';
   import GameDetailsModal from '$lib/components/GameDetailsModal.svelte';
   import LinkRom from '$lib/components/LinkRom.svelte';
+  import IdentifyGame from '$lib/components/IdentifyGame.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import { createLogger } from '$lib/utils/logger';
@@ -17,6 +18,7 @@
   const logger = createLogger('HomePage');
 
   let selectedGame: Game | null = null;
+  let gameToIdentify: Game | null = null;
   let showToast = false;
   let toastMessage = '';
   let toastType: 'success' | 'error' = 'success';
@@ -310,6 +312,16 @@
     <GameDetailsModal
       game={selectedGame}
       on:close={() => selectedGame = null}
+      on:identify={() => { gameToIdentify = selectedGame; selectedGame = null; }}
+    />
+  {/if}
+
+  {#if gameToIdentify}
+    <IdentifyGame
+      gameId={gameToIdentify.id}
+      title={gameToIdentify.title}
+      on:close={() => (gameToIdentify = null)}
+      on:identified={() => { gameToIdentify = null; loadGames(); }}
     />
   {/if}
 

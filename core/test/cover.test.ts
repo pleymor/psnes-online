@@ -10,8 +10,13 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { COVER_MAX_WIDTH, MAX_COVER_BYTES, coverSize } from '../../frontend/src/lib/games/cover.js';
-import { imageFormatOf, thumbnailSize, THUMBNAIL_WIDTH } from '../../frontend/src/lib/saves/thumbnail.js';
+import {
+  COVER_MAX_WIDTH,
+  MAX_COVER_BYTES,
+  coverSize,
+  coverMimeOf
+} from '../../frontend/src/lib/games/cover.js';
+import { thumbnailSize, THUMBNAIL_WIDTH } from '../../frontend/src/lib/saves/thumbnail.js';
 
 test('a large scan is brought down to the cover width, keeping its shape', () => {
   const { width, height } = coverSize(1400, 1000);
@@ -42,8 +47,26 @@ test('the byte cap matches the one the server enforces', () => {
 });
 
 test('the format is read from the result, not assumed from the request', () => {
-  assert.equal(imageFormatOf('data:image/png;base64,AAAA'), 'png');
-  assert.equal(imageFormatOf('data:image/webp;base64,AAAA'), 'webp');
+  // A browser that cannot encode WebP answers with a PNG and says so in the
+  // blob's type. Accepting it knowingly is fine; assuming WebP is not.
+  assert.equal(coverMimeOf('image/png'), 'image/png');
+  assert.equal(coverMimeOf('image/webp'), 'image/webp');
+  assert.equal(coverMimeOf('image/jpeg'), 'image/jpeg');
+});
+
+test('a type the server would refuse is refused here first', () => {
+  // The server checks header bytes, so this is only about not sending a
+  // request that is certain to come back 415.
+  assert.equal(coverMimeOf('image/gif'), null);
+  assert.equal(coverMimeOf('image/svg+xml'), null);
+  assert.equal(coverMimeOf(''), null);
+});
+
+test('a charset or an odd case does not hide an acceptable type', () => {
+  // canvas.toBlob is well behaved, but blob.type is a string from the platform
+  // and this is the one place its shape is interpreted.
+  assert.equal(coverMimeOf('IMAGE/WEBP'), 'image/webp');
+  assert.equal(coverMimeOf('image/jpeg; charset=binary'), 'image/jpeg');
 });
 
 test('covers and thumbnails share one scaling rule at two widths', () => {
