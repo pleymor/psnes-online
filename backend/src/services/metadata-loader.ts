@@ -4,9 +4,10 @@ import { fileURLToPath } from 'url';
 import { getDb } from '../db/sqlite.js';
 import {
   countGameMetadata, insertGameMetadataBatch, listGameMetadata,
-  findGameMetadataByChecksum as findMetadataRowByChecksum, deleteAllGameMetadata
+  findGameMetadataByChecksum as findMetadataRowByChecksum, deleteCatalogueMetadata
 } from '../db/game-metadata.js';
 import { createLogger } from '../utils/logger.js';
+import type { GameMetadata } from '../db/types.js';
 
 const logger = createLogger('Metadata');
 
@@ -16,7 +17,24 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_METADATA_PATH = path.join(__dirname, '../../metadata/snes-metadata.json');
 
 // In-memory cache for game metadata (loaded once at startup)
-let metadataCache: any[] | null = null;
+let metadataCache: GameMetadata[] | null = null;
+
+/**
+ * Forgets the cached catalogue, so the next read rebuilds it.
+ *
+ * The cache feeds both the title matcher and the contribution search. Without
+ * this, an entry a player just created would not exist until the container
+ * restarted.
+ */
+export function invalidateMetadataCache(): void {
+  metadataCache = null;
+}
+
+/** The catalogue as the search and the title matcher see it, loading it on first use. */
+export function cachedCatalogue(): GameMetadata[] {
+  if (!metadataCache) metadataCache = listGameMetadata(getDb());
+  return metadataCache;
+}
 
 export interface GameMetadataEntry {
   title: string;
@@ -71,10 +89,13 @@ export async function loadGameMetadata(metadataPath: string = DEFAULT_METADATA_P
 
     // Check if metadata already exists
     const db = getDb();
-    const existingCount = countGameMetadata(db);
+    // Counting only the catalogue matters: on a fresh database where reading
+    // the JSON failed but a player had contributed an entry, a count of
+    // everything would see one row and skip loading the catalogue forever.
+    const existingCount = countGameMetadata(db, 'catalogue');
 
     if (existingCount > 0) {
-      logger.info({ count: existingCount }, 'Metadata already loaded, skipping');
+      logger.info({ count: existingCount }, 'Catalogue already loaded, skipping');
       return;
     }
 
@@ -105,7 +126,7 @@ export async function loadGameMetadata(metadataPath: string = DEFAULT_METADATA_P
  * Normalizes a game title for better matching
  * Removes region tags, version numbers, and other common suffixes
  */
-function normalizeTitle(title: string): string {
+export function normalizeTitle(title: string): string {
   let normalized = title.toLowerCase().trim();
 
   // Remove file extensions
@@ -149,12 +170,7 @@ function normalizeTitle(title: string): string {
 export async function findGameMetadata(title: string): Promise<any | null> {
   const normalizedTitle = normalizeTitle(title);
 
-  // Load cache if not already loaded
-  if (!metadataCache) {
-    metadataCache = listGameMetadata(getDb());
-  }
-
-  const allMetadata = metadataCache;
+  const allMetadata = cachedCatalogue();
 
   // First try exact match on normalized titles
   let metadata = allMetadata.find(m => {
@@ -201,6 +217,10 @@ export async function findGameMetadataByChecksum(checksum: string): Promise<any 
  * Delete and insert then run as one transaction, so a bad JSON file or a
  * malformed entry leaves the previous catalogue exactly as it was, instead of
  * an empty table between a committed delete and an insert that never happens.
+ *
+ * The delete is limited to the rows this file owns. Anything a player
+ * contributed is not the file's to reclaim, and an unqualified delete here is
+ * what would silently swallow every contribution on the next refresh.
  */
 export async function refreshGameMetadata(metadataPath: string = DEFAULT_METADATA_PATH): Promise<void> {
   logger.info('Refreshing game metadata...');
@@ -220,7 +240,7 @@ export async function refreshGameMetadata(metadataPath: string = DEFAULT_METADAT
   const db = getDb();
   try {
     db.transaction(() => {
-      deleteAllGameMetadata(db);
+      deleteCatalogueMetadata(db);
       insertGameMetadataBatch(db, toMetadataInputs(entries));
     })();
   } catch (error) {

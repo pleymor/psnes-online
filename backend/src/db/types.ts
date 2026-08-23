@@ -75,6 +75,9 @@ export interface SaveSummary {
   updatedAt: Date;
 }
 
+/** Who owns a catalogue row: the shipped JSON file, or a player. */
+export type MetadataSource = 'catalogue' | 'community';
+
 export interface GameMetadata {
   id: string;
   title: string;
@@ -89,6 +92,14 @@ export interface GameMetadata {
   coverUrl: string | null;
   crc32: string | null;
   md5: string | null;
+  source: MetadataSource;
+  contributedBy: string | null;
+  /**
+   * Whether a cover image is stored. The bytes themselves never travel with
+   * the row: they are megabytes in aggregate, and only the cover route wants
+   * them.
+   */
+  hasCover: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

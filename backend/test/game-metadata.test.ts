@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { migratedDb } from './helpers.js';
 import {
   countGameMetadata, listGameMetadata,
-  findGameMetadataByChecksum, deleteAllGameMetadata, insertGameMetadataBatch
+  findGameMetadataByChecksum, deleteCatalogueMetadata, insertGameMetadataBatch
 } from '../src/db/game-metadata.js';
 
 const ENTRY = {
@@ -67,7 +67,7 @@ test('refreshing clears the catalogue', () => {
   const db = migratedDb();
   insertGameMetadataBatch(db, [ENTRY]);
 
-  deleteAllGameMetadata(db);
+  deleteCatalogueMetadata(db);
 
   assert.equal(countGameMetadata(db), 0);
 });
@@ -86,4 +86,59 @@ test('a batch that fails partway through leaves nothing behind', () => {
   assert.throws(() => insertGameMetadataBatch(db, entries));
 
   assert.equal(countGameMetadata(db), 0);
+});
+
+/** A row of the kind a player contributes, written straight in so this file stays about the catalogue. */
+function insertCommunityRow(db: ReturnType<typeof migratedDb>, title: string, cover?: Buffer) {
+  db.prepare(`
+    INSERT INTO "GameMetadata" (id, title, source, cover, coverMime, createdAt, updatedAt)
+    VALUES (?, ?, 'community', ?, ?, 0, 0)
+  `).run(`c-${title}`, title, cover ?? null, cover ? 'image/webp' : null);
+}
+
+test('the catalogue count ignores what players contributed', () => {
+  const db = migratedDb();
+  insertGameMetadataBatch(db, [ENTRY]);
+  insertCommunityRow(db, 'A game a player added');
+
+  assert.equal(countGameMetadata(db), 2, 'without an argument, everything is counted');
+  assert.equal(countGameMetadata(db, 'catalogue'), 1);
+  assert.equal(countGameMetadata(db, 'community'), 1);
+});
+
+test('a batch insert is catalogue-owned by default', () => {
+  const db = migratedDb();
+  insertGameMetadataBatch(db, [ENTRY]);
+
+  const [listed] = listGameMetadata(db);
+  assert.equal(listed.source, 'catalogue');
+  assert.equal(listed.contributedBy, null);
+  assert.equal(listed.hasCover, false);
+});
+
+test('deleting the catalogue leaves the community rows standing', () => {
+  const db = migratedDb();
+  insertGameMetadataBatch(db, [ENTRY]);
+  insertCommunityRow(db, 'A game a player added');
+
+  // This is the whole point of the source column: refreshGameMetadata wipes
+  // and reloads the JSON catalogue, and a contribution must survive it.
+  deleteCatalogueMetadata(db);
+
+  const remaining = listGameMetadata(db);
+  assert.equal(remaining.length, 1);
+  assert.equal(remaining[0].title, 'A game a player added');
+});
+
+test('listing the catalogue does not carry the cover bytes', () => {
+  const db = migratedDb();
+  insertCommunityRow(db, 'With a cover', Buffer.alloc(64 * 1024, 7));
+
+  const [listed] = listGameMetadata(db);
+
+  // listGameMetadata is what fills metadataCache. A SELECT * would keep every
+  // cover in memory and re-read them all on each invalidation, so the absence
+  // of the bytes is the assertion, not an implementation detail.
+  assert.equal(listed.hasCover, true, 'the presence of a cover is still reported');
+  assert.equal((listed as unknown as Record<string, unknown>).cover, undefined);
 });

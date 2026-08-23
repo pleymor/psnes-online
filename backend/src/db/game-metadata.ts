@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Database } from './sqlite.js';
-import type { GameMetadata } from './types.js';
+import type { GameMetadata, MetadataSource } from './types.js';
 
 export interface GameMetadataInput {
   title: string;
@@ -17,9 +17,24 @@ export interface GameMetadataInput {
   md5: string | null;
 }
 
-interface MetadataRow extends Omit<GameMetadata, 'createdAt' | 'updatedAt'> {
+/**
+ * Every column except `cover`.
+ *
+ * `SELECT *` would pull the cover bytes into every read, and this module's
+ * `listGameMetadata` is what fills the in-memory catalogue cache -- so a star
+ * there means holding every cover in memory and re-reading them all on each
+ * invalidation. The bytes leave only through `findCover`.
+ */
+const COLUMNS = `
+  id, title, altTitle, genre, publisher, developer, releaseDate, players,
+  region, description, coverUrl, crc32, md5, source, contributedBy,
+  coverMime, createdAt, updatedAt
+`;
+
+interface MetadataRow extends Omit<GameMetadata, 'createdAt' | 'updatedAt' | 'hasCover'> {
   createdAt: number;
   updatedAt: number;
+  coverMime: string | null;
 }
 
 function toMetadata(row: MetadataRow): GameMetadata {
@@ -37,6 +52,9 @@ function toMetadata(row: MetadataRow): GameMetadata {
     coverUrl: row.coverUrl,
     crc32: row.crc32,
     md5: row.md5,
+    source: row.source,
+    contributedBy: row.contributedBy,
+    hasCover: row.coverMime !== null,
     createdAt: new Date(row.createdAt),
     updatedAt: new Date(row.updatedAt)
   };
@@ -69,9 +87,11 @@ function normalise(entry: GameMetadataInput): GameMetadataInput {
   };
 }
 
-export function countGameMetadata(db: Database): number {
-  const row = db.prepare(`SELECT COUNT(*) AS n FROM "GameMetadata"`).get() as { n: number };
-  return row.n;
+export function countGameMetadata(db: Database, source?: MetadataSource): number {
+  const row = source
+    ? db.prepare(`SELECT COUNT(*) AS n FROM "GameMetadata" WHERE source = ?`).get(source)
+    : db.prepare(`SELECT COUNT(*) AS n FROM "GameMetadata"`).get();
+  return (row as { n: number }).n;
 }
 
 /**
@@ -94,16 +114,23 @@ export function insertGameMetadataBatch(db: Database, entries: GameMetadataInput
 }
 
 export function listGameMetadata(db: Database): GameMetadata[] {
-  const rows = db.prepare(`SELECT * FROM "GameMetadata"`).all() as MetadataRow[];
+  const rows = db.prepare(`SELECT ${COLUMNS} FROM "GameMetadata"`).all() as MetadataRow[];
   return rows.map(toMetadata);
 }
 
 export function findGameMetadataByChecksum(db: Database, checksum: string): GameMetadata | null {
-  const row = db.prepare(`SELECT * FROM "GameMetadata" WHERE crc32 = ? OR md5 = ?`)
+  const row = db.prepare(`SELECT ${COLUMNS} FROM "GameMetadata" WHERE crc32 = ? OR md5 = ?`)
     .get(checksum, checksum) as MetadataRow | undefined;
   return row ? toMetadata(row) : null;
 }
 
-export function deleteAllGameMetadata(db: Database): void {
-  db.prepare(`DELETE FROM "GameMetadata"`).run();
+/**
+ * Drops the rows the JSON file owns, and only those.
+ *
+ * The refresh path deletes the catalogue and reinserts it from the file. Before
+ * the source column existed this was an unqualified DELETE, so anything a
+ * player had contributed vanished on the next refresh.
+ */
+export function deleteCatalogueMetadata(db: Database): void {
+  db.prepare(`DELETE FROM "GameMetadata" WHERE source = 'catalogue'`).run();
 }
