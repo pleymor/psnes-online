@@ -647,6 +647,35 @@ test('a member who left comes back through room:join, with no new invitation', a
   });
 });
 
+test('creating a room gives up the one you were in, so nobody collects lobbies', async () => {
+  await withLobby(async ({ alice, bob, client, rooms }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const firstCreated = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const first = await firstCreated;
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: first.id, friendId: bob.id });
+    const acked = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: (await delivered).id });
+    await acked;
+
+    const secondCreated = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const second = await secondCreated;
+
+    assert.notEqual(second.id, first.id);
+    assert.deepEqual(
+      rooms.get(first.id)!.players.map(p => p.userId),
+      [bob.id],
+      'alice gave up her seat in the room she left behind'
+    );
+    assert.deepEqual(rooms.get(second.id)!.players.map(p => p.userId), [alice.id]);
+  });
+});
+
 test('an empty room takes its invitations with it', async () => {
   await withLobby(async ({ alice, bob, client, rooms }) => {
     const host = await client(alice);

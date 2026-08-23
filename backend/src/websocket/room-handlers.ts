@@ -99,6 +99,29 @@ export function pendingInvitationsFor(
   return views;
 }
 
+/**
+ * Gives up whatever room the caller was already in.
+ *
+ * A room no longer dies when it empties, so without this a player accumulates
+ * rooms nobody can reach: they are not in them, so they cannot dissolve them,
+ * and the other member is left waiting in a lobby its partner has forgotten.
+ * One room at a time is also what keeps the door on the home screen
+ * unambiguous - there is only ever one room to resume.
+ */
+async function leaveCurrentRoom(
+  io: Server,
+  socket: Socket,
+  rooms: Map<string, Room>,
+  user: User,
+  getUserSocket: (id: string) => string | undefined
+) {
+  // Copied before iterating: handleLeaveRoom can delete from `rooms`.
+  const current = [...rooms.values()].filter(r => r.players.some(p => p.userId === user.id));
+  for (const room of current) {
+    await handleLeaveRoom(io, socket, room.id, rooms, user, getUserSocket);
+  }
+}
+
 export function registerRoomHandlers(
   socket: Socket,
   io: Server,
@@ -126,6 +149,11 @@ export function registerRoomHandlers(
       socket.emit('error', { message: 'A room cannot start without a game' });
       return;
     }
+
+    // After the refusals above, never before: giving up a room the caller was
+    // happily sitting in, and then refusing to build the new one, would leave
+    // them with nothing over a payload mistake.
+    await leaveCurrentRoom(io, socket, rooms, user, getUserSocket);
 
     const roomId = randomUUID();
     const userKeyConfig = await getUserKeyConfig(user.id);
@@ -431,6 +459,16 @@ export function registerRoomHandlers(
       socket.emit('error', { message: 'That room no longer exists' });
       return;
     }
+
+    // Here rather than at the top of the handler: every refusal above - the
+    // invitation being spent, expired, somebody else's, or its room gone - must
+    // not cost the invitee the room they are already in.
+    //
+    // A full room can still refuse below, and that one does cost them. Accepted
+    // deliberately: the alternative is asking whether the seat is free and then
+    // taking it, and that gap is exactly the race the capacity check was moved
+    // to close.
+    await leaveCurrentRoom(io, socket, rooms, user, getUserSocket);
 
     // Joining goes through the same path as `room:join`, so the player
     // construction, the port assignment and the broadcast exist once.
