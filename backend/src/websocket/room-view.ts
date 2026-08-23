@@ -78,6 +78,7 @@ export function toPublicRoom(room: Room) {
     createdBy: room.createdBy,
     status: room.status,
     emulationMode: room.emulationMode,
+    latencyMode: room.latencyMode,
     createdAt: room.createdAt,
     /*
      * The invitation this room is waiting on, so that hiding the invite panel

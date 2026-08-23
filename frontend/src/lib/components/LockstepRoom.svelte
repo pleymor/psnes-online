@@ -45,6 +45,12 @@
     type SessionStats,
     type Transport
   } from '$lib/znet';
+  import {
+    LOW_DELAY_FRAMES,
+    readLatencyPreference,
+    writeLatencyPreference
+  } from '$lib/stores/latency-preference';
+  import type { LatencyMode } from '$lib/types';
 
   const logger = createLogger('LockstepRoom');
 
@@ -54,6 +60,10 @@
   export let gameCrc32: string | undefined = undefined;
   export let gameTitle = '';
   export let isHost: boolean;
+  /** The room's latency trade-off, decided by its creator and broadcast to all. */
+  export let latencyMode: LatencyMode = 'auto';
+  /** Whether this player is the creator, and so may change it. */
+  export let canSetLatency = false;
   export let keyConfig: KeyConfig;
   /** Frames of input delay. 0 asks for a value derived from the measured RTT. */
   export let inputDelay = 0;
@@ -536,6 +546,9 @@
         }
       });
 
+      pushRememberedLatencyMode();
+      applyLatencyMode();
+
       governor = new FrameGovernor(session, {
         fps: core.fps || 60.0988,
         onSlice: (ran, stalled) => {
@@ -701,6 +714,57 @@
         hidden: typeof document !== 'undefined' ? document.hidden : null
       });
     }, 1000);
+  }
+
+  /*
+   * Applies the room's trade-off to our own session.
+   *
+   * `low` pins the delay, which also switches off the strain loop - the two are
+   * the same statement: this player would rather have the latency than let the
+   * engine spend it on the other player's smoothness. `auto` cannot un-pin what
+   * pinning disabled, so it takes effect on the next session rather than
+   * mid-game; saying so in the log beats looking like it did nothing.
+   */
+  function applyLatencyMode() {
+    if (!session) return;
+    if (latencyMode === 'low') {
+      session.setInputDelay(LOW_DELAY_FRAMES);
+      logger.info('Latency mode: lowest', { frames: LOW_DELAY_FRAMES });
+    } else {
+      logger.info('Latency mode: automatic', { note: 'applies from the next session if it was pinned' });
+    }
+  }
+
+  // Re-apply on every change the creator broadcasts. Guarded on `session` so it
+  // does nothing before the room has one.
+  $: if (session && latencyMode) applyLatencyMode();
+
+  /**
+   * Pushes what this game was last played at, once, at boot.
+   *
+   * The choice is remembered per game because that is what it is about - a
+   * turn-taking platformer and a fighting game want opposite answers - and it
+   * lives on the creator's machine because the creator decides for the room.
+   * Only sent when it disagrees with the room, so a guest joining a room already
+   * set correctly costs nothing.
+   */
+  function pushRememberedLatencyMode() {
+    if (!canSetLatency || typeof localStorage === 'undefined') return;
+    const remembered = readLatencyPreference(localStorage, gameId);
+    if (remembered === latencyMode) return;
+    logger.info('Restoring this game\'s latency choice', { mode: remembered });
+    $socket?.emit('room:setLatencyMode', { roomId, latencyMode: remembered });
+  }
+
+  /** Cycles the room's setting. Creator only; the server checks that too. */
+  function cycleLatencyMode() {
+    if (!canSetLatency) return;
+    const next: LatencyMode = latencyMode === 'low' ? 'auto' : 'low';
+    // Remembered against the game, because that is what the choice is about.
+    if (typeof localStorage !== 'undefined') {
+      writeLatencyPreference(localStorage, gameId, next);
+    }
+    $socket?.emit('room:setLatencyMode', { roomId, latencyMode: next });
   }
 
   /** Fetches this game's battery save and puts it in the machine. */
@@ -1153,12 +1217,15 @@
       {keyConfig}
       {display}
       {showStats}
+      {latencyMode}
+      {canSetLatency}
       gamepadLabel={gamepadLabel(gamepadSource)}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}
       on:display={(e) => void onDisplayChange(e.detail)}
       on:stats={() => (showStats = !showStats)}
+      on:latency={cycleLatencyMode}
       on:gamepad={cycleGamepadSource}
       on:saved={(e) => { keyConfig = e.detail.config; closePauseMenu(); }}
     />
