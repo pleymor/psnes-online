@@ -288,3 +288,129 @@ export function shortLabelList(codes: string[]): string {
 	const extra = bound.length - 1;
 	return extra > 0 ? `${shortLabel(bound[0])} +${extra}` : shortLabel(bound[0]);
 }
+
+/* -------------------------------------------------------------- conflits */
+
+/** Les pads qu'un joueur écoute. `'all'` = tous les connectés. */
+export type PadSelection = number[] | 'all';
+
+export interface InputSources {
+	keyboard: boolean;
+	pads: PadSelection;
+}
+
+export interface ConflictOwner {
+	player: 1 | 2;
+	button: Button;
+}
+
+/** Par bouton en conflit : les autres liaisons qui lui prennent son code. */
+export type ConflictMap = Map<Button, ConflictOwner[]>;
+
+export interface ConflictReport {
+	p1: { keys: ConflictMap; pad: ConflictMap };
+	p2: { keys: ConflictMap; pad: ConflictMap };
+	/** Nombre d'emplacements en conflit, toutes tables confondues. */
+	count: number;
+}
+
+function padsOverlap(a: PadSelection, b: PadSelection): boolean {
+	if (a === 'all' || b === 'all') {
+		// `'all'` n'est vide que s'il n'y a aucun pad, et dans ce cas l'autre
+		// sélection est vide aussi : se croire non chevauchant serait faux.
+		return a === 'all' ? b === 'all' || b.length > 0 : a.length > 0;
+	}
+	return a.some((index) => b.includes(index));
+}
+
+/** Toutes les liaisons d'une table, une entrée par code. */
+function entries(codesOf: (button: Button) => string[], player: 1 | 2) {
+	const out: Array<{ code: string; owner: ConflictOwner }> = [];
+	for (const button of BUTTONS) {
+		for (const code of codesOf(button)) {
+			if (code) out.push({ code, owner: { player, button } });
+		}
+	}
+	return out;
+}
+
+function emptyMaps() {
+	return { keys: new Map() as ConflictMap, pad: new Map() as ConflictMap };
+}
+
+/**
+ * Qui se marche sur les pieds, et pour qui c'est un problème.
+ *
+ * Deux règles, et la seconde est celle qui compte :
+ *
+ * - à l'intérieur d'un joueur, un code en double est toujours un conflit,
+ *   même si ce joueur est inactif ;
+ * - entre joueurs, un code partagé n'est un conflit que si les deux peuvent
+ *   l'atteindre - le clavier des deux côtés, ou des ensembles de pads qui
+ *   s'intersectent. Sans cette seconde règle, deux joueurs sur le mappage
+ *   standard seraient en conflit sur leurs douze boutons et plus rien ne
+ *   pourrait être sauvegardé.
+ */
+export function findConflicts(
+	config: ControlsConfig,
+	sources: { p1: InputSources; p2: InputSources }
+): ConflictReport {
+	const report: ConflictReport = { p1: emptyMaps(), p2: emptyMaps(), count: 0 };
+
+	const tables = [
+		{
+			table: 'keys' as const,
+			shared: sources.p1.keyboard && sources.p2.keyboard,
+			rows: [
+				...entries((b) => [config.p1.keys[b]], 1),
+				...entries((b) => [config.p2.keys[b]], 2)
+			]
+		},
+		{
+			table: 'pad' as const,
+			shared: padsOverlap(sources.p1.pads, sources.p2.pads),
+			rows: [
+				...entries((b) => config.p1.pad[b], 1),
+				...entries((b) => config.p2.pad[b], 2)
+			]
+		}
+	];
+
+	for (const { table, shared, rows } of tables) {
+		const byCode = new Map<string, ConflictOwner[]>();
+		for (const { code, owner } of rows) {
+			const list = byCode.get(code);
+			if (list) list.push(owner);
+			else byCode.set(code, [owner]);
+		}
+
+		for (const owners of byCode.values()) {
+			for (const owner of owners) {
+				const others = owners.filter(
+					(other) => other !== owner && (other.player === owner.player || shared)
+				);
+				if (others.length === 0) continue;
+				const side = owner.player === 1 ? report.p1 : report.p2;
+				// On accumule : un bouton dont la liste manette contient deux
+				// codes peut entrer en conflit deux fois, et écraser l'entrée
+				// précédente perdrait la moitié du message. Dédoublonné par
+				// (joueur, bouton), sinon le même coupable serait cité deux fois.
+				const merged = [...(side[table].get(owner.button) ?? []), ...others];
+				const seen = new Set<string>();
+				side[table].set(
+					owner.button,
+					merged.filter((other) => {
+						const tag = `${other.player}:${other.button}`;
+						if (seen.has(tag)) return false;
+						seen.add(tag);
+						return true;
+					})
+				);
+			}
+		}
+	}
+
+	report.count =
+		report.p1.keys.size + report.p1.pad.size + report.p2.keys.size + report.p2.pad.size;
+	return report;
+}

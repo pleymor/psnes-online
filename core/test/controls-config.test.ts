@@ -17,6 +17,7 @@ import {
 	STANDARD_PAD,
 	defaultControlsConfig,
 	describeCode,
+	findConflicts,
 	isPadCode,
 	legacyToPadCode,
 	normaliseControlsConfig,
@@ -165,4 +166,104 @@ test('une liste dit son premier code et compte le reste', () => {
 	assert.equal(shortLabelList(['PadButton12']), 'B12');
 	assert.equal(shortLabelList(['PadButton12', 'PadAxis1Minus']), 'B12 +1');
 	assert.equal(shortLabelList(['PadButton12', 'PadAxis1Minus', 'PadButton3']), 'B12 +2');
+});
+
+/* -------------------------------------------------------------- conflits */
+
+const BOTH_KEYBOARD = {
+	p1: { keyboard: true, pads: [] as number[] },
+	p2: { keyboard: true, pads: [] as number[] }
+};
+
+function config(p1: unknown, p2: unknown = {}) {
+	return normaliseControlsConfig({ version: 2, p1, p2 });
+}
+
+test('deux boutons du même joueur sur la même touche : conflit', () => {
+	const report = findConflicts(
+		config({ keys: { ...DEFAULT_P1_KEYS, b: 'KeyX' } }),
+		BOTH_KEYBOARD
+	);
+
+	assert.deepEqual([...report.p1.keys.keys()].sort(), ['a', 'b']);
+	assert.deepEqual(report.p1.keys.get('a'), [{ player: 1, button: 'b' }]);
+	assert.deepEqual(report.p1.keys.get('b'), [{ player: 1, button: 'a' }]);
+	assert.equal(report.count, 2);
+});
+
+test('un doublon est signalé même quand le joueur est inactif', () => {
+	// Il le rebranchera, et découvrir le conflit à ce moment-là serait pire.
+	const report = findConflicts(config({ keys: { ...DEFAULT_P1_KEYS, b: 'KeyX' } }), {
+		p1: { keyboard: false, pads: [] },
+		p2: { keyboard: false, pads: [] }
+	});
+	assert.equal(report.p1.keys.size, 2);
+});
+
+test('deux joueurs au clavier sur la même touche : conflit', () => {
+	const report = findConflicts(
+		config({ keys: DEFAULT_P1_KEYS }, { keys: { ...DEFAULT_P2_KEYS, a: 'KeyX' } }),
+		BOTH_KEYBOARD
+	);
+
+	assert.deepEqual(report.p1.keys.get('a'), [{ player: 2, button: 'a' }]);
+	assert.deepEqual(report.p2.keys.get('a'), [{ player: 1, button: 'a' }]);
+});
+
+test('même touche, mais le J2 n’a pas le clavier : aucun conflit', () => {
+	const report = findConflicts(
+		config({ keys: DEFAULT_P1_KEYS }, { keys: { ...DEFAULT_P2_KEYS, a: 'KeyX' } }),
+		{ p1: { keyboard: true, pads: [] }, p2: { keyboard: false, pads: [] } }
+	);
+
+	assert.equal(report.count, 0, 'la touche du J2 est inatteignable');
+});
+
+test('même bouton manette sur DEUX manettes différentes : aucun conflit', () => {
+	// La raison d'être du modèle par périphérique. Sans cette règle, deux
+	// joueurs avec le mappage standard seraient en conflit sur les douze
+	// boutons, et rien ne pourrait plus être sauvegardé.
+	const report = findConflicts(config({ keys: DEFAULT_P1_KEYS }, { keys: DEFAULT_P2_KEYS }), {
+		p1: { keyboard: true, pads: [0] },
+		p2: { keyboard: false, pads: [1] }
+	});
+
+	assert.equal(report.count, 0);
+});
+
+test('même bouton manette sur la MÊME manette : conflit', () => {
+	const report = findConflicts(config({ keys: DEFAULT_P1_KEYS }, { keys: DEFAULT_P2_KEYS }), {
+		p1: { keyboard: true, pads: [0] },
+		p2: { keyboard: false, pads: [0] }
+	});
+
+	assert.equal(report.p1.pad.size, 12, 'les douze emplacements se marchent dessus');
+	assert.deepEqual(report.p1.pad.get('a'), [{ player: 2, button: 'a' }]);
+});
+
+test("'all' intersecte tout ce qui est connecté", () => {
+	const report = findConflicts(config({ keys: DEFAULT_P1_KEYS }, { keys: DEFAULT_P2_KEYS }), {
+		p1: { keyboard: true, pads: 'all' },
+		p2: { keyboard: false, pads: [1] }
+	});
+
+	assert.ok(report.count > 0, "'all' inclut le pad 1");
+});
+
+test('un doublon manette chez un seul joueur : conflit', () => {
+	const report = findConflicts(
+		config({ keys: DEFAULT_P1_KEYS, pad: { ...STANDARD_PAD, b: ['PadButton1'] } }),
+		{ p1: { keyboard: true, pads: [0] }, p2: { keyboard: false, pads: [] } }
+	);
+
+	assert.deepEqual([...report.p1.pad.keys()].sort(), ['a', 'b']);
+});
+
+test('les emplacements non liés ne sont jamais en conflit', () => {
+	const report = findConflicts(
+		config({ keys: { ...DEFAULT_P1_KEYS, l: '', r: '' }, pad: { ...STANDARD_PAD, l: [], r: [] } }),
+		BOTH_KEYBOARD
+	);
+
+	assert.equal(report.count, 0, 'trois emplacements vides ne se ressemblent pas');
 });
