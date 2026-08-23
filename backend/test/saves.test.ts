@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { migratedDb, insertUser } from './helpers.js';
 import { createGame } from '../src/db/games.js';
-import { findSaveWithGame, createSave, updateSaveData } from '../src/db/saves.js';
+import {
+  findSaveWithGame, createSave, updateSaveData, deleteSave, findSaveOwnership, nextFreeSlot
+} from '../src/db/saves.js';
+import { canDeleteSave } from '../src/saves/can-delete.js';
 
 const NO_METADATA = {
   genre: null, publisher: null, developer: null, releaseDate: null,
@@ -80,4 +83,80 @@ test('one slot per game is enforced by the schema', () => {
     /UNIQUE/,
     'the unique index on (gameId, slotNumber) is why the handler checks before inserting'
   );
+});
+
+// --- deleting a save ---------------------------------------------------------
+
+test('deleting removes that save and only that one', () => {
+  const db = migratedDb();
+  const user = insertUser(db);
+  const game = aGame(db, user.id);
+  const doomed = createSave(db, { gameId: game.id, slotNumber: 1, name: 'a', data: Buffer.from([1]), screenshot: null });
+  const keeper = createSave(db, { gameId: game.id, slotNumber: 2, name: 'b', data: Buffer.from([2]), screenshot: null });
+
+  assert.equal(deleteSave(db, doomed.id), true);
+
+  assert.equal(findSaveWithGame(db, doomed.id), null);
+  assert.ok(findSaveWithGame(db, keeper.id), 'its neighbour is untouched');
+});
+
+/*
+ * The route answers 404 on this, and it has to tell "there was nothing to
+ * delete" from "the delete worked" - otherwise deleting the same save twice
+ * reports success the second time and the list quietly disagrees with what the
+ * player was just told.
+ */
+test('deleting something that is not there says so rather than pretending', () => {
+  const db = migratedDb();
+  assert.equal(deleteSave(db, 'no-such-save'), false);
+});
+
+test('ownership names both the owner and the game, and never the blob', () => {
+  const db = migratedDb();
+  const user = insertUser(db);
+  const game = aGame(db, user.id);
+  const save = createSave(db, {
+    gameId: game.id, slotNumber: 1, name: 'a', data: Buffer.alloc(900_000, 7), screenshot: null
+  });
+
+  const ownership = findSaveOwnership(db, save.id);
+
+  assert.deepEqual(ownership, { ownerId: user.id, gameId: game.id });
+  assert.equal(Object.keys(ownership!).length, 2, 'an 800KB savestate has no business in an identity check');
+});
+
+test('ownership of an unknown save is nothing, not a wrong answer', () => {
+  const db = migratedDb();
+  assert.equal(findSaveOwnership(db, 'no-such-save'), null);
+});
+
+test('the slot a deleted save held is not handed straight to the next one', () => {
+  // Slot numbers are identity, not seating - already the documented rule, but
+  // deletion is the only thing that can open a gap, so it is only now testable.
+  const db = migratedDb();
+  const user = insertUser(db);
+  const game = aGame(db, user.id);
+  const first = createSave(db, { gameId: game.id, slotNumber: 1, name: 'a', data: Buffer.from([1]), screenshot: null });
+  createSave(db, { gameId: game.id, slotNumber: 2, name: 'b', data: Buffer.from([2]), screenshot: null });
+
+  deleteSave(db, first.id);
+
+  assert.equal(nextFreeSlot(db, game.id), 3, 'the hole at 1 stays a hole');
+});
+
+/*
+ * The guard, and the reason it takes the game id as well as the user id.
+ *
+ * Checking only the owner leaves this open: I own game A, I call
+ * DELETE /api/games/A/saves/<a save of game B, somebody else's>, and a guard
+ * asking "is A mine?" says yes. Both halves have to match, and each has its own
+ * failing case here so neither can be dropped without turning a test red.
+ */
+test('deletion is refused for another owner and for another game', () => {
+  const mine = { ownerId: 'alice', gameId: 'game-a' };
+
+  assert.equal(canDeleteSave(mine, 'alice', 'game-a'), true);
+  assert.equal(canDeleteSave(mine, 'bob', 'game-a'), false, 'not your save');
+  assert.equal(canDeleteSave(mine, 'alice', 'game-b'), false, 'not this game\'s save');
+  assert.equal(canDeleteSave(null, 'alice', 'game-a'), false, 'nothing to delete');
 });

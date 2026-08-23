@@ -8,6 +8,8 @@ import {
   updateGameChecksum, updateGameMetadata, deleteGame
 } from '../db/games.js';
 import { findGameMetadataById, insertCommunityMetadata } from '../db/game-metadata.js';
+import { deleteSave, findSaveOwnership } from '../db/saves.js';
+import { canDeleteSave } from '../saves/can-delete.js';
 import { findLinkByChecksum, linkChecksum } from '../db/metadata-links.js';
 import { invalidateMetadataCache } from '../services/metadata-loader.js';
 import { sanitiseEntry } from './entry-input.js';
@@ -225,6 +227,39 @@ gamesRouter.get('/:gameId/saves', asyncHandler(async (req, res) => {
   }
 
   res.json(game.saves);
+}));
+
+/*
+ * Delete one save.
+ *
+ * Nested under the game to mirror the read above, which means the game id in
+ * the path has to be honoured rather than decorative: `canDeleteSave` checks
+ * the save belongs to *this* game as well as to this user. Owning the game
+ * named in the URL says nothing at all about the save named in it.
+ *
+ * One answer for "no such save" and "not yours", deliberately. A distinct 403
+ * would confirm that a save id exists to somebody who may not have it, which
+ * is the same reasoning the room handlers apply to room ids.
+ */
+gamesRouter.delete('/:gameId/saves/:saveId', asyncHandler(async (req, res) => {
+  const user = req.user as User;
+  const { gameId, saveId } = req.params;
+  const db = getDb();
+
+  if (!canDeleteSave(findSaveOwnership(db, saveId), user.id, gameId)) {
+    return res.status(404).json({ error: 'Save not found' });
+  }
+
+  // The boolean matters here rather than being decoration: two clicks, or two
+  // tabs, put a second request between the check above and this line. Reporting
+  // success for a row that somebody else already removed would tell the player
+  // their deletion did something it did not.
+  if (!deleteSave(db, saveId)) {
+    return res.status(404).json({ error: 'Save not found' });
+  }
+
+  logger.info({ saveId, gameId, userId: user.id }, 'Save deleted');
+  res.status(204).end();
 }));
 
 // Refresh metadata for all user's games

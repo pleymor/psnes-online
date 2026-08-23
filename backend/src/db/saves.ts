@@ -128,18 +128,45 @@ export function nextFreeSlot(db: Database, gameId: string): number {
   return (row.highest ?? 0) + 1;
 }
 
+/** The two identities a save has, neither of which is its contents. */
+export interface SaveOwnership {
+  ownerId: string;
+  gameId: string;
+}
+
 /**
- * Who owns a save, by way of the game it belongs to.
+ * Who owns a save and which game it belongs to.
  *
- * The overwrite path calls this on every attempt, so it reads one column and
- * joins - it must not pull the savestate along, which is over 800KB.
+ * Both, because the delete route needs both: owning the game named in the URL
+ * says nothing about the save named in it. The overwrite path only needs the
+ * owner and gets it through `findSaveOwnerId` below.
+ *
+ * Called on every attempt, so it reads two columns and joins - it must not pull
+ * the savestate along, which is over 800KB.
  */
-export function findSaveOwnerId(db: Database, saveId: string): string | null {
+export function findSaveOwnership(db: Database, saveId: string): SaveOwnership | null {
   const row = db.prepare(`
-    SELECT g.userId AS userId
+    SELECT g.userId AS ownerId, s.gameId AS gameId
     FROM "Save" s
     JOIN "Game" g ON g.id = s.gameId
     WHERE s.id = ?
-  `).get(saveId) as { userId: string } | undefined;
-  return row?.userId ?? null;
+  `).get(saveId) as SaveOwnership | undefined;
+  return row ?? null;
+}
+
+/** Who owns a save, by way of the game it belongs to. */
+export function findSaveOwnerId(db: Database, saveId: string): string | null {
+  return findSaveOwnership(db, saveId)?.ownerId ?? null;
+}
+
+/**
+ * Removes a save. Returns whether there was one to remove.
+ *
+ * The boolean is not decoration. The route has already established the save
+ * exists and is the caller's, but two clicks or two tabs can slip a second
+ * delete in between; without this, the loser of that race is told its deletion
+ * did something it did not.
+ */
+export function deleteSave(db: Database, id: string): boolean {
+  return db.prepare(`DELETE FROM "Save" WHERE id = ?`).run(id).changes > 0;
 }

@@ -52,6 +52,7 @@
     {busy}
     actionLabel={t($language, 'loadState')}
     on:select={(e) => loadSave(e.detail)}
+    on:notification
   />
 </div>
 

@@ -11,19 +11,55 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
-  import { fetchSaves, byNewest, type SaveSummary, type LoadFailure } from '$lib/saves/api';
+  import { fetchSaves, deleteSave, byNewest, type SaveSummary, type LoadFailure } from '$lib/saves/api';
   import { saveIdentity } from '$lib/saves/identity';
+  import ConfirmModal from './ConfirmModal.svelte';
 
   export let gameId: string;
   /** Shown on each tile's action button - "load" or "overwrite". */
   export let actionLabel: string;
   export let busy = false;
 
-  const dispatch = createEventDispatcher<{ select: SaveSummary }>();
+  const dispatch = createEventDispatcher<{
+    select: SaveSummary;
+    notification: { message: string; type: 'success' | 'error' };
+  }>();
 
   let saves: SaveSummary[] = [];
   let failure: LoadFailure | null = null;
   let loading = true;
+
+  /*
+   * Deleting lives here rather than in the two menus above.
+   *
+   * This component owns the list and its reload, and both menus must behave
+   * identically; putting the confirmation, the call and the refresh in each of
+   * them would be two copies of one behaviour to keep in step.
+   */
+  let pendingDelete: SaveSummary | null = null;
+  let deleting = false;
+
+  async function confirmDelete() {
+    const target = pendingDelete;
+    pendingDelete = null;
+    if (!target) return;
+
+    deleting = true;
+    const result = await deleteSave(gameId, target.id);
+    deleting = false;
+
+    if (!result.ok) {
+      dispatch('notification', { message: t($language, result.reason), type: 'error' });
+      // Reloaded even on failure: the usual reason a delete is refused is that
+      // the save is already gone, and leaving it on screen invites the player
+      // to try again for ever.
+      await reload();
+      return;
+    }
+
+    dispatch('notification', { message: t($language, 'saveDeleted'), type: 'success' });
+    await reload();
+  }
 
   export async function reload() {
     loading = true;
@@ -57,8 +93,10 @@
   <ul class="grid">
     {#each saves as save (save.id)}
       {@const identity = saveIdentity(save, $language)}
-      <li>
-        <button class="tile" disabled={busy} on:click={() => dispatch('select', save)}>
+      <!-- A row holding two buttons rather than one big button: a delete
+           control cannot be nested inside the button it sits on. -->
+      <li class="tile">
+        <button class="pick" disabled={busy} on:click={() => dispatch('select', save)}>
           <span class="shot">
             {#if save.screenshot}
               <img src={save.screenshot} alt="" />
@@ -74,9 +112,32 @@
           </span>
           <span class="action">{actionLabel}</span>
         </button>
+        <button
+          class="remove"
+          disabled={busy || deleting}
+          title={t($language, 'deleteSave')}
+          aria-label={`${t($language, 'deleteSave')} — ${identity.primary}`}
+          on:click={() => (pendingDelete = save)}
+        >
+          ×
+        </button>
       </li>
     {/each}
   </ul>
+{/if}
+
+{#if pendingDelete}
+  <ConfirmModal
+    title={t($language, 'deleteSave')}
+    message={t($language, 'confirmDeleteSave').replace(
+      '{name}',
+      saveIdentity(pendingDelete, $language).primary
+    )}
+    confirmText={t($language, 'deleteSave')}
+    danger={true}
+    on:confirm={confirmDelete}
+    on:cancel={() => (pendingDelete = null)}
+  />
 {/if}
 
 <style>
@@ -100,28 +161,65 @@
     container-type: inline-size;
   }
 
+  /* The row. It used to be the button itself; the delete control had to become
+     a sibling, because a button cannot live inside a button. */
   .tile {
-    width: 100%;
+    display: flex;
+    align-items: stretch;
+    background: #252525;
+    border: 1px solid transparent;
+    border-radius: 6px;
+  }
+
+  .tile:has(.pick:hover:not(:disabled)) {
+    background: #2f2f2f;
+    border-color: #667eea;
+  }
+
+  .pick {
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 0.75rem;
     padding: 0.5rem;
-    background: #252525;
-    border: 1px solid transparent;
-    border-radius: 6px;
+    background: none;
+    border: none;
+    border-radius: 6px 0 0 6px;
     cursor: pointer;
     text-align: left;
     color: inherit;
     font: inherit;
   }
 
-  .tile:hover:not(:disabled) {
-    background: #2f2f2f;
-    border-color: #667eea;
+  .pick:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
-  .tile:disabled {
-    opacity: 0.5;
+  /* Deliberately quiet, and deliberately not red until it is hovered: it sits
+     next to the action the player actually came for, and a permanent red cross
+     would pull the eye to the one control that cannot be undone. */
+  .remove {
+    flex: 0 0 auto;
+    align-self: stretch;
+    padding: 0 0.7rem;
+    background: none;
+    border: none;
+    border-radius: 0 6px 6px 0;
+    color: #6b6b6b;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .remove:hover:not(:disabled) {
+    background: #3a2626;
+    color: #e06060;
+  }
+
+  .remove:disabled {
+    opacity: 0.4;
     cursor: not-allowed;
   }
 
@@ -197,13 +295,14 @@
    * gives the words about 140px instead.
    */
   @container (max-width: 22rem) {
-    .tile {
+    .pick {
       flex-wrap: wrap;
+      gap: 0.5rem;
     }
 
     .shot {
-      width: 64px;
-      height: 48px;
+      width: 56px;
+      height: 42px;
     }
 
     .action {

@@ -18,8 +18,12 @@ export interface SaveSummary {
   updatedAt: string;
 }
 
-/** The translation key describing why the list could not be read. */
-export type LoadFailure = 'sessionExpired' | 'notYourGame' | 'failedToLoadSaves';
+/** The translation key describing why an operation on saves did not happen. */
+export type LoadFailure =
+  | 'sessionExpired'
+  | 'notYourGame'
+  | 'failedToLoadSaves'
+  | 'failedToDeleteSave';
 
 export type SavesResult =
   | { ok: true; saves: SaveSummary[] }
@@ -45,6 +49,35 @@ export async function fetchSaves(gameId: string): Promise<SavesResult> {
     return { ok: true, saves: await res.json() };
   } catch {
     return { ok: false, reason: 'failedToLoadSaves' };
+  }
+}
+
+export type DeleteResult = { ok: true } | { ok: false; reason: LoadFailure };
+
+/**
+ * Which failure a delete's status code means.
+ *
+ * 404 maps to "not yours" rather than to a generic failure, because the server
+ * answers 404 for both "no such save" and "not your save" on purpose - telling
+ * a caller which one it was would confirm that a save id exists to somebody who
+ * should not learn it. From here the two are the same sentence anyway.
+ */
+export function deleteFailureReason(status: number): LoadFailure {
+  if (status === 401) return 'sessionExpired';
+  if (status === 404) return 'notYourGame';
+  return 'failedToDeleteSave';
+}
+
+export async function deleteSave(gameId: string, saveId: string): Promise<DeleteResult> {
+  try {
+    const res = await fetch(`/api/games/${gameId}/saves/${saveId}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+    if (!res.ok) return { ok: false, reason: deleteFailureReason(res.status) };
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'failedToDeleteSave' };
   }
 }
 

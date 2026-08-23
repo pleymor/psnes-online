@@ -11,6 +11,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   loadFailureReason,
+  deleteFailureReason,
+  deleteSave,
   byNewest,
   autoSaveName,
   type SaveSummary
@@ -76,4 +78,71 @@ test('an automatic name follows the locale rather than a fixed format', () => {
   const when = new Date('2026-08-20T21:14:00Z');
 
   assert.notEqual(autoSaveName('en-US', when), autoSaveName('fr-FR', when));
+});
+
+// --- deleting ----------------------------------------------------------------
+
+/*
+ * 404 is "not yours", not a generic failure.
+ *
+ * The server answers 404 for both "no such save" and "not your save" on
+ * purpose - distinguishing them would confirm a save id exists to somebody who
+ * should not learn it. Reading it as a generic failure here would put "could
+ * not delete, try again" in front of a player whose retry can never work.
+ */
+test('a refused deletion is reported as not yours rather than as a glitch', () => {
+  assert.equal(deleteFailureReason(404), 'notYourGame');
+  assert.equal(deleteFailureReason(401), 'sessionExpired');
+  assert.equal(deleteFailureReason(500), 'failedToDeleteSave');
+});
+
+/**
+ * Runs `body` with `fetch` replaced, and puts the real one back afterwards.
+ *
+ * The two tests below exist for the one thing no pure function can catch: a
+ * wrong URL or a forgotten method compiles, passes every unit test, and fails
+ * only in a browser.
+ */
+async function withFetch(
+  stub: (url: string, init?: { method?: string }) => unknown,
+  body: () => Promise<void>
+) {
+  const real = globalThis.fetch;
+  globalThis.fetch = stub as typeof globalThis.fetch;
+  try {
+    await body();
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+test('deleting asks the nested route, with DELETE and the session cookie', async () => {
+  let seenUrl = '';
+  let seenInit: { method?: string; credentials?: string } | undefined;
+
+  await withFetch(
+    (url, init) => {
+      seenUrl = url;
+      seenInit = init as { method?: string; credentials?: string };
+      return { ok: true, status: 204 };
+    },
+    async () => {
+      assert.deepEqual(await deleteSave('game-7', 'save-3'), { ok: true });
+    }
+  );
+
+  assert.equal(seenUrl, '/api/games/game-7/saves/save-3');
+  assert.equal(seenInit?.method, 'DELETE');
+  assert.equal(seenInit?.credentials, 'include', 'without it the route answers 401 every time');
+});
+
+test('a network failure is a reason, not a throw at the caller', async () => {
+  await withFetch(
+    () => {
+      throw new Error('offline');
+    },
+    async () => {
+      assert.deepEqual(await deleteSave('g', 's'), { ok: false, reason: 'failedToDeleteSave' });
+    }
+  );
 });
