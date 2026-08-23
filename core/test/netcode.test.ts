@@ -123,7 +123,7 @@ test('a peer losing frames gets fed, and the feeding stops when it is fed', asyn
 	// even when the follower stalls hundreds of times - that case is covered
 	// below and must *not* trip this. It takes real jitter to hurt.
 	const harness = await NetplayHarness.create(
-		harnessOptions(20000, { link: { latency: 30, jitter: 12, seed: 91 }, hungerFrames: 30 })
+		harnessOptions(20000, { link: { latency: 30, jitter: 12, seed: 91 }, hungerSeconds: 3 })
 	);
 	harness.handshake(30_000);
 	harness.run(2_000);
@@ -149,11 +149,52 @@ test('a peer losing frames gets fed, and the feeding stops when it is fed', asyn
 	harness.dispose();
 });
 
+test('one rough patch costs nothing; a link that keeps misbehaving costs a frame', async () => {
+	// The whole point of counting seconds instead of packets. Packets arrive fifty
+	// times a second, so a single three-second burst used to supply well over a
+	// hundred consecutive hungry ones and buy a frame on its own - permanently.
+	// On the real link that mattered: strain sat at zero for 96% of a session and
+	// spiked on a handful of isolated seconds.
+	const burst = async (times: number) => {
+		const harness = await NetplayHarness.create(
+			harnessOptions(30000, { link: { latency: 22, jitter: 2, seed: 96 }, hungerSeconds: 10 })
+		);
+		harness.handshake(30_000);
+		harness.run(3_000);
+		const sized = harness.host.session.inputDelay;
+
+		for (let i = 0; i < times; i++) {
+			harness.link.setLatency(140, 40); // three seconds of real trouble
+			harness.run(3_000);
+			harness.link.setLatency(22, 2);
+			harness.run(4_000);
+		}
+		// Long enough afterwards for a window's worth of quiet to pass.
+		harness.run(35_000);
+		const after = harness.host.session.inputDelay;
+		harness.dispose();
+		return { sized, after };
+	};
+
+	const once = await burst(1);
+	assert.equal(
+		once.after,
+		once.sized,
+		`one burst must not buy a frame: ${once.sized} -> ${once.after}`
+	);
+
+	const repeatedly = await burst(5);
+	assert.ok(
+		repeatedly.after > repeatedly.sized,
+		`five bursts must: ${repeatedly.sized} -> ${repeatedly.after}`
+	);
+});
+
 test('a fed peer never makes the delay creep', async () => {
 	// The loop only ever raises, so a healthy session must not trip it at all;
 	// otherwise every long match would drift to the ceiling.
 	const harness = await NetplayHarness.create(
-		harnessOptions(8000, { link: { latency: 15, jitter: 2, seed: 92 }, hungerFrames: 40 })
+		harnessOptions(8000, { link: { latency: 15, jitter: 2, seed: 92 }, hungerSeconds: 3 })
 	);
 	harness.handshake(30_000);
 	const sized = harness.host.session.inputDelay;
@@ -171,7 +212,7 @@ test('a pinned delay is never raised behind the player\'s back', async () => {
 	// Same contract the measurement already honours: a hand-set value is the
 	// escape hatch, and an escape hatch that moves on its own is not one.
 	const harness = await NetplayHarness.create(
-		harnessOptions(8000, { link: { latency: 45, jitter: 4, seed: 93 }, hungerFrames: 40 })
+		harnessOptions(8000, { link: { latency: 45, jitter: 4, seed: 93 }, hungerSeconds: 3 })
 	);
 	harness.handshake(30_000);
 	harness.host.session.setInputDelay(1);

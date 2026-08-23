@@ -222,10 +222,26 @@ times the machine's own frame is a stutter a player sees, and that is what
 travels in the `strain` byte. `npm run measure:splits` counts the same thing
 offline, deliberately, so the two agree.
 
-The loop only raises, and each raise demands twice the evidence of the last.
-That asymmetry is the honest trade rather than caution: a frame too generous
-costs 17 to 20ms of input latency, and a frame too tight costs the *other*
-player several visible stutters a second.
+The loop only raises, and the evidence is counted in **seconds, not packets**:
+ten strained seconds inside a thirty-second window. Counting packets was the
+first attempt and it was too eager - packets arrive fifty times a second, so a
+single three-second burst supplied over a hundred consecutive hungry ones and
+bought a frame by itself, permanently. On a real link that is exactly the wrong
+shape to react to: strain sat at zero for 96% of a session and spiked on two to
+four isolated seconds. One burst now marks about five seconds, because strain is
+itself a 128-frame window whose tail outlasts the burst, so it takes two bursts
+in the same half-minute to earn a frame.
+
+After a raise the window starts over rather than demanding twice as much next
+time. The frame either helped, in which case strain falls and it will not
+qualify again, or the link is worse than one frame covers, in which case it will
+- and should. A long bad stretch can therefore climb several frames, up to the
+sixteen-frame ceiling, which is the correct answer for a link that is genuinely
+that bad and is always escapable with `__znetDelay(n)`.
+
+The one-way asymmetry is the honest trade rather than caution: a frame too
+generous costs 17 to 20ms of input latency, and a frame too tight costs the
+*other* player several visible stutters a second.
 
 Getting the signal right was not the hard part. **Raising the delay at all is**,
 and it shipped broken: a real session ran thirteen flawless seconds at 50fps and
@@ -268,7 +284,7 @@ npm run test:all
 ```
 
 **`core/test/netcode.test.ts`** runs the real engine and the real protocol
-against `FakeCore`, a toy deterministic machine. 49 tests covering the wire
+against `FakeCore`, a toy deterministic machine. 51 tests covering the wire
 format, lockstep under 5% loss and 60ms of jitter, input-delay behaviour,
 desync detection from either side, epoch handling, savestate retransmission,
 and recovery from a total blackout.
@@ -360,7 +376,7 @@ against the unfixed code.
 ## Status
 
 Running in production as the default mode for new rooms, and playable end to
-end. 67 tests, none skipped - 56 for the netcode and the relay, 11 against the
+end. 69 tests, none skipped - 58 for the netcode and the relay, 11 against the
 real wasm core: two independent wasm instances stay bit-identical for 1800 frames
 of pseudo-random two-player input, and full sessions over a simulated 150ms /
 60ms-jitter / 5%-loss link never diverge.

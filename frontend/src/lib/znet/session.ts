@@ -133,13 +133,14 @@ export interface SessionOptions {
 	 */
 	fps?: number;
 	/**
-	 * Pad packets reporting a starving peer before this side adds a frame.
+	 * Seconds of reported strain, inside a thirty-second window, before this side
+	 * adds a frame.
 	 *
-	 * The evidence has to be sustained, because a single hungry report is
-	 * ordinary jitter. 0 disables the loop and leaves the delay wherever the
-	 * handshake put it.
+	 * The evidence has to be sustained *and* repeated: one rough patch is the
+	 * network having a moment, not a delay that is too tight. 0 disables the loop
+	 * and leaves the delay wherever the handshake put it.
 	 */
-	hungerFrames?: number;
+	hungerSeconds?: number;
 	/** Re-send our pads every N consecutive stalled ticks. */
 	stallResendEvery?: number;
 	readLocalInput: () => PadMask;
@@ -192,13 +193,24 @@ const LATE_FACTOR = 1.5;
  */
 const STRAIN_AT = 6;
 
+/** Sliding window, in seconds, over which strained seconds are counted. */
+const STRAIN_WINDOW_SECONDS = 30;
+
 /**
- * Pad packets of sustained strain before a peer adds a frame.
+ * Strained seconds inside that window before a peer adds a frame.
  *
- * At 50 to 60 packets a second this is a little over two seconds of sustained
- * evidence for the first frame, and it doubles for each one after.
+ * Counted in seconds rather than in packets, which is what an earlier version
+ * did and got wrong. Packets arrive fifty times a second, so a single
+ * three-second burst supplied more than a hundred consecutive hungry ones and
+ * tripped the loop by itself - and the frame it cost was permanent. Measured on
+ * a real link, strain sat at zero for 96% of a session and spiked on two to four
+ * isolated seconds: exactly the shape that must *not* buy a frame.
+ *
+ * A third of the window is the bar. One burst marks about five seconds, because
+ * strain is itself a 128-frame sliding window whose tail outlasts the burst; two
+ * bursts in the same half-minute clear ten and earn the frame.
  */
-const DEFAULT_HUNGER_FRAMES = 120;
+const DEFAULT_HUNGER_SECONDS = 10;
 
 /** Round-trip samples the host collects before sizing the input delay. */
 const SIZING_SAMPLES = 5;
@@ -317,7 +329,7 @@ export class NetplaySession implements TickSource {
 			| 'pingIntervalMs'
 			| 'stallResendEvery'
 			| 'fps'
-			| 'hungerFrames'
+			| 'hungerSeconds'
 		>
 	>;
 	private readLocalInput: () => PadMask;
@@ -358,15 +370,17 @@ export class NetplaySession implements TickSource {
 	private stallCounter = 0;
 
 	/**
-	 * Leaky evidence that the peer is losing frames, from the strain it reports.
+	 * Which of the last thirty seconds the peer reported strain in, and how many.
 	 *
-	 * Leaky rather than consecutive: a single strained packet is ordinary jitter
-	 * and must not count, but a run of them broken by one good packet still has
-	 * to. Every raise then demands twice the evidence of the last, so the first
-	 * frame is cheap to give and the sixth is not given lightly.
+	 * A ring of one-second buckets rather than a count of packets: what matters
+	 * is how much of the recent past was rough, not how many packets happened to
+	 * land inside one rough moment.
 	 */
-	private peerHunger = 0;
-	private hungerNeeded = 0;
+	private strainedRing = new Uint8Array(STRAIN_WINDOW_SECONDS);
+	/** Bucket for the second in progress, or -1 before the first one. */
+	private strainedAt = -1;
+	private strainedSecond = 0;
+	private strainedCount = 0;
 	/** The last strain the peer reported, kept for the diagnostics. */
 	private _peerStrain = 0;
 
@@ -476,11 +490,10 @@ export class NetplaySession implements TickSource {
 			pingIntervalMs: options.pingIntervalMs ?? 2000,
 			stallResendEvery: options.stallResendEvery ?? 8,
 			fps: options.fps || DEFAULT_FPS,
-			hungerFrames: options.hungerFrames ?? DEFAULT_HUNGER_FRAMES
+			hungerSeconds: options.hungerSeconds ?? DEFAULT_HUNGER_SECONDS
 		};
 		this.stats.inputDelay = this.opts.inputDelay;
 		this.epochMaxDelay = this.opts.inputDelay;
-		this.hungerNeeded = this.opts.hungerFrames;
 
 		this.transport.onMessage((data) => this.handleMessage(data));
 	}
@@ -954,21 +967,50 @@ export class NetplaySession implements TickSource {
 		// Recorded before the gates below, so the diagnostics show what the peer
 		// reported even when this side is pinned and will not act on it.
 		this._peerStrain = strain;
-		if (!this.autoInputDelay || this.opts.hungerFrames <= 0) return;
+		if (!this.autoInputDelay || this.opts.hungerSeconds <= 0) return;
 		if (this._state !== 'running') return;
 
-		if (strain < STRAIN_AT) {
-			if (this.peerHunger > 0) this.peerHunger--;
-			return;
+		const second = Math.floor(this.now() / 1000);
+		if (this.strainedAt < 0) {
+			this.strainedAt = 0;
+			this.strainedSecond = second;
+		} else if (second > this.strainedSecond) {
+			const elapsed = second - this.strainedSecond;
+			if (elapsed >= STRAIN_WINDOW_SECONDS) {
+				// A gap longer than the window means nothing inside it is still
+				// relevant. Clearing beats walking the ring, and beats replaying a
+				// stall or a backgrounded tab as thirty strained seconds.
+				this.strainedRing.fill(0);
+				this.strainedCount = 0;
+				this.strainedAt = 0;
+			} else {
+				for (let i = 0; i < elapsed; i++) {
+					this.strainedAt = (this.strainedAt + 1) % STRAIN_WINDOW_SECONDS;
+					this.strainedCount -= this.strainedRing[this.strainedAt];
+					this.strainedRing[this.strainedAt] = 0;
+				}
+			}
+			this.strainedSecond = second;
 		}
-		if (++this.peerHunger < this.hungerNeeded) return;
 
-		this.peerHunger = 0;
+		// One strained second, no matter how many packets inside it said so.
+		if (strain >= STRAIN_AT && this.strainedRing[this.strainedAt] === 0) {
+			this.strainedRing[this.strainedAt] = 1;
+			this.strainedCount++;
+		}
+
+		if (this.strainedCount < this.opts.hungerSeconds) return;
 		if (this.opts.inputDelay >= MAX_INPUT_DELAY) return;
+
 		this.setDelay(this.opts.inputDelay + 1);
-		// Twice the evidence for the next one. A link that needs six frames will
-		// get there; one that needs four will not sail past it on noise.
-		this.hungerNeeded *= 2;
+		/*
+		 * Start the window over rather than demanding twice the evidence next
+		 * time. The frame either helped, in which case strain falls and this will
+		 * not qualify again, or the link is genuinely worse than one frame can
+		 * cover, in which case it will - and should.
+		 */
+		this.strainedRing.fill(0);
+		this.strainedCount = 0;
 		this.onEvent({
 			type: 'state',
 			message: `input delay up to ${this.opts.inputDelay} frames to keep the other player smooth`
@@ -1116,8 +1158,9 @@ export class NetplaySession implements TickSource {
 		// Frame numbers mean something different on a new timeline, so the
 		// spacing measured across the seam would be nonsense.
 		this.lastPadArrival = null;
-		this.peerHunger = 0;
-		this.hungerNeeded = this.opts.hungerFrames;
+		this.strainedRing.fill(0);
+		this.strainedAt = -1;
+		this.strainedCount = 0;
 		// A resync's own gap is not strain, and neither is anything measured on
 		// the timeline we just abandoned.
 		this.lastFrameAt = null;
