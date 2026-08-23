@@ -1,5 +1,5 @@
 import { Server, Socket } from 'socket.io';
-import { Room, RoomPlayer, User, EmulationMode } from '../types/index.js';
+import { Room, RoomPlayer, User, EmulationMode, LatencyMode } from '../types/index.js';
 import { randomUUID } from 'crypto';
 import { getUserKeyConfig } from '../services/user-config.js';
 import { notifyFriendsRoomStatusChanged, getFriendships } from '../services/friends.js';
@@ -24,6 +24,7 @@ import {
 } from '../db/invitations.js';
 import { invitationState } from '../rooms/invitation-state.js';
 import { requireGame } from '../rooms/require-game.js';
+import { markOffline, markOnline } from '../rooms/presence.js';
 import { getMemberRoom } from './guards.js';
 
 const logger = createLogger('Room');
@@ -98,6 +99,29 @@ export function pendingInvitationsFor(
   return views;
 }
 
+/**
+ * Gives up whatever room the caller was already in.
+ *
+ * A room no longer dies when it empties, so without this a player accumulates
+ * rooms nobody can reach: they are not in them, so they cannot dissolve them,
+ * and the other member is left waiting in a lobby its partner has forgotten.
+ * One room at a time is also what keeps the door on the home screen
+ * unambiguous - there is only ever one room to resume.
+ */
+async function leaveCurrentRoom(
+  io: Server,
+  socket: Socket,
+  rooms: Map<string, Room>,
+  user: User,
+  getUserSocket: (id: string) => string | undefined
+) {
+  // Copied before iterating: handleLeaveRoom can delete from `rooms`.
+  const current = [...rooms.values()].filter(r => r.players.some(p => p.userId === user.id));
+  for (const room of current) {
+    await handleLeaveRoom(io, socket, room.id, rooms, user, getUserSocket);
+  }
+}
+
 export function registerRoomHandlers(
   socket: Socket,
   io: Server,
@@ -126,6 +150,11 @@ export function registerRoomHandlers(
       return;
     }
 
+    // After the refusals above, never before: giving up a room the caller was
+    // happily sitting in, and then refusing to build the new one, would leave
+    // them with nothing over a payload mistake.
+    await leaveCurrentRoom(io, socket, rooms, user, getUserSocket);
+
     const roomId = randomUUID();
     const userKeyConfig = await getUserKeyConfig(user.id);
     // Read from the host's library rather than trusting the payload: the guest
@@ -150,6 +179,7 @@ export function registerRoomHandlers(
         port: 1, // Always assign creator to player 1
         isReady: true, // Always ready by default
         emulationReady: false,
+        online: true,
         keyConfig: userKeyConfig
       }],
       status: autoStart ? 'playing' : 'waiting',
@@ -157,6 +187,7 @@ export function registerRoomHandlers(
       // exchange inputs, so a room cannot end up with two machines quietly
       // diverging the way the dual mode does.
       emulationMode: payload.emulationMode ?? 'lockstep',
+      latencyMode: 'auto',
       createdAt: new Date()
     };
 
@@ -430,6 +461,16 @@ export function registerRoomHandlers(
       return;
     }
 
+    // Here rather than at the top of the handler: every refusal above - the
+    // invitation being spent, expired, somebody else's, or its room gone - must
+    // not cost the invitee the room they are already in.
+    //
+    // A full room can still refuse below, and that one does cost them. Accepted
+    // deliberately: the alternative is asking whether the seat is free and then
+    // taking it, and that gap is exactly the race the capacity check was moved
+    // to close.
+    await leaveCurrentRoom(io, socket, rooms, user, getUserSocket);
+
     // Joining goes through the same path as `room:join`, so the player
     // construction, the port assignment and the broadcast exist once.
     const joined = await joinRoom(io, socket, room, user, getUserSocket);
@@ -483,8 +524,8 @@ export function registerRoomHandlers(
 
   // Leave room
   socket.on('room:leave', (data: { roomId: string }) => {
-    // Deliberate, so no grace period - and cancel any pending one.
-    if (data?.roomId) cancelScheduledLeave(data.roomId, user.id);
+    // The only path that gives up a seat. A dropped socket no longer comes
+    // here: that is an absence, and it is handled by flipping `online`.
     handleLeaveRoom(io, socket, data.roomId, rooms, user, getUserSocket);
   });
 
@@ -545,6 +586,27 @@ export function registerRoomHandlers(
     io.to(data.roomId).emit('room:updated', room);
   });
 
+  /*
+   * Set the latency trade-off. Creator only, like the emulation mode - but
+   * allowed while playing, which the emulation mode is not.
+   *
+   * Swapping emulator mode mid-game would tear down a running session; changing
+   * the input delay only changes how far ahead each peer samples its own input,
+   * which the engine handles while running and which a regression test covers at
+   * twelve packet phases. The setting exists to be reached from the pause menu,
+   * so refusing it there would leave it nowhere useful.
+   */
+  socket.on('room:setLatencyMode', (data: { roomId: string; latencyMode: LatencyMode }) => {
+    const room = rooms.get(data.roomId);
+    if (!room) return;
+    if (room.createdBy !== user.id) return;
+    if (data.latencyMode !== 'auto' && data.latencyMode !== 'low') return;
+
+    room.latencyMode = data.latencyMode;
+    io.to(data.roomId).emit('room:updated', room);
+    logger.info({ roomId: room.id, latencyMode: data.latencyMode }, 'Latency mode changed');
+  });
+
   // Set emulation mode (only room creator can change)
   socket.on('room:setEmulationMode', (data: { roomId: string; emulationMode: EmulationMode }) => {
     const room = rooms.get(data.roomId);
@@ -597,9 +659,9 @@ async function joinRoom(
   user: User,
   getUserSocket: (id: string) => string | undefined
 ): Promise<boolean> {
-  // Whichever door they came through, arriving reclaims a seat that is waiting
-  // out its grace period.
-  cancelScheduledLeave(room.id, user.id);
+  // Whichever door they came through, arriving is what makes them present -
+  // and takes the room off the abandonment clock.
+  markOnline(room, user.id);
 
   const existingPlayer = room.players.find(p => p.userId === user.id);
   if (existingPlayer) {
@@ -639,6 +701,7 @@ async function joinRoom(
     port: 2, // Guest always joins as player 2
     isReady: true, // Always ready by default
     emulationReady: false,
+    online: true,
     keyConfig: userKeyConfig
   };
 
@@ -657,119 +720,28 @@ async function joinRoom(
 }
 
 /**
- * Departures waiting out their grace period, keyed by room and user.
+ * Marks a user away in every room they belong to, and tells those rooms.
  *
- * A socket that drops is not a player who left. Removing them on the spot
- * destroyed rooms mid-game: the last player's connection blinked, the room was
- * deleted, and when their socket came back a moment later there was nothing to
- * rejoin - every netplay packet from then on was refused as coming from a
- * non-member, while the game itself carried on happily sending them.
- *
- * Emulation saturates the main thread, which makes those blinks routine rather
- * than rare.
+ * Exported rather than inlined into the disconnect handler for two reasons.
+ * The caller in `websocket/index.ts` must first decide whether this socket
+ * closing means the *user* is gone - a client that reconnects registers its new
+ * socket before the server declares the old one dead, and acting on the stale
+ * one would mark somebody away who is sitting right there - so the guard has to
+ * stay with the presence map. And the protocol test drives real sockets without
+ * that map, so it needs the same body reachable on its own.
  */
-const pendingDepartures = new Map<string, NodeJS.Timeout>();
-
-export const DISCONNECT_GRACE_MS = 45_000;
-
-/**
- * How long a seat survives a server restart, as opposed to a departure.
- *
- * These are not the same event and should not share a number. A disconnect may
- * mean the player closed the tab; a restart means WE dropped everyone, through
- * no action of theirs, and they cannot come back until the process is
- * listening again. Forty-five seconds is shorter than that takes: a deployment
- * here runs two and a half to three minutes, and locally the dev server
- * rebuilds the front end while the browser reloads.
- *
- * When it expired the consequences ran all the way: the seat was released, the
- * room emptied, the room was deleted, the next snapshot recorded nothing, and
- * the returning player got "Room not found" on a screen that then sat on
- * "joining" for ever. Five minutes outlasts every restart observed and still
- * lets a genuinely abandoned room die.
- */
-export const RESTART_GRACE_MS = 5 * 60_000;
-
-const departureKey = (roomId: string, userId: string) => `${roomId}:${userId}`;
-
-/**
- * Arms the timer for one seat, replacing whatever was already holding it.
- *
- * The timer is `unref`'d, for the same reason the cache's sweep is: a grace
- * period must never be what keeps a process alive. In production the HTTP
- * server holds the process open, so it fires exactly as before; anywhere else
- * - a test, a script - a seat waiting out its forty-five seconds would
- * otherwise add forty-five seconds to the exit, which is the failure the
- * cache's own interval used to hide.
- */
-function armDeparture(key: string, delayMs: number, release: () => void) {
-  clearTimeout(pendingDepartures.get(key));
-
-  const timer = setTimeout(() => {
-    pendingDepartures.delete(key);
-    release();
-  }, delayMs);
-  timer.unref();
-
-  pendingDepartures.set(key, timer);
-}
-
-/**
- * Removes a player only if they are still gone once the grace period ends.
- *
- * `delayMs` exists so a test can watch a grace period elapse in milliseconds
- * instead of forty-five seconds. Production never passes it.
- */
-export function scheduleLeaveRoom(
+export async function markPlayerAway(
   io: Server,
-  socket: Socket,
-  roomId: string,
-  rooms: Map<string, Room>,
-  user: User,
-  getUserSocket: (id: string) => string | undefined,
-  delayMs: number = DISCONNECT_GRACE_MS
-) {
-  armDeparture(departureKey(roomId, user.id), delayMs, () => {
-    logger.info({ roomId, userId: user.id }, 'Grace period elapsed, removing player');
-    void handleLeaveRoom(io, socket, roomId, rooms, user, getUserSocket);
-  });
-
-  logger.debug({ roomId, userId: user.id }, 'Player disconnected, holding their seat');
-}
-
-/** Called when the player is back, so their seat is never given up. */
-export function cancelScheduledLeave(roomId: string, userId: string) {
-  const key = departureKey(roomId, userId);
-  const timer = pendingDepartures.get(key);
-  if (!timer) return;
-  clearTimeout(timer);
-  pendingDepartures.delete(key);
-  logger.info({ roomId, userId }, 'Player returned within the grace period');
-}
-
-/**
- * Holds a restored player's seat for the usual grace period.
- *
- * Called once per player when rooms are read back after a restart, where
- * everyone is disconnected by definition. It deliberately reuses the same
- * timer map as `scheduleLeaveRoom`, so `cancelScheduledLeave` releases it
- * through the ordinary path when the player's socket comes back - a returning
- * player needs no special case.
- */
-export function holdRestoredSeat(
-  io: Server,
-  roomId: string,
   rooms: Map<string, Room>,
   userId: string,
-  displayName: string,
+  now: Date,
   getUserSocket: (id: string) => string | undefined
 ) {
-  armDeparture(departureKey(roomId, userId), RESTART_GRACE_MS, () => {
-    logger.info({ roomId, userId }, 'Restored player did not come back, removing');
-    void handleLeaveRoom(io, null, roomId, rooms, { id: userId, displayName } as User, getUserSocket);
-  });
-
-  logger.debug({ roomId, userId }, 'Holding a restored seat');
+  for (const room of rooms.values()) {
+    if (!markOffline(room, userId, now)) continue;
+    io.to(room.id).emit('room:updated', room);
+    await broadcastRoomUpdate(io, room, getUserSocket);
+  }
 }
 
 export async function handleLeaveRoom(
@@ -866,7 +838,7 @@ async function notifyFriendsAboutRoom(
  * room and the host's friends. This used to be an io.emit, which handed every
  * connected user each room's id and every player's keyConfig.
  */
-async function broadcastRoomUpdate(
+export async function broadcastRoomUpdate(
   io: Server,
   room: Room,
   getUserSocketId: (id: string) => string | undefined

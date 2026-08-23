@@ -8,7 +8,7 @@
   import { socket } from '$lib/api/socket';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
-  import type { KeyConfig } from '$lib/types';
+  import type { KeyConfig, LatencyMode } from '$lib/types';
   import type { DisplayOptions } from '$lib/znet';
   import { SHADERS, VALID_SHADER_IDS } from '$lib/shaders';
 
@@ -38,6 +38,17 @@
    * pads are connected is its business, and this only has to render a string.
    */
   export let gamepadLabel: string | null = null;
+  /**
+   * The room's latency trade-off, or null where there is none to show: solo, and
+   * the modes that are not lockstep.
+   */
+  export let latencyMode: LatencyMode | null = null;
+  /**
+   * Whether this player may change it. Only the room's creator can, so for
+   * everyone else the entry explains what they are playing under rather than
+   * being something to press.
+   */
+  export let canSetLatency = false;
 
   const dispatch = createEventDispatcher();
 
@@ -123,6 +134,22 @@
           {
             label: `${t($language, 'netplayStats')}: ${t($language, showStats ? 'shown' : 'hidden')}`,
             action: () => dispatch('stats')
+          }
+        ]),
+    /*
+     * The latency trade-off. Shown to everyone, pressable only by the creator: a
+     * guest wondering why the game feels heavy deserves to see that it is set to
+     * protect their picture, even though they cannot change it.
+     */
+    ...(latencyMode === null
+      ? []
+      : [
+          {
+            label: `${t($language, 'latency')}: ${t(
+              $language,
+              latencyMode === 'low' ? 'latencyLow' : 'latencyAuto'
+            )}`,
+            action: canSetLatency ? () => dispatch('latency') : () => {}
           }
         ]),
   ];

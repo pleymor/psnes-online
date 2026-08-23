@@ -42,7 +42,7 @@ const {
   createInvitation, findInvitationById, markInvitation, deleteExpiredInvitations
 } = await import('../src/db/invitations.js');
 const {
-  registerRoomHandlers, pendingInvitationsFor, scheduleLeaveRoom, cancelScheduledLeave
+  registerRoomHandlers, pendingInvitationsFor, markPlayerAway
 } = await import('../src/websocket/room-handlers.js');
 const { toPublicRoomFor } = await import('../src/websocket/room-view.js');
 const { registerGameHandlers } = await import('../src/websocket/game-handlers.js');
@@ -85,11 +85,8 @@ interface Lobby {
   gameCoverUrl: string;
   otherGameId: string;
   client(user: User): Promise<ClientSocket>;
-  /**
-   * Exactly what `websocket/index.ts` does when a socket drops, except that
-   * the grace period is one a test can watch elapse.
-   */
-  drop(user: User, roomId: string, delayMs?: number): void;
+  /** Closes this user's socket for real, and waits for the server to notice. */
+  drop(user: User): Promise<void>;
 }
 
 let seq = 0;
@@ -122,6 +119,8 @@ async function withLobby(run: (lobby: Lobby) => Promise<void>): Promise<void> {
   const rooms = new Map<string, Room>();
   const socketsByUser = new Map<string, string>();
   const serverSockets = new Map<string, ServerSocket>();
+  /** The in-flight presence update for each user, so `drop` can await it. */
+  const awayDone = new Map<string, Promise<void>>();
   const httpServer: HttpServer = createServer();
   const io = new Server(httpServer);
   const getUserSocket = (id: string) => socketsByUser.get(id);
@@ -136,23 +135,56 @@ async function withLobby(run: (lobby: Lobby) => Promise<void>): Promise<void> {
     // only shows when a room-handler event (choose-game) and a game-handler
     // event (saveSram) are driven by two different players in the same room.
     registerGameHandlers(socket, io, user.id, rooms, getUserSocket);
+    /*
+     * The presence half of what `websocket/index.ts` does on a disconnect.
+     *
+     * Only the half: the real handler first asks the presence map whether this
+     * socket closing means the user is actually gone, and that map does not
+     * exist here. One socket per user in this file, so the question has one
+     * answer and the guard has nothing to decide.
+     */
+    socket.on('disconnect', () => {
+      awayDone.set(userId, markPlayerAway(io, rooms, userId, new Date(), getUserSocket));
+    });
   });
 
   await new Promise<void>(done => httpServer.listen(0, done));
   const port = (httpServer.address() as { port: number }).port;
 
   const clients: ClientSocket[] = [];
+  const clientsByUser = new Map<string, ClientSocket>();
   const client = async (user: User) => {
     const socket = connect(`http://localhost:${port}`, {
       auth: { userId: user.id }, transports: ['websocket']
     });
     clients.push(socket);
+    clientsByUser.set(user.id, socket);
     await once(socket, 'connect');
     return socket;
   };
 
-  const drop = (user: User, roomId: string, delayMs?: number) =>
-    scheduleLeaveRoom(io, serverSockets.get(user.id)!, roomId, rooms, user, getUserSocket, delayMs);
+  /*
+   * A real disconnect, awaited on the server side.
+   *
+   * The old harness armed the departure timer directly, because a timer was
+   * what it tested. What is tested now is what the disconnect handler does, so
+   * the socket has to actually close - and the close has to be waited for, or
+   * the assertion races the server.
+   *
+   * The server socket is the thing to wait on, not the client: the client knows
+   * it has closed long before the server has run its handler, which is the
+   * whole window this would otherwise race.
+   */
+  const drop = async (user: User) => {
+    const server = serverSockets.get(user.id)!;
+    const closed = new Promise<void>(done => server.once('disconnect', () => done()));
+    clientsByUser.get(user.id)!.close();
+    await closed;
+    // The handler registered at connection time runs before this one, so its
+    // promise is already recorded by now - and awaiting it is what stops the
+    // assertions racing an update still in flight.
+    await awayDone.get(user.id);
+  };
 
   try {
     await run({
@@ -566,33 +598,26 @@ test('re-inviting restarts the clock instead of handing over the leftovers', asy
   });
 });
 
-test('a seat is released once the grace period elapses', async () => {
-  await withLobby(async ({ alice, bob, client, rooms, drop }) => {
+
+test('a disconnect never releases the seat, even from the last player in the room', async () => {
+  await withLobby(async ({ alice, client, rooms, drop }) => {
     const host = await client(alice);
-    const guest = await client(bob);
 
     const created = once<Room>(host, 'room:created');
     host.emit('room:create', {});
     const room = await created;
 
-    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
-    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
-    const acked = once(guest, 'lobby:accepted');
-    guest.emit('lobby:accept', { invitationId: (await delivered).id });
-    await acked;
-    assert.equal(rooms.get(room.id)!.players.length, 2);
+    await drop(alice);
 
-    // Thirty milliseconds instead of forty-five seconds: the same code path,
-    // and the only reason the delay is a parameter.
-    const left = once<{ userId: string }>(host, 'player:left');
-    drop(bob, room.id, 30);
-
-    assert.equal((await left).userId, bob.id);
-    assert.deepEqual(rooms.get(room.id)!.players.map(p => p.userId), [alice.id]);
+    const after = rooms.get(room.id);
+    assert.ok(after, 'the room outlives the only player in it');
+    assert.deepEqual(after.players.map(p => p.userId), [alice.id]);
+    assert.equal(after.players[0].online, false, 'away, not gone');
+    assert.ok(after.abandonedAt instanceof Date, 'and the clock has started');
   });
 });
 
-test('a dropped socket keeps its seat, and its real timer cannot hold the process open', async () => {
+test('a member who left comes back through room:join, with no new invitation', async () => {
   await withLobby(async ({ alice, bob, client, rooms, drop }) => {
     const host = await client(alice);
     const guest = await client(bob);
@@ -607,55 +632,47 @@ test('a dropped socket keeps its seat, and its real timer cannot hold the proces
     guest.emit('lobby:accept', { invitationId: (await delivered).id });
     await acked;
 
-    /*
-     * The real forty-five seconds this time, and the timer is deliberately
-     * left armed when the test returns.
-     *
-     * Two things at once. A dropped socket is a blink, not a departure, so the
-     * seat must still be there on the next line - removing it on the spot is
-     * what used to destroy rooms mid-game. And this is the canary for the
-     * timer being `unref`'d: were it not, this single line would add
-     * forty-five seconds to the whole suite's exit.
-     */
-    drop(bob, room.id);
+    await drop(bob);
+    assert.equal(rooms.get(room.id)!.players.find(p => p.userId === bob.id)!.online, false);
 
+    // No invitation is sent, and none is needed: the door is membership.
+    const back = await client(bob);
+    const rejoined = once<Room>(back, 'room:updated');
+    back.emit('room:join', { roomId: room.id });
+    await rejoined;
+
+    const after = rooms.get(room.id)!;
+    assert.equal(after.players.find(p => p.userId === bob.id)!.online, true);
+    assert.equal(after.abandonedAt, undefined);
+  });
+});
+
+test('creating a room gives up the one you were in, so nobody collects lobbies', async () => {
+  await withLobby(async ({ alice, bob, client, rooms }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const firstCreated = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const first = await firstCreated;
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: first.id, friendId: bob.id });
+    const acked = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: (await delivered).id });
+    await acked;
+
+    const secondCreated = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const second = await secondCreated;
+
+    assert.notEqual(second.id, first.id);
     assert.deepEqual(
-      rooms.get(room.id)!.players.map(p => p.userId),
-      [alice.id, bob.id],
-      'a blink is not a departure'
+      rooms.get(first.id)!.players.map(p => p.userId),
+      [bob.id],
+      'alice gave up her seat in the room she left behind'
     );
-  });
-});
-
-test('a player who comes back inside the grace period keeps their seat', async () => {
-  await withLobby(async ({ alice, bob, client, rooms, drop }) => {
-    const host = await client(alice);
-    const guest = await client(bob);
-
-    const created = once<Room>(host, 'room:created');
-    host.emit('room:create', {});
-    const room = await created;
-
-    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
-    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
-    const acked = once(guest, 'lobby:accepted');
-    guest.emit('lobby:accept', { invitationId: (await delivered).id });
-    await acked;
-
-    drop(bob, room.id, 30);
-    cancelScheduledLeave(room.id, bob.id);
-
-    /*
-     * A second departure is the clock, so that nothing here sleeps: Alice's
-     * timer is armed after Bob's and for the same delay, so when it fires Bob's
-     * deadline has certainly passed. Bob still holding his seat at that point
-     * is proof the cancellation took.
-     */
-    const left = once<{ userId: string }>(guest, 'player:left');
-    drop(alice, room.id, 30);
-
-    assert.equal((await left).userId, alice.id);
-    assert.deepEqual(rooms.get(room.id)!.players.map(p => p.userId), [bob.id]);
+    assert.deepEqual(rooms.get(second.id)!.players.map(p => p.userId), [alice.id]);
   });
 });
 
@@ -958,6 +975,38 @@ function viewWhere(
   });
 }
 
+test('game:start is refused while the other player is away', async () => {
+  await withLobby(async ({ alice, bob, client, gameId, drop }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const acked = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: (await delivered).id });
+    await acked;
+
+    host.emit('room:choose-game', { roomId: room.id, gameId, gameTitle: 'Chrono Trigger' });
+    await once(host, 'room:updated');
+
+    await drop(bob);
+
+    /*
+     * The failure this prevents has no error message of its own: lockstep waits
+     * for both cores, so starting against an absent player leaves two screens
+     * waiting for each other with nothing to click. A refusal is the only
+     * outcome anybody can act on.
+     */
+    const refused = once<{ message: string }>(host, 'error');
+    host.emit('game:start', { roomId: room.id });
+    assert.match((await refused).message, /away|not here|connected/i);
+  });
+});
+
 test('a room takes one invitation at a time, and refuses the second', async () => {
   await withLobby(async ({ alice, bob, client }) => {
     const host = await client(alice);
@@ -1198,25 +1247,4 @@ test('a withdrawn invitation is not reported to the invitee as one they answered
     assert.match(message, /withdrawn/);
     assert.doesNotMatch(message, /answered/);
   });
-});
-
-// --- a restart is not a departure -----------------------------------------
-
-test('a restarted seat outlives a deployment, unlike a disconnected one', async () => {
-  // These two were once the same number, and the consequences ran all the way:
-  // a deploy takes two and a half to three minutes, the 45-second seat expired
-  // mid-deploy, the room emptied and was deleted, and the returning player met
-  // "Room not found" on a screen that then waited for ever. The distinction is
-  // the fix, so this guards the distinction rather than either value.
-  const { DISCONNECT_GRACE_MS, RESTART_GRACE_MS } = await import(
-    '../src/websocket/room-handlers.js'
-  );
-  assert.ok(
-    RESTART_GRACE_MS > DISCONNECT_GRACE_MS,
-    'a seat held across a restart must outlast one held across a disconnect'
-  );
-  assert.ok(
-    RESTART_GRACE_MS >= 3 * 60_000,
-    'the longest deployment observed here ran 3m12s; the grace must outlast it'
-  );
 });

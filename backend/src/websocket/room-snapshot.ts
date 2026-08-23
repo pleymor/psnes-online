@@ -6,9 +6,33 @@ const logger = createLogger('RoomSnapshot');
 
 const KEY = 'psnes:rooms:v1';
 const VERSION = 1;
-/** A backstop, so a long outage cannot resurrect a stale world. */
-const TTL_SECONDS = 3600;
+/**
+ * A storage bound, not a lifetime.
+ *
+ * It used to be an hour and to double as the staleness rule, which it did
+ * badly: "stored a long time ago" and "abandoned a long time ago" are different
+ * questions, and only the second one has an answer worth acting on. The
+ * abandonment sweep answers that one now, at restore, so this only has to
+ * outlast any outage a snapshot should survive.
+ */
+export const TTL_SECONDS = 24 * 60 * 60;
 const INTERVAL_MS = 1000;
+
+/**
+ * How many idle ticks before the key is touched.
+ *
+ * `writeSnapshot` skips writing when nothing changed, which means a world that
+ * stops changing stops refreshing its key - and a durable room at rest is
+ * exactly the state that never changes. An hour against a twenty-four hour TTL
+ * leaves room for twenty-two missed refreshes in a row.
+ *
+ * Counted in ticks rather than measured against a clock: the interval is one
+ * second, so counting is deterministic and a test drives it by calling the
+ * function, without any time passing.
+ */
+export const REFRESH_EVERY_TICKS = 3600;
+
+let idleTicks = 0;
 
 /**
  * The subset of the Redis client this module uses, so tests can pass a stub.
@@ -16,6 +40,8 @@ const INTERVAL_MS = 1000;
 interface Store {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, options: { EX: number }): Promise<unknown>;
+  /** Pushes the deadline back without rewriting a body that has not changed. */
+  expire(key: string, seconds: number): Promise<unknown>;
 }
 
 interface Snapshot {
@@ -74,6 +100,10 @@ export function deserialiseRooms(raw: string | null): Map<string, Room> {
     if (!room?.id || !Array.isArray(room.players) || room.players.length === 0) continue;
     // JSON has no date type, and the rest of the app calls Date methods here.
     room.createdAt = new Date(room.createdAt);
+    // Same reason as createdAt: `isAbandoned` calls getTime() on this. Left
+    // undefined when absent - a room whose members were all present when the
+    // snapshot was written has no deadline running.
+    if (room.abandonedAt) room.abandonedAt = new Date(room.abandonedAt);
     rooms.set(room.id, room);
   }
 
@@ -81,16 +111,20 @@ export function deserialiseRooms(raw: string | null): Map<string, Room> {
 }
 
 /**
- * Loads the snapshot into `rooms` and holds every restored player's seat.
+ * Loads the snapshot into `rooms`.
  *
- * Every player is disconnected by definition at this point, so each one gets
- * the ordinary departure grace period: a room nobody comes back to then dies
- * exactly as it would have if the server had never restarted. `holdSeat` is
- * injected rather than imported so this stays testable without a socket.
+ * Everyone is disconnected by definition at this point, which is now an
+ * ordinary state rather than an emergency: each restored member comes back as
+ * away, and a room nobody returns to dies on the abandonment clock like any
+ * other. The old five-minute restart grace existed because the alternative was
+ * losing the room outright; there is no longer anything to lose.
+ *
+ * `onRestored` is injected rather than imported so this stays testable without
+ * a socket.
  */
 export async function restoreRooms(
   rooms: Map<string, Room>,
-  holdSeat: (roomId: string, userId: string) => void,
+  onRestored: (room: Room) => void,
   store: Store = getRedis() as unknown as Store
 ): Promise<number> {
   let raw: string | null = null;
@@ -107,7 +141,7 @@ export async function restoreRooms(
   const restored = deserialiseRooms(raw);
   for (const [id, room] of restored) {
     rooms.set(id, room);
-    for (const player of room.players) holdSeat(id, player.userId);
+    onRestored(room);
   }
 
   lastWritten = serialiseRooms(rooms);
@@ -128,7 +162,18 @@ export async function writeSnapshot(
   if (!hasReadSucceeded && rooms.size === 0) return false;
 
   const body = serialiseRooms(rooms);
-  if (body === lastWritten) return false;
+  if (body === lastWritten) {
+    if (++idleTicks < REFRESH_EVERY_TICKS) return false;
+    idleTicks = 0;
+    try {
+      await store.expire(KEY, TTL_SECONDS);
+    } catch (err) {
+      logger.error({ err }, 'Could not refresh the room snapshot deadline');
+    }
+    return false;
+  }
+
+  idleTicks = 0;
 
   try {
     await store.set(KEY, body, { EX: TTL_SECONDS });
@@ -173,5 +218,6 @@ export async function flushRooms(
 export function resetSnapshotStateForTest(): void {
   lastWritten = '';
   hasReadSucceeded = false;
+  idleTicks = 0;
   stopRoomSnapshots();
 }

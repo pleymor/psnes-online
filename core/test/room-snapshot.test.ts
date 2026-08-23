@@ -16,7 +16,9 @@ import {
 	restoreRooms,
 	serialiseRooms,
 	resetSnapshotStateForTest,
-	writeSnapshot
+	writeSnapshot,
+	REFRESH_EVERY_TICKS,
+	TTL_SECONDS
 } from '../../backend/src/websocket/room-snapshot.js';
 
 function makeRoom(id: string, playerIds: string[]) {
@@ -186,4 +188,64 @@ test('a write failure is swallowed, not thrown at the caller', async () => {
 
 	resetSnapshotStateForTest();
 	assert.equal(await writeSnapshot(populated() as never, failing as never), false);
+});
+
+/*
+ * The failure this covers is silent and only shows up much later.
+ *
+ * `writeSnapshot` skips writing when nothing changed, so a world that stops
+ * changing stops refreshing its key - and a durable room at rest is exactly the
+ * state that never changes. The key then expires while the process is up, where
+ * nobody notices because memory is authoritative, and the loss only surfaces at
+ * the next restart, with every lobby gone.
+ */
+test('an unchanging world keeps its key alive instead of letting it expire', async () => {
+	resetSnapshotStateForTest();
+
+	const sets: string[] = [];
+	const expires: number[] = [];
+	const store = {
+		get: async () => null,
+		set: async (_k: string, body: string) => void sets.push(body),
+		expire: async (_k: string, seconds: number) => void expires.push(seconds)
+	};
+
+	await restoreRooms(new Map(), () => {}, store as never);
+
+	const rooms = populated();
+	await writeSnapshot(rooms as never, store as never);
+	assert.equal(sets.length, 1, 'the first write happens');
+
+	// One short of the refresh: still nothing but the original write.
+	for (let i = 0; i < REFRESH_EVERY_TICKS - 1; i++) {
+		await writeSnapshot(rooms as never, store as never);
+	}
+	assert.deepEqual(expires, [], 'no touch before the interval is up');
+
+	await writeSnapshot(rooms as never, store as never);
+	assert.deepEqual(expires, [TTL_SECONDS], 'and one touch when it is');
+	assert.equal(sets.length, 1, 'without rewriting a body that did not change');
+});
+
+test('a real write resets the idle count, so an active room never pays for a touch', async () => {
+	resetSnapshotStateForTest();
+
+	const expires: number[] = [];
+	const store = {
+		get: async () => null,
+		set: async () => {},
+		expire: async (_k: string, seconds: number) => void expires.push(seconds)
+	};
+
+	await restoreRooms(new Map(), () => {}, store as never);
+
+	const rooms = populated();
+	for (let i = 0; i < REFRESH_EVERY_TICKS * 2; i++) {
+		// A different body every tick, the way a room somebody is playing in
+		// changes: presence, ports, status.
+		rooms.set(`room-${i}`, makeRoom(`room-${i}`, ['solo']));
+		await writeSnapshot(rooms as never, store as never);
+	}
+
+	assert.deepEqual(expires, [], 'a world that keeps changing keeps its own key alive');
 });

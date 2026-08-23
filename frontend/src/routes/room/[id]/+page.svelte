@@ -13,8 +13,10 @@
   import LockstepRoom from '$lib/components/LockstepRoom.svelte';
   import SoloRoom from '$lib/components/SoloRoom.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
+  import ConfirmModal from '$lib/components/ConfirmModal.svelte';
   import type { Room, KeyConfig } from '$lib/types';
   import { EmulationMode } from '$lib/types';
+  import { onlinePlayers } from '$lib/rooms/online-players';
   import { createLogger } from '$lib/utils/logger';
 
   const logger = createLogger('RoomPage');
@@ -67,8 +69,15 @@
   // Determine if current player is the room host
   $: isRoomHost = room?.hostId === $user?.id;
 
-  // Check if only 1 player in the room (single-player mode)
-  $: isSinglePlayer = room?.players.length === 1;
+  /*
+   * Online, not member count.
+   *
+   * A partner who closed their tab is still in `room.players`, so counting
+   * members here would put a single player into netplay: two cores exchanging
+   * inputs with nobody on the other end. The invite panel still counts members
+   * - an away member's seat is theirs - which is why these two disagree.
+   */
+  $: isSinglePlayer = room ? onlinePlayers(room).length <= 1 : true;
 
   // Determine effective emulation mode for game start
   $: effectiveEmulationMode = isSinglePlayer ? EmulationMode.SINGLE : room?.emulationMode;
@@ -514,7 +523,15 @@
     alive = false;
 
     if ($socket) {
-      $socket.emit('room:leave', { roomId });
+      /*
+       * No `room:leave` here, deliberately, and this line is the whole point of
+       * the release.
+       *
+       * Emitting it on unmount made navigating to the library a permanent
+       * departure - and the last one out destroyed the room - which is why
+       * playing together twice took two invitations. Leaving is a button now,
+       * and going away is just a socket that is no longer here.
+       */
       // With the handler, not without: a bare off('connect') removes every
       // connect listener on the shared socket, including the ones that keep
       // the reconnection banner and the netplay slot alive.
@@ -541,7 +558,23 @@
     $socket?.emit('game:start', { roomId });
   }
 
+  let confirmingLeave = false;
+
+  /*
+   * The only path that gives up a seat.
+   *
+   * This used to be a bare `goto('/')`, because `onDestroy` emitted
+   * `room:leave` for it - which is exactly the coupling this release removes.
+   * With the unmount silent, the event has to be sent from here or nobody could
+   * ever give up a seat at all.
+   *
+   * Confirmed because it is not undoable from this side: the other player has
+   * to invite you again, and if you were the last one out the room goes with
+   * its invitations.
+   */
   function leaveRoom() {
+    confirmingLeave = false;
+    $socket?.emit('room:leave', { roomId });
     goto('/');
   }
 
@@ -714,7 +747,7 @@
           <button on:click={startGame} class="btn-start" disabled={!canStartGame || !room.gameId}>
             {t($language, 'startGame')}
           </button>
-          <button on:click={leaveRoom} class="btn-leave">
+          <button on:click={() => (confirmingLeave = true)} class="btn-leave">
             {t($language, 'leaveRoom')}
           </button>
         </div>
@@ -740,7 +773,16 @@
     {:else if activeEmulationMode === EmulationMode.LOCKSTEP}
       <!-- Lockstep runs on its own deterministic core and its own relay, so it
            shares nothing with the WebRTC path in P2PRoom. -->
-      <LockstepRoom {roomId} gameId={chosenGame.id} gameCrc32={chosenGame.crc32} gameTitle={chosenGame.title} isHost={isRoomHost} {keyConfig} />
+      <LockstepRoom
+        {roomId}
+        gameId={chosenGame.id}
+        gameCrc32={chosenGame.crc32}
+        gameTitle={chosenGame.title}
+        isHost={isRoomHost}
+        {keyConfig}
+        latencyMode={room?.latencyMode ?? 'auto'}
+        canSetLatency={isRoomCreator}
+      />
     {:else}
       <!-- P2PRoom handles the dual and streaming modes -->
       <P2PRoom
@@ -762,6 +804,17 @@
     </div>
   {/if}
 </div>
+
+{#if confirmingLeave}
+  <ConfirmModal
+    title={t($language, 'leaveRoom')}
+    message={t($language, 'leaveRoomWarning')}
+    confirmText={t($language, 'leaveRoom')}
+    danger={true}
+    on:confirm={leaveRoom}
+    on:cancel={() => (confirmingLeave = false)}
+  />
+{/if}
 
 <style>
   .room-container {

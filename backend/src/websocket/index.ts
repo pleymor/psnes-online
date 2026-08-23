@@ -3,7 +3,7 @@ import { Room, User } from '../types/index.js';
 import { getDb } from '../db/sqlite.js';
 import { findUserById } from '../db/users.js';
 import { notifyFriendsStatusChanged, getOnlineFriends } from '../services/friends.js';
-import { pendingInvitationsFor, registerRoomHandlers, scheduleLeaveRoom } from './room-handlers.js';
+import { markPlayerAway, pendingInvitationsFor, registerRoomHandlers } from './room-handlers.js';
 import { registerGameHandlers } from './game-handlers.js';
 import { registerP2PHandlers } from './p2p-handlers.js';
 import { registerSyncHandlers } from './sync-handlers.js';
@@ -151,14 +151,13 @@ async function handleConnection(io: Server, socket: Socket) {
 
     await notifyFriendsStatusChanged(io, user.id, false, getUserSocket);
 
-    // Hold their seat rather than dropping them: a dropped socket is usually
-    // a blink, not someone leaving, and removing them immediately destroyed
-    // rooms out from under a running game.
-    rooms.forEach((room, roomId) => {
-      if (room.players.some(p => p.userId === user.id)) {
-        scheduleLeaveRoom(io, socket, roomId, rooms, user, getUserSocket);
-      }
-    });
+    // Away, not gone. Their seat, their port and their membership are all
+    // still theirs; what changes is that a game can no longer start against
+    // them, and that an empty room starts counting down.
+    //
+    // Below the stale-socket guard above, deliberately: acting on a socket the
+    // user has already replaced would mark somebody away who is sitting there.
+    await markPlayerAway(io, rooms, user.id, new Date(), getUserSocket);
 
   });
 }
