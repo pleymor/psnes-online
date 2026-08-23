@@ -10,7 +10,9 @@ Ce qui bloque n'est pas la donnée, c'est le chemin pour l'apporter. La seule fa
 
 Trois obstacles concrets, trouvés en lisant le code plutôt qu'en supposant :
 
-1. **Le catalogue s'écrase lui-même.** `refreshGameMetadata` fait un `DELETE` sans clause (`metadata-loader.ts:223`) puis réinsère le JSON. Une entrée apportée par un joueur y disparaîtrait au premier refresh.
+1. **Le catalogue s'écrase lui-même à chaque démarrage.** `refreshGameMetadata` fait un `DELETE` sans clause (`metadata-loader.ts:223`) puis réinsère le JSON.
+
+   **Correction du 2026-08-23, en cours d'implémentation : cette phrase disait « au premier refresh », ce qui sous-estimait la portée.** `refreshGameMetadata` est appelé inconditionnellement au démarrage (`index.ts:278`) — vérifié dans les journaux d'un backend lancé à la main. Ce n'est donc pas une action d'administration occasionnelle : sans la clause `WHERE source = 'catalogue'`, **tout redémarrage du backend effacerait l'intégralité des contributions**, y compris un simple redéploiement. Le correctif est sur le chemin le plus fréquent qui existe, pas sur un cas limite.
 2. **Le catalogue n'a aucun checksum.** Vérifié dans le JSON : pas un seul `crc32`, pas un seul `md5`. `findGameMetadataByChecksum` ne trouve donc jamais rien, et l'appariement se fait en pratique par titre — `api/games.ts:71` essaie le checksum d'abord et retombe toujours sur le titre. De plus `GameMetadata.crc32` est **une** colonne, quand un même jeu a autant de dumps que de régions.
 3. **Rien ne relie `Game` à `GameMetadata`.** `api/games.ts:73` **recopie** les champs dans la ligne `Game` à la création. Il n'existe aucun moyen de savoir qu'une ROM n'est pas identifiée, et une correction arrivée après coup ne touche personne.
 
