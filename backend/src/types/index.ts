@@ -30,6 +30,13 @@ export interface RoomPlayer {
   port: 1 | 2 | null; // null = spectator
   isReady: boolean;
   emulationReady: boolean; // true when player's emulator is ready to start
+  /**
+   * Whether this member currently has a socket connected.
+   *
+   * Optional because rooms read back from a snapshot written before this field
+   * existed have no value for it, and absent has to mean away.
+   */
+  online?: boolean;
   keyConfig: KeyConfig;
 }
 
