@@ -23,7 +23,7 @@ export type LoadFailure =
   | 'sessionExpired'
   | 'notYourGame'
   | 'failedToLoadSaves'
-  | 'failedToDeleteSave';
+  | 'failedToDelete';
 
 export type SavesResult =
   | { ok: true; saves: SaveSummary[] }
@@ -65,7 +65,7 @@ export type DeleteResult = { ok: true } | { ok: false; reason: LoadFailure };
 export function deleteFailureReason(status: number): LoadFailure {
   if (status === 401) return 'sessionExpired';
   if (status === 404) return 'notYourGame';
-  return 'failedToDeleteSave';
+  return 'failedToDelete';
 }
 
 export async function deleteSave(gameId: string, saveId: string): Promise<DeleteResult> {
@@ -77,7 +77,7 @@ export async function deleteSave(gameId: string, saveId: string): Promise<Delete
     if (!res.ok) return { ok: false, reason: deleteFailureReason(res.status) };
     return { ok: true };
   } catch {
-    return { ok: false, reason: 'failedToDeleteSave' };
+    return { ok: false, reason: 'failedToDelete' };
   }
 }
 

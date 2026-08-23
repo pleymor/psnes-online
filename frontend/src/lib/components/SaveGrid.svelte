@@ -14,16 +14,14 @@
   import { fetchSaves, deleteSave, byNewest, type SaveSummary, type LoadFailure } from '$lib/saves/api';
   import { saveIdentity } from '$lib/saves/identity';
   import ConfirmModal from './ConfirmModal.svelte';
+  import { notifications } from '$lib/services/notification';
 
   export let gameId: string;
   /** Shown on each tile's action button - "load" or "overwrite". */
   export let actionLabel: string;
   export let busy = false;
 
-  const dispatch = createEventDispatcher<{
-    select: SaveSummary;
-    notification: { message: string; type: 'success' | 'error' };
-  }>();
+  const dispatch = createEventDispatcher<{ select: SaveSummary }>();
 
   let saves: SaveSummary[] = [];
   let failure: LoadFailure | null = null;
@@ -48,8 +46,16 @@
     const result = await deleteSave(gameId, target.id);
     deleting = false;
 
+    /*
+     * Straight to the store, not up through an event.
+     *
+     * The menus above dispatch `notification` to a room that never listened, so
+     * anything sent that way is never seen. The toast is mounted once in the
+     * root layout, which is also what a deletion needs: the pause menu can be
+     * closed before the answer arrives.
+     */
     if (!result.ok) {
-      dispatch('notification', { message: t($language, result.reason), type: 'error' });
+      notifications.show(t($language, result.reason), 'error');
       // Reloaded even on failure: the usual reason a delete is refused is that
       // the save is already gone, and leaving it on screen invites the player
       // to try again for ever.
@@ -57,7 +63,7 @@
       return;
     }
 
-    dispatch('notification', { message: t($language, 'saveDeleted'), type: 'success' });
+    notifications.show(t($language, 'saveDeleted'), 'success');
     await reload();
   }
 
@@ -92,7 +98,7 @@
 {:else}
   <ul class="grid">
     {#each saves as save (save.id)}
-      {@const identity = saveIdentity(save, $language)}
+      {@const identity = saveIdentity(save, $language, t($language, 'quickSave'))}
       <!-- A row holding two buttons rather than one big button: a delete
            control cannot be nested inside the button it sits on. -->
       <li class="tile">
@@ -131,7 +137,7 @@
     title={t($language, 'deleteSave')}
     message={t($language, 'confirmDeleteSave').replace(
       '{name}',
-      saveIdentity(pendingDelete, $language).primary
+      saveIdentity(pendingDelete, $language, t($language, 'quickSave')).primary
     )}
     confirmText={t($language, 'deleteSave')}
     danger={true}

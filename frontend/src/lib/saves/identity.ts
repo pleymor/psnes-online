@@ -1,4 +1,5 @@
 import { autoSaveName, type SaveSummary } from './api';
+import { QUICK_SAVE_NAME } from './quick';
 
 /** The one or two lines a tile shows for a save. */
 export interface SaveIdentity {
@@ -39,7 +40,21 @@ function isAutoNamed(save: SaveSummary, locale: string): boolean {
  * read in another will not match and falls back to two lines. Degraded rather
  * than wrong: the tile stays truthful and merely spends a line it did not need.
  */
-export function saveIdentity(save: SaveSummary, locale: string): SaveIdentity {
+export function saveIdentity(
+	save: SaveSummary,
+	locale: string,
+	quickSaveLabel?: string
+): SaveIdentity {
+	/*
+	 * The quick save is stored under a sentinel nobody would type, so that
+	 * changing language cannot orphan it and start a second one. The label is
+	 * passed in rather than translated here: this module is unit-tested from
+	 * plain node, which cannot resolve the alias the translations live behind.
+	 */
+	if (quickSaveLabel && save.name === QUICK_SAVE_NAME) {
+		return { primary: quickSaveLabel, secondary: formatSaveDate(save.updatedAt, locale) };
+	}
+
 	if (isAutoNamed(save, locale)) {
 		return { primary: formatSaveDate(save.updatedAt, locale) };
 	}

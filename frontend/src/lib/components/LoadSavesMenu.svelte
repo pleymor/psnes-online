@@ -13,6 +13,7 @@
   import { t } from '$lib/i18n/translations';
   import { createLogger } from '$lib/utils/logger';
   import type { SaveSummary } from '$lib/saves/api';
+  import { notifications } from '$lib/services/notification';
 
   export let roomId: string;
   export let gameId: string;
@@ -26,9 +27,11 @@
     busy = true;
     $socket?.emit('game:load', { roomId, saveId: save.id });
 
+    // Straight to the toast store, for the same reason as the save menu: the
+    // dispatched events reached a parent that never listened for them.
     const onLoaded = () => {
       busy = false;
-      dispatch('notification', { message: t($language, 'saveLoaded'), type: 'success' });
+      notifications.show(t($language, 'saveLoaded'), 'success');
       dispatch('close');
       $socket?.off('error', onError);
     };
@@ -36,7 +39,7 @@
     const onError = (error: unknown) => {
       busy = false;
       logger.error('Error loading save:', error);
-      dispatch('notification', { message: t($language, 'failedToLoad'), type: 'error' });
+      notifications.show(t($language, 'failedToLoad'), 'error');
       $socket?.off('game:loaded', onLoaded);
     };
 
@@ -52,7 +55,6 @@
     {busy}
     actionLabel={t($language, 'loadState')}
     on:select={(e) => loadSave(e.detail)}
-    on:notification
   />
 </div>
 

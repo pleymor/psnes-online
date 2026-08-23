@@ -6,6 +6,7 @@
   import { startLogShipping } from '$lib/utils/log-shipper';
   import { createLogger } from '$lib/utils/logger';
   import { linkState } from '$lib/stores/connection';
+  import NotificationToast from '$lib/components/NotificationToast.svelte';
 
   const logger = createLogger('AppLayout');
 
@@ -59,6 +60,17 @@
   {/if}
   <slot />
 </div>
+
+<!--
+  Mounted once, here, because a toast has to outlive the screen that raised it:
+  the pause menu unmounts the moment a save is deleted or the shortcut fires.
+
+  Both the store and this component already existed and neither was used
+  anywhere - the pause menu has been dispatching notifications into nothing.
+  Deleting a save and quick-saving both need to say so, which is what finally
+  made the wiring worth doing.
+-->
+<NotificationToast />
 
 <style>
   :global(body) {

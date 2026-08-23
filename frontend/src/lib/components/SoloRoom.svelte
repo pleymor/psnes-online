@@ -21,6 +21,9 @@
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import PauseMenu from './PauseMenu.svelte';
+  import { language } from '$lib/stores/language';
+  import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
+  import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
   import {
     AudioSink,
@@ -532,6 +535,23 @@
       toggleTurbo();
       return;
     }
+    /*
+     * F2 and F4, unless the player bound them to their pad.
+     *
+     * `event.code`, not `event.key`: the controls screen records codes, so
+     * comparing anything else would let a bound key slip through the check.
+     * Skipped while the pause menu is open - the menus have their own buttons
+     * for this, and a shortcut firing behind an open dialog is a surprise.
+     */
+    if (!showPauseMenu && (event.code === QUICK_SAVE_KEY || event.code === QUICK_LOAD_KEY)) {
+      if (padUsesKey(keyConfig, event.code)) return;
+      event.preventDefault();
+      const ctx = { socket: $socket, roomId, gameId, locale: $language };
+      if (event.code === QUICK_SAVE_KEY) void quickSave({ ...ctx, emulator: saveAdapter });
+      else void quickLoad(ctx);
+      return;
+    }
+
     if (event.key !== 'Escape' || showPauseMenu) return;
     event.preventDefault();
     openPauseMenu(!!document.fullscreenElement);

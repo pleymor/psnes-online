@@ -17,7 +17,8 @@
   import { t } from '$lib/i18n/translations';
   import { createLogger } from '$lib/utils/logger';
   import { autoSaveName, type SaveSummary } from '$lib/saves/api';
-  import { captureThumbnail } from '$lib/saves/thumbnail';
+  import { captureShot, captureState } from '$lib/saves/capture';
+  import { notifications } from '$lib/services/notification';
 
   export let roomId: string;
   export let gameId: string;
@@ -31,57 +32,18 @@
   let busy = false;
   let pendingOverwrite: SaveSummary | null = null;
 
-  /**
-   * Base64 for buffers of any size.
-   *
-   * `String.fromCharCode(...bytes)` spreads one argument per byte, which blows
-   * the call stack somewhere around 100k. A real savestate is over 800KB.
-   */
-  function toBase64(bytes: Uint8Array): string {
-    let binary = '';
-    const CHUNK = 0x8000;
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-    }
-    return btoa(binary);
-  }
-
-  async function captureState(): Promise<string | undefined> {
-    if (!emulator) return undefined;
-    try {
-      const result = await emulator.saveState();
-      const blob = result?.state ?? result;
-      if (blob instanceof Blob) {
-        return toBase64(new Uint8Array(await blob.arrayBuffer()));
-      }
-      if (result instanceof Uint8Array) return toBase64(result);
-    } catch (error) {
-      logger.error('Failed to capture emulator state:', error);
-    }
-    return undefined;
-  }
-
-  /** A save without a picture is fine; a save that failed because of one is not. */
-  function captureShot(): string | undefined {
-    try {
-      const canvas = emulator?.getCanvas?.();
-      return canvas ? captureThumbnail(canvas) ?? undefined : undefined;
-    } catch (error) {
-      logger.error('Failed to capture thumbnail:', error);
-      return undefined;
-    }
-  }
-
   async function write(saveId: string | undefined, name: string) {
     busy = true;
-    const screenshot = captureShot();
-    const saveData = await captureState();
+    const screenshot = captureShot(emulator);
+    const saveData = await captureState(emulator);
 
     $socket?.emit('game:save', { roomId, saveId, name, saveData, screenshot });
 
+    // Straight to the toast store. These used to be dispatched to a parent
+    // that never listened, so "save created" has never actually been shown.
     const onSaved = () => {
       busy = false;
-      dispatch('notification', { message: t($language, 'saveCreated'), type: 'success' });
+      notifications.show(t($language, 'saveCreated'), 'success');
       grid?.reload();
       $socket?.off('error', onError);
     };
@@ -89,7 +51,7 @@
     const onError = (error: unknown) => {
       busy = false;
       logger.error('Error saving:', error);
-      dispatch('notification', { message: t($language, 'failedToSave'), type: 'error' });
+      notifications.show(t($language, 'failedToSave'), 'error');
       $socket?.off('game:saved', onSaved);
     };
 
@@ -124,7 +86,6 @@
     {busy}
     actionLabel={t($language, 'overwrite')}
     on:select={(e) => (pendingOverwrite = e.detail)}
-    on:notification
   />
 </div>
 

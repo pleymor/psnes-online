@@ -93,7 +93,7 @@ test('an automatic name follows the locale rather than a fixed format', () => {
 test('a refused deletion is reported as not yours rather than as a glitch', () => {
   assert.equal(deleteFailureReason(404), 'notYourGame');
   assert.equal(deleteFailureReason(401), 'sessionExpired');
-  assert.equal(deleteFailureReason(500), 'failedToDeleteSave');
+  assert.equal(deleteFailureReason(500), 'failedToDelete');
 });
 
 /**
@@ -142,7 +142,7 @@ test('a network failure is a reason, not a throw at the caller', async () => {
       throw new Error('offline');
     },
     async () => {
-      assert.deepEqual(await deleteSave('g', 's'), { ok: false, reason: 'failedToDeleteSave' });
+      assert.deepEqual(await deleteSave('g', 's'), { ok: false, reason: 'failedToDelete' });
     }
   );
 });
