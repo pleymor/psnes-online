@@ -63,3 +63,6 @@ core/dist/
 core/test/roms/
 
 core/build/
+
+# Superpowers scratch (brainstorm mockups, SDD ledger)
+.superpowers/
