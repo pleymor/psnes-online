@@ -134,3 +134,77 @@ export function findGameMetadataByChecksum(db: Database, checksum: string): Game
 export function deleteCatalogueMetadata(db: Database): void {
   db.prepare(`DELETE FROM "GameMetadata" WHERE source = 'catalogue'`).run();
 }
+
+/**
+ * What a player may fill in.
+ *
+ * Every field is optional except the title, and even that falls back upstream
+ * to the game's current name -- so "all optional" holds without leaving a row
+ * with a NULL title, which the column forbids. Nulls rather than optional keys
+ * because better-sqlite3 throws on a bound `undefined`.
+ */
+export interface CommunityEntryInput {
+  title: string;
+  altTitle: string | null;
+  genre: string | null;
+  publisher: string | null;
+  developer: string | null;
+  releaseDate: string | null;
+  players: string | null;
+  region: string | null;
+  description: string | null;
+}
+
+export function findGameMetadataById(db: Database, id: string): GameMetadata | null {
+  const row = db.prepare(`SELECT ${COLUMNS} FROM "GameMetadata" WHERE id = ?`)
+    .get(id) as MetadataRow | undefined;
+  return row ? toMetadata(row) : null;
+}
+
+/**
+ * Records an entry a player wrote.
+ *
+ * `source` is 'community', which is what keeps the JSON refresh from deleting
+ * it, and `contributedBy` is what makes a wrong entry traceable later -- the
+ * two halves of "immediate, attributed, reversible".
+ */
+export function insertCommunityMetadata(
+  db: Database,
+  entry: CommunityEntryInput,
+  contributedBy: string
+): GameMetadata {
+  const id = randomUUID();
+  const now = Date.now();
+  db.prepare(`
+    INSERT INTO "GameMetadata" (id, title, altTitle, genre, publisher, developer,
+                                releaseDate, players, region, description, coverUrl,
+                                crc32, md5, source, contributedBy, createdAt, updatedAt)
+    VALUES (@id, @title, @altTitle, @genre, @publisher, @developer,
+            @releaseDate, @players, @region, @description, NULL,
+            NULL, NULL, 'community', @contributedBy, @now, @now)
+  `).run({ id, contributedBy, now, ...entry });
+  return findGameMetadataById(db, id)!;
+}
+
+/**
+ * Stores a cover and returns the URL that serves it.
+ *
+ * The URL carries the write's timestamp. Without it the response could not be
+ * cached for long -- replacing a cover would leave every client that had
+ * already fetched the old one showing it until the cache expired.
+ */
+export function setCover(db: Database, metadataId: string, bytes: Buffer, mime: string): string {
+  const now = Date.now();
+  const coverUrl = `/api/covers/${metadataId}?v=${now}`;
+  db.prepare(`UPDATE "GameMetadata" SET cover = ?, coverMime = ?, coverUrl = ?, updatedAt = ? WHERE id = ?`)
+    .run(bytes, mime, coverUrl, now, metadataId);
+  return coverUrl;
+}
+
+/** The only path the cover bytes take out of the database. */
+export function findCover(db: Database, metadataId: string): { bytes: Buffer; mime: string } | null {
+  const row = db.prepare(`SELECT cover, coverMime FROM "GameMetadata" WHERE id = ?`)
+    .get(metadataId) as { cover: Buffer | null; coverMime: string | null } | undefined;
+  if (!row || !row.cover || !row.coverMime) return null;
+  return { bytes: row.cover, mime: row.coverMime };
+}
