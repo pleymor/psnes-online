@@ -12,6 +12,7 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { fetchSaves, byNewest, type SaveSummary, type LoadFailure } from '$lib/saves/api';
+  import { saveIdentity } from '$lib/saves/identity';
 
   export let gameId: string;
   /** Shown on each tile's action button - "load" or "overwrite". */
@@ -41,9 +42,6 @@
 
   onMount(reload);
 
-  function formatDate(iso: string): string {
-    return new Date(iso).toLocaleString($language);
-  }
 </script>
 
 {#if loading}
@@ -58,6 +56,7 @@
 {:else}
   <ul class="grid">
     {#each saves as save (save.id)}
+      {@const identity = saveIdentity(save, $language)}
       <li>
         <button class="tile" disabled={busy} on:click={() => dispatch('select', save)}>
           <span class="shot">
@@ -68,8 +67,10 @@
             {/if}
           </span>
           <span class="meta">
-            <strong>{save.name}</strong>
-            <small>{formatDate(save.updatedAt)}</small>
+            <strong>{identity.primary}</strong>
+            {#if identity.secondary}
+              <small>{identity.secondary}</small>
+            {/if}
           </span>
           <span class="action">{actionLabel}</span>
         </button>
@@ -88,6 +89,15 @@
     gap: 0.5rem;
     max-height: 380px;
     overflow-y: auto;
+    /* Reserved whether or not it is showing, so a tile's width stops depending
+       on how many saves there are - fifteen pixels that only disappear once the
+       list is short, which is not when the layout needs testing. */
+    scrollbar-gutter: stable;
+    /* Queried by the tile below rather than inherited from a parent: only one
+       of the two menus wrapping this component declares a container, and an
+       element that depends on a property just one of its parents has is an
+       element that breaks in exactly one place. */
+    container-type: inline-size;
   }
 
   .tile {
@@ -156,9 +166,17 @@
     white-space: nowrap;
   }
 
+  /* The same containment the name has always had.
+     Without it this line wrapped at the space between date and time, and the
+     "23/08/2026" half - which has no break opportunity of its own - overflowed
+     the box and painted itself across the action label. This is the guarantee:
+     whatever the widths do afterwards, nothing here can bleed again. */
   .meta small {
     color: #888;
     font-size: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .action {
@@ -167,6 +185,31 @@
     font-size: 0.8125rem;
     text-transform: uppercase;
     letter-spacing: 0.03em;
+  }
+
+  /*
+   * The narrow panel, which is where this list actually lives.
+   *
+   * Docked to the left of the game, the pause panel is 20rem: about 200px of
+   * tile once four levels of padding and the scrollbar are paid for. A fixed
+   * 96px thumbnail and an action label side by side left twenty of those for
+   * the text. Shrinking the picture and dropping the action onto its own line
+   * gives the words about 140px instead.
+   */
+  @container (max-width: 22rem) {
+    .tile {
+      flex-wrap: wrap;
+    }
+
+    .shot {
+      width: 64px;
+      height: 48px;
+    }
+
+    .action {
+      flex-basis: 100%;
+      text-align: right;
+    }
   }
 
   .grid-note {
