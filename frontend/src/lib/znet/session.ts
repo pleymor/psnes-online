@@ -381,6 +381,9 @@ export class NetplaySession implements TickSource {
 	private strainedAt = -1;
 	private strainedSecond = 0;
 	private strainedCount = 0;
+	/** Seconds observed since the window was last reset, so "a full window" means it. */
+	private observedSeconds = 0;
+
 	/** The last strain the peer reported, kept for the diagnostics. */
 	private _peerStrain = 0;
 
@@ -976,6 +979,10 @@ export class NetplaySession implements TickSource {
 			this.strainedSecond = second;
 		} else if (second > this.strainedSecond) {
 			const elapsed = second - this.strainedSecond;
+			this.observedSeconds = Math.min(
+				STRAIN_WINDOW_SECONDS,
+				this.observedSeconds + elapsed
+			);
 			if (elapsed >= STRAIN_WINDOW_SECONDS) {
 				// A gap longer than the window means nothing inside it is still
 				// relevant. Clearing beats walking the ring, and beats replaying a
@@ -999,22 +1006,67 @@ export class NetplaySession implements TickSource {
 			this.strainedCount++;
 		}
 
-		if (this.strainedCount < this.opts.hungerSeconds) return;
-		if (this.opts.inputDelay >= MAX_INPUT_DELAY) return;
+		if (this.strainedCount >= this.opts.hungerSeconds) {
+			if (this.opts.inputDelay >= MAX_INPUT_DELAY) return;
+			this.setDelay(this.opts.inputDelay + 1);
+			/*
+			 * Start the window over rather than demanding twice the evidence next
+			 * time. The frame either helped, in which case strain falls and this
+			 * will not qualify again, or the link is genuinely worse than one frame
+			 * can cover, in which case it will - and should.
+			 */
+			this.resetStrainWindow();
+			this.onEvent({
+				type: 'state',
+				message: `input delay up to ${this.opts.inputDelay} frames to keep the other player smooth`
+			});
+			return;
+		}
 
-		this.setDelay(this.opts.inputDelay + 1);
 		/*
-		 * Start the window over rather than demanding twice the evidence next
-		 * time. The frame either helped, in which case strain falls and this will
-		 * not qualify again, or the link is genuinely worse than one frame can
-		 * cover, in which case it will - and should.
+		 * And back down when the link has been quiet for a whole window.
+		 *
+		 * The loop was one-way at first, on the argument that being a frame too
+		 * generous is cheap. It is not, over a session: a real link had a bad
+		 * patch, the loop paid frames for it, the link recovered and the frames
+		 * stayed - eight of them, 160ms, on a link that had gone back to needing
+		 * four. Every frame held past its usefulness is latency the player feels
+		 * on every button press.
+		 *
+		 * Coming down is safe now only because there is a signal worth trusting.
+		 * Two earlier attempts lowered on `stats.stalls` and on buffer depth, and
+		 * both read the follower's ordinary position as distress. "No strained
+		 * second in thirty" says something real: not one frame arrived late in the
+		 * whole window.
+		 *
+		 * The asymmetry is the whole of the hysteresis - thirty clean seconds to
+		 * give a frame back against ten strained ones to take it - so the loop is
+		 * quick to protect the other player and slow to reclaim latency for this
+		 * one. A link sitting exactly on a frame boundary will cycle between two
+		 * values on a timescale of tens of seconds; that is tolerable precisely
+		 * because it means the delay is already within one frame of right. An
+		 * earlier attempt also refused to descend below any value that had ever
+		 * strained, which sounds prudent and instead froze the delay at its
+		 * high-water mark for the rest of the session.
 		 */
+		if (
+			this.observedSeconds >= STRAIN_WINDOW_SECONDS &&
+			this.strainedCount === 0 &&
+			this.opts.inputDelay - 1 >= MIN_INPUT_DELAY
+		) {
+			this.setDelay(this.opts.inputDelay - 1);
+			this.resetStrainWindow();
+			this.onEvent({
+				type: 'state',
+				message: `input delay down to ${this.opts.inputDelay} frames, the link has been quiet`
+			});
+		}
+	}
+
+	private resetStrainWindow(): void {
 		this.strainedRing.fill(0);
 		this.strainedCount = 0;
-		this.onEvent({
-			type: 'state',
-			message: `input delay up to ${this.opts.inputDelay} frames to keep the other player smooth`
-		});
+		this.observedSeconds = 0;
 	}
 
 	private hasAllPads(frame: number): boolean {
@@ -1158,9 +1210,8 @@ export class NetplaySession implements TickSource {
 		// Frame numbers mean something different on a new timeline, so the
 		// spacing measured across the seam would be nonsense.
 		this.lastPadArrival = null;
-		this.strainedRing.fill(0);
+		this.resetStrainWindow();
 		this.strainedAt = -1;
-		this.strainedCount = 0;
 		// A resync's own gap is not strain, and neither is anything measured on
 		// the timeline we just abandoned.
 		this.lastFrameAt = null;

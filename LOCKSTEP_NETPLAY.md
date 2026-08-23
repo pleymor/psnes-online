@@ -232,16 +232,27 @@ four isolated seconds. One burst now marks about five seconds, because strain is
 itself a 128-frame window whose tail outlasts the burst, so it takes two bursts
 in the same half-minute to earn a frame.
 
-After a raise the window starts over rather than demanding twice as much next
-time. The frame either helped, in which case strain falls and it will not
-qualify again, or the link is worse than one frame covers, in which case it will
-- and should. A long bad stretch can therefore climb several frames, up to the
-sixteen-frame ceiling, which is the correct answer for a link that is genuinely
-that bad and is always escapable with `__znetDelay(n)`.
+**And back down when a whole window passes with no strained second at all.** The
+loop was one-way at first, on the argument that a frame too generous is cheap.
+Over a session it is not: a real link had a bad patch, the loop paid for it, the
+link recovered and the frames stayed. It reached eight frames - 160ms - on a link
+that had gone back to needing four, and in a test on a 240ms link it climbed to
+fifteen and stayed there. Every frame held past its usefulness is latency on
+every button press.
 
-The one-way asymmetry is the honest trade rather than caution: a frame too
-generous costs 17 to 20ms of input latency, and a frame too tight costs the
-*other* player several visible stutters a second.
+Descending is only safe because there is finally a signal worth trusting. Two
+earlier attempts lowered on `stats.stalls` and on buffer depth, and both read the
+follower's ordinary position as distress. "Not one strained second in thirty"
+says something real.
+
+The asymmetry is the whole of the hysteresis: **thirty clean seconds to give a
+frame back, ten strained ones to take it.** Quick to protect the other player,
+slow to reclaim latency for this one. A link sitting exactly on a frame boundary
+will cycle between two values over tens of seconds, which is tolerable precisely
+because it means the delay is already within one frame of right. A third attempt
+also refused to descend below any value that had ever strained; that sounds
+prudent and instead froze the delay at its high-water mark for the rest of the
+session, which is how the fifteen-frame case was found.
 
 Getting the signal right was not the hard part. **Raising the delay at all is**,
 and it shipped broken: a real session ran thirteen flawless seconds at 50fps and
@@ -284,7 +295,7 @@ npm run test:all
 ```
 
 **`core/test/netcode.test.ts`** runs the real engine and the real protocol
-against `FakeCore`, a toy deterministic machine. 51 tests covering the wire
+against `FakeCore`, a toy deterministic machine. 53 tests covering the wire
 format, lockstep under 5% loss and 60ms of jitter, input-delay behaviour,
 desync detection from either side, epoch handling, savestate retransmission,
 and recovery from a total blackout.
@@ -376,7 +387,7 @@ against the unfixed code.
 ## Status
 
 Running in production as the default mode for new rooms, and playable end to
-end. 69 tests, none skipped - 58 for the netcode and the relay, 11 against the
+end. 71 tests, none skipped - 60 for the netcode and the relay, 11 against the
 real wasm core: two independent wasm instances stay bit-identical for 1800 frames
 of pseudo-random two-player input, and full sessions over a simulated 150ms /
 60ms-jitter / 5%-loss link never diverge.

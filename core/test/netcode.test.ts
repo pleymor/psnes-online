@@ -177,9 +177,10 @@ test('one rough patch costs nothing; a link that keeps misbehaving costs a frame
 	};
 
 	const once = await burst(1);
-	assert.equal(
-		once.after,
-		once.sized,
+	// At most what it started with: one burst must not *raise*. Coming down
+	// afterwards is correct - thirty quiet seconds is the descent's own signal.
+	assert.ok(
+		once.after <= once.sized,
 		`one burst must not buy a frame: ${once.sized} -> ${once.after}`
 	);
 
@@ -188,6 +189,53 @@ test('one rough patch costs nothing; a link that keeps misbehaving costs a frame
 		repeatedly.after > repeatedly.sized,
 		`five bursts must: ${repeatedly.sized} -> ${repeatedly.after}`
 	);
+});
+
+test('a link that recovers gets its frames back', async () => {
+	// The ratchet used to be one-way, and on a link with a bad patch it climbed
+	// and stayed there: a real session reached eight frames - 160ms - and had no
+	// way down even after the link recovered. Going down needs the signal the
+	// earlier attempts lacked: a full window with *no* strained second at all.
+	const harness = await NetplayHarness.create(
+		harnessOptions(40000, {
+			link: { latency: 120, jitter: 30, seed: 97 },
+			hungerSeconds: 4,
+			inputDelay: 0
+		})
+	);
+	harness.handshake(30_000);
+	harness.run(40_000);
+	const bad = harness.host.session.inputDelay;
+	assert.ok(bad >= 6, `a 240ms link must have climbed: got ${bad}`);
+
+	// The link becomes excellent. The frames bought for the bad patch are now
+	// pure latency and have to come back.
+	harness.link.setLatency(12, 2);
+	harness.run(600_000);
+	const good = harness.host.session.inputDelay;
+	assert.ok(good < bad, `a recovered link must give frames back: ${bad} -> ${good}`);
+	assert.ok(good >= 3, `but never below the automatic floor: got ${good}`);
+	assert.equal(harness.firstDivergence(), null, 'coming down must not desync');
+	harness.dispose();
+});
+
+test('the delay settles on a steady link instead of sawing', async () => {
+	// Asymmetry is the whole of the hysteresis: a full clean window to give a
+	// frame back, ten strained seconds to take one. On a link that is steadily
+	// mediocre that has to converge rather than cycle for the whole match.
+	const harness = await NetplayHarness.create(
+		harnessOptions(40000, { link: { latency: 55, jitter: 14, seed: 98 }, hungerSeconds: 4 })
+	);
+	harness.handshake(30_000);
+	harness.run(120_000);
+	const settled = harness.host.session.inputDelay;
+	harness.run(180_000);
+	assert.equal(
+		harness.host.session.inputDelay,
+		settled,
+		`the delay must settle, not saw: ${settled} -> ${harness.host.session.inputDelay}`
+	);
+	harness.dispose();
 });
 
 test('a fed peer never makes the delay creep', async () => {
