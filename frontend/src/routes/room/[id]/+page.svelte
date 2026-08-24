@@ -781,6 +781,7 @@
         gameTitle={chosenGame.title}
         controls={userControls}
         {resumeSaveId}
+        on:controlsSaved={(e) => (userControls = e.detail.config)}
       />
     {:else if activeEmulationMode === EmulationMode.LOCKSTEP}
       <!-- Lockstep runs on its own deterministic core and its own relay, so it

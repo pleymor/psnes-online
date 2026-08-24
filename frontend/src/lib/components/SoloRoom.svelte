@@ -419,14 +419,14 @@
       needsAudioGesture = audio.needsGesture;
 
       assignments = loadAssignments(localStorage);
-      applySources();
+      const sources = resolveSources(assignments, connectedPads());
 
-      collector1 = new InputCollector(controls.p1, resolveSources(assignments, connectedPads()).p1);
+      collector1 = new InputCollector(controls.p1, sources.p1);
       collector1.attach();
       // Created even when P2 is silent: its sources are then empty, it reads
       // 0, and assigning it mid-session then only has to push new sources
       // rather than construct anything.
-      collector2 = new InputCollector(controls.p2, resolveSources(assignments, connectedPads()).p2);
+      collector2 = new InputCollector(controls.p2, sources.p2);
       collector2.attach();
 
       window.addEventListener('gamepadconnected', applySources);
@@ -526,6 +526,13 @@
 
   function closePauseMenu(): void {
     showPauseMenu = false;
+    // ControlsSettings writes a device assignment straight to storage
+    // without dispatching anything - assignments do not wait for Save - so
+    // this is the one place a device reassigned while paused reaches the
+    // running collectors. setSources() already clears held keys when the
+    // keyboard is taken from a player, so a direction held at the moment the
+    // keyboard is disabled cannot jam.
+    applySources();
     // Input first: the first frame after resuming reads a live pad, not a
     // stale zero left over from before the clock restarts.
     collector1?.attach();
@@ -588,7 +595,7 @@
      * for this, and a shortcut firing behind an open dialog is a surprise.
      */
     if (!showPauseMenu && (event.code === QUICK_SAVE_KEY || event.code === QUICK_LOAD_KEY)) {
-      if (padUsesKey(controls.p1.keys, event.code)) return;
+      if (padUsesKey(controls.p1.keys, event.code) || padUsesKey(controls.p2.keys, event.code)) return;
       event.preventDefault();
       const ctx = { socket: $socket, roomId, gameId, locale: $language };
       if (event.code === QUICK_SAVE_KEY) void quickSave({ ...ctx, emulator: saveAdapter });
