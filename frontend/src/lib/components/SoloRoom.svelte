@@ -13,7 +13,7 @@
    */
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
-  import type { KeyConfig } from '$lib/types';
+  import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
   import { setLogLabels } from '$lib/utils/log-shipper';
   import { socket } from '$lib/api/socket';
@@ -33,19 +33,22 @@
     FrameGovernor,
     InputCollector,
     SoloSession,
-    type GamepadSource,
     PsnesCore,
     loadCore,
     normaliseRom,
     aspectRatioOf,
-    fitToBox
+    fitToBox,
+    loadAssignments,
+    resolveSources,
+    connectedPads,
+    isPlayerActive
   } from '$lib/znet';
 
   export let roomId: string;
   export let gameId: string;
   export let gameCrc32: string | null = null;
   export let gameTitle: string = '';
-  export let keyConfig: KeyConfig;
+  export let controls: ControlsConfig;
   /**
    * A save to open on, when the library sent us here to resume one.
    *
@@ -71,7 +74,9 @@
   let core: PsnesCore | null = null;
   let renderer: Renderer | null = null;
   let audio: AudioSink | null = null;
-  let collector: InputCollector | null = null;
+  let collector1: InputCollector | null = null;
+  let collector2: InputCollector | null = null;
+  let assignments = loadAssignments(localStorage);
   let session: SoloSession | null = null;
   let governor: FrameGovernor | null = null;
 
@@ -88,7 +93,6 @@
   let display: DisplayOptions = { ...DEFAULT_DISPLAY };
   let shaderNotice: string | null = null;
   let shaderSwapToken = 0;
-  let gamepadSource: GamepadSource = 'auto';
 
   let turbo = false;
   let showPauseMenu = false;
@@ -109,8 +113,6 @@
   let sramLoaded = false;
   let sramNotice: string | null = null;
 
-  const gamepadKey = 'psnes-gamepad-source';
-
   /** Shown whenever the battery save could not be read at all - no socket,
    * no core, or no answer from the server in time. Persistence is off for
    * the rest of the session in every one of these cases. */
@@ -130,7 +132,8 @@
     // change. Draw one, or every display setting would look inert until resume.
     if (showPauseMenu && core) renderer.draw(core);
   }
-  $: if (collector && keyConfig) collector.setKeyConfig(keyConfig);
+  $: if (collector1 && controls) collector1.setControls(controls.p1);
+  $: if (collector2 && controls) collector2.setControls(controls.p2);
 
   /**
    * What the save menus need: a state to store, and the canvas to photograph.
@@ -225,6 +228,20 @@
       shaderNotice = 'Hardware shaders stopped working; showing raw pixels.';
       useCanvasRenderer();
     }
+  }
+
+  /**
+   * Re-pushes sources into both collectors.
+   *
+   * Replugging a pad mid-game must be seen: without this, a controller
+   * assigned to P2 and replugged would stay silent for the rest of the
+   * session.
+   */
+  function applySources(): void {
+    assignments = loadAssignments(localStorage);
+    const sources = resolveSources(assignments, connectedPads());
+    collector1?.setSources(sources.p1);
+    collector2?.setSources(sources.p2);
   }
 
   /** Finds the ROM locally, then asks the player. There is no host to ask. */
@@ -401,17 +418,26 @@
       // is usually already running and no gesture is needed.
       needsAudioGesture = audio.needsGesture;
 
-      const saved = localStorage.getItem(gamepadKey);
-      if (saved) gamepadSource = saved === 'auto' || saved === 'off' ? saved : Number(saved);
-      collector = new InputCollector(keyConfig, gamepadSource);
-      collector.attach();
+      assignments = loadAssignments(localStorage);
+      applySources();
+
+      collector1 = new InputCollector(controls.p1, resolveSources(assignments, connectedPads()).p1);
+      collector1.attach();
+      // Created even when P2 is silent: its sources are then empty, it reads
+      // 0, and assigning it mid-session then only has to push new sources
+      // rather than construct anything.
+      collector2 = new InputCollector(controls.p2, resolveSources(assignments, connectedPads()).p2);
+      collector2.attach();
+
+      window.addEventListener('gamepadconnected', applySources);
+      window.addEventListener('gamepaddisconnected', applySources);
 
       session = new SoloSession({
         core,
-        // pad2 stays 0: znet reads a single local source today. The pair is in
-        // the signature so a second controller changes this line and nothing
-        // else.
-        readLocalInput: () => ({ pad1: collector!.read(), pad2: 0 }),
+        readLocalInput: () => ({
+          pad1: collector1!.read(),
+          pad2: isPlayerActive(assignments.p2) ? collector2!.read() : 0
+        }),
         onFrame: () => {
           renderer!.draw(core!);
           audio!.push(core!.audio());
@@ -491,7 +517,8 @@
     // clock. LockstepRoom only detaches input because stopping its governor
     // would stall the other player.
     governor?.stop();
-    collector?.detach();
+    collector1?.detach();
+    collector2?.detach();
     // Matches P2PRoom's auto-save on pause: a player who opens the menu is
     // often about to save or leave, and membership is still live here.
     persistSram();
@@ -501,7 +528,8 @@
     showPauseMenu = false;
     // Input first: the first frame after resuming reads a live pad, not a
     // stale zero left over from before the clock restarts.
-    collector?.attach();
+    collector1?.attach();
+    collector2?.attach();
     governor?.start();
     // PauseMenu's own restoreFullscreen prop would fullscreen
     // document.documentElement, not this component's own container - the
@@ -560,7 +588,7 @@
      * for this, and a shortcut firing behind an open dialog is a surprise.
      */
     if (!showPauseMenu && (event.code === QUICK_SAVE_KEY || event.code === QUICK_LOAD_KEY)) {
-      if (padUsesKey(keyConfig, event.code)) return;
+      if (padUsesKey(controls.p1.keys, event.code)) return;
       event.preventDefault();
       const ctx = { socket: $socket, roomId, gameId, locale: $language };
       if (event.code === QUICK_SAVE_KEY) void quickSave({ ...ctx, emulator: saveAdapter });
@@ -605,11 +633,15 @@
     // parent-initiated teardown - and only if the drop happens to lag behind.
     persistSram();
     $socket?.off('game:loaded', onGameLoaded);
+    window.removeEventListener('gamepadconnected', applySources);
+    window.removeEventListener('gamepaddisconnected', applySources);
     governor?.stop();
     governor = null;
     session = null;
-    collector?.detach();
-    collector = null;
+    collector1?.detach();
+    collector1 = null;
+    collector2?.detach();
+    collector2 = null;
     void audio?.stop();
     audio = null;
     renderer?.dispose();
@@ -694,7 +726,8 @@
     <PauseMenu
       {roomId}
       {gameId}
-      {keyConfig}
+      keyConfig={controls.p1.keys}
+      {controls}
       {display}
       {turbo}
       emulator={saveAdapter}
@@ -702,7 +735,7 @@
       on:quit={quitToLobby}
       on:display={(e) => void onDisplayChange(e.detail)}
       on:turbo={toggleTurbo}
-      on:saved={(e) => { keyConfig = e.detail.config; closePauseMenu(); }}
+      on:controlsSaved={(e) => (controls = e.detail.config)}
     />
   {/if}
 </div>
