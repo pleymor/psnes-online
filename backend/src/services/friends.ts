@@ -73,9 +73,9 @@ export async function notifyFriendsStatusChanged(
  */
 export interface OnlineFriend {
   id: string;
-  displayName: string;
+  pseudo: string;
+  discriminator: string;
   avatar: string | null;
-  email: string;
   online: boolean;
 }
 
@@ -87,14 +87,15 @@ export async function getOnlineFriends(
 
   return friendships.map((friendship): OnlineFriend => {
     const friend = friendship.initiatorId === userId ? friendship.receiver : friendship.initiator;
-    // Narrowed on purpose: the old query selected these four columns, and the
-    // repository hands back the whole User. Spreading it here would put
-    // googleId and the timestamps on the wire.
+    // Still written out field by field, even though the repository now hands
+    // back a PublicUser rather than a whole User. The narrowing at the source
+    // is the guarantee; this list is what keeps the wire shape stated in one
+    // readable place, and what makes the excess-property check above bite.
     return {
       id: friend.id,
-      displayName: friend.displayName,
+      pseudo: friend.pseudo,
+      discriminator: friend.discriminator,
       avatar: friend.avatar,
-      email: friend.email,
       online: presence.socketFor(friend.id) !== undefined
     };
   });

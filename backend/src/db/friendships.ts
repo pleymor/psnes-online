@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { Database } from './sqlite.js';
-import type { Friendship, User } from './types.js';
+import type { Friendship, PublicUser } from './types.js';
 
 export interface FriendshipWithProfiles extends Friendship {
-  initiator: User;
-  receiver: User;
+  initiator: PublicUser;
+  receiver: PublicUser;
 }
 
 export interface FriendshipWithInitiator extends Friendship {
-  initiator: User;
+  initiator: PublicUser;
 }
 
 interface FriendshipRow {
@@ -33,33 +33,33 @@ function toFriendship(row: FriendshipRow): Friendship {
 
 /**
  * The joins used to come back as nested objects, and the callers read them that
- * way - `f.initiator.displayName`. A flat row would mean changing every caller,
- * so the nesting is rebuilt here instead, once.
+ * way - `f.initiator.pseudo`. A flat row would mean changing every caller, so
+ * the nesting is rebuilt here instead, once.
  *
  * Columns are aliased with a prefix rather than selected as `u.*`, because
  * User and Friendship both have `id`, `createdAt` and `updatedAt`.
+ *
+ * These four columns are the whole of PublicUser, and that is the point. This
+ * used to select all eight, so every friend received your googleId, your email
+ * and your controlsConfig - api/friends.ts handed the object straight to the
+ * wire. Narrowing it at the source rather than at each caller is what makes
+ * the guarantee hold by typing: a route cannot leak a field this query never
+ * fetched. backend/test/friendships.test.ts asserts the exact key set, because
+ * the failure mode to fear is a field reappearing, not one going missing.
  */
 const USER_COLUMNS = (alias: string, prefix: string) => `
   ${alias}.id AS ${prefix}_id,
-  ${alias}.googleId AS ${prefix}_googleId,
-  ${alias}.email AS ${prefix}_email,
-  ${alias}.displayName AS ${prefix}_displayName,
-  ${alias}.avatar AS ${prefix}_avatar,
-  ${alias}.controlsConfig AS ${prefix}_controlsConfig,
-  ${alias}.createdAt AS ${prefix}_createdAt,
-  ${alias}.updatedAt AS ${prefix}_updatedAt
+  ${alias}.pseudo AS ${prefix}_pseudo,
+  ${alias}.discriminator AS ${prefix}_discriminator,
+  ${alias}.avatar AS ${prefix}_avatar
 `;
 
-function toUserFrom(row: Record<string, unknown>, prefix: string): User {
+function toUserFrom(row: Record<string, unknown>, prefix: string): PublicUser {
   return {
     id: row[`${prefix}_id`] as string,
-    googleId: row[`${prefix}_googleId`] as string,
-    email: row[`${prefix}_email`] as string,
-    displayName: row[`${prefix}_displayName`] as string,
-    avatar: (row[`${prefix}_avatar`] as string | null) ?? null,
-    controlsConfig: (row[`${prefix}_controlsConfig`] as string | null) ?? null,
-    createdAt: new Date(row[`${prefix}_createdAt`] as number),
-    updatedAt: new Date(row[`${prefix}_updatedAt`] as number)
+    pseudo: row[`${prefix}_pseudo`] as string,
+    discriminator: row[`${prefix}_discriminator`] as string,
+    avatar: (row[`${prefix}_avatar`] as string | null) ?? null
   };
 }
 

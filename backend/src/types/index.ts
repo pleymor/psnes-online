@@ -64,7 +64,7 @@ export type LatencyMode = 'auto' | 'low';
 
 export interface RoomPlayer {
   userId: string;
-  displayName: string;
+  pseudo: string;
   avatar?: string;
   port: 1 | 2 | null; // null = spectator
   isReady: boolean;

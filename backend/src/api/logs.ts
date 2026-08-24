@@ -44,7 +44,7 @@ logsRouter.post('/', asyncHandler(async (req, res) => {
       'log.logger': String(entry?.context ?? 'unknown').slice(0, 120),
       'event.dataset': 'psnes.client',
       'user.id': user.id,
-      'user.name': user.displayName,
+      'user.name': user.pseudo,
       'trace.id': String(sessionId ?? '').slice(0, 32),
       labels: sanitiseLabels(labels),
       data: truncate(entry?.data, MAX_DATA)

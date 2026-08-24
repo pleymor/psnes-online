@@ -16,18 +16,40 @@ export function migratedDb(): Database {
   return db;
 }
 
-export function insertUser(db: Database, over: Partial<{ id: string; googleId: string; email: string; displayName: string; avatar: string | null }> = {}) {
+/**
+ * A serial number, so every helper-made account gets a handle of its own.
+ *
+ * The unique index on (pseudo COLLATE NOCASE, discriminator) is real, so two
+ * users built from the same defaults would collide. Counting is preferable to
+ * drawing at random here: a test that fails once in a thousand runs because
+ * two draws matched is worse than no test.
+ */
+let serial = 0;
+
+export function insertUser(
+  db: Database,
+  over: Partial<{
+    id: string;
+    googleId: string;
+    pseudo: string;
+    discriminator: string;
+    pseudoChosenAt: number | null;
+    avatar: string | null;
+  }> = {}
+) {
   const now = Date.now();
+  const n = serial++;
   const row = {
-    id: over.id ?? `user-${Math.floor(now * Math.random())}`,
-    googleId: over.googleId ?? `g-${Math.floor(now * Math.random())}`,
-    email: over.email ?? `u${Math.floor(now * Math.random())}@example.test`,
-    displayName: over.displayName ?? 'Test User',
+    id: over.id ?? `user-${now}-${n}`,
+    googleId: over.googleId ?? `g-${now}-${n}`,
+    pseudo: over.pseudo ?? 'Tester',
+    discriminator: over.discriminator ?? String(n % 10000).padStart(4, '0'),
+    pseudoChosenAt: over.pseudoChosenAt === undefined ? now : over.pseudoChosenAt,
     avatar: over.avatar ?? null
   };
   db.prepare(`
-    INSERT INTO "User" (id, googleId, email, displayName, avatar, controlsConfig, createdAt, updatedAt)
-    VALUES (@id, @googleId, @email, @displayName, @avatar, NULL, @now, @now)
+    INSERT INTO "User" (id, googleId, pseudo, discriminator, pseudoChosenAt, avatar, controlsConfig, createdAt, updatedAt)
+    VALUES (@id, @googleId, @pseudo, @discriminator, @pseudoChosenAt, @avatar, NULL, @now, @now)
   `).run({ ...row, now });
   return row;
 }

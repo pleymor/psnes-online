@@ -89,7 +89,23 @@ async function handleConnection(io: Server, socket: Socket) {
     return;
   }
 
-  logger.info({ user: user.displayName, email: user.email }, 'User connected');
+  // The onboarding gate, on the socket as well as on the routes. Without it an
+  // account with no chosen pseudonym would still hold a presence, a claim on a
+  // seat in a room, and a stream of friend:* events while the modal is up.
+  //
+  // The emit before the disconnect is not decoration: socket.io reconnects in
+  // a loop otherwise, and the client never learns why.
+  if (!user.pseudoChosenAt) {
+    logger.info({ userId: user.id }, 'Refusing a socket from an account with no chosen pseudonym');
+    socket.emit('auth:pseudoRequired');
+    socket.disconnect();
+    return;
+  }
+
+  // The email is gone from this line along with the column. The pseudonym
+  // stays: it is a pseudonym by construction, so it is loggable without
+  // reservation, and it is what keeps these lines readable.
+  logger.info({ userId: user.id, user: user.pseudo }, 'User connected');
 
   presence.register(user, socket.id);
 
@@ -128,7 +144,7 @@ async function handleConnection(io: Server, socket: Socket) {
 
   // Disconnect
   socket.on('disconnect', async () => {
-    logger.debug({ socketId: socket.id, user: user.displayName }, 'Client disconnected');
+    logger.debug({ socketId: socket.id, user: user.pseudo }, 'Client disconnected');
 
     /*
      * Only act if this socket is still the user's current one.
@@ -143,7 +159,7 @@ async function handleConnection(io: Server, socket: Socket) {
      */
     if (!presence.unregister(user.id, socket.id)) {
       logger.debug(
-        { socketId: socket.id, user: user.displayName },
+        { socketId: socket.id, user: user.pseudo },
         'Stale socket closed, user already reconnected'
       );
       return;

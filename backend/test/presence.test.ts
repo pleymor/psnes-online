@@ -16,7 +16,7 @@ import { markOffline, markOnline } from '../src/rooms/presence.js';
 import type { Room } from '../src/types/index.js';
 
 const player = (userId: string, online: boolean) =>
-  ({ userId, displayName: userId, port: null, isReady: true, emulationReady: false, online }) as never;
+  ({ userId, pseudo: userId, port: null, isReady: true, emulationReady: false, online }) as never;
 
 test('only the players who are here are counted', () => {
   const room = { players: [player('alice', true), player('bob', false)] };
@@ -85,7 +85,7 @@ const roomWith = (...players: Array<{ userId: string; online: boolean }>) =>
     id: 'r',
     players: players.map(p => ({
       ...p,
-      displayName: p.userId,
+      pseudo: p.userId,
       port: null,
       isReady: true,
       emulationReady: false

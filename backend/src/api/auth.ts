@@ -3,6 +3,7 @@ import passport from 'passport';
 import { getAuthMode } from '../auth/passport.js';
 import { getDb } from '../db/sqlite.js';
 import { upsertDevUser } from '../db/users.js';
+import type { User } from '../db/types.js';
 import { createLogger } from '../utils/logger.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 
@@ -15,10 +16,12 @@ const AUTH_MODE = getAuthMode();
 // Google OAuth routes (only available in google mode)
 if (AUTH_MODE === 'google') {
   authRouter.get('/google', passport.authenticate('google', {
-    // Identity only. The Drive scope is gone with Drive itself: asking a
-    // player for read access to their whole Drive was never proportionate to
-    // what it bought, and ROMs no longer leave their machine.
-    scope: ['profile', 'email']
+    // Identity only, and now not even that much. 'email' is gone with the
+    // email column: a player is a pseudonym they chose, so there is nothing
+    // Google could tell us about their address that we would be allowed to
+    // keep. Not requesting it is stronger than requesting and discarding -
+    // there is no longer anything to leak into a log by accident.
+    scope: ['profile']
     // No accessType or prompt. Both were here to obtain a refresh token, which
     // Google only issues when consent is granted afresh - so `prompt: 'consent'`
     // forced its consent screen on EVERY sign-in, even with a live Google
@@ -52,19 +55,26 @@ if (AUTH_MODE === 'dev' && process.env.NODE_ENV !== 'production') {
         return res.status(400).json({ error: 'Invalid user ID. Must be 1 or 2.' });
       }
 
+      // Deliberately asymmetric on pseudoChosenAt: user 1 has chosen a
+      // pseudonym, user 2 has not. That puts an ordinary session and the
+      // onboarding gate one click apart, so neither path needs the database
+      // edited by hand to be exercised - and e2e/pseudo-gate.spec.ts relies
+      // on exactly this.
       const devUsers = [
         {
           id: 'dev-user-1',
-          email: 'user1@dev.local',
-          displayName: 'Dev User 1',
           googleId: 'dev-google-id-1',
+          pseudo: 'DevOne',
+          discriminator: '0001',
+          pseudoChosenAt: Date.now(),
           avatar: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=DevUser1&backgroundColor=667eea'
         },
         {
           id: 'dev-user-2',
-          email: 'user2@dev.local',
-          displayName: 'Dev User 2',
           googleId: 'dev-google-id-2',
+          pseudo: 'Scanline',
+          discriminator: '0002',
+          pseudoChosenAt: null,
           avatar: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=DevUser2&backgroundColor=764ba2'
         }
       ];
@@ -79,7 +89,7 @@ if (AUTH_MODE === 'dev' && process.env.NODE_ENV !== 'production') {
         if (err) {
           return res.status(500).json({ error: 'Login failed' });
         }
-        res.json(user);
+        res.json(toSelf(user));
       });
     } catch (error) {
       logger.error({ err: error }, 'Dev login error');
@@ -93,11 +103,33 @@ authRouter.get('/mode', (req, res) => {
   res.json({ mode: AUTH_MODE });
 });
 
+/**
+ * What a player is told about themselves.
+ *
+ * This used to be `res.json(req.user)`, which serialised the whole row -
+ * googleId, controlsConfig and both timestamps went to the browser on every
+ * page load. The shape is written out rather than deleted from a copy, so a
+ * column added to User later cannot join it by accident.
+ *
+ * needsPseudo is computed here rather than shipping pseudoChosenAt raw: the
+ * client needs the verdict, not the date, and a boolean cannot be
+ * misread. backend/test/self-view.test.ts asserts the exact key set.
+ */
+export function toSelf(user: User) {
+  return {
+    id: user.id,
+    pseudo: user.pseudo,
+    discriminator: user.discriminator,
+    avatar: user.avatar,
+    needsPseudo: user.pseudoChosenAt === null
+  };
+}
+
 authRouter.get('/me', (req, res) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  res.json(req.user);
+  res.json(toSelf(req.user as User));
 });
 
 authRouter.post('/logout', (req, res) => {

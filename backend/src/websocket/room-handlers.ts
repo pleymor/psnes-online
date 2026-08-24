@@ -45,7 +45,7 @@ export interface InvitationView {
   id: string;
   roomId: string;
   fromUserId: string;
-  fromDisplayName: string;
+  fromPseudo: string;
   fromAvatar?: string;
   /** Undefined while the room has no game yet, which is now an ordinary state. */
   gameTitle?: string;
@@ -55,13 +55,13 @@ export interface InvitationView {
 function toInvitationView(
   invitation: Invitation,
   room: Room,
-  from: { displayName: string; avatar: string | null } | null
+  from: { pseudo: string; avatar: string | null } | null
 ): InvitationView {
   return {
     id: invitation.id,
     roomId: invitation.roomId,
     fromUserId: invitation.fromUserId,
-    fromDisplayName: from?.displayName ?? 'Unknown player',
+    fromPseudo: from?.pseudo ?? 'Unknown player',
     fromAvatar: from?.avatar ?? undefined,
     gameTitle: room.gameTitle,
     expiresAt: invitation.expiresAt
@@ -176,7 +176,7 @@ export function registerRoomHandlers(
       createdBy: user.id,
       players: [{
         userId: user.id,
-        displayName: user.displayName,
+        pseudo: user.pseudo,
         avatar: user.avatar ?? undefined,
         port: 1, // Always assign creator to player 1
         isReady: true, // Always ready by default
@@ -203,7 +203,7 @@ export function registerRoomHandlers(
     if (autoStart) {
       await notifyFriendsRoomStatusChanged(io, user.id, room.id, 'playing', getUserSocket);
       io.to(roomId).emit('game:started');
-      logger.info({ roomId, host: user.displayName }, 'Game auto-started');
+      logger.info({ roomId, host: user.pseudo }, 'Game auto-started');
     }
   });
 
@@ -284,7 +284,7 @@ export function registerRoomHandlers(
 
     io.to(room.id).emit('room:updated', room);
     await broadcastRoomUpdate(io, room, getUserSocket);
-    logger.info({ roomId: room.id, gameId: game.gameId, by: user.displayName }, 'Room game chosen');
+    logger.info({ roomId: room.id, gameId: game.gameId, by: user.pseudo }, 'Room game chosen');
   });
 
   // Invite a friend into this room.
@@ -521,7 +521,7 @@ export function registerRoomHandlers(
         invitationId: invitation.id,
         roomId: invitation.roomId,
         userId: user.id,
-        displayName: user.displayName
+        pseudo: user.pseudo
       });
     }
 
@@ -672,7 +672,7 @@ export function registerRoomHandlers(
     room.resumeSaveId = save.id;
     room.resumeSaveName = save.name;
     io.to(room.id).emit('room:updated', room);
-    logger.info({ roomId: room.id, saveId: save.id, by: user.displayName }, 'Starting save staged');
+    logger.info({ roomId: room.id, saveId: save.id, by: user.pseudo }, 'Starting save staged');
   });
 
   // Set emulation mode (only room creator can change)
@@ -764,7 +764,7 @@ async function joinRoom(
 
   const player: RoomPlayer = {
     userId: user.id,
-    displayName: user.displayName,
+    pseudo: user.pseudo,
     avatar: user.avatar ?? undefined,
     port: 2, // Guest always joins as player 2
     isReady: true, // Always ready by default
@@ -781,7 +781,7 @@ async function joinRoom(
 
   if (room.status === 'playing') {
     socket.emit('game:started');
-    logger.info({ roomId: room.id, guest: user.displayName }, 'Guest joined as Player 2 (game in progress)');
+    logger.info({ roomId: room.id, guest: user.pseudo }, 'Guest joined as Player 2 (game in progress)');
   }
 
   return true;
@@ -843,10 +843,10 @@ export async function handleLeaveRoom(
     rooms.delete(roomId);
     io.emit('room:destroyed', { roomId });
   } else {
-    logger.debug({ roomId, userId: user.id, displayName: user.displayName, wasHost }, 'Player left room');
+    logger.debug({ roomId, userId: user.id, pseudo: user.pseudo, wasHost }, 'Player left room');
     io.to(roomId).emit('player:left', {
       userId: user.id,
-      displayName: user.displayName,
+      pseudo: user.pseudo,
       wasHost
     });
 

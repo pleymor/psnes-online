@@ -64,7 +64,7 @@ export function registerRomTransferHandlers(
 			return;
 		}
 
-		logger.info({ roomId: room.id, from: user.displayName }, 'Guest asked the host for the ROM');
+		logger.info({ roomId: room.id, from: user.pseudo }, 'Guest asked the host for the ROM');
 		io.to(hostSocket).emit('rom:request', { roomId: room.id, from: user.id });
 	});
 

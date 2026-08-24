@@ -84,7 +84,7 @@ export function registerGameHandlers(
     if (!player) return;
 
     player.emulationReady = true;
-    logger.info({ roomId: room.id, player: player.displayName }, 'Player emulator ready');
+    logger.info({ roomId: room.id, player: player.pseudo }, 'Player emulator ready');
 
     // Check if all players with ports are ready
     // Online, deliberately: an away member holding a port would never report

@@ -100,9 +100,9 @@ let seq = 0;
  */
 async function withLobby(run: (lobby: Lobby) => Promise<void>): Promise<void> {
   const tag = `t${++seq}`;
-  const alice = findUserById(db, insertUser(db, { id: `${tag}-alice`, displayName: 'Alice' }).id)!;
-  const bob = findUserById(db, insertUser(db, { id: `${tag}-bob`, displayName: 'Bob' }).id)!;
-  const carol = findUserById(db, insertUser(db, { id: `${tag}-carol`, displayName: 'Carol' }).id)!;
+  const alice = findUserById(db, insertUser(db, { id: `${tag}-alice`, pseudo: 'Alice' }).id)!;
+  const bob = findUserById(db, insertUser(db, { id: `${tag}-bob`, pseudo: 'Bob' }).id)!;
+  const carol = findUserById(db, insertUser(db, { id: `${tag}-carol`, pseudo: 'Carol' }).id)!;
 
   acceptFriendship(db, createFriendshipRequest(db, alice.id, bob.id).id);
   // Left pending on purpose: a request nobody accepted is not a friendship.
@@ -297,7 +297,7 @@ test('an invitation reaches a connected friend, and re-inviting does not duplica
 
     assert.equal(invitation.roomId, room.id);
     assert.equal(invitation.fromUserId, alice.id);
-    assert.equal(invitation.fromDisplayName, 'Alice');
+    assert.equal(invitation.fromPseudo, 'Alice');
     assert.equal(invitation.gameTitle, undefined, 'the room has no game yet, and says so');
 
     const redelivered = once<Record<string, unknown>>(guest, 'lobby:invitation');
@@ -340,7 +340,7 @@ test('accepting an invitation really seats the guest, through the join path', as
     assert.equal(seated.port, 2);
     assert.equal(seated.isReady, true);
     assert.equal(seated.emulationReady, false);
-    assert.equal(seated.displayName, 'Bob');
+    assert.equal(seated.pseudo, 'Bob');
     assert.equal(typeof seated.keyConfig, 'object');
     assert.ok(seated.keyConfig, 'a seat without a key config would be a copy, not the join path');
 
@@ -466,12 +466,12 @@ test('declining warns the inviter', async () => {
 
     const invitation = createInvitation(db, room.id, alice.id, bob.id, future());
 
-    const told = once<{ invitationId: string; displayName: string }>(host, 'lobby:invitation-declined');
+    const told = once<{ invitationId: string; pseudo: string }>(host, 'lobby:invitation-declined');
     guest.emit('lobby:decline', { invitationId: invitation.id });
     const warning = await told;
 
     assert.equal(warning.invitationId, invitation.id);
-    assert.equal(warning.displayName, 'Bob');
+    assert.equal(warning.pseudo, 'Bob');
     assert.equal(findInvitationById(db, invitation.id)!.status, 'declined');
   });
 });
@@ -741,8 +741,8 @@ test('room:join is a return trip, not a door: a non-member is refused while a se
 });
 
 test('the connection-time list keeps only live invitations naming live rooms', async () => {
-  const alice = insertUser(db, { displayName: 'Alice' });
-  const carol = insertUser(db, { displayName: 'Carol' });
+  const alice = insertUser(db, { pseudo: 'Alice' });
+  const carol = insertUser(db, { pseudo: 'Carol' });
   const roomId = `room-${carol.id}`;
   const rooms = new Map<string, Room>([[roomId, {
     id: roomId, hostId: alice.id, createdBy: alice.id, players: [],
@@ -758,15 +758,15 @@ test('the connection-time list keeps only live invitations naming live rooms', a
   const delivered = pendingInvitationsFor(db, carol.id, rooms, new Date());
 
   assert.deepEqual(delivered.map(i => i.id), [live.id]);
-  assert.equal(delivered[0].fromDisplayName, 'Alice');
+  assert.equal(delivered[0].fromPseudo, 'Alice');
   // Still on disk, simply not offered: the sweep is what removes them.
   assert.ok(findInvitationById(db, expired.id));
   assert.ok(findInvitationById(db, dead.id));
 });
 
 test('the boot sweep deletes invitations whose deadline has passed, and only those', async () => {
-  const alice = insertUser(db, { displayName: 'Alice' });
-  const bob = insertUser(db, { displayName: 'Bob' });
+  const alice = insertUser(db, { pseudo: 'Alice' });
+  const bob = insertUser(db, { pseudo: 'Bob' });
 
   const live = createInvitation(db, 'room-live', alice.id, bob.id, future());
   const expired = createInvitation(db, 'room-expired', alice.id, bob.id, past());
@@ -945,7 +945,7 @@ test('game:start is refused while no game has been chosen', async () => {
  */
 interface RoomView {
   id: string;
-  invitation?: { id: string; toUserId: string; toDisplayName: string; expiresAt: string };
+  invitation?: { id: string; toUserId: string; toPseudo: string; expiresAt: string };
 }
 
 /**
@@ -1020,7 +1020,7 @@ test('a room takes one invitation at a time, and refuses the second', async () =
     // A second accepted friend, so the refusal below can only be about the
     // invitation already standing: `lobby:invite` checks friendship before
     // anything else, and Carol's request with Alice was never accepted.
-    const dave = insertUser(db, { id: `${room.id}-dave`, displayName: 'Dave' });
+    const dave = insertUser(db, { id: `${room.id}-dave`, pseudo: 'Dave' });
     acceptFriendship(db, createFriendshipRequest(db, alice.id, dave.id).id);
 
     const delivered = once<{ id: string }>(guest, 'lobby:invitation');
@@ -1063,7 +1063,7 @@ test('cancelling takes the invitation out of the room view, so the invite panel 
     const waiting = await invited;
     assert.equal(waiting.invitation?.id, invitationId);
     assert.equal(waiting.invitation?.toUserId, bob.id);
-    assert.equal(waiting.invitation?.toDisplayName, 'Bob', 'the screen names who is being waited on');
+    assert.equal(waiting.invitation?.toPseudo, 'Bob', 'the screen names who is being waited on');
     assert.ok(new Date(waiting.invitation!.expiresAt).getTime() > Date.now(),
       'and says when the wait runs out');
 
@@ -1184,7 +1184,7 @@ test('the invitee\'s name reaches the room, and stops there', async () => {
      * be seen by any broadcast this test could then make, and the assertion
      * below would pass for the wrong reason - Dave receiving nothing at all.
      */
-    const dave = findUserById(db, insertUser(db, { id: `${alice.id}-dave`, displayName: 'Dave' }).id)!;
+    const dave = findUserById(db, insertUser(db, { id: `${alice.id}-dave`, pseudo: 'Dave' }).id)!;
     acceptFriendship(db, createFriendshipRequest(db, alice.id, dave.id).id);
 
     const created = once<Room>(host, 'room:created');
@@ -1199,7 +1199,7 @@ test('the invitee\'s name reaches the room, and stops there', async () => {
     const onlookerView = viewWhere(onlooker, room.id, () => true);
     host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
 
-    assert.equal((await memberView).invitation?.toDisplayName, 'Bob',
+    assert.equal((await memberView).invitation?.toPseudo, 'Bob',
       'a member has to see it, or the panel this feature is made of cannot exist');
     assert.equal((await onlookerView).invitation, undefined,
       'and an onlooker never learns who was invited');

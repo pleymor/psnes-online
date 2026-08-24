@@ -24,13 +24,13 @@ export function registerP2PHandlers(
     const room = getMemberRoom(rooms, data?.roomId, user.id, 'p2p:join');
     if (!room) return;
 
-    logger.debug({ user: user.displayName, roomId: room.id }, 'User joining P2P room');
+    logger.debug({ user: user.pseudo, roomId: room.id }, 'User joining P2P room');
     socket.join(room.id);
 
     socket.to(room.id).emit('p2p:peer-joined', {
       socketId: socket.id,
       userId: user.id,
-      displayName: user.displayName
+      pseudo: user.pseudo
     });
 
     socket.emit('p2p:joined', { roomId: room.id });

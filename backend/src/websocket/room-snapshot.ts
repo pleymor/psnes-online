@@ -5,7 +5,17 @@ import { createLogger } from '../utils/logger.js';
 const logger = createLogger('RoomSnapshot');
 
 const KEY = 'psnes:rooms:v1';
-const VERSION = 1;
+/**
+ * Bumped to 2 when RoomPlayer.displayName became RoomPlayer.pseudo.
+ *
+ * A snapshot written by the previous build carries the old field name, and
+ * restoring it would give every player in a resumed room an undefined
+ * pseudonym. The version check in restoreSnapshot already discards a body from
+ * another build, so raising this number is the whole fix - at the cost of the
+ * rooms in flight across that one deploy, which is what a backend restart
+ * costs anyway.
+ */
+const VERSION = 2;
 /**
  * A storage bound, not a lifetime.
  *

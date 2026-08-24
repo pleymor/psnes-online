@@ -10,7 +10,7 @@ import { onlinePlayers } from '../rooms/online-players.js';
 export interface PendingInvitationView {
   id: string;
   toUserId: string;
-  toDisplayName: string;
+  toPseudo: string;
   toAvatar?: string;
   /** Serialised to an ISO string on the way out: Socket.IO never revives dates. */
   expiresAt: Date;
@@ -43,7 +43,7 @@ function pendingInvitationOf(db: Database, roomId: string): PendingInvitationVie
     return {
       id: invitation.id,
       toUserId: invitation.toUserId,
-      toDisplayName: invitee?.displayName ?? 'Unknown player',
+      toPseudo: invitee?.pseudo ?? 'Unknown player',
       toAvatar: invitee?.avatar ?? undefined,
       expiresAt: invitation.expiresAt
     };
@@ -94,7 +94,7 @@ export function toPublicRoom(room: Room) {
     invitation: pendingInvitationOf(db, room.id),
     players: room.players.map(p => ({
       userId: p.userId,
-      displayName: p.displayName,
+      pseudo: p.pseudo,
       avatar: p.avatar,
       port: p.port,
       isReady: p.isReady,

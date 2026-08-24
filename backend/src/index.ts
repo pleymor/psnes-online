@@ -19,6 +19,8 @@ import { avatarsRouter } from './api/avatars.js';
 import { metadataRouter } from './api/metadata.js';
 import { coversRouter } from './api/covers.js';
 import { logsRouter } from './api/logs.js';
+import { pseudoRouter } from './api/pseudo.js';
+import { requirePseudo } from './middleware/auth.js';
 import { initializeWebSocket, getRooms, getUserSocket } from './websocket/index.js';
 import { flushRooms, restoreRooms, startRoomSnapshots } from './websocket/room-snapshot.js';
 import { markOffline } from './rooms/presence.js';
@@ -213,15 +215,26 @@ app.use(passport.session());
 initializeAuth();
 
 // Routes
+// The onboarding policy, in one readable block.
+//
+// requirePseudo is applied here rather than inside each router so that the
+// whole rule fits on one screen, and so that adding a router forces a decision
+// about it: you cannot mount a route without writing or omitting the guard
+// under the eyes of the eight others. Scattered through the routers, the rule
+// would be invisible at the moment somebody forgets it.
+//
+// Two are deliberately open: /api/pseudo is the way out of the gate, and
+// /api/avatars is what the blocking modal renders the player's own face with.
 app.use('/auth', authRouter);
-app.use('/api/games', gamesRouter);
-app.use('/api/friends', friendsRouter);
-app.use('/api/rooms', roomsRouter);
-app.use('/api/user', userRouter);
+app.use('/api/pseudo', pseudoRouter);
 app.use('/api/avatars', avatarsRouter);
-app.use('/api/metadata', metadataRouter);
-app.use('/api/covers', coversRouter);
-app.use('/api/logs', logsRouter);
+app.use('/api/games', requirePseudo, gamesRouter);
+app.use('/api/friends', requirePseudo, friendsRouter);
+app.use('/api/rooms', requirePseudo, roomsRouter);
+app.use('/api/user', requirePseudo, userRouter);
+app.use('/api/metadata', requirePseudo, metadataRouter);
+app.use('/api/covers', requirePseudo, coversRouter);
+app.use('/api/logs', requirePseudo, logsRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });

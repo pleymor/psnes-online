@@ -9,8 +9,8 @@ import {
 
 test('a new request is pending, and findable from either side', () => {
   const db = migratedDb();
-  const ada = insertUser(db, { displayName: 'Ada' });
-  const bo = insertUser(db, { displayName: 'Bo' });
+  const ada = insertUser(db, { pseudo: 'Ada' });
+  const bo = insertUser(db, { pseudo: 'Bob' });
 
   const created = createFriendshipRequest(db, ada.id, bo.id);
 
@@ -24,21 +24,38 @@ test('a new request is pending, and findable from either side', () => {
 
 test('createFriendshipRequest returns both profiles nested, as the callers destructure them', () => {
   const db = migratedDb();
-  const ada = insertUser(db, { displayName: 'Ada' });
-  const bo = insertUser(db, { displayName: 'Bo' });
+  const ada = insertUser(db, { pseudo: 'Ada' });
+  const bo = insertUser(db, { pseudo: 'Bob' });
 
   const created = createFriendshipRequest(db, ada.id, bo.id);
 
-  assert.equal(created.initiator.displayName, 'Ada');
-  assert.equal(created.receiver.displayName, 'Bo');
-  assert.ok(created.initiator.createdAt instanceof Date);
+  assert.equal(created.initiator.pseudo, 'Ada');
+  assert.equal(created.receiver.pseudo, 'Bob');
+});
+
+test('a nested profile carries these four fields and no others', () => {
+  const db = migratedDb();
+  const ada = insertUser(db, { pseudo: 'Ada' });
+  const bo = insertUser(db, { pseudo: 'Bob' });
+
+  const created = createFriendshipRequest(db, ada.id, bo.id);
+
+  // The exact key set, not the presence of the expected keys.
+  //
+  // The failure to fear here is a field turning up, not one going missing:
+  // this query used to select all eight columns of User, so every friend
+  // received googleId, email and controlsConfig. A field-by-field assertion
+  // would pass just as happily if a SELECT * came back in six months.
+  const expected = ['avatar', 'discriminator', 'id', 'pseudo'];
+  assert.deepEqual(Object.keys(created.initiator).sort(), expected);
+  assert.deepEqual(Object.keys(created.receiver).sort(), expected);
 });
 
 test('pending requests list only those received, with the initiator attached', () => {
   const db = migratedDb();
-  const ada = insertUser(db, { displayName: 'Ada' });
-  const bo = insertUser(db, { displayName: 'Bo' });
-  const cy = insertUser(db, { displayName: 'Cy' });
+  const ada = insertUser(db, { pseudo: 'Ada' });
+  const bo = insertUser(db, { pseudo: 'Bob' });
+  const cy = insertUser(db, { pseudo: 'Cyd' });
 
   createFriendshipRequest(db, ada.id, bo.id);   // Bo receives
   createFriendshipRequest(db, bo.id, cy.id);    // Bo sends
@@ -46,13 +63,13 @@ test('pending requests list only those received, with the initiator attached', (
   const requests = listPendingRequestsFor(db, bo.id);
 
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].initiator.displayName, 'Ada');
+  assert.equal(requests[0].initiator.pseudo, 'Ada');
 });
 
 test('accepting moves the status and advances updatedAt', async () => {
   const db = migratedDb();
-  const ada = insertUser(db, { displayName: 'Ada' });
-  const bo = insertUser(db, { displayName: 'Bo' });
+  const ada = insertUser(db, { pseudo: 'Ada' });
+  const bo = insertUser(db, { pseudo: 'Bob' });
   const created = createFriendshipRequest(db, ada.id, bo.id);
   await new Promise(r => setTimeout(r, 5));
 
@@ -61,15 +78,15 @@ test('accepting moves the status and advances updatedAt', async () => {
   assert.equal(accepted.status, 'accepted');
   assert.ok(accepted.updatedAt.getTime() > created.updatedAt.getTime(),
     'the friends list shows updatedAt as "friends since"; it has to move');
-  assert.equal(accepted.initiator.displayName, 'Ada');
-  assert.equal(accepted.receiver.displayName, 'Bo');
+  assert.equal(accepted.initiator.pseudo, 'Ada');
+  assert.equal(accepted.receiver.pseudo, 'Bob');
 });
 
 test('accepted friendships are listed from both sides, pending ones are not', () => {
   const db = migratedDb();
-  const ada = insertUser(db, { displayName: 'Ada' });
-  const bo = insertUser(db, { displayName: 'Bo' });
-  const cy = insertUser(db, { displayName: 'Cy' });
+  const ada = insertUser(db, { pseudo: 'Ada' });
+  const bo = insertUser(db, { pseudo: 'Bob' });
+  const cy = insertUser(db, { pseudo: 'Cyd' });
 
   const accepted = createFriendshipRequest(db, ada.id, bo.id);
   acceptFriendship(db, accepted.id);
@@ -82,14 +99,14 @@ test('accepted friendships are listed from both sides, pending ones are not', ()
 
 test('the profile-carrying list gives both sides, whichever end you are', () => {
   const db = migratedDb();
-  const ada = insertUser(db, { displayName: 'Ada' });
-  const bo = insertUser(db, { displayName: 'Bo' });
+  const ada = insertUser(db, { pseudo: 'Ada' });
+  const bo = insertUser(db, { pseudo: 'Bob' });
   acceptFriendship(db, createFriendshipRequest(db, ada.id, bo.id).id);
 
   const [fromBo] = listAcceptedFriendshipsWithProfiles(db, bo.id);
 
-  assert.equal(fromBo.initiator.displayName, 'Ada');
-  assert.equal(fromBo.receiver.displayName, 'Bo');
+  assert.equal(fromBo.initiator.pseudo, 'Ada');
+  assert.equal(fromBo.receiver.pseudo, 'Bob');
   assert.equal(fromBo.initiatorId, ada.id);
 });
 

@@ -115,7 +115,7 @@ export function registerZnetHandlers(
 		joined.add(room.id);
 
 		logger.info(
-			{ roomId: room.id, user: user.displayName, playerIndex: slot.playerIndex },
+			{ roomId: room.id, user: user.pseudo, playerIndex: slot.playerIndex },
 			'Joined netplay session'
 		);
 
@@ -129,7 +129,7 @@ export function registerZnetHandlers(
 		socket.to(channel(room.id)).emit('znet:peer-joined', {
 			roomId: room.id,
 			playerIndex: slot.playerIndex,
-			displayName: user.displayName
+			pseudo: user.pseudo
 		});
 	});
 
