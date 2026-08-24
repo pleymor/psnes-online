@@ -186,10 +186,13 @@
     </div>
   </header>
 
-  <!-- Two columns past 900px. Controls is the tall one, so it gets a column to
-       itself and the short cards stack beside it rather than under it. -->
+  <!-- The controls card always spans the full grid width: it needs the
+       whole page width for its two side-by-side pad drawings (46rem
+       threshold), which the narrower of the two `.columns` tracks can never
+       give it. `.stack` spans too, so it lands in its own row below rather
+       than leaving the other track empty. -->
   <div class="columns">
-    <section class="card">
+    <section class="card controls-card">
       <h3>{t($language, 'controls')}</h3>
       {#if controlsConfig}
         <ControlsSettings
@@ -355,11 +358,21 @@
     gap: 1.5rem;
   }
 
+  /* The controls card needs the full page width, not a share of it - see the
+     comment above the markup. It and .stack both span every track, so
+     neither `.columns` layout below leaves the other track's row empty. */
+  .controls-card {
+    grid-column: 1 / -1;
+  }
+
+  .stack {
+    grid-column: 1 / -1;
+  }
+
   /* 900px was too eager: it gave the controls card about 420px, which is
-     under what two columns of key bindings need, so the page went
-     side-by-side exactly when its widest block could no longer afford it.
-     Past 1200px the controls column takes the larger share and stays wide
-     enough to keep its own two columns. */
+     under what two columns of key bindings need. Past 1200px this no longer
+     changes the layout - both grid children span every track above - but the
+     definition is kept in case a future track is added that should use it. */
   @media (min-width: 1200px) {
     .columns {
       grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
