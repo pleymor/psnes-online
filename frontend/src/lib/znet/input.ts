@@ -9,25 +9,9 @@
  * at different times on the two peers.
  */
 
-import type { KeyConfig } from '$lib/types';
+import type { PlayerControls, InputSources, Button, PadCodeDescriptor } from '../controls/binding.js';
+import { BUTTONS, parsePadCode } from '../controls/binding.js';
 import { PAD, type PadMask } from './protocol.js';
-
-const BUTTONS = [
-	'a',
-	'b',
-	'x',
-	'y',
-	'l',
-	'r',
-	'start',
-	'select',
-	'up',
-	'down',
-	'left',
-	'right'
-] as const;
-
-type Button = (typeof BUTTONS)[number];
 
 const BUTTON_BITS: Record<Button, number> = {
 	a: PAD.A,
@@ -44,72 +28,73 @@ const BUTTON_BITS: Record<Button, number> = {
 	right: PAD.RIGHT
 };
 
-/** Standard gamepad button indices, matching the layout browsers report. */
-const GAMEPAD_BITS: Array<[number, number]> = [
-	[0, PAD.B],
-	[1, PAD.A],
-	[2, PAD.Y],
-	[3, PAD.X],
-	[4, PAD.L],
-	[5, PAD.R],
-	[8, PAD.SELECT],
-	[9, PAD.START],
-	[12, PAD.UP],
-	[13, PAD.DOWN],
-	[14, PAD.LEFT],
-	[15, PAD.RIGHT]
-];
-
 const AXIS_THRESHOLD = 0.5;
 
 /**
- * Which gamepad a player is driving.
+ * Tout écouter : le défaut d'un joueur seul, et rien d'autre.
  *
- * 'auto' merges every connected pad, which is right when one player sits at one
- * machine. It is wrong the moment two windows share a machine - both read the
- * same physical pad, so one controller drives both players. 'off' and an
- * explicit index exist for that case.
+ * Frozen, and shared by every collector that does not pass its own sources:
+ * `getSources()` must never hand out this exact object, or a caller mutating
+ * it would corrupt the default for every collector created afterwards.
  */
-export type GamepadSource = 'auto' | 'off' | number;
+const EVERYTHING: InputSources = Object.freeze({ keyboard: true, pads: 'all' });
 
 export class InputCollector {
 	private held = new Set<string>();
-	private codeToBit = new Map<string, number>();
-	private gamepadSource: GamepadSource = 'auto';
+	/**
+	 * Des paires plutôt qu'une Map : un code lié à deux boutons est un conflit
+	 * que l'écran de config refuse de sauvegarder, mais une Map le perdrait en
+	 * silence si jamais il arrivait quand même jusqu'ici.
+	 */
+	private keyBits: Array<[string, number]> = [];
+	/**
+	 * Descripteurs déjà résolus plutôt que des codes bruts : `read()` tourne à
+	 * 60 Hz, et reparser chaque code manette à chaque frame pour chaque pad
+	 * ferait de l'ordre du millier d'objets par seconde de garbage - une pause
+	 * du GC dans l'émulateur s'entend comme un accroc audio.
+	 */
+	private padBits: Array<[PadCodeDescriptor, number]> = [];
+	private sources: InputSources = EVERYTHING;
 	private attached = false;
 	private onKeyDown = (e: KeyboardEvent) => this.handleKey(e, true);
 	private onKeyUp = (e: KeyboardEvent) => this.handleKey(e, false);
 	private onBlur = () => this.held.clear();
 
-	constructor(keyConfig: KeyConfig, gamepadSource: GamepadSource = 'auto') {
-		this.setKeyConfig(keyConfig);
-		this.gamepadSource = gamepadSource;
+	constructor(controls: PlayerControls, sources: InputSources = EVERYTHING) {
+		this.setControls(controls);
+		this.sources = sources;
 	}
 
-	setGamepadSource(source: GamepadSource): void {
-		this.gamepadSource = source;
-	}
-
-	getGamepadSource(): GamepadSource {
-		return this.gamepadSource;
-	}
-
-	/** Indices of the pads the browser currently reports, for a picker. */
-	connectedGamepads(): number[] {
-		if (typeof navigator === 'undefined' || !navigator.getGamepads) return [];
-		const out: number[] = [];
-		for (const pad of navigator.getGamepads()) {
-			if (pad?.connected) out.push(pad.index);
-		}
-		return out;
-	}
-
-	setKeyConfig(keyConfig: KeyConfig): void {
-		this.codeToBit.clear();
+	setControls(controls: PlayerControls): void {
+		this.keyBits = [];
+		this.padBits = [];
 		for (const button of BUTTONS) {
-			const code = keyConfig[button];
-			if (code) this.codeToBit.set(code, BUTTON_BITS[button]);
+			const bit = BUTTON_BITS[button];
+			const key = controls.keys[button];
+			if (key) this.keyBits.push([key, bit]);
+			for (const code of controls.pad[button] ?? []) {
+				if (!code) continue;
+				const descriptor = parsePadCode(code);
+				if (descriptor) this.padBits.push([descriptor, bit]);
+			}
 		}
+	}
+
+	/**
+	 * Change les périphériques que ce joueur écoute.
+	 *
+	 * Vide ce qui est tenu au clavier quand le clavier s'en va : sinon une
+	 * direction enfoncée au moment du changement n'aurait plus jamais son
+	 * keyup, et resterait bloquée pour la vie de la session.
+	 */
+	setSources(sources: InputSources): void {
+		if (this.sources.keyboard && !sources.keyboard) this.held.clear();
+		this.sources = sources;
+	}
+
+	/** Une copie : muter la valeur reçue ne doit pas toucher ce joueur. */
+	getSources(): InputSources {
+		return { ...this.sources };
 	}
 
 	attach(target: Window = window): void {
@@ -134,38 +119,43 @@ export class InputCollector {
 	/** The pad mask to send for the next scheduled frame. */
 	read(): PadMask {
 		let mask = 0;
-		for (const code of this.held) {
-			mask |= this.codeToBit.get(code) ?? 0;
+		if (this.sources.keyboard) {
+			for (const [code, bit] of this.keyBits) {
+				if (this.held.has(code)) mask |= bit;
+			}
 		}
-		mask |= this.readGamepad();
-		return sanitise(mask);
+		return sanitise(mask | this.readPads());
 	}
 
-	private readGamepad(): number {
-		if (this.gamepadSource === 'off') return 0;
+	private readPads(): number {
+		const { pads } = this.sources;
+		if (pads !== 'all' && pads.length === 0) return 0;
 		if (typeof navigator === 'undefined' || !navigator.getGamepads) return 0;
+
 		let mask = 0;
 		for (const pad of navigator.getGamepads()) {
 			if (!pad?.connected) continue;
-			if (this.gamepadSource !== 'auto' && pad.index !== this.gamepadSource) continue;
-			for (const [index, bit] of GAMEPAD_BITS) {
-				if (pad.buttons[index]?.pressed) mask |= bit;
+			if (pads !== 'all' && !pads.includes(pad.index)) continue;
+			for (const [descriptor, bit] of this.padBits) {
+				if (readPadCode(pad, descriptor)) mask |= bit;
 			}
-			const [x = 0, y = 0] = pad.axes;
-			if (x < -AXIS_THRESHOLD) mask |= PAD.LEFT;
-			if (x > AXIS_THRESHOLD) mask |= PAD.RIGHT;
-			if (y < -AXIS_THRESHOLD) mask |= PAD.UP;
-			if (y > AXIS_THRESHOLD) mask |= PAD.DOWN;
 		}
 		return mask;
 	}
 
 	private handleKey(event: KeyboardEvent, down: boolean): void {
-		if (!this.codeToBit.has(event.code)) return;
+		if (!this.sources.keyboard) return;
+		if (!this.keyBits.some(([code]) => code === event.code)) return;
 		event.preventDefault();
 		if (down) this.held.add(event.code);
 		else this.held.delete(event.code);
 	}
+}
+
+function readPadCode(pad: Gamepad, described: PadCodeDescriptor): boolean {
+	if (described.kind === 'button') return pad.buttons[described.index]?.pressed ?? false;
+	const value = pad.axes[described.index] ?? 0;
+	return described.dir === 'minus' ? value < -AXIS_THRESHOLD : value > AXIS_THRESHOLD;
 }
 
 /**

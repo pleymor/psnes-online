@@ -79,6 +79,20 @@ export interface KeyConfig {
   select: string;
 }
 
+/** A list of gamepad codes per SNES button. Empty list = unbound. */
+export type PadConfig = Record<keyof KeyConfig, string[]>;
+
+export interface PlayerControls {
+  keys: KeyConfig;
+  pad: PadConfig;
+}
+
+export interface ControlsConfig {
+  version: 2;
+  p1: PlayerControls;
+  p2: PlayerControls;
+}
+
 export interface GameInput {
   port: 1 | 2;
   buttons: {

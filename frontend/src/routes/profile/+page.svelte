@@ -13,7 +13,7 @@
   import { user, userLoading } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
-  import type { KeyConfig } from '$lib/types';
+  import { normaliseControlsConfig, type ControlsConfig } from '$lib/controls/binding';
   import TopBar from '$lib/components/TopBar.svelte';
   import ControlsSettings from '$lib/components/ControlsSettings.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
@@ -30,7 +30,7 @@
   // chrome instead of stranding the user with a lone back link. It needs the
   // active rooms for the friends drawer's join buttons.
   let activeRooms: any[] = [];
-  let keyConfig: KeyConfig | null = null;
+  let controlsConfig: ControlsConfig | null = null;
   let controlsError = '';
   let shader = '';
   let refreshing = false;
@@ -101,7 +101,7 @@
       // Showing nothing on failure is deliberate: presenting stale or absent
       // key bindings as if they were the saved config would be worse than an
       // explanation and an empty section.
-      if (res.ok) keyConfig = await res.json();
+      if (res.ok) controlsConfig = normaliseControlsConfig(await res.json());
       else controlsError = t($language, 'controlsLoadFailed');
     } catch {
       controlsError = t($language, 'controlsLoadFailed');
@@ -186,13 +186,19 @@
     </div>
   </header>
 
-  <!-- Two columns past 900px. Controls is the tall one, so it gets a column to
-       itself and the short cards stack beside it rather than under it. -->
+  <!-- The controls card always spans the full grid width: it needs the
+       whole page width for its two side-by-side pad drawings (46rem
+       threshold), which the narrower of the two `.columns` tracks can never
+       give it. `.stack` spans too, so it lands in its own row below rather
+       than leaving the other track empty. -->
   <div class="columns">
-    <section class="card">
+    <section class="card controls-card">
       <h3>{t($language, 'controls')}</h3>
-      {#if keyConfig}
-        <ControlsSettings currentConfig={keyConfig} on:saved={(e) => (keyConfig = e.detail.config)} />
+      {#if controlsConfig}
+        <ControlsSettings
+          currentConfig={controlsConfig}
+          on:saved={(e) => (controlsConfig = e.detail.config)}
+        />
       {:else if controlsError}
         <p class="note">{controlsError}</p>
       {/if}
@@ -271,6 +277,19 @@
 
 <style>
   .profile {
+    /* Explicit, not auto: `.profile` is a flex item of `.app`
+       (flex-direction: column), so its cross axis is horizontal. A flex
+       item with horizontal auto margins has its cross-axis alignment -
+       align-items: stretch, here - overridden by those margins, so an
+       `auto` width would shrink-wrap to content instead of filling up to
+       max-width. That happened to look fine only because some sibling
+       (the Display card's shader tiles, at the time) had enough natural
+       width to drag the shrink-to-fit basis up near the cap - the
+       controls card's own 46rem container-query threshold was riding on
+       a neighbour's content, not on the page. `width: 100%` makes the
+       size explicit, so `margin: 0 auto` just centers the already-full
+       width within any space `max-width` leaves, as intended. */
+    width: 100%;
     max-width: 68rem;
     margin: 0 auto;
     padding: 1.5rem;
@@ -352,11 +371,21 @@
     gap: 1.5rem;
   }
 
+  /* The controls card needs the full page width, not a share of it - see the
+     comment above the markup. It and .stack both span every track, so
+     neither `.columns` layout below leaves the other track's row empty. */
+  .controls-card {
+    grid-column: 1 / -1;
+  }
+
+  .stack {
+    grid-column: 1 / -1;
+  }
+
   /* 900px was too eager: it gave the controls card about 420px, which is
-     under what two columns of key bindings need, so the page went
-     side-by-side exactly when its widest block could no longer afford it.
-     Past 1200px the controls column takes the larger share and stays wide
-     enough to keep its own two columns. */
+     under what two columns of key bindings need. Past 1200px this no longer
+     changes the layout - both grid children span every track above - but the
+     definition is kept in case a future track is added that should use it. */
   @media (min-width: 1200px) {
     .columns {
       grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);

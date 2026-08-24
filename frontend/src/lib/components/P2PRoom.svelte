@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { socket } from '$lib/api/socket';
   import ClientEmulator from './ClientEmulator.svelte';
   import DualClientEmulator from './DualClientEmulator.svelte';
@@ -9,6 +9,7 @@
   import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { readShaderPreference } from '$lib/stores/shader-preference';
   import type { KeyConfig } from '$lib/types';
+  import { parsePadCode, type ControlsConfig } from '$lib/controls/binding';
   import { EmulationMode } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
   import { DualModeHandler } from '$lib/multiplayer/dual-mode';
@@ -27,9 +28,18 @@
   export let gameTitle = '';
   export let isHost: boolean;
   export let keyConfig: KeyConfig;
+  /**
+   * The two-player config, relayed to `PauseMenu`'s controls sub-menu.
+   *
+   * Distinct from `keyConfig`, which the room hands down for this member and
+   * which, in netplay, can come from a different account than mine.
+   */
+  export let controls: ControlsConfig;
   export let emulationMode: EmulationMode = EmulationMode.DUAL;
   export let useRollbackNetcode: boolean = true; // Enable rollback by default for dual mode
   export let useSeamlessResync: boolean = false; // Disabled - using canvas freeze instead
+
+  const dispatch = createEventDispatcher();
 
   // --- State ---
   let emulatorComponent: ClientEmulator;
@@ -700,28 +710,48 @@
     $socket?.emit('game:stop', { roomId });
   }
 
-  function handleControlsSaved(event: CustomEvent<{ config: KeyConfig }>): void {
-    // Update local keyConfig when controls are saved
-    keyConfig = event.detail.config;
+  /**
+   * A rebind must take effect on this machine immediately, not once the
+   * server round trip confirms it: the round trip can be slow or down, and
+   * a player who just saved new bindings should not keep playing on the old
+   * ones with nothing on screen explaining why. The room broadcast (handled
+   * by the room page's own `controlsSaved` listener) is what makes the new
+   * mapping visible to everyone else, not what enables it here.
+   *
+   * Stays on the pause menu rather than resuming - that was this handler's
+   * original effect, before it only knew about a single-player `KeyConfig`.
+   */
+  function handleControlsSaved(event: CustomEvent<{ config: ControlsConfig }>): void {
+    controls = event.detail.config;
+    keyConfig = event.detail.config.p1.keys;
+    dispatch('controlsSaved', event.detail);
   }
 
   // --- Gamepad Input (streaming mode guest) ---
-  // Map gamepad button index to SNES button using user's keyConfig
-  function mapGamepadInputToButton(buttonIndex: number, isAxis: boolean, axisDirection?: 'plus' | 'minus'): string | null {
-    // Build the expected keyConfig value format
-    // Button: "Gamepad0Button1"
-    // Axis: "Gamepad0Axis0Plus" or "Gamepad0Axis0Minus"
-    let pattern: string;
-    if (isAxis && axisDirection) {
-      pattern = `Gamepad0Axis${buttonIndex}${axisDirection === 'plus' ? 'Plus' : 'Minus'}`;
-    } else {
-      pattern = `Gamepad0Button${buttonIndex}`;
-    }
-
-    // Find which SNES button maps to this gamepad input
-    for (const [snesButton, configValue] of Object.entries(keyConfig)) {
-      if (configValue === pattern) {
-        return snesButton;
+  /**
+   * Which SNES button this pad input is bound to, per `controls.p1.pad`.
+   *
+   * The pad table, not `keyConfig`: normalisation moves every `Gamepad0Button<n>`
+   * / `Gamepad0Axis<n><Dir>` code out of `keys` and into `pad` as a `Pad*` code,
+   * so matching the legacy vocabulary against `keyConfig` - what this did - can
+   * no longer hit anything, and a streaming guest with pad bindings was left
+   * with a dead controller. Parsed with `parsePadCode`, the same reading the
+   * input collector does, rather than a second string format invented here.
+   *
+   * `index` is the button index, or the axis index when `isAxis`.
+   */
+  function mapGamepadInputToButton(index: number, isAxis: boolean, axisDirection?: 'plus' | 'minus'): string | null {
+    for (const [snesButton, codes] of Object.entries(controls.p1.pad)) {
+      for (const code of codes) {
+        const parsed = parsePadCode(code);
+        if (!parsed) continue;
+        if (isAxis && axisDirection) {
+          if (parsed.kind === 'axis' && parsed.index === index && parsed.dir === axisDirection) {
+            return snesButton;
+          }
+        } else if (parsed.kind === 'button' && parsed.index === index) {
+          return snesButton;
+        }
       }
     }
     return null;
@@ -1129,11 +1159,12 @@
       {roomId}
       {gameId}
       {keyConfig}
+      {controls}
       emulator={emulatorComponent}
       restoreFullscreen={wasFullscreenBeforePause}
       on:resume={handleResume}
       on:quit={handleQuit}
-      on:saved={handleControlsSaved}
+      on:controlsSaved={handleControlsSaved}
     />
   {/if}
 </div>
