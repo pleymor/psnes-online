@@ -10,6 +10,8 @@ import { cleanupHostReady } from './p2p-handlers.js';
 import { cleanupZnetRoom } from './znet-handlers.js';
 import { getDb, type Database } from '../db/sqlite.js';
 import { findOwnedGameForRoom } from '../db/games.js';
+import { findSaveWithGame } from '../db/saves.js';
+import { saveSuitsRoom } from '../rooms/save-suits-room.js';
 import { findFriendshipBetween } from '../db/friendships.js';
 import { findUserById } from '../db/users.js';
 import {
@@ -265,6 +267,16 @@ export function registerRoomHandlers(
 
     room.gameId = game.gameId;
     room.gameTitle = game.gameTitle;
+    /*
+     * A save belongs to a game, so changing the game unstages it.
+     *
+     * Without this, arriving on `?save=` and then picking a different game left
+     * the old save staged, and the mistake surfaced as "that save belongs to a
+     * different game" once the emulator had booted - an error about something
+     * nobody had asked for, at the worst possible moment.
+     */
+    room.resumeSaveId = undefined;
+    room.resumeSaveName = undefined;
     // Overwritten, never merged: keeping the previous game's cover next to the
     // new game's title would be visibly wrong.
     room.gameCoverUrl = facts?.coverUrl ?? undefined;
@@ -605,6 +617,62 @@ export function registerRoomHandlers(
     room.latencyMode = data.latencyMode;
     io.to(data.roomId).emit('room:updated', room);
     logger.info({ roomId: room.id, latencyMode: data.latencyMode }, 'Latency mode changed');
+  });
+
+  /*
+   * Stage the save this room will start on, or clear it with a null id.
+   *
+   * Creator-only, like the latency mode: loading a state is not a private
+   * preference, it decides where both players begin. The guards are the ones
+   * `game:load` already applies - exists, owned by the caller, same ROM - and
+   * that repetition is the point of the handler rather than an accident. Checked
+   * only at boot, a wrong save became an error over a running game; checked
+   * here, it is a refusal in the lobby, where there is still something to do
+   * about it.
+   */
+  socket.on('room:choose-save', (data: { roomId: string; saveId: string | null }) => {
+    const room = rooms.get(data?.roomId);
+    if (!room) return;
+    if (room.createdBy !== user.id) {
+      socket.emit('error', { message: 'Only the player who opened the room can choose a save' });
+      return;
+    }
+    if (room.status !== 'waiting') {
+      socket.emit('error', { message: 'The starting save cannot be changed once the room has started' });
+      return;
+    }
+
+    // Starting from the beginning after all is ordinary use, not an error.
+    if (data?.saveId == null) {
+      room.resumeSaveId = undefined;
+      room.resumeSaveName = undefined;
+      io.to(room.id).emit('room:updated', room);
+      logger.info({ roomId: room.id }, 'Starting save cleared');
+      return;
+    }
+
+    const save = findSaveWithGame(getDb(), data.saveId);
+    if (!save) {
+      socket.emit('error', { message: 'Save not found' });
+      return;
+    }
+    if (save.game.userId !== user.id) {
+      socket.emit('error', { message: 'Not authorized to load this save' });
+      return;
+    }
+    if (!saveSuitsRoom(room.gameCrc32, save.game.crc32)) {
+      socket.emit('error', { message: 'That save belongs to a different game' });
+      logger.warn(
+        { roomId: room.id, saveId: data.saveId, roomCrc32: room.gameCrc32, saveCrc32: save.game.crc32 },
+        'Refused to stage a save that does not belong to the room game'
+      );
+      return;
+    }
+
+    room.resumeSaveId = save.id;
+    room.resumeSaveName = save.name;
+    io.to(room.id).emit('room:updated', room);
+    logger.info({ roomId: room.id, saveId: save.id, by: user.displayName }, 'Starting save staged');
   });
 
   // Set emulation mode (only room creator can change)

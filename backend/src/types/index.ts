@@ -33,6 +33,21 @@ export interface Room {
    * the setting is to be reachable from the pause menu.
    */
   latencyMode: LatencyMode;
+  /**
+   * The save this room will start on, staged from the lobby, or absent to start
+   * the game from the beginning.
+   *
+   * On the room rather than in one browser's URL because both players have to
+   * agree on it: in lockstep the two machines must boot from the same state, and
+   * the guest has to be able to see what they are about to join. The library's
+   * `?save=` still works and means the same thing - it is the creator staging a
+   * save before the room screen has drawn once.
+   *
+   * The name travels alongside so that a guest can be told which save without
+   * asking for a list whose rows carry a megabyte of savestate each.
+   */
+  resumeSaveId?: string;
+  resumeSaveName?: string;
   createdAt: Date;
   /**
    * When the last member went away, or absent while somebody is still here.

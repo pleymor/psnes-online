@@ -13,6 +13,8 @@
   import LockstepRoom from '$lib/components/LockstepRoom.svelte';
   import SoloRoom from '$lib/components/SoloRoom.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
+  import SaveGrid from '$lib/components/SaveGrid.svelte';
+  import type { SaveSummary } from '$lib/saves/api';
   import ConfirmModal from '$lib/components/ConfirmModal.svelte';
   import type { Room } from '$lib/types';
   import { EmulationMode } from '$lib/types';
@@ -83,6 +85,23 @@
   // Determine effective emulation mode for game start
   $: effectiveEmulationMode = isSinglePlayer ? EmulationMode.SINGLE : room?.emulationMode;
 
+  /*
+   * Whether the mode this room would start in can open on a save at all.
+   *
+   * Only `SoloRoom` and `LockstepRoom` listen for `game:loaded`; `P2PRoom`,
+   * which runs the dual and streaming modes, has no savestate path at all - not
+   * from here and not from its own pause menu. So a staged save in those modes
+   * is not a bug to route around, it is a thing that does not exist, and the
+   * lobby says so rather than starting a fresh game without a word.
+   *
+   * Derived from the effective mode, which collapses to SINGLE while the partner
+   * is away. That makes the notice come and go with the partner, which is
+   * exactly right: with one player it is `SoloRoom` that runs, and it resumes.
+   */
+  $: modeCanResume =
+    effectiveEmulationMode === EmulationMode.SINGLE ||
+    effectiveEmulationMode === EmulationMode.LOCKSTEP;
+
   /**
    * The mode the running game was started in, frozen at `game:started`.
    *
@@ -115,10 +134,32 @@
     ? { id: room.gameId, title: room.gameTitle ?? '', crc32: room.gameCrc32 }
     : null;
 
+  /*
+   * My own library row for this room's ROM, and the saves on it.
+   *
+   * Matched on the checksum rather than on `room.gameId`, because each player
+   * has their own `Game` row for the same dump: when the guest picked the game,
+   * the room carries *their* id and looking it up in my library finds nothing.
+   * This is the same distinction `saveSuitsRoom` makes on the server, and the
+   * reason `Room.gameCrc32` exists at all. The id fallback keeps rooms whose
+   * game predates local ROMs, and so has no checksum, working as before.
+   *
+   * The summaries come from the library store, which already holds them for
+   * every game: asking `/api/games/:id/saves` instead would download the
+   * savestates themselves to draw a row of thumbnails.
+   */
+  $: myGameForRoom = room
+    ? ($games.find(g => room?.gameCrc32 && g.crc32 === room.gameCrc32)
+        ?? $games.find(g => g.id === room?.gameId)
+        ?? null)
+    : null;
+  $: myRoomSaves = (myGameForRoom?.saves ?? []) as SaveSummary[];
+
   /** The library to choose from, and the friends who can be invited into it. */
   let friends: { friendshipId: string; friend: { id: string; displayName: string; avatar?: string } }[] = [];
   let showGamePicker = false;
   let showInvite = false;
+  let showSavePicker = false;
 
   /**
    * The one invitation this room is waiting on, as the server describes it.
@@ -197,11 +238,30 @@
   /**
    * The save this room was opened on, if the library sent us here to resume.
    *
-   * Carried down to whichever emulator component runs, which asks the server
-   * for it once the session is playing. Nothing here applies it: the existing
-   * `game:load` / `game:loaded` pair does, exactly as the pause menu does.
+   * Only the arrival's half of the answer: the room itself carries the staged
+   * save now, and `resumeSaveId` below is resolved from both.
+   */
+  let urlSaveId: string | null = null;
+  /**
+   * The save whichever emulator component will start on.
+   *
+   * Carried down as a prop, and the component asks the server for it once the
+   * session is playing - nothing here applies it, the existing `game:load` /
+   * `game:loaded` pair does, exactly as the pause menu does. Which is why this
+   * is resolved once, when the game starts, rather than reactively: the
+   * components null their copy after using it so that a reconnect cannot rewind
+   * the game, and a reactive value would push the save straight back down on the
+   * next `room:updated`.
    */
   let resumeSaveId: string | null = null;
+  let resumeSaveResolved = false;
+  $: if (gameStarted && !resumeSaveResolved) {
+    // The room wins over the URL: it is where both players agree, and it is the
+    // later word - the creator may have staged something else from the lobby
+    // after arriving on a `?save=` link.
+    resumeSaveId = room?.resumeSaveId ?? urlSaveId;
+    resumeSaveResolved = true;
+  }
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   /**
    * Whether this component is still mounted.
@@ -396,6 +456,23 @@
     showGamePicker = false;
   }
 
+  /*
+   * Stage the save this room will start on, or clear it.
+   *
+   * Through the server rather than into a local variable: in lockstep both
+   * machines boot from the same state, and the guest's lobby has to be able to
+   * say what it will be. The server refuses a save that is not the caller's or
+   * not this ROM's - here, in the lobby, instead of at boot over a running game.
+   */
+  function chooseSave(save: SaveSummary) {
+    $socket?.emit('room:choose-save', { roomId, saveId: save.id });
+    showSavePicker = false;
+  }
+
+  function clearStartingSave() {
+    $socket?.emit('room:choose-save', { roomId, saveId: null });
+  }
+
   function inviteFriend(friendId: string) {
     $socket?.emit('lobby:invite', { roomId, friendId });
   }
@@ -447,10 +524,10 @@
 
   onMount(async () => {
     arrivedByInvitation = $page.url.searchParams.get('from') === 'invitation';
-    // Read once at mount, not reactively: which save this room was opened on is
-    // a fact about the arrival. Rereading it would re-apply the save if the URL
+    // Read once at mount, not reactively: which save the *arrival* named is a
+    // fact about the arrival. Rereading it would re-apply the save if the URL
     // were ever revisited mid-session.
-    resumeSaveId = $page.url.searchParams.get('save');
+    urlSaveId = $page.url.searchParams.get('save');
 
     const sock = await waitForSocket();
     // The component can be gone by now - a click through to another page while
@@ -673,7 +750,28 @@
                   {t($language, 'inviteFriend')}
                 </button>
               {/if}
+              <!-- Creator-only, like the latency mode: where the game starts is
+                   not a private preference, it decides where both players begin.
+                   And only with a game and a save of my own to offer - the
+                   library sends its own saves here through `?save=`, but from
+                   inside a lobby this button is the only door. -->
+              {#if isRoomCreator && room.gameId && myRoomSaves.length > 0}
+                <button class="btn-setup" class:on={showSavePicker} on:click={() => (showSavePicker = !showSavePicker)}>
+                  {t($language, 'startFromSave')}
+                </button>
+              {/if}
             </div>
+
+            {#if showSavePicker && myGameForRoom}
+              <div class="panel">
+                <SaveGrid
+                  gameId={myGameForRoom.id}
+                  preloaded={myRoomSaves}
+                  actionLabel={t($language, 'startHere')}
+                  on:select={(e) => chooseSave(e.detail)}
+                />
+              </div>
+            {/if}
 
             {#if showGamePicker}
               <div class="panel">
@@ -750,6 +848,25 @@
                   </ul>
                 {/if}
               </div>
+            {/if}
+          </div>
+        {/if}
+
+        <!-- Shown to both players, and outside the picker: what the room will
+             start on is a fact about the room, not about whoever opened a panel.
+             The guest reads it, the creator can undo it. -->
+        {#if room.resumeSaveId}
+          <div class="starting-save">
+            <span class="starting-save-label">
+              {t($language, 'startingFrom', { name: room.resumeSaveName ?? '' })}
+            </span>
+            {#if isRoomCreator}
+              <button class="btn-clear-save" on:click={clearStartingSave}>
+                {t($language, 'startFromBeginning')}
+              </button>
+            {/if}
+            {#if !modeCanResume}
+              <span class="starting-save-warning">{t($language, 'saveNeedsLockstep')}</span>
             {/if}
           </div>
         {/if}
@@ -1110,6 +1227,50 @@
     font-weight: 700;
     text-transform: uppercase;
     vertical-align: middle;
+  }
+
+  /* Sits between the lobby panels and the launch button, because that is the
+     order it is read in: this is the last thing you check before starting. */
+  .starting-save {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin: 1.5rem auto 0;
+    padding: 0.7rem 1rem;
+    max-width: 34rem;
+    background: #2a2a3a;
+    border: 1px solid #3d3d52;
+    border-radius: 8px;
+  }
+
+  .starting-save-label {
+    color: #e6e6f0;
+    font-size: 0.9rem;
+  }
+
+  .btn-clear-save {
+    flex-shrink: 0;
+    background: transparent;
+    color: #8ab4f8;
+    border: 1px solid #3d3d52;
+    border-radius: 6px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  .btn-clear-save:hover {
+    border-color: #8ab4f8;
+  }
+
+  /* Full width so it reads as a sentence under the two controls rather than as
+     a third one beside them. */
+  .starting-save-warning {
+    flex-basis: 100%;
+    color: #f59e0b;
+    font-size: 0.8rem;
   }
 
   .actions {

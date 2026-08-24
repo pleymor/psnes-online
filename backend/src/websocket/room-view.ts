@@ -79,6 +79,11 @@ export function toPublicRoom(room: Room) {
     status: room.status,
     emulationMode: room.emulationMode,
     latencyMode: room.latencyMode,
+    // Both players need this, not just the one who staged it: the guest's lobby
+    // says what the room will start on, and in lockstep the two machines have to
+    // boot from the same state or diverge on the first frame.
+    resumeSaveId: room.resumeSaveId,
+    resumeSaveName: room.resumeSaveName,
     createdAt: room.createdAt,
     /*
      * The invitation this room is waiting on, so that hiding the invite panel

@@ -71,6 +71,13 @@ export interface Room {
    */
   latencyMode: LatencyMode;
   /**
+   * The save this room will start on, staged from the lobby, or absent to start
+   * from the beginning. `resumeSaveName` comes with it so the lobby can name the
+   * save without fetching a list whose rows carry a megabyte of state each.
+   */
+  resumeSaveId?: string;
+  resumeSaveName?: string;
+  /**
    * An ISO string, not a Date: this arrives over Socket.IO, which serialises
    * dates and never revives them. It was typed `Date` here and no caller had
    * yet trusted that enough to call a method on it; parse with `new Date(...)`

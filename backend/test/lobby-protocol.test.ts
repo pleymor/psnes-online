@@ -41,6 +41,7 @@ const { createFriendshipRequest, acceptFriendship } = await import('../src/db/fr
 const {
   createInvitation, findInvitationById, markInvitation, deleteExpiredInvitations
 } = await import('../src/db/invitations.js');
+const { createSave } = await import('../src/db/saves.js');
 const {
   registerRoomHandlers, pendingInvitationsFor, markPlayerAway
 } = await import('../src/websocket/room-handlers.js');
@@ -1246,5 +1247,183 @@ test('a withdrawn invitation is not reported to the invitee as one they answered
     const message = (await refused).message;
     assert.match(message, /withdrawn/);
     assert.doesNotMatch(message, /answered/);
+  });
+});
+
+
+/*
+ * Staging a save to start on, from the lobby.
+ *
+ * The library could already send a room to a save through `?save=`, but only
+ * before the room existed - so somebody who created the room from the Play
+ * button, or who joined someone else's, had no way to say where to start. These
+ * cover the rule that makes it safe in a room of two: the creator decides, the
+ * way they already decide the latency mode, and the guards are the ones
+ * `game:load` applies at boot rather than a second, looser set.
+ */
+
+/** A save on `gameId`, with bytes nobody reads here. */
+function stageable(gameId: string, name: string, slotNumber = 1) {
+  return createSave(db, {
+    gameId, slotNumber, name, data: Buffer.from('state'), screenshot: null
+  });
+}
+
+/** Alice's room on Chrono Trigger, with Bob in it. */
+async function roomOfTwo(lobby: Lobby) {
+  const host = await lobby.client(lobby.alice);
+  const guest = await lobby.client(lobby.bob);
+
+  const created = once<Room>(host, 'room:created');
+  host.emit('room:create', {});
+  const room = await created;
+
+  const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+  host.emit('lobby:invite', { roomId: room.id, friendId: lobby.bob.id });
+  const acked = once(guest, 'lobby:accepted');
+  guest.emit('lobby:accept', { invitationId: (await delivered).id });
+  await acked;
+
+  const chosen = once<Room>(guest, 'room:updated');
+  host.emit('room:choose-game', { roomId: room.id, gameId: lobby.gameId, gameTitle: 'Chrono Trigger' });
+  await chosen;
+
+  return { host, guest, room };
+}
+
+test('the creator stages a save, and both players are told which one', async () => {
+  await withLobby(async lobby => {
+    const { host, guest, room } = await roomOfTwo(lobby);
+    const save = stageable(lobby.gameId, 'Before Lavos');
+
+    const hostSees = once<Room>(host, 'room:updated');
+    const guestSees = once<Room>(guest, 'room:updated');
+    host.emit('room:choose-save', { roomId: room.id, saveId: save.id });
+
+    for (const view of [await hostSees, await guestSees]) {
+      assert.equal(view.resumeSaveId, save.id);
+      // The name travels with the id so that the guest can be told what the
+      // room will start on without asking for a list of megabyte savestates.
+      assert.equal(view.resumeSaveName, 'Before Lavos');
+    }
+  });
+});
+
+test('a guest cannot stage a save, even one of their own', async () => {
+  await withLobby(async lobby => {
+    const { guest, room } = await roomOfTwo(lobby);
+    // Bob's own row for the same ROM: the checksum matches, so ownership is
+    // not what refuses this. Only being the creator is.
+    const bobsGame = createGame(db, {
+      title: 'Chrono Trigger', filename: 'ct.sfc', crc32: 'DEADBEEF', userId: lobby.bob.id,
+      ...NO_METADATA, coverUrl: null
+    });
+    const save = stageable(bobsGame.id, "Bob's run");
+
+    const refused = once<{ message: string }>(guest, 'error');
+    guest.emit('room:choose-save', { roomId: room.id, saveId: save.id });
+    await refused;
+
+    assert.equal(lobby.rooms.get(room.id)!.resumeSaveId, undefined);
+  });
+});
+
+test('the creator cannot stage a save that is not theirs', async () => {
+  await withLobby(async lobby => {
+    const { host, room } = await roomOfTwo(lobby);
+    const bobsGame = createGame(db, {
+      title: 'Chrono Trigger', filename: 'ct.sfc', crc32: 'DEADBEEF', userId: lobby.bob.id,
+      ...NO_METADATA, coverUrl: null
+    });
+    const save = stageable(bobsGame.id, "Bob's run");
+
+    const refused = once<{ message: string }>(host, 'error');
+    host.emit('room:choose-save', { roomId: room.id, saveId: save.id });
+    await refused;
+
+    assert.equal(lobby.rooms.get(room.id)!.resumeSaveId, undefined);
+  });
+});
+
+test('a save from another game is refused when it is staged, not at boot', async () => {
+  await withLobby(async lobby => {
+    const { host, room } = await roomOfTwo(lobby);
+    // Super Metroid, in a Chrono Trigger room: CAFEBABE against DEADBEEF.
+    const save = stageable(lobby.otherGameId, 'Wrong game');
+
+    const refused = once<{ message: string }>(host, 'error');
+    host.emit('room:choose-save', { roomId: room.id, saveId: save.id });
+    await refused;
+
+    /*
+     * The point of the whole handler. `game:load` catches this too, but only
+     * once the emulator has booted - so the mistake used to surface as an error
+     * over a running game instead of as a refusal in the lobby.
+     */
+    assert.equal(lobby.rooms.get(room.id)!.resumeSaveId, undefined);
+  });
+});
+
+test('a staged save is dropped when the room changes game', async () => {
+  await withLobby(async lobby => {
+    const { host, guest, room } = await roomOfTwo(lobby);
+    const save = stageable(lobby.gameId, 'Before Lavos');
+
+    const staged = once<Room>(host, 'room:updated');
+    // The guest's copy of the same update, awaited rather than left in flight:
+    // arming the next listener while it is on the wire catches this one instead.
+    const guestStaged = once<Room>(guest, 'room:updated');
+    host.emit('room:choose-save', { roomId: room.id, saveId: save.id });
+    assert.equal((await staged).resumeSaveId, save.id);
+    await guestStaged;
+
+    // A save belongs to a game. Keeping it across a change of game is how the
+    // URL path used to earn a "that save belongs to a different game" at boot
+    // for a room nobody had asked to resume.
+    const regamed = once<Room>(guest, 'room:updated');
+    host.emit('room:choose-game', { roomId: room.id, gameId: lobby.otherGameId, gameTitle: 'Super Metroid' });
+    const after = await regamed;
+    assert.equal(after.resumeSaveId, undefined);
+    assert.equal(after.resumeSaveName, undefined);
+  });
+});
+
+test('the creator can unstage, and start from the beginning after all', async () => {
+  await withLobby(async lobby => {
+    const { host, room } = await roomOfTwo(lobby);
+    const save = stageable(lobby.gameId, 'Before Lavos');
+
+    const staged = once<Room>(host, 'room:updated');
+    host.emit('room:choose-save', { roomId: room.id, saveId: save.id });
+    await staged;
+
+    const cleared = once<Room>(host, 'room:updated');
+    host.emit('room:choose-save', { roomId: room.id, saveId: null });
+    const after = await cleared;
+    assert.equal(after.resumeSaveId, undefined);
+    assert.equal(after.resumeSaveName, undefined);
+  });
+});
+
+test('a guest arriving after the save was staged still sees it', async () => {
+  await withLobby(async lobby => {
+    const host = await lobby.client(lobby.alice);
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', { gameId: lobby.gameId, gameTitle: 'Chrono Trigger' });
+    const room = await created;
+
+    const save = stageable(lobby.gameId, 'Before Lavos');
+    const staged = once<Room>(host, 'room:updated');
+    host.emit('room:choose-save', { roomId: room.id, saveId: save.id });
+    await staged;
+
+    /*
+     * Through the public view rather than through whichever event carries the
+     * room on arrival: `toPublicRoom` is the only builder every path uses, so
+     * this is the assertion that covers all of them at once.
+     */
+    const asBobSees = toPublicRoomFor(lobby.rooms.get(room.id)!, lobby.bob.id);
+    assert.equal(asBobSees.resumeSaveId, save.id);
+    assert.equal(asBobSees.resumeSaveName, 'Before Lavos');
   });
 });
