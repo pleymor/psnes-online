@@ -82,6 +82,25 @@ function defaultPlayer(keys: KeyConfig): PlayerControls {
   return { keys: { ...keys }, pad: getStandardPadConfig() };
 }
 
+/**
+ * Removes `code` from every button's pad list other than `owner`.
+ *
+ * Called right after a legacy code has been migrated onto `owner`: the
+ * player explicitly targeted that button, and the code cannot also sit on
+ * another one in the same table without becoming a conflict nobody chose.
+ * The consequence - another button loses a binding it held from the
+ * standard mapping - is the honest price of having rebound onto its code;
+ * it beats a panel that refuses to save.
+ */
+function releasePadCodeFromOthers(pad: PadConfig, owner: keyof PadConfig, code: string): void {
+  for (const button of BUTTONS) {
+    if (button === owner) continue;
+    if (pad[button].includes(code)) {
+      pad[button] = pad[button].filter((existing) => existing !== code);
+    }
+  }
+}
+
 export function getDefaultControlsConfig(): ControlsConfig {
   return {
     version: 2,
@@ -111,6 +130,7 @@ function normalisePlayer(raw: unknown, defaults: KeyConfig): PlayerControls {
     const migrated = legacyToPadCode(key);
     if (migrated) {
       player.pad[button] = [migrated];
+      releasePadCodeFromOthers(player.pad, button, migrated);
       player.keys[button] = '';
     } else {
       player.keys[button] = key;

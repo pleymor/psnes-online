@@ -126,6 +126,25 @@ function clonePad(source: PadConfig): PadConfig {
 	return out;
 }
 
+/**
+ * Retire `code` de la liste manette de tout bouton autre que `owner`.
+ *
+ * Appelée juste après qu'un code legacy a été migré vers `owner` : le joueur
+ * a explicitement visé ce bouton-là, et le code ne peut pas rester ailleurs
+ * dans la même table sans devenir un conflit que personne n'a choisi. La
+ * conséquence - un autre bouton perd une liaison qu'il tenait du mappage
+ * standard - est le prix honnête d'avoir rebindé sur son code ; c'est
+ * meilleur qu'un panneau qui refuse de sauvegarder.
+ */
+function releasePadCodeFromOthers(pad: PadConfig, owner: Button, code: string): void {
+	for (const button of BUTTONS) {
+		if (button === owner) continue;
+		if (pad[button].includes(code)) {
+			pad[button] = pad[button].filter((existing) => existing !== code);
+		}
+	}
+}
+
 function defaultPlayer(keys: KeyConfig): PlayerControls {
 	return { keys: { ...keys }, pad: clonePad(STANDARD_PAD) };
 }
@@ -154,6 +173,7 @@ function playerFromLegacyKeys(raw: Record<string, unknown>, defaults: KeyConfig)
 		const padCode = legacyToPadCode(value);
 		if (padCode) {
 			player.pad[button] = [padCode];
+			releasePadCodeFromOthers(player.pad, button, padCode);
 			player.keys[button] = '';
 		} else {
 			player.keys[button] = value;
@@ -184,6 +204,7 @@ function normalisePlayer(raw: unknown, defaults: KeyConfig): PlayerControls {
 		const migrated = legacyToPadCode(key);
 		if (migrated) {
 			player.pad[button] = [migrated];
+			releasePadCodeFromOthers(player.pad, button, migrated);
 			player.keys[button] = '';
 		} else {
 			player.keys[button] = key;

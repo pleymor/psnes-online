@@ -60,6 +60,15 @@ test('a legacy gamepad button code migrates to the pad table', () => {
 	assert.equal(config.p1.keys.a, '');
 });
 
+test('migrating a legacy pad code frees the other button that held it too', () => {
+	// The standard mapping already gives PadButton2 to Y. Leaving it there
+	// too after A claims it would be a conflict the player never made, and
+	// Save would refuse the config before they have touched anything.
+	const config = normaliseControlsConfig({ ...V1, a: 'Gamepad0Button2' });
+	assert.deepEqual(config.p1.pad.a, ['PadButton2'], 'the migrated code stays on the button it targeted');
+	assert.deepEqual(config.p1.pad.y, [], 'Y gives up the code it shared with A');
+});
+
 test('a legacy gamepad axis code migrates to the pad table', () => {
 	const config = normaliseControlsConfig({ ...V1, up: 'Gamepad0Axis1Minus' });
 	assert.deepEqual(config.p1.pad.up, ['PadAxis1Minus']);

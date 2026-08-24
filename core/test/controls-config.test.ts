@@ -93,6 +93,21 @@ test('un code manette legacy migre vers la table manette et libère le clavier',
 	assert.deepEqual(config.p1.pad.b, STANDARD_PAD.b, 'les autres emplacements ne bougent pas');
 });
 
+test('la migration d’un code manette legacy libère les autres emplacements qui le portaient', () => {
+	// Le mappage standard donne déjà PadButton2 à Y. Si le J1 avait rebindé A
+	// dessus sous l'ancien système, le laisser aussi sur Y créerait un conflit
+	// que le joueur n'a jamais choisi et devrait résoudre avant de pouvoir
+	// sauvegarder. Le code appartient au bouton que le joueur a explicitement
+	// visé ; l'autre bouton perd la liaison, pas le joueur.
+	const result = normaliseControlsConfig({ ...V1, a: 'Gamepad0Button2' });
+
+	assert.deepEqual(result.p1.pad.a, ['PadButton2'], 'la liaison migrée reste sur le bouton visé');
+	assert.deepEqual(result.p1.pad.y, [], 'Y cède le code qu’il partageait avec A');
+
+	const report = findConflicts(result, BOTH_KEYBOARD);
+	assert.equal(report.count, 0, 'plus aucun conflit après la migration');
+});
+
 test('un v2 traverse sans être réécrit, emplacements vidés compris', () => {
 	const input = {
 		version: 2,
