@@ -259,6 +259,7 @@ export const translations = {
     alsoUsedByPlayer: 'Also used by player {player} ({button})',
     playerInactive: 'This player has no device yet, so port 2 stays silent.',
     detectCancelled: 'No controller answered.',
+    twoPlayerControlsHint: 'Player 2 plays as soon as it has a device.',
 
     // Saves
     saves: 'Saves',
@@ -590,6 +591,7 @@ export const translations = {
     alsoUsedByPlayer: 'Aussi utilisé par le joueur {player} ({button})',
     playerInactive: 'Ce joueur n\'a pas encore de périphérique : le port 2 reste muet.',
     detectCancelled: 'Aucune manette n\'a répondu.',
+    twoPlayerControlsHint: 'Le joueur 2 joue dès qu\'il a un périphérique.',
 
     // Saves
     saves: 'Sauvegardes',
