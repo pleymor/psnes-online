@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <!--
-    PSNES favicon: the mark alone, for the sizes where the shell dies.
+    PSNES maskable icon: Android crops to a circle, which would cut both ends off a landscape cassette, so the mark stands in - inside the safe zone.
     This is the cassette's label, cropped - not a second logo. Below 48px the
     shell cannot be both honest and legible: a 1.511 face inside a 16px square
     leaves the label 10 x 6 px. The grid is in even units, so at 16px every edge
     of the P lands on a whole pixel.
   -->
-  <rect width="32" height="32" rx="5" fill="#5647cb"/>
-  <path d="M10 6H22V18H14V26H10ZM14 10H18V14H14Z" fill="#efece3" fill-rule="evenodd"/>
+  <rect width="32" height="32" fill="#5647cb"/>
+  <path d="M10.9 7.5H21.1V17.7H14.3V24.5H10.9ZM14.3 10.9H17.7V14.3H14.3Z" fill="#efece3" fill-rule="evenodd"/>
 </svg>
