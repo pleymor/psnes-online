@@ -2,8 +2,13 @@ import { io, Socket } from 'socket.io-client';
 
 export const API = process.env.E2E_API_URL || 'http://localhost:3000';
 
-/** Logs in as one of the AUTH_MODE=dev users and returns its cookie header. */
-export async function loginDev(userId: '1' | '2'): Promise<string> {
+/**
+ * Logs in as one of the AUTH_MODE=dev users and returns its cookie header.
+ *
+ * User 3 signs in with no chosen pseudonym, so the onboarding gate is up and
+ * the server refuses its socket. Only pass it to a test about that gate.
+ */
+export async function loginDev(userId: '1' | '2' | '3'): Promise<string> {
   const res = await fetch(`${API}/auth/dev/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -65,19 +70,40 @@ export async function createRoom(socket: Socket, gameTitle: string) {
   return room;
 }
 
-/** Removes every friendship of the dev user so visibility tests are isolated. */
+/**
+ * Removes every link this account has, accepted or still pending.
+ *
+ * The pending half is not decoration. /api/friends lists accepted friendships
+ * only, so a request that was sent and never answered - by an interrupted run,
+ * or by someone poking the API by hand - used to survive this, and the next
+ * befriendDevUsers would be told "Friendship already exists", get no id back,
+ * and silently leave the two accounts unfriended. Every test that then needed
+ * them to be friends failed somewhere else entirely.
+ */
 export async function clearFriendships(cookie: string) {
   const friends = await apiFetch(cookie, '/api/friends').then(r => r.json());
   for (const f of friends) {
     await apiFetch(cookie, `/api/friends/${f.friendshipId}`, { method: 'DELETE' });
   }
+
+  const pending = await apiFetch(cookie, '/api/friends/requests').then(r => r.json());
+  for (const request of pending) {
+    await apiFetch(cookie, `/api/friends/${request.id}`, { method: 'DELETE' });
+  }
 }
 
 export async function befriendDevUsers(c1: string, c2: string) {
+  // Both sides: a request c1 sent and c2 never answered is listed by neither
+  // c1's friends nor c1's received requests - only by c2's.
   await clearFriendships(c1);
+  await clearFriendships(c2);
+  // By handle, which is the only way in now: the friendId path was removed
+  // because RoomPlayer.userId travels in every room payload, so keeping it
+  // would have let anyone friend a player they had merely shared a game with.
+  // The handle is the one dev user 2's login declares.
   const friendship = await apiFetch(c1, '/api/friends/request', {
     method: 'POST',
-    body: JSON.stringify({ friendId: 'dev-user-2' })
+    body: JSON.stringify({ handle: 'DevTwo#0002' })
   }).then(r => r.json());
   await apiFetch(c2, `/api/friends/accept/${friendship.id}`, { method: 'POST' });
   return friendship;

@@ -26,12 +26,17 @@ export const translations = {
     requests: 'Requests',
     noFriendsYet: 'No friends yet',
     addFriend: 'Add Friend',
-    friendEmail: "Friend's email",
-    searchFriends: 'Search by name or email...',
+    // Adding a friend takes a handle and nothing else: there is no way to
+    // search for an account, by design.
+    handlePlaceholder: 'Sprite#0417',
+    handleHint: 'Ask your friend for the code shown on their profile.',
+    handleMalformed: 'A code looks like Sprite#0417',
+    handleNotFound: 'No player holds that code',
+    tooManyAttempts: 'Too many wrong codes. Try again later.',
+    add: 'Add',
     send: 'Send',
     friendRequestSent: 'Friend request sent!',
     failedToSendRequest: 'Failed to send request',
-    userNotFound: 'User not found',
     alreadyFriends: 'Already friends or request pending',
     cannotAddYourself: 'Cannot add yourself as a friend',
     online: 'Online',
@@ -334,7 +339,19 @@ export const translations = {
     no: 'No',
     save: 'Save',
     delete: 'Delete',
-    confirm: 'Confirm'
+    confirm: 'Confirm',
+
+    // The pseudonym gate and the profile's code panel.
+    choosePseudoTitle: 'Choose your nickname',
+    choosePseudoLead: 'This is the name other players see. Your real name and your email are not stored.',
+    pseudoPlaceholder: 'Nickname',
+    pseudoRules: '{min} to {max} characters: letters, digits, - and _',
+    pseudoFull: 'That nickname is full. Try another one.',
+    pseudoFailed: 'Could not save your nickname',
+    copyHandle: 'Copy',
+    handleCopied: 'Copied',
+    changePseudo: 'Nickname',
+    renameChangesCode: 'Changing it draws a new code, so a code you shared before stops working.'
   },
   fr: {
     // Legal disclaimer
@@ -363,12 +380,15 @@ export const translations = {
     requests: 'Demandes',
     noFriendsYet: 'Pas encore d\'amis',
     addFriend: 'Ajouter un ami',
-    friendEmail: 'Email de l\'ami',
-    searchFriends: 'Rechercher par nom ou email...',
+    handlePlaceholder: 'Sprite#0417',
+    handleHint: 'Demandez à votre ami le code affiché sur son profil.',
+    handleMalformed: 'Un code ressemble à Sprite#0417',
+    handleNotFound: 'Aucun joueur ne porte ce code',
+    tooManyAttempts: 'Trop de codes erronés. Réessayez plus tard.',
+    add: 'Ajouter',
     send: 'Envoyer',
     friendRequestSent: 'Demande d\'ami envoyée !',
     failedToSendRequest: 'Échec de l\'envoi de la demande',
-    userNotFound: 'Utilisateur introuvable',
     alreadyFriends: 'Déjà amis ou demande en attente',
     cannotAddYourself: 'Impossible de s\'ajouter soi-même',
     online: 'En ligne',
@@ -671,7 +691,18 @@ export const translations = {
     no: 'Non',
     save: 'Enregistrer',
     delete: 'Supprimer',
-    confirm: 'Confirmer'
+    confirm: 'Confirmer',
+
+    choosePseudoTitle: 'Choisissez votre pseudo',
+    choosePseudoLead: 'C\'est le nom que les autres joueurs voient. Votre vrai nom et votre email ne sont pas conservés.',
+    pseudoPlaceholder: 'Pseudo',
+    pseudoRules: '{min} à {max} caractères : lettres, chiffres, - et _',
+    pseudoFull: 'Ce pseudo est complet. Essayez-en un autre.',
+    pseudoFailed: 'Impossible d\'enregistrer votre pseudo',
+    copyHandle: 'Copier',
+    handleCopied: 'Copié',
+    changePseudo: 'Pseudo',
+    renameChangesCode: 'Le changer tire un nouveau code : celui que vous avez déjà partagé cessera de fonctionner.'
   }
 };
 

@@ -191,7 +191,7 @@ test('a collision on the way to the database is retried, not surfaced', () => {
   assert.equal(findUserById(db, squatter.id)!.discriminator, '0001', 'the squatter is untouched');
 });
 
-test('upsertDevUser creates then updates only the avatar', () => {
+test('upsertDevUser puts a dev account into the state it declares', () => {
   const db = migratedDb();
   const input = {
     id: 'dev-user-1', googleId: 'dev-google-id-1',
@@ -202,13 +202,51 @@ test('upsertDevUser creates then updates only the avatar', () => {
   const created = upsertDevUser(db, input);
   assert.equal(created.avatar, 'first.svg');
 
-  const updated = upsertDevUser(db, { ...input, pseudo: 'Ignored', avatar: 'second.svg' });
+  const updated = upsertDevUser(db, { ...input, pseudo: 'DevOneBis', avatar: 'second.svg' });
   assert.equal(updated.id, 'dev-user-1');
   assert.equal(updated.avatar, 'second.svg');
-  assert.equal(updated.pseudo, 'DevOne', 'only the avatar is refreshed, as before');
+  assert.equal(updated.pseudo, 'DevOneBis', 'a fixture is asserted, not merely created');
 
   const count = db.prepare(`SELECT COUNT(*) AS n FROM "User"`).get() as { n: number };
   assert.equal(count.n, 1);
+});
+
+test('a dev account declared as unchosen goes back in front of the gate every time', () => {
+  // Found by running migration 0004 against the development database: it
+  // leaves every existing row with pseudoChosenAt NULL, and an avatar-only
+  // upsert could not put the dev accounts back past the gate. The same
+  // mechanism is what makes the onboarding e2e test runnable twice.
+  const db = migratedDb();
+  const input = {
+    id: 'dev-user-3', googleId: 'dev-google-id-3',
+    pseudo: 'Newcomer', discriminator: '0003', pseudoChosenAt: null,
+    avatar: 'third.svg'
+  };
+
+  upsertDevUser(db, input);
+  claimPseudo(db, 'dev-user-3', 'Answered');
+  assert.ok(findUserById(db, 'dev-user-3')!.pseudoChosenAt instanceof Date);
+
+  const back = upsertDevUser(db, input);
+
+  assert.equal(back.pseudoChosenAt, null, 'signing in again restores the declared state');
+  assert.equal(back.pseudo, 'Newcomer');
+});
+
+test('a dev sign-in keeps the key bindings set while testing', () => {
+  const db = migratedDb();
+  const input = {
+    id: 'dev-user-1', googleId: 'dev-google-id-1',
+    pseudo: 'DevOne', discriminator: '0001', pseudoChosenAt: Date.now(),
+    avatar: 'first.svg'
+  };
+
+  upsertDevUser(db, input);
+  updateControlsConfig(db, 'dev-user-1', '{"up":"KeyW"}');
+  upsertDevUser(db, input);
+
+  assert.equal(findControlsConfig(db, 'dev-user-1'), '{"up":"KeyW"}',
+    'controls are not part of the identity this function asserts');
 });
 
 test('controls config round-trips as an opaque JSON string', () => {

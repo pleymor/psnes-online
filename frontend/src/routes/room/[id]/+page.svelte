@@ -156,7 +156,7 @@
   $: myRoomSaves = (myGameForRoom?.saves ?? []) as SaveSummary[];
 
   /** The library to choose from, and the friends who can be invited into it. */
-  let friends: { friendshipId: string; friend: { id: string; displayName: string; avatar?: string } }[] = [];
+  let friends: { friendshipId: string; friend: { id: string; pseudo: string; avatar?: string } }[] = [];
   let showGamePicker = false;
   let showInvite = false;
   let showSavePicker = false;
@@ -172,7 +172,7 @@
   interface PendingInvitation {
     id: string;
     toUserId: string;
-    toDisplayName: string;
+    toPseudo: string;
     toAvatar?: string;
     /**
      * An ISO string, not a Date: Socket.IO serialises dates on the way out and
@@ -385,9 +385,9 @@
     showNotification(t($language, 'invitationSent'), 'success');
   }
 
-  function handleInviteDeclined(payload: { roomId: string; displayName: string }) {
+  function handleInviteDeclined(payload: { roomId: string; pseudo: string }) {
     if (payload?.roomId !== roomId) return;
-    showNotification(t($language, 'invitationDeclined', { name: payload.displayName }), 'error');
+    showNotification(t($language, 'invitationDeclined', { name: payload.pseudo }), 'error');
   }
 
   function handleInviteCancelled(payload: { roomId: string }) {
@@ -814,7 +814,7 @@
                     <img class="invited-avatar" src={liveInvitation.toAvatar} alt="" />
                   {/if}
                   <span class="panel-name">
-                    {t($language, 'waitingForInvitee', { name: liveInvitation.toDisplayName })}
+                    {t($language, 'waitingForInvitee', { name: liveInvitation.toPseudo })}
                   </span>
                   <span class="panel-note">{expiryLabel(liveInvitation, now, $language)}</span>
                   <button class="btn-cancel-invite" on:click={() => cancelInvitation(liveInvitation.id)}>
@@ -838,7 +838,7 @@
                     {#each friends as friendData (friendData.friendshipId)}
                       <li>
                         <div class="panel-row">
-                          <span class="panel-name">{friendData.friend.displayName}</span>
+                          <span class="panel-name">{friendData.friend.pseudo}</span>
                           <button class="btn-invite" on:click={() => inviteFriend(friendData.friend.id)}>
                             {t($language, 'invite')}
                           </button>

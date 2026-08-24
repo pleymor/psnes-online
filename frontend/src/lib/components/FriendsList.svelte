@@ -5,6 +5,7 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { createLogger } from '$lib/utils/logger';
+  import { parseHandle } from '$lib/pseudo';
 
   export let compact = false; // Compact mode for small screens
   export let activeRooms: any[] = []; // List of active rooms from API
@@ -15,15 +16,11 @@
   let friends: any[] = [];
   let friendRequests: any[] = [];
   let showAddFriend = false;
-  let friendEmail = '';
-  let searchQuery = '';
-  let searchResults: any[] = [];
-  let isSearching = false;
-  let searchTimeout: any = null;
+  /** A pasted `Sprite#0417`. There is no longer any way to browse for one. */
+  let handleInput = '';
   let isSending = false;
   let errorMessage = '';
   let successMessage = '';
-  let showDropdown = false;
   let friendRooms = new Map<string, any>(); // userId -> room
   let onlineFriends = new Map<string, boolean>(); // userId -> online status
   let selectedFriend: any = null;
@@ -173,97 +170,60 @@
     $socket?.off('room:update', handleRoomUpdate);
   });
 
-  async function searchUsers() {
-    if (searchQuery.trim().length < 2) {
-      searchResults = [];
-      showDropdown = false;
-      return;
-    }
+  /**
+   * There is no lookup of any kind before this call.
+   *
+   * The user search this component used to carry queried every account by
+   * email or name on two typed characters. A handle is the only way in now,
+   * and the server is the only thing that knows whether one exists - so this
+   * checks the shape and lets the API answer the rest.
+   */
+  $: handleMalformed = handleInput.trim().length > 0 && !parseHandle(handleInput);
 
-    isSearching = true;
-    errorMessage = '';
-
-    try {
-      const res = await fetch(`/api/friends/search?query=${encodeURIComponent(searchQuery)}`, {
-        credentials: 'include'
-      });
-
-      if (res.ok) {
-        searchResults = await res.json();
-        showDropdown = searchResults.length > 0;
-      } else {
-        searchResults = [];
-        showDropdown = false;
-      }
-    } catch (error) {
-      logger.error('Search error:', error);
-      searchResults = [];
-      showDropdown = false;
-    } finally {
-      isSearching = false;
-    }
-  }
-
-  function handleSearchInput() {
-    // Clear previous timeout
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-    }
-
-    // Debounce search
-    searchTimeout = setTimeout(() => {
-      searchUsers();
-    }, 300);
-  }
-
-  async function sendFriendRequest(friendId?: string) {
-    if (!friendId && !friendEmail) return;
+  async function sendFriendRequest() {
+    const parsed = parseHandle(handleInput);
+    if (!parsed || isSending) return;
 
     isSending = true;
     errorMessage = '';
     successMessage = '';
 
-    const body = friendId ? { friendId } : { friendEmail };
+    try {
+      const res = await fetch('/api/friends/request', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handle: handleInput.trim() })
+      });
 
-    const res = await fetch('/api/friends/request', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+      if (res.ok) {
+        successMessage = t($language, 'friendRequestSent');
+        handleInput = '';
+        setTimeout(() => {
+          successMessage = '';
+          showAddFriend = false;
+        }, 2000);
+        return;
+      }
 
-    isSending = false;
-
-    if (res.ok) {
-      successMessage = t($language, 'friendRequestSent');
-      friendEmail = '';
-      searchQuery = '';
-      searchResults = [];
-      showDropdown = false;
-      setTimeout(() => {
-        successMessage = '';
-        showAddFriend = false;
-      }, 2000);
-    } else {
-      const error = await res.json();
-      errorMessage = error.error === 'User not found'
-        ? t($language, 'userNotFound')
+      const error = await res.json().catch(() => ({}));
+      errorMessage = error.error === 'HANDLE_NOT_FOUND'
+        ? t($language, 'handleNotFound')
+        : error.error === 'HANDLE_MALFORMED'
+        ? t($language, 'handleMalformed')
+        : error.error === 'TOO_MANY_ATTEMPTS'
+        ? t($language, 'tooManyAttempts')
         : error.error === 'Friendship already exists'
         ? t($language, 'alreadyFriends')
         : error.error === 'Cannot add yourself as friend'
         ? t($language, 'cannotAddYourself')
         : t($language, 'failedToSendRequest');
+    } catch (err) {
+      logger.error('Could not send a friend request', err);
+      errorMessage = t($language, 'failedToSendRequest');
+    } finally {
+      isSending = false;
     }
-  }
-
-  function selectUser(user: any) {
-    sendFriendRequest(user.id);
-  }
-
-  function closeDropdown() {
-    setTimeout(() => {
-      showDropdown = false;
-    }, 200);
   }
 
   async function acceptRequest(friendshipId: string) {
@@ -331,40 +291,22 @@
 
     {#if showAddFriend}
       <div class="add-friend">
-        <div class="search-container">
+        <form class="handle-form" on:submit|preventDefault={sendFriendRequest}>
           <input
             type="text"
-            bind:value={searchQuery}
-            on:input={handleSearchInput}
-            on:blur={closeDropdown}
-            placeholder={t($language, 'searchFriends')}
-            class="search-input"
+            bind:value={handleInput}
+            autocomplete="off"
+            spellcheck="false"
+            placeholder={t($language, 'handlePlaceholder')}
+            aria-invalid={handleMalformed}
+            class="handle-input"
+            class:bad={handleMalformed}
           />
-          {#if isSearching}
-            <div class="search-spinner"></div>
-          {/if}
-
-          {#if showDropdown && searchResults.length > 0}
-            <div class="search-dropdown">
-              {#each searchResults as user}
-                <!-- svelte-ignore a11y-no-static-element-interactions -->
-                <div class="search-result" role="option" on:mousedown={() => selectUser(user)}>
-                  <div class="result-avatar">
-                    {#if user.avatar}
-                      <img src={user.avatar} alt={user.displayName} />
-                    {:else}
-                      👤
-                    {/if}
-                  </div>
-                  <div class="result-info">
-                    <strong>{user.displayName}</strong>
-                    <small>{user.email}</small>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </div>
+          <button type="submit" disabled={!parseHandle(handleInput) || isSending}>
+            {t($language, 'add')}
+          </button>
+        </form>
+        <p class="hint">{t($language, 'handleHint')}</p>
 
         {#if errorMessage}
           <div class="message error-message">{errorMessage}</div>
@@ -382,7 +324,7 @@
         {#each friendRequests as request}
           <div class="request">
             <div class="info">
-              <strong>{request.initiator.displayName}</strong>
+              <strong>{request.initiator.pseudo}</strong>
             </div>
             <div class="actions">
               <button on:click={() => acceptRequest(request.id)} class="btn-accept">✓</button>
@@ -404,13 +346,13 @@
             <div class="friend-main" on:click={() => openFriendDetails(friendData)}>
               <div class="avatar">
                 {#if friendData.friend.avatar}
-                  <img src={friendData.friend.avatar} alt={friendData.friend.displayName} />
+                  <img src={friendData.friend.avatar} alt={friendData.friend.pseudo} />
                 {:else}
                   👤
                 {/if}
               </div>
               <div class="info">
-                <strong>{friendData.friend.displayName}</strong>
+                <strong>{friendData.friend.pseudo}</strong>
                 {#if room}
                   <!-- A room can be waiting with no game chosen yet, and a blank
                        line there says nothing at all - so name the state
@@ -450,11 +392,11 @@
           role="button"
           tabindex="0"
           on:click={() => openFriendDetails(friendData)}
-          title={friendData.friend.displayName}
+          title={friendData.friend.pseudo}
         >
           <div class="compact-avatar">
             {#if friendData.friend.avatar}
-              <img src={friendData.friend.avatar} alt={friendData.friend.displayName} />
+              <img src={friendData.friend.avatar} alt={friendData.friend.pseudo} />
             {:else}
               <span class="icon">👤</span>
             {/if}
@@ -506,117 +448,53 @@
     margin-bottom: 1rem;
   }
 
-  .search-container {
-    position: relative;
+  .handle-form {
+    display: flex;
+    gap: 0.5rem;
   }
 
-  .search-input {
-    width: 100%;
+  .handle-input {
+    flex: 1;
+    min-width: 0;
     padding: 0.75rem;
-    padding-right: 2.5rem;
     background: #1a1a1a;
     border: 2px solid #444;
     border-radius: 8px;
     color: white;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 0.875rem;
     transition: all 0.2s;
   }
 
-  .search-input:focus {
+  .handle-input:focus {
     outline: none;
     border-color: #667eea;
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
   }
 
-  .search-spinner {
-    position: absolute;
-    right: 0.75rem;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 20px;
-    height: 20px;
-    border: 2px solid #444;
-    border-top-color: #667eea;
-    border-radius: 50%;
-    animation: spin 0.6s linear infinite;
+  .handle-input.bad {
+    border-color: #b3564b;
   }
 
-  @keyframes spin {
-    to { transform: translateY(-50%) rotate(360deg); }
-  }
-
-  .search-dropdown {
-    position: absolute;
-    top: calc(100% + 0.5rem);
-    left: 0;
-    right: 0;
-    background: #1a1a1a;
-    border: 2px solid #667eea;
+  .handle-form button {
+    padding: 0 1rem;
+    border: 0;
     border-radius: 8px;
-    max-height: 300px;
-    overflow-y: auto;
-    z-index: 100;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  }
-
-  .search-result {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem;
-    cursor: pointer;
-    transition: background 0.2s;
-    border-bottom: 1px solid #2a2a2a;
-  }
-
-  .search-result:last-child {
-    border-bottom: none;
-  }
-
-  .search-result:hover {
-    background: #252525;
-  }
-
-  .result-avatar {
-    width: 36px;
-    height: 36px;
-    min-width: 36px;
-    border-radius: 50%;
-    background: #333;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    font-size: 1.25rem;
-    overflow: hidden;
-  }
-
-  .result-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .result-info {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .result-info strong {
-    display: block;
-    font-size: 0.875rem;
+    background: #667eea;
     color: white;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: 0.875rem;
+    cursor: pointer;
   }
 
-  .result-info small {
-    display: block;
+  .handle-form button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .hint {
+    margin: 0.5rem 0 0;
     font-size: 0.75rem;
     color: #888;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .message {

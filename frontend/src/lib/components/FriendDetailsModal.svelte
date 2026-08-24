@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
+  import { formatHandle } from '$lib/pseudo';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import ConfirmModal from './ConfirmModal.svelte';
@@ -71,13 +72,15 @@
       <div class="friend-info">
         <div class="avatar">
           {#if friend.avatar}
-            <img src={friend.avatar} alt={friend.displayName} />
+            <img src={friend.avatar} alt={friend.pseudo} />
           {:else}
             👤
           {/if}
         </div>
-        <h3>{friend.displayName}</h3>
-        <p class="email">{friend.email}</p>
+        <h3>{friend.pseudo}</h3>
+        <!-- The handle, where the email used to be. It is what distinguishes
+             two friends who chose the same pseudonym. -->
+        <p class="handle">{formatHandle(friend.pseudo, friend.discriminator)}</p>
       </div>
 
       <div class="details">
@@ -213,7 +216,7 @@
     color: white;
   }
 
-  .email {
+  .handle {
     color: #888;
     font-size: 0.875rem;
     margin: 0;
@@ -304,7 +307,7 @@
 {#if showRemoveConfirm}
   <ConfirmModal
     title={t($language, 'removeFriend')}
-    message={t($language, 'confirmRemoveFriend', { name: friend.displayName })}
+    message={t($language, 'confirmRemoveFriend', { name: friend.pseudo })}
     confirmText={t($language, 'removeFriend')}
     cancelText={t($language, 'cancel')}
     danger={true}

@@ -51,15 +51,20 @@ if (AUTH_MODE === 'dev' && process.env.NODE_ENV !== 'production') {
     try {
       const { userId } = req.body;
 
-      if (!userId || (userId !== '1' && userId !== '2')) {
-        return res.status(400).json({ error: 'Invalid user ID. Must be 1 or 2.' });
+      if (!userId || !['1', '2', '3'].includes(userId)) {
+        return res.status(400).json({ error: 'Invalid user ID. Must be 1, 2 or 3.' });
       }
 
-      // Deliberately asymmetric on pseudoChosenAt: user 1 has chosen a
-      // pseudonym, user 2 has not. That puts an ordinary session and the
-      // onboarding gate one click apart, so neither path needs the database
-      // edited by hand to be exercised - and e2e/pseudo-gate.spec.ts relies
-      // on exactly this.
+      // Users 1 and 2 have chosen their pseudonyms; user 3 exists to sit
+      // behind the onboarding gate.
+      //
+      // A third account rather than leaving user 2 unchosen, for two reasons
+      // found while wiring the tests. Every two-player e2e test signs in as
+      // user 2 and opens a socket, and the server now refuses a socket from an
+      // account with no chosen pseudonym - so user 2 has to be past the gate.
+      // And upsertDevUser only refreshes the avatar on conflict, so a
+      // pseudonym claimed once would stick: the gate would be testable exactly
+      // once per database. Hence the explicit reset below.
       const devUsers = [
         {
           id: 'dev-user-1',
@@ -72,16 +77,27 @@ if (AUTH_MODE === 'dev' && process.env.NODE_ENV !== 'production') {
         {
           id: 'dev-user-2',
           googleId: 'dev-google-id-2',
-          pseudo: 'Scanline',
+          pseudo: 'DevTwo',
           discriminator: '0002',
-          pseudoChosenAt: null,
+          pseudoChosenAt: Date.now(),
           avatar: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=DevUser2&backgroundColor=764ba2'
+        },
+        {
+          id: 'dev-user-3',
+          googleId: 'dev-google-id-3',
+          pseudo: 'Newcomer',
+          discriminator: '0003',
+          pseudoChosenAt: null,
+          avatar: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=DevUser3&backgroundColor=43a047'
         }
       ];
 
       const userData = devUsers[parseInt(userId) - 1];
 
-      // Upsert user in database (update avatar if user already exists)
+      // Puts the account into exactly the state declared above, existing row
+      // or not - so user 3 is back in front of the gate on every sign-in, and
+      // users 1 and 2 are past it even on a database where migration 0004 has
+      // just set everyone's pseudoChosenAt to NULL.
       const user = upsertDevUser(getDb(), userData);
 
       // Login user

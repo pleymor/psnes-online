@@ -275,6 +275,13 @@
                 <span class="dev-user-avatar">🎮</span>
                 <span class="dev-user-name">Dev User 2</span>
               </button>
+              <!-- Signs in with no chosen pseudonym, so the onboarding gate
+                   comes up. Reset on every sign-in by the dev login route,
+                   which is what makes it usable more than once. -->
+              <button on:click={() => loginDev('3')} class="dev-user-btn">
+                <span class="dev-user-avatar">🆕</span>
+                <span class="dev-user-name">Dev User 3 (no nickname)</span>
+              </button>
             </div>
           </div>
         {:else if authMode === 'google'}
@@ -311,7 +318,7 @@
         {#if myRoom}
           <button class="btn-create-room" on:click={() => goto(`/room/${myRoom.id}`)}>
             {myPartner
-              ? `${t($language, 'resumeRoomWith')} ${myPartner.displayName}`
+              ? `${t($language, 'resumeRoomWith')} ${myPartner.pseudo}`
               : t($language, 'resumeRoom')}
           </button>
         {:else}

@@ -79,9 +79,12 @@ UPDATE "User"
 CREATE UNIQUE INDEX "User_pseudo_discriminator_key"
   ON "User" ("pseudo" COLLATE NOCASE, "discriminator");
 
+DROP INDEX "User_email_key";
 ALTER TABLE "User" DROP COLUMN "email";
 ALTER TABLE "User" DROP COLUMN "displayName";
 ```
+
+**Correction du 2026-08-24, trouvée en implémentant.** Ce bloc n'avait pas le `DROP INDEX`, et la section affirmait qu'aucune des deux colonnes n'était indexée. C'est faux : `email` porte `User_email_key` depuis la baseline (`0001_baseline.sql:83`), et SQLite refuse de supprimer une colonne dont dépend un index — la migration échouait sur `error in index User_email_key after drop column`. La sonde manuelle qui avait « validé » la séquence utilisait une table écrite à la main sans cet index ; c'est `backend/test/pseudonymise.test.ts`, qui applique les **vrais fichiers**, qui l'a trouvé. La leçon vaut d'être gardée : une vérification sur une approximation du schéma ne vérifie pas le schéma.
 
 Vérifié en exécutant la séquence complète sur 40 comptes fictifs avant d'écrire cette section : 40 handles distincts, colonnes disparues, et `sprite#0001` rejeté face à `Sprite#0001` en `SQLITE_CONSTRAINT_UNIQUE`. SQLite 3.53 (better-sqlite3 12.9) accepte `DROP COLUMN` sans reconstruction de table, donc rien ici ne tombe sous le refus de `migrate.ts:assertNoPragma`.
 
@@ -272,7 +275,14 @@ Le scope OAuth passe de `['profile', 'email']` à `['profile']` (`api/auth.ts:21
 
 `allocateDiscriminator` **prend son générateur aléatoire en paramètre**. C'est une contrainte de testabilité qui améliore le code : sans injection, le chemin de retry ne serait vérifiable que par chance.
 
-Les comptes de développement sont volontairement asymétriques : `dev-user-1` a un `pseudoChosenAt` renseigné, `dev-user-2` non. Les deux chemins — session normale et porte d'onboarding — sont ainsi à un clic l'un de l'autre, sans bricoler la base.
+Les comptes de développement sont volontairement asymétriques : `dev-user-1` et `dev-user-2` ont un `pseudoChosenAt` renseigné, **`dev-user-3`** non. Les deux chemins — session normale et porte d'onboarding — sont ainsi à un clic l'un de l'autre, sans bricoler la base.
+
+**Correction du 2026-08-24, trouvée en exécutant.** Cette section prévoyait de laisser `dev-user-2` sans pseudo. Deux choses l'interdisent, découvertes en faisant tourner l'application et non en la relisant :
+
+1. **Tous les tests e2e à deux joueurs ouvrent un socket avec `dev-user-2`**, et le serveur refuse désormais le socket d'un compte sans pseudo choisi. `dev-user-2` doit donc être passé la porte. D'où un **troisième** compte, dédié.
+2. **`upsertDevUser` ne rafraîchissait que l'avatar** en cas de conflit — fidèle à l'upsert Prisma qu'il remplaçait. Or la migration met `pseudoChosenAt` à `NULL` sur **toutes** les lignes existantes : après l'avoir appliquée à la base de développement, les deux comptes de dev se sont retrouvés bloqués devant la modale, et rien ne pouvait les en sortir. Symétriquement, un pseudo réclamé une fois par le compte de test aurait survécu, rendant la porte testable exactement une fois par base.
+
+`upsertDevUser` **impose** donc maintenant l'état déclaré — pseudo, discriminant, `pseudoChosenAt` — à chaque connexion. Un compte de dev est un fixture, pas un joueur : être dans un état connu est sa raison d'être. `controlsConfig` reste épargné, parce qu'un mappage de touches posé pendant un test mérite de survivre à une reconnexion et ne fait pas partie de l'identité affirmée ici.
 
 ## La duplication de la regex
 
@@ -306,7 +316,13 @@ Le mode de défaillance redouté n'est pas un champ manquant mais un champ **en 
 - **`allocateDiscriminator`** : avec 9 999 slots pris, retourne le seul libre ; avec 10 000, lève `PSEUDO_FULL` ; le retry est vérifié en injectant un générateur qui renvoie d'abord un slot occupé.
 - **`requirePseudo`** : fonction pure de `req.user`, testée avec un faux `req`/`res` sans serveur HTTP.
 - **`attempt-limit.ts`** : **horloge injectée**, comme `fakeStorage` dans `core/test/profile.test.ts`. 20 échecs passent, le 21ᵉ donne 429, et après la fenêtre le compteur repart. Sans horloge injectable ce test serait une attente d'une heure, c'est-à-dire pas un test.
-- **`e2e/pseudo-gate.spec.ts`** : ce que seul un navigateur prouve — `dev-user-2` voit la modale et ne peut ni cliquer ni tabuler ailleurs, `/room/abc` reste l'URL derrière la modale puis s'affiche après validation, et `dev-user-1` ajoute `dev-user-2` en tapant son handle.
+- **`e2e/pseudo-gate.spec.ts`** : ce que seul un navigateur prouve — `dev-user-3` voit la modale et ne peut ni cliquer ni tabuler ailleurs (attribut `inert`), `/room/abc` reste l'URL derrière la modale puis s'affiche après validation, et l'ajout d'ami ne passe que par le handle.
+
+**Deux dégâts collatéraux sur la suite e2e existante, corrigés :**
+
+`e2e/helpers.ts:befriendDevUsers` liait les deux comptes par `friendId`, chemin supprimé — il passe au handle, comme un vrai joueur. Et `clearFriendships` ne supprimait que les amitiés **acceptées** : une demande envoyée et jamais répondue survivait, le `befriendDevUsers` suivant recevait « Friendship already exists », n'obtenait pas d'identifiant, et laissait silencieusement les deux comptes non-amis — l'échec ressortant alors dans un tout autre test. Il nettoie maintenant les deux états, des deux côtés. Fragilité préexistante, révélée par ce travail.
+
+**Un test qui échouait déjà sur `main`, réparé :** `e2e/app.spec.ts` attendait le titre de la salle d'un ami et un bouton `Join` sur la page d'accueil. Vérifié sur `a311107`, avant que ce travail commence : le tiroir « Friends » est fermé par défaut et rien ne rend la salle d'un ami en dehors ; le bouton `Join`, lui, n'existe nulle part dans le frontend. Le remaniement du profil et de la barre supérieure l'avait laissé derrière lui. Le test ouvre désormais le tiroir et n'exige plus une affordance disparue.
 
 ### Le dommage collatéral
 

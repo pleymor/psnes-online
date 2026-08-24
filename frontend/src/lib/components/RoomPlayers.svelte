@@ -30,7 +30,7 @@
     if (isSinglePlayer && port === 2) return null;
     if (currentPlayerPort === port) return null;
     if (occupant && occupant.userId !== $user?.id) {
-      return t($language, 'swapWithPlayer', { name: occupant.displayName });
+      return t($language, 'swapWithPlayer', { name: occupant.pseudo });
     }
     return t($language, 'takeThisController');
   }
@@ -68,7 +68,7 @@
     {#if player1?.avatar}
       <img src={player1.avatar} alt="" class="avatar" />
     {/if}
-    <span class="player-name">{player1?.displayName || '—'}</span>
+    <span class="player-name">{player1?.pseudo || '—'}</span>
     {#if player1 && player1.online !== true}
       <span class="player-away">{t($language, 'playerAway')}</span>
     {/if}
@@ -93,7 +93,7 @@
     {#if player2?.avatar}
       <img src={player2.avatar} alt="" class="avatar" />
     {/if}
-    <span class="player-name">{player2?.displayName || '—'}</span>
+    <span class="player-name">{player2?.pseudo || '—'}</span>
     {#if player2 && player2.online !== true}
       <span class="player-away">{t($language, 'playerAway')}</span>
     {/if}

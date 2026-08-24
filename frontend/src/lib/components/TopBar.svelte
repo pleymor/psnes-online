@@ -36,7 +36,7 @@
     id: string;
     roomId: string;
     fromUserId: string;
-    fromDisplayName: string;
+    fromPseudo: string;
     fromAvatar?: string;
     /** Absent while the room has no game yet, which is now an ordinary state. */
     gameTitle?: string;
@@ -235,9 +235,9 @@
       {t($language, 'friends')}
     </button>
 
-    <a class="avatar" href="/profile" title={$user?.displayName ?? ''}>
+    <a class="avatar" href="/profile" title={$user?.pseudo ?? ''}>
       {#if $user?.avatar}
-        <img src={$user.avatar} alt={$user.displayName} />
+        <img src={$user.avatar} alt={$user.pseudo} />
       {:else}
         <span class="placeholder">👤</span>
       {/if}
@@ -266,7 +266,7 @@
             {/if}
           </div>
           <div class="invite-info">
-            <strong>{t($language, 'invitedYou', { name: invitation.fromDisplayName })}</strong>
+            <strong>{t($language, 'invitedYou', { name: invitation.fromPseudo })}</strong>
             <!-- A room can be waiting with no game at all now, so there is
                  nothing to name - say that rather than show an empty line. -->
             <small>{invitation.gameTitle ?? t($language, 'noGameChosen')}</small>

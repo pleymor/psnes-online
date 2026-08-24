@@ -15,7 +15,7 @@ export interface KeyConfig {
 
 export interface RoomPlayer {
   userId: string;
-  displayName: string;
+  pseudo: string;
   avatar?: string;
   port: 1 | 2 | null;
   isReady: boolean;

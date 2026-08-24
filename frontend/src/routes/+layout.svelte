@@ -7,6 +7,7 @@
   import { createLogger } from '$lib/utils/logger';
   import { linkState } from '$lib/stores/connection';
   import NotificationToast from '$lib/components/NotificationToast.svelte';
+  import PseudoGate from '$lib/components/PseudoGate.svelte';
 
   const logger = createLogger('AppLayout');
 
@@ -27,9 +28,21 @@
     }
   });
 
-  // Initialize socket when user logs in, disconnect when user logs out
+  /**
+   * The gate, and with it the inertness of everything behind it.
+   *
+   * A player whose pseudonym was assigned rather than chosen has not answered
+   * yet. The server refuses their routes and their socket regardless; this is
+   * what puts the question in front of them.
+   */
+  $: needsPseudo = !!$user?.needsPseudo;
+
+  // Initialize socket when user logs in, disconnect when user logs out.
+  // Held back while the gate is up: the server disconnects such a socket on
+  // sight, so opening one would be a reconnect loop with nothing to show for
+  // it.
   $: {
-    if ($user && !socketInitialized && !$userLoading) {
+    if ($user && !needsPseudo && !socketInitialized && !$userLoading) {
       // User is logged in and socket not initialized
       initializeSocket();
       socketInitialized = true;
@@ -52,7 +65,13 @@
   }
 </script>
 
-<div class="app">
+<!--
+  `inert` is the native attribute, not a hand-rolled focus trap: it takes the
+  whole subtree out of the tab order, out of pointer events and out of the
+  accessibility tree at once. A manual trap is defeated by the first autofocus
+  somebody adds without thinking about this screen.
+-->
+<div class="app" inert={needsPseudo}>
   {#if $user && $linkState === 'reconnecting'}
     <div class="link-banner" role="status">Connection lost — reconnecting…</div>
   {:else if $user && $linkState === 'offline'}
@@ -71,6 +90,10 @@
   made the wiring worth doing.
 -->
 <NotificationToast />
+
+{#if needsPseudo}
+  <PseudoGate />
+{/if}
 
 <style>
   :global(body) {

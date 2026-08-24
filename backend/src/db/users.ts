@@ -37,9 +37,6 @@ function toUser(row: UserRow): User {
 
 const SELECT = `SELECT * FROM "User"`;
 
-/** The projection every cross-user read goes through. See PublicUser. */
-export const PUBLIC_COLUMNS = `id, pseudo, discriminator, avatar`;
-
 export function findUserById(db: Database, id: string): User | null {
   const row = db.prepare(`${SELECT} WHERE id = ?`).get(id) as UserRow | undefined;
   return row ? toUser(row) : null;
@@ -189,12 +186,24 @@ export function updateUserAvatar(db: Database, id: string, avatar: string | null
 }
 
 /**
- * The dev-login shortcut. Creates the fixed dev user, or refreshes nothing but
- * its avatar - matching what the Prisma upsert did.
+ * The dev-login shortcut: puts a dev account into exactly the state it
+ * declares, whether or not it already existed.
  *
- * The two dev accounts are deliberately asymmetric on pseudoChosenAt: one has
- * chosen, one has not, so both the ordinary session and the onboarding gate
- * are one click away without editing the database by hand.
+ * It used to refresh nothing but the avatar on conflict, matching the Prisma
+ * upsert it replaced. That stopped being right the moment a pseudonym became
+ * part of a dev account's identity, and running 0004 against the development
+ * database is what showed it: the migration leaves every existing row with
+ * pseudoChosenAt NULL, so both dev accounts came back stuck behind the
+ * onboarding gate and an avatar-only upsert could not get them out.
+ *
+ * A dev account is a fixture, not a player. Being in a known state on every
+ * sign-in is its entire purpose - including dev user 3, whose declared state
+ * is "has not chosen", and which is therefore put back in front of the gate
+ * each time rather than being answered once and never testable again.
+ *
+ * controlsConfig is deliberately not touched: key bindings set while testing
+ * are worth keeping across a sign-in, and they are not part of the identity
+ * this function is asserting.
  */
 export function upsertDevUser(
   db: Database,
@@ -211,7 +220,12 @@ export function upsertDevUser(
   db.prepare(`
     INSERT INTO "User" (id, googleId, pseudo, discriminator, pseudoChosenAt, avatar, controlsConfig, createdAt, updatedAt)
     VALUES (@id, @googleId, @pseudo, @discriminator, @pseudoChosenAt, @avatar, NULL, @now, @now)
-    ON CONFLICT(id) DO UPDATE SET avatar = @avatar, updatedAt = @now
+    ON CONFLICT(id) DO UPDATE SET
+      avatar = @avatar,
+      pseudo = @pseudo,
+      discriminator = @discriminator,
+      pseudoChosenAt = @pseudoChosenAt,
+      updatedAt = @now
   `).run({ ...input, now });
   return findUserById(db, input.id)!;
 }

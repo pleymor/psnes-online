@@ -120,7 +120,7 @@ test.describe('room authorization', () => {
     expect(JSON.stringify(list)).not.toContain('keyConfig');
   });
 
-  test('friends:online for an accepted friend carries only the four allowed fields', async () => {
+  test('friends:online for an accepted friend carries only the allowed fields', async () => {
     await befriendDevUsers(c1, c2);
 
     const online = waitForEvent<any[]>(host, 'friends:online', 4000);
@@ -131,13 +131,16 @@ test.describe('room authorization', () => {
     const friend = friends!.find((f: any) => f.id === 'dev-user-2');
     expect(friend, 'the accepted friend must appear in the online-friends list').toBeTruthy();
 
-    // Assert on the payload's actual keys, not a substring of its JSON: the
-    // repository's listAcceptedFriendshipsWithProfiles hands back the whole
-    // User on both sides, and it is up to the caller to narrow it back down
-    // to what a friend list is allowed to show.
-    expect(friend).not.toHaveProperty('googleId');
-    expect(friend).not.toHaveProperty('controlsConfig');
-    expect(friend).not.toHaveProperty('createdAt');
-    expect(friend).not.toHaveProperty('updatedAt');
+    // The exact key set, not a list of things that must be absent.
+    //
+    // Naming what may not appear only catches the leaks somebody thought of;
+    // this catches the next column added to User as well. The repository now
+    // projects to PublicUser at the source, so a field could only get here by
+    // being put there on purpose - and this says so out loud.
+    expect(Object.keys(friend).sort()).toEqual(
+      ['avatar', 'discriminator', 'id', 'online', 'pseudo']
+    );
+    // The email is gone with the column it came from.
+    expect(friend).not.toHaveProperty('email');
   });
 });

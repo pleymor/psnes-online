@@ -23,6 +23,7 @@
   import { romFileProblem, ACCEPT } from '$lib/roms/rom-file';
   import { checksumOf, registerGame } from '$lib/roms/local-library';
   import { createLogger } from '$lib/utils/logger';
+  import { formatHandle, isValidPseudo, PSEUDO_MIN, PSEUDO_MAX } from '$lib/pseudo';
 
   const logger = createLogger('ProfilePage');
 
@@ -37,6 +38,69 @@
   let refreshMessage = '';
   let loggingOut = false;
   let logoutMessage = '';
+
+  let pseudoDraft = '';
+  let renaming = false;
+  let renameError = '';
+  let copied = false;
+
+  // Seeded from the store, and re-seeded whenever the store changes - after a
+  // successful rename, most of all, so the field agrees with the heading above
+  // it rather than keeping the text that was submitted.
+  $: pseudoDraft = $user?.pseudo ?? '';
+  $: handle = $user ? formatHandle($user.pseudo, $user.discriminator) : '';
+  $: pseudoMalformed = pseudoDraft.length > 0 && !isValidPseudo(pseudoDraft);
+  $: canRename = isValidPseudo(pseudoDraft) && pseudoDraft !== $user?.pseudo && !renaming;
+
+  async function copyHandle(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(handle);
+      copied = true;
+      setTimeout(() => (copied = false), 2000);
+    } catch (err) {
+      // A refused clipboard is not worth an error banner: the code is on
+      // screen and can be read out.
+      logger.error('Could not copy the handle', err);
+    }
+  }
+
+  /**
+   * The same endpoint the onboarding modal uses, deliberately: claiming a
+   * pseudonym for the first time and changing it later are the same operation,
+   * and two routes doing it would drift apart on validation.
+   */
+  async function renamePseudo(): Promise<void> {
+    if (!canRename) return;
+
+    renaming = true;
+    renameError = '';
+    try {
+      const res = await fetch('/api/pseudo', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pseudo: pseudoDraft })
+      });
+
+      if (res.ok) {
+        const next = await res.json();
+        user.update(current => current && { ...current, ...next });
+        return;
+      }
+
+      const body = await res.json().catch(() => ({}));
+      renameError = body.error === 'PSEUDO_FULL'
+        ? t($language, 'pseudoFull')
+        : body.error === 'PSEUDO_INVALID'
+        ? t($language, 'pseudoRules', { min: PSEUDO_MIN, max: PSEUDO_MAX })
+        : t($language, 'pseudoFailed');
+    } catch (err) {
+      logger.error('Could not change the pseudonym', err);
+      renameError = t($language, 'pseudoFailed');
+    } finally {
+      renaming = false;
+    }
+  }
 
   let fileInput: HTMLInputElement;
   let romBusy = false;
@@ -175,14 +239,49 @@
   <header class="identity">
     <div class="avatar">
       {#if $user?.avatar}
-        <img src={$user.avatar} alt={$user.displayName} />
+        <img src={$user.avatar} alt={$user.pseudo} />
       {:else}
         <span class="placeholder">👤</span>
       {/if}
     </div>
     <div class="who">
-      <h1>{$user?.displayName ?? ''}</h1>
-      <p class="email">{$user?.email ?? ''}</p>
+      <h1>{$user?.pseudo ?? ''}</h1>
+      <!--
+        The code, standing exactly where the email used to. This is what a
+        player gives to someone who wants to add them: there is no way to
+        search for an account any more.
+      -->
+      <p class="handle">
+        <code>{handle}</code>
+        <button class="copy" on:click={copyHandle} disabled={!handle}>
+          {copied ? t($language, 'handleCopied') : t($language, 'copyHandle')}
+        </button>
+      </p>
+
+      <form class="rename" on:submit|preventDefault={renamePseudo}>
+        <label for="pseudo-field">{t($language, 'changePseudo')}</label>
+        <div class="rename-row">
+          <input
+            id="pseudo-field"
+            type="text"
+            bind:value={pseudoDraft}
+            autocomplete="off"
+            spellcheck="false"
+            maxlength={PSEUDO_MAX}
+            aria-invalid={pseudoMalformed}
+          />
+          <button type="submit" disabled={!canRename}>
+            {renaming ? t($language, 'saving') : t($language, 'save')}
+          </button>
+        </div>
+        <p class="note" class:error={pseudoMalformed || !!renameError}>
+          {renameError || t($language, 'pseudoRules', { min: PSEUDO_MIN, max: PSEUDO_MAX })}
+        </p>
+        <!-- Said plainly, because it is the one surprising consequence: the
+             discriminator is drawn afresh, so a code shared earlier stops
+             resolving. -->
+        <p class="note">{t($language, 'renameChangesCode')}</p>
+      </form>
     </div>
   </header>
 
@@ -353,9 +452,82 @@
     color: #9aa0b4;
   }
 
-  .email {
+  .handle {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
     margin: 0.35rem 0 0;
     color: #aaa;
+  }
+
+  .handle code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 1rem;
+    color: #9fb4ff;
+  }
+
+  .copy {
+    padding: 0.2rem 0.6rem;
+    border: 1px solid #444;
+    border-radius: 6px;
+    background: transparent;
+    color: #ccc;
+    font-size: 0.72rem;
+    cursor: pointer;
+  }
+
+  .copy:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .rename {
+    margin-top: 1rem;
+    max-width: 22rem;
+  }
+
+  .rename label {
+    display: block;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #9aa0b4;
+    margin-bottom: 0.35rem;
+  }
+
+  .rename-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .rename-row input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid #444;
+    border-radius: 6px;
+    background: #1a1a1a;
+    color: #eee;
+    font-size: 0.9rem;
+  }
+
+  .rename-row input[aria-invalid='true'] {
+    border-color: #b3564b;
+  }
+
+  .rename-row button {
+    padding: 0 0.9rem;
+    border: 0;
+    border-radius: 6px;
+    background: #667eea;
+    color: white;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .rename-row button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   .columns {
