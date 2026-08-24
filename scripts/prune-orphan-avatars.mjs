@@ -18,6 +18,15 @@
  * Idempotent and re-runnable. Pass --dry-run to list without deleting.
  *
  *   node scripts/prune-orphan-avatars.mjs [--dry-run] [--db path] [--dir path]
+ *
+ * Run it from a directory where `better-sqlite3` resolves - the repository
+ * root locally, or /app inside the backend container. Node resolves
+ * node_modules relative to the script's own path, so copying this into /tmp on
+ * a server and running it there fails with MODULE_NOT_FOUND. On the VPS:
+ *
+ *   docker cp scripts/prune-orphan-avatars.mjs psnes-backend-1:/app/
+ *   docker exec -w /app psnes-backend-1 \
+ *     node prune-orphan-avatars.mjs --dry-run --db /app/data/prod.db --dir /app/avatars
  */
 
 import { readdir, unlink } from 'node:fs/promises';
