@@ -1,14 +1,14 @@
 /**
- * Le vocabulaire des liaisons, et la porte d'entrée de toute config.
+ * The binding vocabulary, and the one door every config comes through.
  *
- * Deux familles de codes qui ne se mélangent jamais dans la même table : les
- * `event.code` du clavier, et des codes manette relatifs au pad du joueur.
- * L'index du périphérique n'est plus dans la liaison - c'est ce qui permet de
- * rebrancher les manettes dans un autre ordre sans perdre son mappage, et de
- * donner la même liaison à deux joueurs sur deux pads différents.
+ * Two families of codes that never mix inside one table: the keyboard's
+ * `event.code`s, and controller codes relative to the player's own pad. The
+ * device index is no longer part of a binding - that is what lets you replug
+ * controllers in a different order without losing a mapping, and what lets two
+ * players share a binding on two different pads.
  *
- * Tout ce qui vient de la base ou du réseau passe par `normaliseControlsConfig`
- * avant d'être lu. Rien d'autre n'a le droit de supposer une forme.
+ * Everything arriving from the database or the network passes through
+ * `normaliseControlsConfig` before it is read. Nothing else may assume a shape.
  */
 
 import type { KeyConfig } from '$lib/types';
@@ -21,7 +21,7 @@ export const BUTTONS = [
 
 export type Button = (typeof BUTTONS)[number];
 
-/** Une liste de codes manette par bouton SNES. Liste vide = non lié. */
+/** One list of controller codes per SNES button. Empty list means unbound. */
 export type PadConfig = Record<Button, string[]>;
 
 export interface PlayerControls {
@@ -42,18 +42,17 @@ export const DEFAULT_P1_KEYS: KeyConfig = {
 };
 
 /**
- * Le second joueur au clavier.
+ * The second player on the keyboard.
  *
- * Décrit par position physique - `event.code` ignore la disposition, et aucun
- * de ces codes n'est touché par la permutation AZERTY :
+ * Described by physical position - `event.code` ignores the layout, and none of
+ * these codes is touched by the AZERTY permutation:
  *
- *     T Y          U I O        T=L  Y=R      I=haut  J=gauche
- *     G H          J K L        G=Y  H=X      K=bas   L=droite
+ *     T Y          U I O        T=L  Y=R      I=up    J=left
+ *     G H          J K L        G=Y  H=X      K=down  L=right
  *     B N                       B=B  N=A      U=Select  O=Start
  *
- * Aucune intersection avec DEFAULT_P1_KEYS : deux joueurs au clavier sur la
- * même machine est le cas local le plus courant, et il doit marcher sans
- * qu'on touche à quoi que ce soit.
+ * No intersection with DEFAULT_P1_KEYS: two players sharing one keyboard is the
+ * commonest local case, and it has to work without anyone touching anything.
  */
 export const DEFAULT_P2_KEYS: KeyConfig = {
 	up: 'KeyI', down: 'KeyK', left: 'KeyJ', right: 'KeyL',
@@ -62,12 +61,12 @@ export const DEFAULT_P2_KEYS: KeyConfig = {
 };
 
 /**
- * Le mappage qu'une manette a avant que quiconque ne rebinde quoi que ce soit.
+ * What a controller is mapped to before anyone rebinds anything.
  *
- * C'est la table `GAMEPAD_BITS` de `znet/input.ts` rendue visible et
- * modifiable, aux axes près : l'ancienne lecture traitait la croix (boutons 12
- * à 15) *et* le stick gauche (axes 0 et 1) comme la croix directionnelle. Une
- * manette XInput rapporte les deux. N'en garder qu'un couperait le stick.
+ * This is `znet/input.ts`'s `GAMEPAD_BITS` table made visible and editable, the
+ * axes included: the old read treated the hat (buttons 12 to 15) *and* the left
+ * stick (axes 0 and 1) as the d-pad. An XInput controller reports both. Keeping
+ * only one of them would cut the stick.
  */
 export const STANDARD_PAD: PadConfig = {
 	up: ['PadButton12', 'PadAxis1Minus'],
@@ -106,11 +105,10 @@ export function isPadCode(code: string): boolean {
 }
 
 /**
- * Traduit une liaison de l'époque où l'index du périphérique était dedans.
+ * Translates a binding from when the device index lived inside it.
  *
- * Jeter l'index est sans risque : `0` est la seule valeur que l'ancienne
- * capture pouvait réalistement produire, puisqu'elle renumérotait les pads
- * physiques à partir de zéro.
+ * Dropping the index is safe: `0` is the only value the old capture could
+ * realistically produce, since it renumbered physical pads from zero.
  */
 export function legacyToPadCode(code: string): string | null {
 	const button = LEGACY_BUTTON.exec(code);
@@ -121,12 +119,12 @@ export function legacyToPadCode(code: string): string | null {
 }
 
 /**
- * Une copie profonde d'une table manette.
+ * A deep copy of a controller table.
  *
- * `{ ...pad }` ne suffit pas : les valeurs sont des tableaux, et un spread les
- * partagerait avec la source - `STANDARD_PAD` compris, qui est une constante
- * de module. Rien ne les mute en place aujourd'hui ; cette fonction est là
- * pour que ça reste sans conséquence si un jour quelque chose le fait.
+ * `{ ...pad }` will not do: the values are arrays, and a spread would share them
+ * with the source - `STANDARD_PAD` included, which is a module constant.
+ * Nothing mutates them in place today; this exists so that it stays harmless if
+ * one day something does.
  */
 export function clonePad(source: PadConfig): PadConfig {
 	const out = {} as PadConfig;
@@ -135,14 +133,14 @@ export function clonePad(source: PadConfig): PadConfig {
 }
 
 /**
- * Retire `code` de la liste manette de tout bouton autre que `owner`.
+ * Removes `code` from the controller list of every button other than `owner`.
  *
- * Appelée juste après qu'un code legacy a été migré vers `owner` : le joueur
- * a explicitement visé ce bouton-là, et le code ne peut pas rester ailleurs
- * dans la même table sans devenir un conflit que personne n'a choisi. La
- * conséquence - un autre bouton perd une liaison qu'il tenait du mappage
- * standard - est le prix honnête d'avoir rebindé sur son code ; c'est
- * meilleur qu'un panneau qui refuse de sauvegarder.
+ * Called right after a legacy code has been migrated onto `owner`: the player
+ * aimed at that button deliberately, and the code cannot stay elsewhere in the
+ * same table without becoming a conflict nobody chose. The consequence - some
+ * other button loses a binding it held from the standard mapping - is the
+ * honest price of having rebound onto its code, and it beats a panel that
+ * refuses to save.
  */
 function releasePadCodeFromOthers(pad: PadConfig, owner: Button, code: string): void {
 	for (const button of BUTTONS) {
@@ -161,23 +159,22 @@ export function defaultControlsConfig(): ControlsConfig {
 	return { version: 2, p1: defaultPlayer(DEFAULT_P1_KEYS), p2: defaultPlayer(DEFAULT_P2_KEYS) };
 }
 
-/** Vrai si l'objet a les douze boutons en chaînes - la forme v1. */
+/** True when the object has all twelve buttons as strings - the v1 shape. */
 function looksLikeKeyConfig(raw: Record<string, unknown>): boolean {
 	return BUTTONS.every((button) => typeof raw[button] === 'string');
 }
 
 /**
- * Une v1 : les codes clavier restent, les codes manette déménagent.
+ * A v1 config: keyboard codes stay, controller codes move out.
  *
- * Un code manette trouvé dans la table clavier ne peut pas y rester - rien ne
- * l'y lirait jamais - et l'emplacement clavier qu'il occupait devient non lié
- * plutôt que de recevoir un défaut que le joueur n'a pas choisi.
+ * A controller code found in the keyboard table cannot stay there - nothing
+ * would ever read it - and the keyboard slot it occupied becomes unbound rather
+ * than receiving a default the player never chose.
  *
- * Une chaîne vide est reprise telle quelle, pas ignorée : elle vaut *non lié*
- * dans tout le reste du module, et lui substituer le défaut ressusciterait une
- * liaison que le joueur avait justement retirée. C'est aussi ce que fait la
- * copie du serveur (`backend/src/utils/key-config.ts`), et les deux doivent
- * dire la même chose.
+ * An empty string is taken as it is, not skipped: it means *unbound* everywhere
+ * else in this module, and substituting the default would resurrect a binding
+ * the player had deliberately removed. The server's copy
+ * (`backend/src/utils/key-config.ts`) does the same, and the two must agree.
  */
 function playerFromLegacyKeys(raw: Record<string, unknown>, defaults: KeyConfig): PlayerControls {
 	const player = defaultPlayer(defaults);
@@ -229,12 +226,12 @@ function normalisePlayer(raw: unknown, defaults: KeyConfig): PlayerControls {
 }
 
 /**
- * Fait entrer n'importe quoi dans la forme v2.
+ * Forces anything into the v2 shape.
  *
- * Trois entrées possibles et une seule sortie : une v2 (normalisée emplacement
- * par emplacement), une `KeyConfig` nue de l'époque à un joueur, ou tout le
- * reste - qui vaut les défauts. Idempotente, ce que le test exige : elle est
- * appelée à chaque lecture, y compris sur sa propre sortie.
+ * Three possible inputs and one output: a v2 config (normalised slot by slot), a
+ * bare one-player `KeyConfig` from before, or anything else - which yields the
+ * defaults. Idempotent, which the tests require: it runs on every read,
+ * including on its own output.
  */
 export function normaliseControlsConfig(raw: unknown): ControlsConfig {
 	if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
@@ -257,7 +254,7 @@ export function normaliseControlsConfig(raw: unknown): ControlsConfig {
 	return defaultControlsConfig();
 }
 
-/* ------------------------------------------------------------- affichage */
+/* --------------------------------------------------------------- display */
 
 export type CodeDescription =
 	| { kind: 'keyboard'; code: string }
@@ -266,9 +263,9 @@ export type CodeDescription =
 	| { kind: 'unbound' };
 
 /**
- * Ce qu'un code est, sans dire comment on le nomme.
+ * What a code is, without saying what to call it.
  *
- * Le composant traduit ; ce module reste testable sans store de langue.
+ * The component translates; this module stays testable with no language store.
  */
 export function describeCode(code: string): CodeDescription {
 	if (!code) return { kind: 'unbound' };
@@ -281,7 +278,7 @@ export function describeCode(code: string): CodeDescription {
 	return { kind: 'keyboard', code };
 }
 
-/** Les touches dont le nom court n'est pas déductible du code. */
+/** Keys whose short name cannot be derived from the code. */
 const SHORT_KEYS: Record<string, string> = {
 	ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
 	Enter: '⏎', NumpadEnter: '⏎', Space: '␣', Tab: '⇥', Backspace: '⌫', Escape: 'Esc',
@@ -290,20 +287,20 @@ const SHORT_KEYS: Record<string, string> = {
 	AltLeft: '⌥G', AltRight: '⌥D'
 };
 
-/** Trois caractères, la largeur du bouton sur lequel c'est dessiné. */
+/** Three characters, the width of the button this is drawn on. */
 const MAX_SHORT = 3;
 
 /**
- * Ce qui s'écrit sur un bouton du dessin.
+ * What gets written on a button of the drawing.
  *
- * Court par obligation : dans le panneau de pause, le dessin fait 280 px de
- * large, et un libellé de plus de trois caractères n'y tient pas. La forme
- * longue existe, dans l'`aria-label`.
+ * Short out of necessity: in the pause panel the drawing is 280px wide, and a
+ * label longer than three characters does not fit. The long form exists, in the
+ * `aria-label`.
  *
- * D'où la troncature : `Semicolon`, `BracketLeft`, `F1`, `Comma`, ou un
- * `NumpadDivide` que le préfixe ne réduit qu'à `NDivide`, débordaient du
- * bouton faute d'entrée dans `SHORT_KEYS`. Les valeurs de ce dictionnaire,
- * choisies à la main, tiennent déjà et ne passent pas par là.
+ * Hence the clamp: `Semicolon`, `BracketLeft`, `F1`, `Comma`, or a
+ * `NumpadDivide` that the prefix only shortens to `NDivide`, all overflowed the
+ * button for want of a `SHORT_KEYS` entry. That dictionary's values are
+ * hand-picked, already fit, and do not go through the clamp.
  */
 export function shortLabel(code: string): string {
 	const described = describeCode(code);
@@ -332,9 +329,9 @@ export function shortLabelList(codes: string[]): string {
 	return extra > 0 ? `${shortLabel(bound[0])} +${extra}` : shortLabel(bound[0]);
 }
 
-/* -------------------------------------------------------------- conflits */
+/* ------------------------------------------------------------- conflicts */
 
-/** Les pads qu'un joueur écoute. `'all'` = tous les connectés. */
+/** The pads a player listens to. `'all'` means every connected one. */
 export type PadSelection = number[] | 'all';
 
 export interface InputSources {
@@ -347,27 +344,27 @@ export interface ConflictOwner {
 	button: Button;
 }
 
-/** Par bouton en conflit : les autres liaisons qui lui prennent son code. */
+/** Per conflicting button: the other bindings taking its code. */
 export type ConflictMap = Map<Button, ConflictOwner[]>;
 
 export interface ConflictReport {
 	p1: { keys: ConflictMap; pad: ConflictMap };
 	p2: { keys: ConflictMap; pad: ConflictMap };
-	/** Nombre d'emplacements en conflit, toutes tables confondues. */
+	/** Number of conflicting slots, across both tables. */
 	count: number;
 }
 
 function padsOverlap(a: PadSelection, b: PadSelection): boolean {
 	if (a === 'all' || b === 'all') {
-		// Deux `'all'` se chevauchent même sans rien de branché : le premier
-		// pad à apparaître serait pris par les deux. Une liste explicitement
-		// vide, elle, n'écoute rien et ne chevauche rien.
+		// Two `'all'`s overlap even with nothing plugged in: the first pad to
+		// appear would be grabbed by both. An explicitly empty list, by
+		// contrast, listens to nothing and overlaps nothing.
 		return a === 'all' ? b === 'all' || b.length > 0 : a.length > 0;
 	}
 	return a.some((index) => b.includes(index));
 }
 
-/** Toutes les liaisons d'une table, une entrée par code. */
+/** Every binding in a table, one entry per code. */
 function entries(codesOf: (button: Button) => string[], player: 1 | 2) {
 	const out: Array<{ code: string; owner: ConflictOwner }> = [];
 	for (const button of BUTTONS) {
@@ -383,17 +380,16 @@ function emptyMaps() {
 }
 
 /**
- * Qui se marche sur les pieds, et pour qui c'est un problème.
+ * Who steps on whose toes, and for whom that is a problem.
  *
- * Deux règles, et la seconde est celle qui compte :
+ * Two rules, and the second is the one that matters:
  *
- * - à l'intérieur d'un joueur, un code en double est toujours un conflit,
- *   même si ce joueur est inactif ;
- * - entre joueurs, un code partagé n'est un conflit que si les deux peuvent
- *   l'atteindre - le clavier des deux côtés, ou des ensembles de pads qui
- *   s'intersectent. Sans cette seconde règle, deux joueurs sur le mappage
- *   standard seraient en conflit sur leurs douze boutons et plus rien ne
- *   pourrait être sauvegardé.
+ * - inside one player, a duplicated code is always a conflict, even when that
+ *   player is inactive;
+ * - between players, a shared code is a conflict only if both can reach it -
+ *   the keyboard on both sides, or pad sets that intersect. Without that second
+ *   rule, two players on the standard mapping would conflict on all twelve
+ *   buttons and nothing could ever be saved.
  */
 export function findConflicts(
 	config: ControlsConfig,
@@ -437,10 +433,10 @@ export function findConflicts(
 				);
 				if (others.length === 0) continue;
 				const side = owner.player === 1 ? report.p1 : report.p2;
-				// On accumule : un bouton dont la liste manette contient deux
-				// codes peut entrer en conflit deux fois, et écraser l'entrée
-				// précédente perdrait la moitié du message. Dédoublonné par
-				// (joueur, bouton), sinon le même coupable serait cité deux fois.
+				// Accumulate: a button whose controller list holds two codes can
+				// conflict twice, and overwriting the previous entry would lose
+				// half the message. Deduplicated by (player, button), or the
+				// same culprit would be cited twice.
 				const merged = [...(side[table].get(owner.button) ?? []), ...others];
 				const seen = new Set<string>();
 				side[table].set(

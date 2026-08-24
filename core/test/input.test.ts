@@ -20,10 +20,10 @@ const KEY_CONFIG = {
 	l: 'KeyQ', r: 'KeyW', start: 'Enter', select: 'ShiftRight'
 };
 
-/** Le joueur par défaut : ce clavier, et le mappage manette standard. */
+/** The default player: this keyboard, and the standard controller mapping. */
 const CONTROLS = { keys: KEY_CONFIG, pad: STANDARD_PAD };
 
-/** Tout écouter, ce que fait un joueur seul. */
+/** Listen to everything, which is what a lone player does. */
 const ALL: { keyboard: boolean; pads: 'all' } = { keyboard: true, pads: 'all' };
 
 /** Minimal stand-in for the pieces of `window` the collector touches. */
@@ -188,7 +188,7 @@ test('detach stops listening', () => {
 
 /* ---------------------------------------------------------------- gamepads */
 
-/** Installe de faux pads sur globalThis.navigator le temps de `fn`. */
+/** Installs fake pads on globalThis.navigator for the duration of `fn`. */
 function withGamepads<T>(
 	pads: Array<{ index: number; buttons: number[]; axes?: number[] }>,
 	fn: () => T
@@ -213,10 +213,10 @@ function withGamepads<T>(
 	}
 }
 
-test("tout écouter reste le défaut d'un joueur seul", () => {
+test("listening to everything stays the default for a lone player", () => {
 	withGamepads([{ index: 0, buttons: [1] }], () => {
 		const collector = new InputCollector(CONTROLS, ALL);
-		assert.equal(collector.read(), PAD.A, 'le bouton 1 est A dans le mappage standard');
+		assert.equal(collector.read(), PAD.A, 'button 1 is A in the standard mapping');
 	});
 });
 
@@ -252,7 +252,7 @@ test('an explicit index listens to that pad and no other', () => {
 	);
 });
 
-test('les sources changent en cours de route', () => {
+test('the sources change mid-flight', () => {
 	withGamepads([{ index: 0, buttons: [1] }, { index: 2, buttons: [] }], () => {
 		const collector = new InputCollector(CONTROLS, ALL);
 		assert.equal(collector.read(), PAD.A);
@@ -261,7 +261,7 @@ test('les sources changent en cours de route', () => {
 		assert.equal(collector.read(), 0);
 
 		collector.setSources({ keyboard: true, pads: [2] });
-		assert.equal(collector.read(), 0, 'le pad 2 n’a rien d’enfoncé');
+		assert.equal(collector.read(), 0, 'pad 2 has nothing pressed');
 
 		collector.setSources({ keyboard: true, pads: [0] });
 		assert.equal(collector.read(), PAD.A);
@@ -274,11 +274,11 @@ test('a missing gamepad API is not an error', () => {
 	assert.equal(collector.read(), 0);
 });
 
-/* --------------------------------------------- la config manette est lue */
+/* ------------------------------------- the controller config is read */
 
-test('le mappage standard donne les mêmes bits que la table en dur qu’il remplace', () => {
-	// Le test anti-régression du morceau : l'ancienne lecture était une table
-	// codée en dur que la config ne pouvait pas influencer.
+test('the standard mapping gives the same bits as the hardcoded table it replaces', () => {
+	// The anti-regression test of this piece: the old read was a hardcoded table
+	// the config could not influence.
 	const expected: Array<[number, number]> = [
 		[0, PAD.B], [1, PAD.A], [2, PAD.Y], [3, PAD.X],
 		[4, PAD.L], [5, PAD.R], [8, PAD.SELECT], [9, PAD.START],
@@ -288,14 +288,14 @@ test('le mappage standard donne les mêmes bits que la table en dur qu’il remp
 	for (const [button, bit] of expected) {
 		withGamepads([{ index: 0, buttons: [button] }], () => {
 			const collector = new InputCollector(CONTROLS, ALL);
-			assert.equal(collector.read(), bit, `le bouton ${button} doit donner ${bit}`);
+			assert.equal(collector.read(), bit, `button ${button} must yield ${bit}`);
 		});
 	}
 });
 
-test('le stick gauche fait toujours la croix', () => {
-	// Il la faisait par une règle en dur. Il la fait maintenant par deux codes
-	// PadAxis du mappage standard, et il doit la faire pareil.
+test('the left stick still works the d-pad', () => {
+	// It used to via a hardcoded rule. It now does via two PadAxis codes of the
+	// standard mapping, and it has to do it identically.
 	const cases: Array<[number[], number]> = [
 		[[-1, 0], PAD.LEFT],
 		[[1, 0], PAD.RIGHT],
@@ -312,13 +312,13 @@ test('le stick gauche fait toujours la croix', () => {
 	}
 });
 
-test('une liaison manette réassignée prend effet', () => {
+test('a rebound controller binding takes effect', () => {
 	withGamepads([{ index: 0, buttons: [7] }], () => {
 		const collector = new InputCollector(
 			{ keys: KEY_CONFIG, pad: { ...STANDARD_PAD, a: ['PadButton7'] } },
 			ALL
 		);
-		assert.equal(collector.read(), PAD.A, 'le bouton 7 est devenu A');
+		assert.equal(collector.read(), PAD.A, 'button 7 has become A');
 	});
 
 	withGamepads([{ index: 0, buttons: [1] }], () => {
@@ -326,11 +326,11 @@ test('une liaison manette réassignée prend effet', () => {
 			{ keys: KEY_CONFIG, pad: { ...STANDARD_PAD, a: ['PadButton7'] } },
 			ALL
 		);
-		assert.equal(collector.read(), 0, 'et le bouton 1 ne l’est plus');
+		assert.equal(collector.read(), 0, 'and button 1 no longer is');
 	});
 });
 
-test('un emplacement manette vidé ne répond à rien', () => {
+test('an emptied controller slot responds to nothing', () => {
 	withGamepads([{ index: 0, buttons: [1] }], () => {
 		const collector = new InputCollector(
 			{ keys: KEY_CONFIG, pad: { ...STANDARD_PAD, a: [] } },
@@ -340,7 +340,7 @@ test('un emplacement manette vidé ne répond à rien', () => {
 	});
 });
 
-test('un joueur sans clavier ignore les touches', () => {
+test('a player with no keyboard ignores keys', () => {
 	const win = fakeWindow();
 	withoutGamepads(() => {
 		const collector = new InputCollector(CONTROLS, { keyboard: false, pads: [] });
@@ -348,14 +348,14 @@ test('un joueur sans clavier ignore les touches', () => {
 
 		let prevented = false;
 		win.fire('keydown', { code: 'KeyX', preventDefault: () => { prevented = true; } });
-		assert.equal(collector.read(), 0, 'le clavier du J1 ne doit pas atteindre le J2');
-		assert.equal(prevented, false, 'un joueur sans clavier ne doit pas voler la touche à la page');
+		assert.equal(collector.read(), 0, 'player 1\'s keyboard must not reach player 2');
+		assert.equal(prevented, false, 'a player with no keyboard must not steal the key from the page');
 
 		collector.detach(win as never);
 	});
 });
 
-test('couper le clavier relâche ce qui était tenu', () => {
+test('taking the keyboard away releases what was held', () => {
 	const win = fakeWindow();
 	withoutGamepads(() => {
 		const collector = new InputCollector(CONTROLS, ALL);
@@ -364,20 +364,20 @@ test('couper le clavier relâche ce qui était tenu', () => {
 		assert.equal(collector.read(), PAD.UP);
 
 		collector.setSources({ keyboard: false, pads: 'all' });
-		assert.equal(collector.read(), 0, 'sinon la direction reste bloquée pour toujours');
+		assert.equal(collector.read(), 0, 'otherwise the direction stays jammed forever');
 
-		// La touche est toujours tenue en interne à ce stade : ce n'est que
-		// parce que `read()` ignore le clavier que le masque précédent valait
-		// 0. Rallumer le clavier sans avoir vidé `held` referait apparaître
-		// UP tout seul, alors que rien n'a été réappuyé.
+		// The key is still held internally at this point: the previous mask was 0
+		// only because `read()` skips the keyboard. Turning the keyboard back on
+		// without having cleared `held` would make UP reappear on its own, with
+		// nothing having been pressed again.
 		collector.setSources({ keyboard: true, pads: 'all' });
-		assert.equal(collector.read(), 0, 'sans le vidage, UP resterait bloqué après le retour du clavier');
+		assert.equal(collector.read(), 0, 'without the clear, UP would stay jammed once the keyboard returns');
 
 		collector.detach(win as never);
 	});
 });
 
-test('deux joueurs sur deux pads ne se croisent pas', () => {
+test('two players on two pads do not cross', () => {
 	withGamepads(
 		[
 			{ index: 0, buttons: [1] }, // A
@@ -394,37 +394,37 @@ test('deux joueurs sur deux pads ne se croisent pas', () => {
 	);
 });
 
-test('deux boutons enfoncés en même temps donnent leurs deux bits', () => {
+test('two buttons pressed at once yield both their bits', () => {
 	withGamepads([{ index: 0, buttons: [1, 9] }], () => {
 		const collector = new InputCollector(CONTROLS, { keyboard: false, pads: [0] });
 		assert.equal(collector.read(), PAD.A | PAD.START);
 	});
 });
 
-test('sanitise() s’applique aussi au masque venu de la manette', () => {
-	// STANDARD_PAD lie chaque direction à la fois à un bouton et à un axe : le
-	// bouton 14 est LEFT, et le stick poussé à droite est aussi RIGHT. Une
-	// vraie manette rapporte les deux si le d-pad et le stick se contredisent,
-	// et sanitise() doit trancher pour ce masque-là exactement comme pour le
-	// clavier.
+test('sanitise() applies to the controller-sourced mask too', () => {
+	// STANDARD_PAD binds every direction to both a button and an axis: button 14
+	// is LEFT, and the stick pushed right is also RIGHT. A real controller
+	// reports both when the d-pad and the stick contradict each other, and
+	// sanitise() has to decide for that mask exactly as it does for the
+	// keyboard.
 	withGamepads([{ index: 0, buttons: [14], axes: [1, 0] }], () => {
 		const collector = new InputCollector(CONTROLS, ALL);
 		const mask = collector.read();
-		assert.notEqual(mask & PAD.LEFT, 0, 'le bouton d-pad doit compter');
-		assert.equal(mask & PAD.RIGHT, 0, 'la seconde direction opposée doit être coupée');
+		assert.notEqual(mask & PAD.LEFT, 0, 'the d-pad button must count');
+		assert.equal(mask & PAD.RIGHT, 0, 'the second opposing direction must be dropped');
 	});
 });
 
-test('un même code lié à deux boutons donne les deux bits', () => {
-	// Une paire par code plutôt qu'une Map : si jamais un tel conflit arrive
-	// jusqu'ici (la config normalisée le refuse, mais un stockage ou un pair
-	// réseau pourrait le fournir quand même), les deux boutons doivent quand
-	// même s'allumer plutôt que l'un d'eux disparaître silencieusement.
+test('one code bound to two buttons yields both bits', () => {
+	// One pair per code rather than a Map: if such a conflict ever reaches here
+	// (the normalised config refuses it, but storage or a network peer could
+	// supply it anyway), both buttons must still light up rather than one of
+	// them vanishing silently.
 	withGamepads([{ index: 0, buttons: [0] }], () => {
 		const collector = new InputCollector(
 			{ keys: KEY_CONFIG, pad: { ...STANDARD_PAD, a: ['PadButton0'] } },
 			ALL
 		);
-		assert.equal(collector.read(), (PAD.A | PAD.B), 'PadButton0 est lié à B par défaut et à A ici');
+		assert.equal(collector.read(), (PAD.A | PAD.B), 'PadButton0 is bound to B by default and to A here');
 	});
 });

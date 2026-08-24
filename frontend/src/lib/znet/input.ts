@@ -31,7 +31,7 @@ const BUTTON_BITS: Record<Button, number> = {
 const AXIS_THRESHOLD = 0.5;
 
 /**
- * Tout écouter : le défaut d'un joueur seul, et rien d'autre.
+ * Listen to everything: the default for a lone player, and nothing else.
  *
  * Frozen, and shared by every collector that does not pass its own sources:
  * `getSources()` must never hand out this exact object, or a caller mutating
@@ -42,16 +42,16 @@ const EVERYTHING: InputSources = Object.freeze({ keyboard: true, pads: 'all' });
 export class InputCollector {
 	private held = new Set<string>();
 	/**
-	 * Des paires plutôt qu'une Map : un code lié à deux boutons est un conflit
-	 * que l'écran de config refuse de sauvegarder, mais une Map le perdrait en
-	 * silence si jamais il arrivait quand même jusqu'ici.
+	 * Pairs rather than a Map: a code bound to two buttons is a conflict the
+	 * config screen refuses to save, but a Map would lose it silently if one
+	 * ever reached here anyway.
 	 */
 	private keyBits: Array<[string, number]> = [];
 	/**
-	 * Descripteurs déjà résolus plutôt que des codes bruts : `read()` tourne à
-	 * 60 Hz, et reparser chaque code manette à chaque frame pour chaque pad
-	 * ferait de l'ordre du millier d'objets par seconde de garbage - une pause
-	 * du GC dans l'émulateur s'entend comme un accroc audio.
+	 * Already-resolved descriptors rather than raw codes: `read()` runs at 60 Hz,
+	 * and reparsing every controller code every frame for every pad would make
+	 * on the order of a thousand objects a second of garbage - a GC pause in the
+	 * emulator is audible as an audio glitch.
 	 */
 	private padBits: Array<[PadCodeDescriptor, number]> = [];
 	private sources: InputSources = EVERYTHING;
@@ -81,18 +81,18 @@ export class InputCollector {
 	}
 
 	/**
-	 * Change les périphériques que ce joueur écoute.
+	 * Changes the devices this player listens to.
 	 *
-	 * Vide ce qui est tenu au clavier quand le clavier s'en va : sinon une
-	 * direction enfoncée au moment du changement n'aurait plus jamais son
-	 * keyup, et resterait bloquée pour la vie de la session.
+	 * Clears what is held on the keyboard when the keyboard goes away: otherwise
+	 * a direction pressed at the moment of the change would never get its keyup,
+	 * and would stay jammed for the life of the session.
 	 */
 	setSources(sources: InputSources): void {
 		if (this.sources.keyboard && !sources.keyboard) this.held.clear();
 		this.sources = sources;
 	}
 
-	/** Une copie : muter la valeur reçue ne doit pas toucher ce joueur. */
+	/** A copy: mutating the returned value must not touch this player. */
 	getSources(): InputSources {
 		return { ...this.sources };
 	}

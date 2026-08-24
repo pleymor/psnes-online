@@ -1,14 +1,14 @@
 /**
- * Qui tient quoi.
+ * Who holds what.
  *
- * Deux joueurs sur une machine ne sont séparés que par cette assignation, et
- * elle vit dans le `localStorage` plutôt que sur le compte : quelles manettes
- * sont branchées est une propriété du poste, pas de l'utilisateur. Le même
- * compte sur le PC du salon et sur le portable n'a pas le même matériel.
+ * Two players on one machine are separated by nothing but this assignment, and
+ * it lives in `localStorage` rather than on the account: which controllers are
+ * plugged in is a property of the machine, not of the user. The same account on
+ * the living-room PC and on a laptop does not have the same hardware.
  *
- * Le collecteur d'entrées, lui, ne connaît que des `InputSources` déjà
- * résolues - un booléen clavier et une liste d'index. Il ignore tout de
- * l'assignation, et c'est ce qui le laisse testable.
+ * The input collector, for its part, knows only already-resolved
+ * `InputSources` - a keyboard boolean and a list of indices. It knows nothing
+ * about assignment, and that is what keeps it testable.
  */
 
 import type { InputSources } from '$lib/controls/binding';
@@ -35,10 +35,10 @@ export const DEVICES_STORAGE_KEY = 'psnes-input-devices';
 export const LEGACY_SOURCE_KEY = 'psnes-gamepad-source';
 
 /**
- * Le J1 au clavier et sur tout ce qui est libre, le J2 muet.
+ * Player 1 on the keyboard and on anything free, player 2 silent.
  *
- * C'est exactement le comportement solo actuel, et c'est voulu : un joueur
- * seul ne doit rien remarquer de ce changement.
+ * That is exactly today's solo behaviour, deliberately: a lone player must
+ * notice nothing about this change.
  */
 export function defaultAssignments(): Assignments {
 	return {
@@ -48,17 +48,16 @@ export function defaultAssignments(): Assignments {
 }
 
 /**
- * Au plus un `'auto'`, et c'est le J1.
+ * At most one `'auto'`, and it belongs to player 1.
  *
- * L'UI n'offre `'auto'` qu'au premier joueur, mais rien ne garantit que l'état
- * en mémoire vienne de l'UI : une clé de stockage modifiée à la main, ou une
- * construction directe qui saute `loadAssignments`, peut très bien donner
- * `'auto'` aux deux. Sans ce garde-fou, `resolveSources` verrait alors les
- * deux joueurs comme n'ayant rien revendiqué et donnerait tous les pads aux
- * deux à la fois - le symptôme même que cette fonctionnalité corrige. Le J2
- * est démoté en silence plutôt que de recevoir une erreur : cet état n'est
- * pas atteignable par l'UI, et un utilisateur qui ne l'a pas créé n'a pas à en
- * être informé.
+ * The UI only offers `'auto'` to the first player, but nothing guarantees the
+ * in-memory state came from the UI: a hand-edited storage key, or a direct
+ * construction that skips `loadAssignments`, can perfectly well give `'auto'` to
+ * both. Without this guard `resolveSources` would then see both players as
+ * having claimed nothing and hand every pad to both at once - the very symptom
+ * this feature exists to remove. Player 2 is demoted silently rather than shown
+ * an error: this state is unreachable through the UI, and a user who did not
+ * create it has no need to hear about it.
  */
 export function withSingleAuto(assignments: Assignments): Assignments {
 	if (assignments.p1.gamepad === 'auto' && assignments.p2.gamepad === 'auto') {
@@ -67,12 +66,13 @@ export function withSingleAuto(assignments: Assignments): Assignments {
 	return assignments;
 }
 
-/** Un joueur joue dès qu'il a de quoi appuyer. C'est toute l'activation. */
+/** A player plays as soon as they have something to press. That is the whole
+ * activation model. */
 export function isPlayerActive(assignment: Assignment): boolean {
 	return assignment.keyboard || assignment.gamepad !== null;
 }
 
-/** Les pads réels que le navigateur rapporte. Les pads tactiles ne comptent pas. */
+/** The real pads the browser reports. On-screen touch pads do not count. */
 export function connectedPads(nav: Navigator | undefined = globalThis.navigator): PadInfo[] {
 	if (!nav?.getGamepads) return [];
 	const out: PadInfo[] = [];
@@ -111,10 +111,10 @@ function normaliseAssignment(raw: unknown, fallback: Assignment): Assignment {
 }
 
 /**
- * Traduit `psnes-gamepad-source`, la clé d'avant.
+ * Translates `psnes-gamepad-source`, the key from before.
  *
- * Elle ne connaissait qu'un joueur et une source. Le J2 arrive donc muet, ce
- * qui est le bon défaut : personne n'a demandé un second joueur.
+ * It knew only one player and one source. Player 2 therefore arrives silent,
+ * which is the right default: nobody asked for a second player.
  */
 function migrateLegacy(storage: Storage): Assignments | null {
 	const legacy = storage.getItem(LEGACY_SOURCE_KEY);
@@ -147,7 +147,7 @@ export function loadAssignments(storage: Storage): Assignments {
 				p2: normaliseAssignment(parsed.p2, defaults.p2)
 			});
 		} catch {
-			// Une clé illisible n'est pas une raison de refuser de jouer.
+			// An unreadable key is no reason to refuse to play.
 		}
 	}
 	return withSingleAuto(migrateLegacy(storage) ?? defaultAssignments());
@@ -158,10 +158,10 @@ export function saveAssignments(storage: Storage, assignments: Assignments): voi
 }
 
 /**
- * Le pad qu'une revendication explicite désigne, s'il est là.
+ * The pad an explicit claim points at, if it is there.
  *
- * L'id d'abord : il survit au rebranchement, l'index non. L'index en repli :
- * deux manettes identiques partagent le même id.
+ * The id first: it survives replugging, the index does not. The index as a
+ * fallback: two identical controllers share one id.
  */
 function resolveExplicit(assignment: GamepadAssignment, pads: PadInfo[]): number[] {
 	if (assignment === null || assignment === 'auto') return [];
@@ -172,13 +172,13 @@ function resolveExplicit(assignment: GamepadAssignment, pads: PadInfo[]): number
 }
 
 /**
- * Ce que chaque joueur écoute, en deux temps.
+ * What each player listens to, in two phases.
  *
- * Les revendications explicites d'abord, chacune de son côté, puis `'auto'`
- * prend tout ce que l'autre joueur n'a pas pris. L'ordre est ce qui empêche la
- * définition d'être circulaire, et la redéfinition d'`'auto'` est ce qui
- * empêche une manette de piloter deux ports : pour un joueur seul, « tout ce
- * qui reste » vaut « tout », donc rien ne change.
+ * Explicit claims first, each resolved independently, then `'auto'` takes
+ * everything the other player did not take. The order is what stops the
+ * definition being circular, and redefining `'auto'` is what stops one
+ * controller driving two ports: for a lone player, "everything left" equals
+ * "everything", so nothing changes.
  */
 export function resolveSources(
 	assignments: Assignments,
