@@ -277,6 +277,19 @@
 
 <style>
   .profile {
+    /* Explicit, not auto: `.profile` is a flex item of `.app`
+       (flex-direction: column), so its cross axis is horizontal. A flex
+       item with horizontal auto margins has its cross-axis alignment -
+       align-items: stretch, here - overridden by those margins, so an
+       `auto` width would shrink-wrap to content instead of filling up to
+       max-width. That happened to look fine only because some sibling
+       (the Display card's shader tiles, at the time) had enough natural
+       width to drag the shrink-to-fit basis up near the cap - the
+       controls card's own 46rem container-query threshold was riding on
+       a neighbour's content, not on the page. `width: 100%` makes the
+       size explicit, so `margin: 0 auto` just centers the already-full
+       width within any space `max-width` leaves, as intended. */
+    width: 100%;
     max-width: 68rem;
     margin: 0 auto;
     padding: 1.5rem;
