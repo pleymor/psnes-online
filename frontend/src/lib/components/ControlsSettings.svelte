@@ -81,10 +81,28 @@
   $: hasChanges = JSON.stringify(workingConfig) !== JSON.stringify(normaliseControlsConfig(currentConfig));
   $: canSave = hasChanges && conflicts.count === 0 && capturingPlayer === null;
 
-  /** A player is busy while the *other* one is binding, never while it is. */
-  function busyFor(player: 1 | 2): boolean {
-    return isSaving || isLoading || (capturingPlayer !== null && capturingPlayer !== player);
+  /**
+   * A player is busy while the *other* one is binding, never while it is.
+   *
+   * Takes `saving`/`loading`/`capturing` as explicit parameters rather than
+   * reading them off the closure. Svelte 4 derives a reactive statement's
+   * dependencies from the identifiers written *in that statement*, not from
+   * what a called function reads inside itself: both `busy={busyFor(1)}` in
+   * the template and a `$: busy1 = busyFor(1)` would compile to one-time
+   * initialisation and the exclusion below would never fire again. Naming the
+   * state at the call site is what makes the two statements re-run.
+   */
+  function busyFor(
+    player: 1 | 2,
+    saving: boolean,
+    loading: boolean,
+    capturing: 1 | 2 | null
+  ): boolean {
+    return saving || loading || (capturing !== null && capturing !== player);
   }
+
+  $: busy1 = busyFor(1, isSaving, isLoading, capturingPlayer);
+  $: busy2 = busyFor(2, isSaving, isLoading, capturingPlayer);
 
   function onCapturing(player: 1 | 2, active: boolean) {
     if (active) capturingPlayer = player;
@@ -180,7 +198,7 @@
         {pads}
         conflicts={conflicts.p1}
         allowAuto={true}
-        busy={busyFor(1)}
+        busy={busy1}
         on:change={(e) => onPlayerChange(1, e.detail.controls)}
         on:assign={(e) => onAssign(1, e.detail.assignment)}
         on:capturing={(e) => onCapturing(1, e.detail.active)}
@@ -195,7 +213,7 @@
         {pads}
         conflicts={conflicts.p2}
         allowAuto={false}
-        busy={busyFor(2)}
+        busy={busy2}
         on:change={(e) => onPlayerChange(2, e.detail.controls)}
         on:assign={(e) => onAssign(2, e.detail.assignment)}
         on:capturing={(e) => onCapturing(2, e.detail.active)}
