@@ -14,8 +14,9 @@
   import SoloRoom from '$lib/components/SoloRoom.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
   import ConfirmModal from '$lib/components/ConfirmModal.svelte';
-  import type { Room, KeyConfig } from '$lib/types';
+  import type { Room } from '$lib/types';
   import { EmulationMode } from '$lib/types';
+  import { defaultControlsConfig, normaliseControlsConfig, type ControlsConfig } from '$lib/controls/binding';
   import { onlinePlayers } from '$lib/rooms/online-players';
   import { createLogger } from '$lib/utils/logger';
 
@@ -41,30 +42,22 @@
   let showToast = false;
   let toastMessage = '';
   let toastType: 'success' | 'error' = 'success';
-  let userKeyConfig: KeyConfig = {
-    up: 'ArrowUp',
-    down: 'ArrowDown',
-    left: 'ArrowLeft',
-    right: 'ArrowRight',
-    a: 'KeyX',
-    b: 'KeyZ',
-    x: 'KeyS',
-    y: 'KeyA',
-    l: 'KeyQ',
-    r: 'KeyW',
-    start: 'Enter',
-    select: 'ShiftRight'
-  };
-
-  let keyConfig: KeyConfig = userKeyConfig;
+  /** My two-player config, from my account - the one the panel edits. */
+  let userControls: ControlsConfig = defaultControlsConfig();
 
   $: roomId = data.roomId;
 
   // Get current user's key configuration
   $: currentPlayer = room?.players.find(p => p.userId === $user?.id);
-  $: {
-    keyConfig = currentPlayer?.keyConfig || userKeyConfig;
-  }
+
+  /**
+   * Player 1's mapping.
+   *
+   * The room protocol carries only one mapping per member: a remote peer
+   * occupies port 2, not a second local player. The emulators therefore never
+   * need more than this half.
+   */
+  $: keyConfig = currentPlayer?.keyConfig || userControls.p1.keys;
 
   // Determine if current player is the room host
   $: isRoomHost = room?.hostId === $user?.id;
@@ -486,7 +479,7 @@
       const res = await fetch('/api/user/controls', { credentials: 'include' });
       if (res.ok) {
         const config = await res.json();
-        userKeyConfig = config;
+        userControls = normaliseControlsConfig(config);
       }
     } catch (error) {
       logger.error('Failed to load user controls:', error);
@@ -781,7 +774,14 @@
     {#if activeEmulationMode === EmulationMode.SINGLE}
       <!-- Solo runs on the znet stack too now, so it gets the same core,
            renderer, shaders and save chrome the lockstep room has. -->
-      <SoloRoom {roomId} gameId={chosenGame.id} gameCrc32={chosenGame.crc32} gameTitle={chosenGame.title} {keyConfig} {resumeSaveId} />
+      <SoloRoom
+        {roomId}
+        gameId={chosenGame.id}
+        gameCrc32={chosenGame.crc32}
+        gameTitle={chosenGame.title}
+        controls={userControls}
+        {resumeSaveId}
+      />
     {:else if activeEmulationMode === EmulationMode.LOCKSTEP}
       <!-- Lockstep runs on its own deterministic core and its own relay, so it
            shares nothing with the WebRTC path in P2PRoom. -->
@@ -792,9 +792,11 @@
         gameTitle={chosenGame.title}
         isHost={isRoomHost}
         {keyConfig}
+        controls={userControls}
         latencyMode={room?.latencyMode ?? 'auto'}
         canSetLatency={isRoomCreator}
         {resumeSaveId}
+        on:controlsSaved={(e) => (userControls = e.detail.config)}
       />
     {:else}
       <!-- P2PRoom handles the dual and streaming modes -->
@@ -805,7 +807,9 @@
         gameTitle={chosenGame.title}
         isHost={isRoomHost}
         {keyConfig}
+        controls={userControls}
         emulationMode={activeEmulationMode ?? EmulationMode.SINGLE}
+        on:controlsSaved={(e) => (userControls = e.detail.config)}
       />
     {/if}
   {/if}

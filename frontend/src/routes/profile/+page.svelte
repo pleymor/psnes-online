@@ -13,7 +13,7 @@
   import { user, userLoading } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
-  import type { KeyConfig } from '$lib/types';
+  import { normaliseControlsConfig, type ControlsConfig } from '$lib/controls/binding';
   import TopBar from '$lib/components/TopBar.svelte';
   import ControlsSettings from '$lib/components/ControlsSettings.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
@@ -30,7 +30,7 @@
   // chrome instead of stranding the user with a lone back link. It needs the
   // active rooms for the friends drawer's join buttons.
   let activeRooms: any[] = [];
-  let keyConfig: KeyConfig | null = null;
+  let controlsConfig: ControlsConfig | null = null;
   let controlsError = '';
   let shader = '';
   let refreshing = false;
@@ -101,7 +101,7 @@
       // Showing nothing on failure is deliberate: presenting stale or absent
       // key bindings as if they were the saved config would be worse than an
       // explanation and an empty section.
-      if (res.ok) keyConfig = await res.json();
+      if (res.ok) controlsConfig = normaliseControlsConfig(await res.json());
       else controlsError = t($language, 'controlsLoadFailed');
     } catch {
       controlsError = t($language, 'controlsLoadFailed');
@@ -191,8 +191,11 @@
   <div class="columns">
     <section class="card">
       <h3>{t($language, 'controls')}</h3>
-      {#if keyConfig}
-        <ControlsSettings currentConfig={keyConfig} on:saved={(e) => (keyConfig = e.detail.config)} />
+      {#if controlsConfig}
+        <ControlsSettings
+          currentConfig={controlsConfig}
+          on:saved={(e) => (controlsConfig = e.detail.config)}
+        />
       {:else if controlsError}
         <p class="note">{controlsError}</p>
       {/if}

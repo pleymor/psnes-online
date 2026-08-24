@@ -10,11 +10,20 @@
   import { t } from '$lib/i18n/translations';
   import type { KeyConfig, LatencyMode } from '$lib/types';
   import type { DisplayOptions } from '$lib/znet';
+  import type { ControlsConfig } from '$lib/controls/binding';
   import { SHADERS, VALID_SHADER_IDS } from '$lib/shaders';
 
   export let roomId: string;
   export let gameId: string;
   export let keyConfig: KeyConfig;
+  /**
+   * The two-player config, for the controls sub-menu.
+   *
+   * Distinct from `keyConfig`, which is the P1 half the room carries: this
+   * panel edits both players, and handing it the half would hide the second
+   * from it.
+   */
+  export let controls: ControlsConfig;
   export let emulator: any = null; // Reference to ClientEmulator component (host only)
   export let restoreFullscreen: boolean = false; // Whether to restore fullscreen on resume
 
@@ -169,9 +178,9 @@
   // The list can grow or shrink between rooms; never leave the cursor past its end.
   $: if (selectedIndex >= menuItems.length) selectedIndex = menuItems.length - 1;
 
-  function handleSaved(event: CustomEvent<{ config: KeyConfig }>) {
-    // Forward the saved config to parent
-    dispatch('saved', event.detail);
+  function handleSaved(event: CustomEvent<{ config: ControlsConfig }>) {
+    controls = event.detail.config;
+    dispatch('controlsSaved', { config: event.detail.config });
     showKeyConfig = false;
     selectedIndex = 0; // Reset selection when returning to main menu
   }
@@ -377,7 +386,7 @@
     {#if showKeyConfig}
       <div class="submenu">
         <h3>{t($language, 'controls')}</h3>
-        <ControlsSettings {roomId} currentConfig={keyConfig} on:saved={handleSaved} />
+        <ControlsSettings {roomId} currentConfig={controls} on:saved={handleSaved} />
         <button on:click={handleBackFromSubmenu} class="back-button">
           {t($language, 'close')}
         </button>

@@ -15,10 +15,12 @@
   import { goto } from '$app/navigation';
   import { socket } from '$lib/api/socket';
   import type { KeyConfig } from '$lib/types';
+  import { STANDARD_PAD, type ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
   import { setLogLabels } from '$lib/utils/log-shipper';
   import PauseMenu from './PauseMenu.svelte';
   import { language } from '$lib/stores/language';
+  import { t } from '$lib/i18n/translations';
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import LocateRom from './LocateRom.svelte';
@@ -34,7 +36,6 @@
     FrameGovernor,
     InputCollector,
     NetplaySession,
-    type GamepadSource,
     PsnesCore,
     SocketTransport,
     LagTransport,
@@ -44,6 +45,10 @@
     romCrc32,
     aspectRatioOf,
     fitToBox,
+    loadAssignments,
+    saveAssignments,
+    resolveSources,
+    connectedPads,
     type SessionEvent,
     type SessionStats,
     type Transport
@@ -68,6 +73,13 @@
   /** Whether this player is the creator, and so may change it. */
   export let canSetLatency = false;
   export let keyConfig: KeyConfig;
+  /**
+   * The two-player config, relayed to `PauseMenu`'s controls sub-menu.
+   *
+   * Distinct from `keyConfig`: lockstep only ever plays P1 locally, but the
+   * panel edits both players and must not be handed just the half in play.
+   */
+  export let controls: ControlsConfig;
   /**
    * A save to open on, when the library sent us here to resume one.
    *
@@ -127,14 +139,10 @@
   let audio: AudioSink | null = null;
 
   /**
-   * Which gamepad drives this window, remembered per player.
-   *
-   * Two windows on one machine both see the same physical pad, so without a
-   * choice here one controller drives both players at once.
+   * Which gamepad drives P1 here, read from the same store the controls
+   * panel writes to - this is the only local player lockstep has.
    */
-  const gamepadKey = `znet:gamepad:${isHost ? 'p1' : 'p2'}`;
-  let gamepadSource: GamepadSource = 'auto';
-  let gamepadOptions: GamepadSource[] = ['auto', 'off'];
+  let assignments = loadAssignments(localStorage);
 
   let stats: SessionStats | null = null;
   /**
@@ -324,7 +332,7 @@
   let sramTimer: ReturnType<typeof setInterval> | null = null;
   let lastFramesRun = 0;
 
-  $: if (collector && keyConfig) collector.setKeyConfig(keyConfig);
+  $: if (collector && keyConfig) collector.setControls({ keys: keyConfig, pad: STANDARD_PAD });
 
   onMount(() => {
     // Registered before the core starts loading, not after. Both machines boot
@@ -508,13 +516,11 @@
       // is usually already running and no gesture is needed.
       needsAudioGesture = audio.needsGesture;
 
-      const saved = localStorage.getItem(gamepadKey);
-      if (saved) gamepadSource = saved === 'auto' || saved === 'off' ? saved : Number(saved);
-      collector = new InputCollector(keyConfig, gamepadSource);
+      collector = new InputCollector(
+        { keys: keyConfig, pad: STANDARD_PAD },
+        resolveSources(assignments, connectedPads()).p1
+      );
       collector.attach();
-      refreshGamepadOptions();
-      window.addEventListener('gamepadconnected', refreshGamepadOptions);
-      window.addEventListener('gamepaddisconnected', refreshGamepadOptions);
 
       // Battery saves are part of the emulated machine, so they must be in
       // place before the session starts: the host's state is what both peers
@@ -1082,22 +1088,23 @@
     }, STALL_VISIBLE_AFTER_MS);
   }
 
-  function refreshGamepadOptions() {
-    const connected = collector?.connectedGamepads() ?? [];
-    gamepadOptions = ['auto', 'off', ...connected];
-  }
-
+  /**
+   * Toggles P1's gamepad between "every free controller" and "none".
+   *
+   * Lockstep has only one local player per machine, so this shortcut only
+   * ever has two positions to offer.
+   */
   function cycleGamepadSource() {
-    const i = gamepadOptions.findIndex((o) => o === gamepadSource);
-    gamepadSource = gamepadOptions[(i + 1) % gamepadOptions.length];
-    collector?.setGamepadSource(gamepadSource);
-    localStorage.setItem(gamepadKey, String(gamepadSource));
+    const next = assignments.p1.gamepad === null ? 'auto' : null;
+    assignments = { ...assignments, p1: { ...assignments.p1, gamepad: next } };
+    saveAssignments(localStorage, assignments);
+    collector?.setSources(resolveSources(assignments, connectedPads()).p1);
   }
 
-  function gamepadLabel(source: GamepadSource) {
-    if (source === 'auto') return 'all pads';
-    if (source === 'off') return 'keyboard only';
-    return `pad ${source}`;
+  function gamepadLabel() {
+    return assignments.p1.gamepad === null
+      ? t($language, 'noController')
+      : t($language, 'allFreeControllers');
   }
 
   async function enableAudio() {
@@ -1126,8 +1133,6 @@
     $socket?.off('player:left', onPlayerLeft);
     if (diagnosticsTimer) clearInterval(diagnosticsTimer);
     diagnosticsTimer = null;
-    window.removeEventListener('gamepadconnected', refreshGamepadOptions);
-    window.removeEventListener('gamepaddisconnected', refreshGamepadOptions);
     governor?.stop();
     session?.close();
     collector?.detach();
@@ -1253,11 +1258,12 @@
       {roomId}
       {gameId}
       {keyConfig}
+      {controls}
       {display}
       {showStats}
       {latencyMode}
       {canSetLatency}
-      gamepadLabel={gamepadLabel(gamepadSource)}
+      gamepadLabel={gamepadLabel()}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}
@@ -1265,7 +1271,7 @@
       on:stats={() => (showStats = !showStats)}
       on:latency={cycleLatencyMode}
       on:gamepad={cycleGamepadSource}
-      on:saved={(e) => { keyConfig = e.detail.config; closePauseMenu(); }}
+      on:controlsSaved
     />
   {/if}
 

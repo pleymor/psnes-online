@@ -9,6 +9,7 @@
   import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { readShaderPreference } from '$lib/stores/shader-preference';
   import type { KeyConfig } from '$lib/types';
+  import type { ControlsConfig } from '$lib/controls/binding';
   import { EmulationMode } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
   import { DualModeHandler } from '$lib/multiplayer/dual-mode';
@@ -27,6 +28,13 @@
   export let gameTitle = '';
   export let isHost: boolean;
   export let keyConfig: KeyConfig;
+  /**
+   * The two-player config, relayed to `PauseMenu`'s controls sub-menu.
+   *
+   * Distinct from `keyConfig`, which the room hands down for this member and
+   * which, in netplay, can come from a different account than mine.
+   */
+  export let controls: ControlsConfig;
   export let emulationMode: EmulationMode = EmulationMode.DUAL;
   export let useRollbackNetcode: boolean = true; // Enable rollback by default for dual mode
   export let useSeamlessResync: boolean = false; // Disabled - using canvas freeze instead
@@ -700,11 +708,6 @@
     $socket?.emit('game:stop', { roomId });
   }
 
-  function handleControlsSaved(event: CustomEvent<{ config: KeyConfig }>): void {
-    // Update local keyConfig when controls are saved
-    keyConfig = event.detail.config;
-  }
-
   // --- Gamepad Input (streaming mode guest) ---
   // Map gamepad button index to SNES button using user's keyConfig
   function mapGamepadInputToButton(buttonIndex: number, isAxis: boolean, axisDirection?: 'plus' | 'minus'): string | null {
@@ -1129,11 +1132,12 @@
       {roomId}
       {gameId}
       {keyConfig}
+      {controls}
       emulator={emulatorComponent}
       restoreFullscreen={wasFullscreenBeforePause}
       on:resume={handleResume}
       on:quit={handleQuit}
-      on:saved={handleControlsSaved}
+      on:controlsSaved
     />
   {/if}
 </div>
