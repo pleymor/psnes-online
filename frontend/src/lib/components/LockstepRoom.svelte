@@ -11,7 +11,7 @@
    *
    * See frontend/src/lib/znet/session.ts for the protocol.
    */
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { goto } from '$app/navigation';
   import { socket } from '$lib/api/socket';
   import type { KeyConfig } from '$lib/types';
@@ -386,6 +386,8 @@
     openPauseMenu(!!document.fullscreenElement);
   }
 
+  const dispatch = createEventDispatcher();
+
   function openPauseMenu(restoreFullscreen = false) {
     if (showPauseMenu) return;
     wasFullscreen = restoreFullscreen;
@@ -409,6 +411,21 @@
       });
     }
     wasFullscreen = false;
+  }
+
+  /**
+   * A rebind must take effect on this machine immediately, not once the
+   * server round trip confirms it: the round trip can be slow or down, and
+   * a player who just saved new bindings should not keep playing on the old
+   * ones with nothing on screen explaining why. The room broadcast (handled
+   * by the room page's own `controlsSaved` listener) is what makes the new
+   * mapping visible to everyone else, not what enables it here.
+   */
+  function handleControlsSaved(event: CustomEvent<{ config: ControlsConfig }>) {
+    controls = event.detail.config;
+    keyConfig = event.detail.config.p1.keys;
+    dispatch('controlsSaved', event.detail);
+    closePauseMenu();
   }
 
   function quitToLobby() {
@@ -1271,7 +1288,7 @@
       on:stats={() => (showStats = !showStats)}
       on:latency={cycleLatencyMode}
       on:gamepad={cycleGamepadSource}
-      on:controlsSaved
+      on:controlsSaved={handleControlsSaved}
     />
   {/if}
 

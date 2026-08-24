@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { socket } from '$lib/api/socket';
   import ClientEmulator from './ClientEmulator.svelte';
   import DualClientEmulator from './DualClientEmulator.svelte';
@@ -38,6 +38,8 @@
   export let emulationMode: EmulationMode = EmulationMode.DUAL;
   export let useRollbackNetcode: boolean = true; // Enable rollback by default for dual mode
   export let useSeamlessResync: boolean = false; // Disabled - using canvas freeze instead
+
+  const dispatch = createEventDispatcher();
 
   // --- State ---
   let emulatorComponent: ClientEmulator;
@@ -708,6 +710,23 @@
     $socket?.emit('game:stop', { roomId });
   }
 
+  /**
+   * A rebind must take effect on this machine immediately, not once the
+   * server round trip confirms it: the round trip can be slow or down, and
+   * a player who just saved new bindings should not keep playing on the old
+   * ones with nothing on screen explaining why. The room broadcast (handled
+   * by the room page's own `controlsSaved` listener) is what makes the new
+   * mapping visible to everyone else, not what enables it here.
+   *
+   * Stays on the pause menu rather than resuming - that was this handler's
+   * original effect, before it only knew about a single-player `KeyConfig`.
+   */
+  function handleControlsSaved(event: CustomEvent<{ config: ControlsConfig }>): void {
+    controls = event.detail.config;
+    keyConfig = event.detail.config.p1.keys;
+    dispatch('controlsSaved', event.detail);
+  }
+
   // --- Gamepad Input (streaming mode guest) ---
   // Map gamepad button index to SNES button using user's keyConfig
   function mapGamepadInputToButton(buttonIndex: number, isAxis: boolean, axisDirection?: 'plus' | 'minus'): string | null {
@@ -1137,7 +1156,7 @@
       restoreFullscreen={wasFullscreenBeforePause}
       on:resume={handleResume}
       on:quit={handleQuit}
-      on:controlsSaved
+      on:controlsSaved={handleControlsSaved}
     />
   {/if}
 </div>
