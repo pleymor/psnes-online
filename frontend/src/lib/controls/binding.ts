@@ -120,7 +120,15 @@ export function legacyToPadCode(code: string): string | null {
 	return null;
 }
 
-function clonePad(source: PadConfig): PadConfig {
+/**
+ * Une copie profonde d'une table manette.
+ *
+ * `{ ...pad }` ne suffit pas : les valeurs sont des tableaux, et un spread les
+ * partagerait avec la source - `STANDARD_PAD` compris, qui est une constante
+ * de module. Rien ne les mute en place aujourd'hui ; cette fonction est là
+ * pour que ça reste sans conséquence si un jour quelque chose le fait.
+ */
+export function clonePad(source: PadConfig): PadConfig {
 	const out = {} as PadConfig;
 	for (const button of BUTTONS) out[button] = [...source[button]];
 	return out;
@@ -164,12 +172,18 @@ function looksLikeKeyConfig(raw: Record<string, unknown>): boolean {
  * Un code manette trouvé dans la table clavier ne peut pas y rester - rien ne
  * l'y lirait jamais - et l'emplacement clavier qu'il occupait devient non lié
  * plutôt que de recevoir un défaut que le joueur n'a pas choisi.
+ *
+ * Une chaîne vide est reprise telle quelle, pas ignorée : elle vaut *non lié*
+ * dans tout le reste du module, et lui substituer le défaut ressusciterait une
+ * liaison que le joueur avait justement retirée. C'est aussi ce que fait la
+ * copie du serveur (`backend/src/utils/key-config.ts`), et les deux doivent
+ * dire la même chose.
  */
 function playerFromLegacyKeys(raw: Record<string, unknown>, defaults: KeyConfig): PlayerControls {
 	const player = defaultPlayer(defaults);
 	for (const button of BUTTONS) {
 		const value = raw[button];
-		if (typeof value !== 'string' || value === '') continue;
+		if (typeof value !== 'string') continue;
 		const padCode = legacyToPadCode(value);
 		if (padCode) {
 			player.pad[button] = [padCode];
@@ -276,12 +290,20 @@ const SHORT_KEYS: Record<string, string> = {
 	AltLeft: '⌥G', AltRight: '⌥D'
 };
 
+/** Trois caractères, la largeur du bouton sur lequel c'est dessiné. */
+const MAX_SHORT = 3;
+
 /**
  * Ce qui s'écrit sur un bouton du dessin.
  *
  * Court par obligation : dans le panneau de pause, le dessin fait 280 px de
  * large, et un libellé de plus de trois caractères n'y tient pas. La forme
  * longue existe, dans l'`aria-label`.
+ *
+ * D'où la troncature : `Semicolon`, `BracketLeft`, `F1`, `Comma`, ou un
+ * `NumpadDivide` que le préfixe ne réduit qu'à `NDivide`, débordaient du
+ * bouton faute d'entrée dans `SHORT_KEYS`. Les valeurs de ce dictionnaire,
+ * choisies à la main, tiennent déjà et ne passent pas par là.
  */
 export function shortLabel(code: string): string {
 	const described = describeCode(code);
@@ -295,10 +317,10 @@ export function shortLabel(code: string): string {
 		case 'keyboard': {
 			const known = SHORT_KEYS[described.code];
 			if (known) return known;
-			if (described.code.startsWith('Key')) return described.code.slice(3);
-			if (described.code.startsWith('Digit')) return described.code.slice(5);
-			if (described.code.startsWith('Numpad')) return `N${described.code.slice(6)}`;
-			return described.code;
+			if (described.code.startsWith('Key')) return described.code.slice(3, 3 + MAX_SHORT);
+			if (described.code.startsWith('Digit')) return described.code.slice(5, 5 + MAX_SHORT);
+			if (described.code.startsWith('Numpad')) return `N${described.code.slice(6)}`.slice(0, MAX_SHORT);
+			return described.code.slice(0, MAX_SHORT);
 		}
 	}
 }

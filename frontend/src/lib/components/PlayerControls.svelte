@@ -15,6 +15,7 @@
   import {
     BUTTONS,
     STANDARD_PAD,
+    clonePad,
     describeCode,
     isPadCode,
     shortLabel,
@@ -277,7 +278,10 @@
     // assignments) is the only correct answer - see the note on the
     // `sources` prop above.
     const mine: PadSelection = detecting ? 'all' : sources.pads;
-    const allPads = navigator.getGamepads();
+    // Guarded like `connectedPads()` below: Chrome leaves `getGamepads`
+    // undefined in a non-secure context, and a keyboard capture there would
+    // otherwise throw every 50 ms.
+    const allPads = navigator.getGamepads ? navigator.getGamepads() : [];
     const active: string[] = [];
     let source: number | null = null;
 
@@ -370,7 +374,9 @@
         : String(assignment.gamepad.index);
 
   function resetPadToStandard() {
-    controls = { keys: { ...controls.keys }, pad: { ...STANDARD_PAD } };
+    // clonePad, not a spread: the values are arrays, and a spread would hand
+    // this player the module constant's own lists.
+    controls = { keys: { ...controls.keys }, pad: clonePad(STANDARD_PAD) };
     dispatch('change', { controls });
   }
 
@@ -458,7 +464,11 @@
       🎮 {t($language, 'configureAllButtons')}
     </button>
     {#if editing === 'pad'}
-      <button type="button" disabled={busy || capturing !== null} on:click={resetPadToStandard}>
+      <button
+        type="button"
+        disabled={busy || capturing !== null || detecting}
+        on:click={resetPadToStandard}
+      >
         {t($language, 'standardMapping')}
       </button>
     {/if}

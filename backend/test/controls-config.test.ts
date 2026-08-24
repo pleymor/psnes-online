@@ -75,6 +75,16 @@ test('a legacy gamepad axis code migrates to the pad table', () => {
 	assert.equal(config.p1.keys.up, '');
 });
 
+test('a v1 config with an unbound button is still read as v1', () => {
+	// The detection gate must match the frontend's `looksLikeKeyConfig`:
+	// twelve strings, '' allowed. Reading '' as "not a v1 config at all" threw
+	// the whole row away and handed back the defaults, while the frontend kept
+	// it - two normalisations that are supposed to agree.
+	const config = normaliseControlsConfig({ ...V1, l: '' });
+	assert.equal(config.p1.keys.l, '', 'the unbound button survives');
+	assert.equal(config.p1.keys.a, 'KeyX', 'and the rest of the row with it');
+});
+
 test('junk is refused on write', () => {
 	for (const junk of [null, undefined, 42, 'nope', [], {}, { version: 2 }, { ...V1, a: 3 }]) {
 		assert.ok(!isValidControlsConfig(junk), `${JSON.stringify(junk)} must be refused`);

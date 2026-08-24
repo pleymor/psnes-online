@@ -141,6 +141,23 @@ function normalisePlayer(raw: unknown, defaults: KeyConfig): PlayerControls {
 }
 
 /**
+ * Whether `raw` has the v1 shape: the twelve buttons, each a string.
+ *
+ * Deliberately *not* `isValidKeyConfig`, which additionally requires every
+ * code to be non-empty. As a detector that strictness is a trap: a v1 row
+ * holding `''` on an unbound button would fail it, fall through to the
+ * defaults, and hand back a config the player never chose - while the
+ * frontend's copy of this code (`looksLikeKeyConfig` in
+ * `frontend/src/lib/controls/binding.ts`) preserves it. The two are meant to
+ * agree, and this is the reading that loses nothing. `isValidKeyConfig`
+ * itself is left alone: it answers a different question (may this be
+ * *written*) for other callers.
+ */
+function looksLikeKeyConfig(raw: Record<string, unknown>): boolean {
+  return BUTTONS.every((button) => typeof raw[button] === 'string');
+}
+
+/**
  * Brings anything into the v2 shape.
  *
  * Called on every read, including on its own output: it must be idempotent,
@@ -156,7 +173,7 @@ export function normaliseControlsConfig(raw: unknown): ControlsConfig {
         p2: normalisePlayer(source.p2, getDefaultP2KeyConfig())
       };
     }
-    if (isValidKeyConfig(source)) {
+    if (looksLikeKeyConfig(source)) {
       return {
         version: 2,
         p1: normalisePlayer({ keys: source }, getDefaultKeyConfig()),

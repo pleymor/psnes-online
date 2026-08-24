@@ -85,6 +85,17 @@ test('une KeyConfig nue devient un v2 complet', () => {
 	assert.deepEqual(config.p2.pad, STANDARD_PAD);
 });
 
+test('une v1 avec un emplacement vidé garde son vide', () => {
+	// '' vaut non lié partout ailleurs dans le module ; y substituer le défaut
+	// ressusciterait la liaison que le joueur avait retirée. La copie du
+	// serveur lit la même chose - c'est la seule façon que les deux
+	// normalisations tombent d'accord sur cette entrée.
+	const config = normaliseControlsConfig({ ...V1, l: '' });
+
+	assert.equal(config.p1.keys.l, '', 'l’emplacement reste non lié');
+	assert.equal(config.p1.keys.a, 'KeyX', 'et le reste de la table est repris');
+});
+
 test('un code manette legacy migre vers la table manette et libère le clavier', () => {
 	const config = normaliseControlsConfig({ ...V1, a: 'Gamepad0Button2' });
 
@@ -174,6 +185,22 @@ test('les formes courtes tiennent sur un bouton', () => {
 	assert.equal(shortLabel('PadAxis0Minus'), 'A0−');
 	assert.equal(shortLabel('PadAxis1Plus'), 'A1+');
 	assert.equal(shortLabel(''), '—');
+});
+
+test('un code sans forme courte connue est tronqué à trois caractères', () => {
+	// Le bouton sur lequel c'est dessiné fait trois caractères de large : un
+	// nom rendu tel quel débordait du dessin. La forme longue reste dans
+	// l'aria-label, qui est le seul endroit où elle tient.
+	for (const code of ['Semicolon', 'BracketLeft', 'F1', 'Comma', 'NumpadDivide', 'Quote']) {
+		assert.ok(
+			shortLabel(code).length <= 3,
+			`${code} donne « ${shortLabel(code)} », qui ne tient pas sur un bouton`
+		);
+	}
+	assert.equal(shortLabel('Semicolon'), 'Sem');
+	assert.equal(shortLabel('F1'), 'F1', 'ce qui tient déjà passe intact');
+	assert.equal(shortLabel('NumpadDivide'), 'NDi');
+	assert.equal(shortLabel('Numpad7'), 'N7', 'le pavé numérique garde sa forme');
 });
 
 test('une liste dit son premier code et compte le reste', () => {
