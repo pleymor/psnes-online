@@ -47,17 +47,25 @@
 
   $: roomId = data.roomId;
 
-  // Get current user's key configuration
-  $: currentPlayer = room?.players.find(p => p.userId === $user?.id);
-
   /**
    * Player 1's mapping.
    *
    * The room protocol carries only one mapping per member: a remote peer
    * occupies port 2, not a second local player. The emulators therefore never
    * need more than this half.
+   *
+   * Read from my own config rather than from my row in `room.players`, even
+   * though the server puts my mapping there too (`room-handlers.ts`, which
+   * fills it from `getUserKeyConfig(user.id)`). The room's copy of *my*
+   * mapping can never be more authoritative than what I just saved, and while
+   * it was the source here it actively undid a rebind: an emulator applying
+   * one locally dispatches `controlsSaved`, this page assigns `userControls`,
+   * and that invalidation re-ran this statement in the same flush - pushing
+   * the room's pre-save `keyConfig` straight back down. The rebind then only
+   * took effect once `room:updated` came back, and never at all with the
+   * socket down: the exact failure a7052da was written to fix.
    */
-  $: keyConfig = currentPlayer?.keyConfig || userControls.p1.keys;
+  $: keyConfig = userControls.p1.keys;
 
   // Determine if current player is the room host
   $: isRoomHost = room?.hostId === $user?.id;

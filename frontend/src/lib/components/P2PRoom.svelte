@@ -9,7 +9,7 @@
   import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { readShaderPreference } from '$lib/stores/shader-preference';
   import type { KeyConfig } from '$lib/types';
-  import type { ControlsConfig } from '$lib/controls/binding';
+  import { parsePadCode, type ControlsConfig } from '$lib/controls/binding';
   import { EmulationMode } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
   import { DualModeHandler } from '$lib/multiplayer/dual-mode';
@@ -728,22 +728,30 @@
   }
 
   // --- Gamepad Input (streaming mode guest) ---
-  // Map gamepad button index to SNES button using user's keyConfig
-  function mapGamepadInputToButton(buttonIndex: number, isAxis: boolean, axisDirection?: 'plus' | 'minus'): string | null {
-    // Build the expected keyConfig value format
-    // Button: "Gamepad0Button1"
-    // Axis: "Gamepad0Axis0Plus" or "Gamepad0Axis0Minus"
-    let pattern: string;
-    if (isAxis && axisDirection) {
-      pattern = `Gamepad0Axis${buttonIndex}${axisDirection === 'plus' ? 'Plus' : 'Minus'}`;
-    } else {
-      pattern = `Gamepad0Button${buttonIndex}`;
-    }
-
-    // Find which SNES button maps to this gamepad input
-    for (const [snesButton, configValue] of Object.entries(keyConfig)) {
-      if (configValue === pattern) {
-        return snesButton;
+  /**
+   * Which SNES button this pad input is bound to, per `controls.p1.pad`.
+   *
+   * The pad table, not `keyConfig`: normalisation moves every `Gamepad0Button<n>`
+   * / `Gamepad0Axis<n><Dir>` code out of `keys` and into `pad` as a `Pad*` code,
+   * so matching the legacy vocabulary against `keyConfig` - what this did - can
+   * no longer hit anything, and a streaming guest with pad bindings was left
+   * with a dead controller. Parsed with `parsePadCode`, the same reading the
+   * input collector does, rather than a second string format invented here.
+   *
+   * `index` is the button index, or the axis index when `isAxis`.
+   */
+  function mapGamepadInputToButton(index: number, isAxis: boolean, axisDirection?: 'plus' | 'minus'): string | null {
+    for (const [snesButton, codes] of Object.entries(controls.p1.pad)) {
+      for (const code of codes) {
+        const parsed = parsePadCode(code);
+        if (!parsed) continue;
+        if (isAxis && axisDirection) {
+          if (parsed.kind === 'axis' && parsed.index === index && parsed.dir === axisDirection) {
+            return snesButton;
+          }
+        } else if (parsed.kind === 'button' && parsed.index === index) {
+          return snesButton;
+        }
       }
     }
     return null;

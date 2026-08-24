@@ -15,11 +15,11 @@
   import { goto } from '$app/navigation';
   import { socket } from '$lib/api/socket';
   import type { KeyConfig } from '$lib/types';
-  import { STANDARD_PAD, type ControlsConfig } from '$lib/controls/binding';
+  import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
   import { setLogLabels } from '$lib/utils/log-shipper';
   import PauseMenu from './PauseMenu.svelte';
-  import { language } from '$lib/stores/language';
+  import { language, type Language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
@@ -49,6 +49,7 @@
     saveAssignments,
     resolveSources,
     connectedPads,
+    type Assignments,
     type SessionEvent,
     type SessionStats,
     type Transport
@@ -142,7 +143,7 @@
    * Which gamepad drives P1 here, read from the same store the controls
    * panel writes to - this is the only local player lockstep has.
    */
-  let assignments = loadAssignments(localStorage);
+  let assignments: Assignments = loadAssignments(localStorage);
 
   let stats: SessionStats | null = null;
   /**
@@ -332,7 +333,10 @@
   let sramTimer: ReturnType<typeof setInterval> | null = null;
   let lastFramesRun = 0;
 
-  $: if (collector && keyConfig) collector.setControls({ keys: keyConfig, pad: STANDARD_PAD });
+  // `controls.p1.pad`, not the standard mapping: a player who rebound their
+  // controller must be honoured here too. Only P1 plays locally in lockstep -
+  // port 2 belongs to the remote peer - so P1's is the whole of it.
+  $: if (collector && keyConfig) collector.setControls({ keys: keyConfig, pad: controls.p1.pad });
 
   onMount(() => {
     // Registered before the core starts loading, not after. Both machines boot
@@ -397,8 +401,26 @@
     collector?.detach();
   }
 
+  /**
+   * Re-reads the assignment and re-pushes P1's sources into the collector.
+   *
+   * The three ways the answer can change while a match runs, and all three
+   * come through here: a pad plugged in or unplugged (the two window
+   * listeners), and a device reassigned in the controls panel, which writes
+   * straight to storage without dispatching anything - assignments do not
+   * wait for Save - so closing the pause menu is where it lands.
+   * `setSources()` already clears held keys when the keyboard is taken away,
+   * so a direction held at that moment cannot jam - and in lockstep a stuck
+   * direction is sent to the other player too.
+   */
+  function applySources(): void {
+    assignments = loadAssignments(localStorage);
+    collector?.setSources(resolveSources(assignments, connectedPads()).p1);
+  }
+
   function closePauseMenu() {
     showPauseMenu = false;
+    applySources();
     collector?.attach();
 
     // Still inside the click that dispatched 'resume', so the browser counts
@@ -533,11 +555,17 @@
       // is usually already running and no gesture is needed.
       needsAudioGesture = audio.needsGesture;
 
+      assignments = loadAssignments(localStorage);
       collector = new InputCollector(
-        { keys: keyConfig, pad: STANDARD_PAD },
+        { keys: keyConfig, pad: controls.p1.pad },
         resolveSources(assignments, connectedPads()).p1
       );
       collector.attach();
+
+      // A pad plugged in after boot must be seen: without these, a controller
+      // connected once the match is running stays dead for the session.
+      window.addEventListener('gamepadconnected', applySources);
+      window.addEventListener('gamepaddisconnected', applySources);
 
       // Battery saves are part of the emulated machine, so they must be in
       // place before the session starts: the host's state is what both peers
@@ -1113,15 +1141,24 @@
    */
   function cycleGamepadSource() {
     const next = assignments.p1.gamepad === null ? 'auto' : null;
-    assignments = { ...assignments, p1: { ...assignments.p1, gamepad: next } };
-    saveAssignments(localStorage, assignments);
-    collector?.setSources(resolveSources(assignments, connectedPads()).p1);
+    // Written first, then re-read through applySources(): storage is the one
+    // place this preference lives, and going through the same path as a
+    // replug leaves a single description of "what does P1 listen to now".
+    saveAssignments(localStorage, { ...assignments, p1: { ...assignments.p1, gamepad: next } });
+    applySources();
   }
 
-  function gamepadLabel() {
-    return assignments.p1.gamepad === null
-      ? t($language, 'noController')
-      : t($language, 'allFreeControllers');
+  /**
+   * Takes the assignment and the language as parameters rather than reading
+   * them off the closure: Svelte 4 derives a template expression's
+   * dependencies from the identifiers written in it, so `gamepadLabel()`
+   * alone compiled to a one-time initialisation and the menu item kept the
+   * text it was born with - through both a toggle and a language change.
+   */
+  function gamepadLabel(current: Assignments, lang: Language): string {
+    return current.p1.gamepad === null
+      ? t(lang, 'noController')
+      : t(lang, 'allFreeControllers');
   }
 
   async function enableAudio() {
@@ -1150,6 +1187,8 @@
     $socket?.off('player:left', onPlayerLeft);
     if (diagnosticsTimer) clearInterval(diagnosticsTimer);
     diagnosticsTimer = null;
+    window.removeEventListener('gamepadconnected', applySources);
+    window.removeEventListener('gamepaddisconnected', applySources);
     governor?.stop();
     session?.close();
     collector?.detach();
@@ -1280,7 +1319,7 @@
       {showStats}
       {latencyMode}
       {canSetLatency}
-      gamepadLabel={gamepadLabel()}
+      gamepadLabel={gamepadLabel(assignments, $language)}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}
