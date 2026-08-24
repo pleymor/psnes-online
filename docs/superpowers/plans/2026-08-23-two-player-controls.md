@@ -2502,7 +2502,9 @@ git commit -m "Draw the pad, and put each binding on its own button"
 
 **Interfaces:**
 - Consumes: `SnesPad` (Task 7), `binding.ts` (Tasks 1–3), `devices.ts` (Task 4), `CaptureGate` (`frontend/src/lib/controls/capture-gate.ts`, inchangée)
-- Produces: composant à props `player: 1 | 2`, `controls: PlayerControls`, `assignment: Assignment`, `pads: PadInfo[]`, `conflicts: { keys: ConflictMap; pad: ConflictMap }`, `allowAuto: boolean`, `busy: boolean` ; événements `change` (`{ controls }`), `assign` (`{ assignment }`), `capturing` (`{ active: boolean }`)
+- Produces: composant à props `player: 1 | 2`, `controls: PlayerControls`, `assignment: Assignment`, `sources: InputSources`, `pads: PadInfo[]`, `conflicts: { keys: ConflictMap; pad: ConflictMap }`, `allowAuto: boolean`, `busy: boolean` ; événements `change` (`{ controls }`), `assign` (`{ assignment }`), `capturing` (`{ active: boolean }`)
+
+**`sources` est une prop, pas un calcul local.** Le composant ne voit que sa propre assignation, donc il ne peut pas savoir quel pad l'autre joueur a réclamé — et une résolution partielle recalculée ici ferait réagir le J1 à la manette du J2 dès que celui-ci en reçoit une, c'est-à-dire exactement le bug que ce morceau existe pour supprimer. La coquille possède les deux assignations : c'est elle qui appelle `resolveSources` et qui descend le résultat. Seule la détection échappe à la règle et écoute tous les pads, puisque le pad qu'on cherche n'est justement pas encore assigné.
 
 - [ ] **Step 1: Ajouter les clés i18n**
 
@@ -3200,7 +3202,15 @@ Remplacer tout le contenu de `frontend/src/lib/components/ControlsSettings.svelt
   let isLoading = false;
   let errorMessage = '';
   let showResetConfirm = false;
-  let capturingSomewhere = false;
+  /**
+   * Which player is mid-capture, not merely whether someone is.
+   *
+   * Each PlayerControls mounts its own `svelte:window on:keydown`, so two
+   * simultaneous captures would both consume the same keypress and write it
+   * into both players' configs. Knowing *which* player is capturing lets the
+   * other one be made busy, which is what keeps the two apart.
+   */
+  let capturingPlayer: 1 | 2 | null = null;
   /** Quel joueur est visible quand le conteneur est trop étroit pour les deux. */
   let tab: 1 | 2 = 1;
 
@@ -3224,7 +3234,17 @@ Remplacer tout le contenu de `frontend/src/lib/components/ControlsSettings.svelt
   $: sources = resolveSources(assignments, pads);
   $: conflicts = findConflicts(workingConfig, sources);
   $: hasChanges = JSON.stringify(workingConfig) !== JSON.stringify(normaliseControlsConfig(currentConfig));
-  $: canSave = hasChanges && conflicts.count === 0 && !capturingSomewhere;
+  $: canSave = hasChanges && conflicts.count === 0 && capturingPlayer === null;
+
+  /** A player is busy while the *other* one is binding, never while it is. */
+  function busyFor(player: 1 | 2): boolean {
+    return isSaving || isLoading || (capturingPlayer !== null && capturingPlayer !== player);
+  }
+
+  function onCapturing(player: 1 | 2, active: boolean) {
+    if (active) capturingPlayer = player;
+    else if (capturingPlayer === player) capturingPlayer = null;
+  }
 
   function onPlayerChange(player: 1 | 2, controls: PlayerControlsConfig) {
     workingConfig = { ...workingConfig, [player === 1 ? 'p1' : 'p2']: controls };
@@ -3311,13 +3331,14 @@ Remplacer tout le contenu de `frontend/src/lib/components/ControlsSettings.svelt
         player={1}
         controls={workingConfig.p1}
         assignment={assignments.p1}
+        sources={sources.p1}
         {pads}
         conflicts={conflicts.p1}
         allowAuto={true}
-        busy={isSaving || isLoading}
+        busy={busyFor(1)}
         on:change={(e) => onPlayerChange(1, e.detail.controls)}
         on:assign={(e) => onAssign(1, e.detail.assignment)}
-        on:capturing={(e) => (capturingSomewhere = e.detail.active)}
+        on:capturing={(e) => onCapturing(1, e.detail.active)}
       />
     </div>
     <div class="column" class:hidden-narrow={tab !== 2}>
@@ -3325,13 +3346,14 @@ Remplacer tout le contenu de `frontend/src/lib/components/ControlsSettings.svelt
         player={2}
         controls={workingConfig.p2}
         assignment={assignments.p2}
+        sources={sources.p2}
         {pads}
         conflicts={conflicts.p2}
         allowAuto={false}
-        busy={isSaving || isLoading}
+        busy={busyFor(2)}
         on:change={(e) => onPlayerChange(2, e.detail.controls)}
         on:assign={(e) => onAssign(2, e.detail.assignment)}
-        on:capturing={(e) => (capturingSomewhere = e.detail.active)}
+        on:capturing={(e) => onCapturing(2, e.detail.active)}
       />
     </div>
   </div>
@@ -3350,7 +3372,7 @@ Remplacer tout le contenu de `frontend/src/lib/components/ControlsSettings.svelt
     <button
       class="btn-reset"
       on:click={() => (showResetConfirm = true)}
-      disabled={isLoading || isSaving || capturingSomewhere}
+      disabled={isLoading || isSaving || capturingPlayer !== null}
     >
       {isLoading ? t($language, 'resetting') : t($language, 'resetToDefaults')}
     </button>
@@ -3508,7 +3530,8 @@ git commit -m "Turn the controls panel into a shell around two players"
 - Modify: `frontend/src/routes/profile/+page.svelte:33,195`
 - Modify: `frontend/src/routes/room/[id]/+page.svelte:44,59,66,489,784-800`
 - Modify: `frontend/src/lib/components/PauseMenu.svelte:380`
-- Modify: `frontend/src/lib/components/LockstepRoom.svelte:136-137,512-513,1090-1097,1260-1267`
+- Modify: `frontend/src/lib/components/LockstepRoom.svelte:136-137,512-513,1090-1097,1252,1260-1267`
+- Modify: `frontend/src/lib/components/P2PRoom.svelte:1128` (relais de `controls` vers `PauseMenu`)
 
 Le principe : la **couture**. Tout ce qui n'est pas le nouveau panneau continue de voir une `KeyConfig` unique — celle du J1.
 
@@ -3593,6 +3616,21 @@ Et `handleSaved` relaie la `ControlsConfig` entière au lieu d'une `KeyConfig` :
 
 La page de salle écoute `on:controlsSaved={(e) => (userControls = e.detail.config)}` sur `PauseMenu`, et `SoloRoom` fait de même (Task 11, Step 3).
 
+### Les trois salles qui montent `PauseMenu`
+
+`PauseMenu` est monté à **trois** endroits — `SoloRoom.svelte:694`, `LockstepRoom.svelte:1252` et `P2PRoom.svelte:1128` — donc une prop requise doit arriver dans les trois, sinon `svelte-check` casse les deux qu'on oublie. `LockstepRoom` et `P2PRoom` reçoivent donc `controls: ControlsConfig` de la page de salle et le relaient, exactement comme `SoloRoom`, et remontent `controlsSaved` de la même façon.
+
+**Ce n'est pas une redondance avec `keyConfig`, et la distinction est la raison de l'existence des deux props :**
+
+| Prop | Ce que c'est |
+|---|---|
+| `keyConfig` | ce que **le salon** dit du mappage de ce membre — `currentPlayer?.keyConfig`, qui en netplay peut venir d'un autre compte que le mien |
+| `controls` | **ma** config à deux joueurs, celle du compte connecté, celle que le panneau édite |
+
+Les confondre donnerait un panneau qui édite la config d'un pair distant. `keyConfig` continue donc de servir aux émulateurs et au collecteur, `controls` ne sert qu'au sous-menu des contrôles.
+
+En lockstep et en dual, le joueur 2 de cette config ne joue pas — c'est hors périmètre — mais il reste **éditable**, et surtout il ne doit pas être écrasé : donner au panneau une config dérivée de `keyConfig` seul remplacerait le J2 réellement enregistré par des défauts à la première sauvegarde. C'est la perte de données que ces deux props évitent.
+
 - [ ] **Step 4: `LockstepRoom` passe par `devices.ts`**
 
 Son sélecteur de manette (`cycleGamepadSource`, ligne 1090) écrivait dans `psnes-gamepad-source` à la main. Il passe par le module :
@@ -3640,7 +3678,7 @@ Attendu : plus aucune erreur, sauf sur `SoloRoom.svelte` (prop `controls` pas en
 - [ ] **Step 6: Commit**
 
 ```bash
-git add frontend/src/routes/profile/+page.svelte "frontend/src/routes/room/[id]/+page.svelte" frontend/src/lib/components/PauseMenu.svelte frontend/src/lib/components/LockstepRoom.svelte
+git add frontend/src/routes/profile/+page.svelte "frontend/src/routes/room/[id]/+page.svelte" frontend/src/lib/components/PauseMenu.svelte frontend/src/lib/components/LockstepRoom.svelte frontend/src/lib/components/P2PRoom.svelte
 git commit -m "Hand each caller the half of the config it needs"
 ```
 
@@ -3762,6 +3800,18 @@ git commit -m "Let the second controller reach the second port"
 
 Aucun test n'atteint le câblage `.svelte` : `SoloRoom` doit être vu tourner.
 
+### Ce que cet environnement peut prouver, et ce qu'il ne peut pas
+
+Constaté avant de lancer la vérification, plutôt que découvert pendant :
+
+- **Le core est là** — `frontend/static/psnes-core/psnes_core.wasm` est committé, donc l'émulateur tourne dans le navigateur. Les 11 tests ignorés de `test:core` sont une autre affaire : ils veulent une construction chargeable par node sous `core/build/`, absente ici.
+- **Il n'y a aucune ROM, et il n'y en aura pas.** L'application exige que le joueur possède ses jeux ; le dépôt n'en distribue pas. Donc **tout ce qui demande une partie en cours échappe à un agent** : « `IJKL` déplace le second personnage », l'effet d'une liaison changée au menu pause, et l'assignation du J2 en cours de partie.
+- **Une vraie manette ne peut pas être branchée depuis un script.** Doubler `navigator.getGamepads` dans la page couvre en revanche sérieusement le panneau, qui sonde cette API : « Détecter », le surlignage en direct et la séparation des deux joueurs sont vérifiables ainsi. Le branchement physique à chaud, non.
+
+Entièrement vérifiable ici, et à faire : le panneau contre un vrai backend et une vraie base, la migration d'une config v1, les deux langues, les deux largeurs, la détection de conflits, la porte de sauvegarde, et le sondage des pads doublé.
+
+Le reste part dans une **liste de reprise pour le propriétaire** — courte, précise, chaque ligne disant quoi faire et quoi observer — plutôt que dans une affirmation de réussite.
+
 - [ ] **Step 1: Lever les cinq obstacles du worktree**
 
 ```bash
@@ -3808,6 +3858,12 @@ Avec une manette branchée : sur le J2, cliquer `Détecter`, appuyer sur un bout
 - [ ] **Step 5: Le panneau de pause**
 
 En cours de partie, ouvrir le menu pause → Contrôles, et vérifier : les onglets J1/J2 remplacent les deux colonnes, les libellés sur les boutons restent lisibles, et une liaison modifiée puis sauvegardée prend effet à la reprise.
+
+- [ ] **Step 5b: Le J2 assigné *en cours de partie***
+
+C'est le chemin qu'aucun test n'atteint, et celui qu'une relecture a prédit cassé : démarrer une partie solo avec le **J2 muet** (aucun périphérique), ouvrir le menu pause → Contrôles, donner au J2 le clavier — ou un pad déjà branché —, reprendre, et confirmer que le J2 répond **sans recharger la page**.
+
+L'étape 2 assigne le J2 depuis le profil *avant* le lancement du jeu, donc elle passerait sans jamais exercer ce cas. Vérifier aussi la réciproque, qui a le même mécanisme : couper la manette du J1 depuis le menu pause doit la rendre muette à la reprise, et non la laisser active.
 
 - [ ] **Step 6: La compatibilité d'une vieille config**
 
