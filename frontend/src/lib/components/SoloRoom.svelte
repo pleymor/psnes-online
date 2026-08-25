@@ -746,6 +746,7 @@
       {gameId}
       keyConfig={controls.p1.keys}
       {controls}
+      localPlayer2Playable={allowLocalPlayer2}
       {display}
       {turbo}
       emulator={saveAdapter}

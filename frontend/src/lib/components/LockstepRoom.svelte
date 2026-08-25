@@ -1311,7 +1311,9 @@
   </div>
 
   {#if showPauseMenu}
+    <!-- port 2 is the remote peer here, never a second local player -->
     <PauseMenu
+      localPlayer2Playable={false}
       {roomId}
       {gameId}
       {keyConfig}

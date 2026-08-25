@@ -24,6 +24,8 @@
    * from it.
    */
   export let controls: ControlsConfig;
+  /** Passed straight to the controls panel; see its own prop for why. */
+  export let localPlayer2Playable = true;
   export let emulator: any = null; // Reference to ClientEmulator component (host only)
   export let restoreFullscreen: boolean = false; // Whether to restore fullscreen on resume
 
@@ -394,7 +396,12 @@
     {#if showKeyConfig}
       <div class="submenu">
         <h3>{t($language, 'controls')}</h3>
-        <ControlsSettings {roomId} currentConfig={controls} on:saved={handleSaved} />
+        <ControlsSettings
+          {roomId}
+          currentConfig={controls}
+          {localPlayer2Playable}
+          on:saved={handleSaved}
+        />
         <button on:click={handleBackFromSubmenu} class="back-button">
           {t($language, 'close')}
         </button>

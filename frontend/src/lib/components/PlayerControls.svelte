@@ -54,6 +54,16 @@
   /** `'auto'` is offered only to P1: for a second player it is a trap. */
   export let allowAuto = false;
   export let busy = false;
+  /**
+   * Whether a local player 2 can drive anything from where this panel is open.
+   *
+   * False in a room somebody else is in, and false in the netplay modes, where
+   * port 2 is a remote peer rather than a second player on this machine. The
+   * bindings are still worth editing - they persist for the next solo game -
+   * but the panel has to say so, or it invites a configuration that silently
+   * does nothing.
+   */
+  export let playable = true;
 
   const dispatch = createEventDispatcher<{
     change: { controls: PlayerControlsConfig };
@@ -465,6 +475,8 @@
     </p>
   {:else if notice}
     <p class="hint">{notice}</p>
+  {:else if player === 2 && !playable}
+    <p class="hint quiet">{t($language, 'player2SoloOnly')}</p>
   {:else if player === 2 && !isPlayerActive(assignment)}
     <p class="hint quiet">{t($language, 'playerInactive')}</p>
   {/if}

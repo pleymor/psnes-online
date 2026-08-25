@@ -36,6 +36,13 @@
 
   export let roomId: string = '';
   export let currentConfig: ControlsConfig;
+  /**
+   * Whether a local player 2 can actually drive port 2 from here.
+   *
+   * The profile page leaves it true: there is no room, and the bindings are
+   * being set for a future solo game. A room passes what it knows.
+   */
+  export let localPlayer2Playable = true;
 
   const dispatch = createEventDispatcher<{ saved: { config: ControlsConfig } }>();
   const logger = createLogger('ControlsSettings');
@@ -247,6 +254,7 @@
         {pads}
         conflicts={conflicts.p2}
         allowAuto={false}
+        playable={localPlayer2Playable}
         busy={busy2}
         on:change={(e) => onPlayerChange(2, e.detail.controls)}
         on:assign={(e) => onAssign(2, e.detail.assignment)}

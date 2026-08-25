@@ -254,6 +254,7 @@ export const translations = {
 
     // Two-player controls
     inputSources: 'Device',
+    player2SoloOnly: 'Player 2 only plays in a solo game with nobody else in the room. Bindings still save for later.',
     savedAutomatically: 'Changes save as you make them',
     deviceAuto: 'Auto: keyboard + pads',
     deviceKeyboard: 'Keyboard',
@@ -610,6 +611,7 @@ export const translations = {
 
     // Contrôles à deux joueurs
     inputSources: 'Périphérique',
+    player2SoloOnly: 'Le joueur 2 ne joue qu\'en solo, sans personne d\'autre dans la salle. Les liaisons sont quand même enregistrées.',
     savedAutomatically: 'Les changements sont enregistrés au fur et à mesure',
     deviceAuto: 'Auto : clavier + manettes',
     deviceKeyboard: 'Clavier',
