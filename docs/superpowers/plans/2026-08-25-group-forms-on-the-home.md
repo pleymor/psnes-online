@@ -38,7 +38,7 @@ Le signal « va sur la page de ce salon », émis à tous les membres quand un j
 - Consumes: rien.
 - Produces: événement socket `room:opened` avec la charge `{ roomId: string; reason?: 'invitation' }`. Fonction interne `openRoomForMembers(io, room, getUserSocket, reason?)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Ajouter à la fin de `backend/test/lobby-protocol.test.ts` :
 
@@ -129,7 +129,7 @@ test('accepting into a room with no game leaves the invitee where they are', asy
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
@@ -138,7 +138,7 @@ npx tsx --test backend/test/lobby-protocol.test.ts 2>&1 | tail -30
 
 Attendu : les trois premiers échouent sur `timed out waiting for "room:opened"`. Le quatrième passe déjà (rien n'émet cet événement) — c'est normal, il garde son sens comme non-régression.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Dans `backend/src/websocket/room-handlers.ts`, ajouter la fonction près de `broadcastRoomUpdate` (fin de fichier) :
 
@@ -203,7 +203,7 @@ Dans `lobby:accept`, après `socket.emit('lobby:accepted', ...)` :
     }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
@@ -212,7 +212,7 @@ npx tsx --test backend/test/lobby-protocol.test.ts 2>&1 | tail -20
 
 Attendu : la totalité du fichier verte (44 tests et plus).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/websocket/room-handlers.ts backend/test/lobby-protocol.test.ts
@@ -234,7 +234,7 @@ Un membre assis sur sa bibliothèque est marqué absent dès qu'il recharge la p
 - Consumes: `markOnline` (`backend/src/rooms/presence.ts`), `broadcastRoomUpdate`.
 - Produces: `markPlayerPresent(io, rooms, userId, getUserSocket): Promise<void>`.
 
-- [ ] **Step 1: Wire the harness to mirror production**
+- [x] **Step 1: Wire the harness to mirror production**
 
 Dans `backend/test/lobby-protocol.test.ts`, ajouter l'import à la liste existante :
 
@@ -256,7 +256,7 @@ et, dans `io.on('connection', ...)` de `withLobby`, juste après `registerRoomHa
     void markPlayerPresent(io, rooms, userId, getUserSocket);
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Ajouter à la fin du même fichier :
 
@@ -289,7 +289,7 @@ test('reconnecting makes a member present again, and tells the other one', async
 });
 ```
 
-- [ ] **Step 3: Run it to verify it fails**
+- [x] **Step 3: Run it to verify it fails**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
@@ -298,7 +298,7 @@ npx tsx --test backend/test/lobby-protocol.test.ts 2>&1 | tail -30
 
 Attendu : échec à l'import (`markPlayerPresent is not a function`).
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 Dans `backend/src/websocket/room-handlers.ts`, juste avant `markPlayerAway` :
 
@@ -348,7 +348,7 @@ et appeler juste avant l'envoi des invitations en attente (`:131`) :
   await markPlayerPresent(io, rooms, user.id, getUserSocket);
 ```
 
-- [ ] **Step 5: Run the whole file**
+- [x] **Step 5: Run the whole file**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
@@ -357,7 +357,7 @@ npx tsx --test backend/test/lobby-protocol.test.ts 2>&1 | tail -30
 
 Attendu : tout vert. **Si un test préexistant échoue**, la cause probable est un `room:updated` supplémentaire reçu plus tôt qu'avant par un test qui attend cet événement : le remède est dans l'attente du test, pas dans le code de production. Si l'échec dit autre chose, s'arrêter et le rapporter.
 
-- [ ] **Step 6: Run the full backend suite**
+- [x] **Step 6: Run the full backend suite**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
@@ -366,7 +366,7 @@ npm run test:backend 2>&1 | tail -15
 
 Attendu : 0 échec.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/src/websocket/room-handlers.ts backend/src/websocket/index.ts backend/test/lobby-protocol.test.ts
@@ -396,7 +396,7 @@ Une fonction pure, parce que c'est la seule règle de ce morceau qui a trois bra
   export interface GroupRoom { id: string; status: 'waiting' | 'playing'; players: { userId: string }[] }
   ```
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Créer `core/test/game-click.test.ts` :
 
@@ -447,7 +447,7 @@ test('a game already running blocks the click, whatever the group looks like', (
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH"
@@ -456,7 +456,7 @@ npx tsx --test core/test/game-click.test.ts 2>&1 | tail -15
 
 Attendu : échec de résolution du module `game-click.js`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Créer `frontend/src/lib/rooms/game-click.ts` :
 
@@ -501,7 +501,7 @@ export function gameClick(room: GroupRoom | null | undefined): GameClick {
 }
 ```
 
-- [ ] **Step 4: Run it to verify it passes**
+- [x] **Step 4: Run it to verify it passes**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH"
@@ -510,7 +510,7 @@ npx tsx --test core/test/game-click.test.ts 2>&1 | tail -10
 
 Attendu : 4 tests verts.
 
-- [ ] **Step 5: Add it to the suite**
+- [x] **Step 5: Add it to the suite**
 
 Dans `package.json`, ajouter `core/test/game-click.test.ts` à la fin de la liste du script `test:ui`, puis :
 
@@ -521,7 +521,7 @@ npm run test:ui 2>&1 | tail -10
 
 Attendu : 0 échec.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/lib/rooms/game-click.ts core/test/game-click.test.ts package.json
@@ -555,7 +555,7 @@ L'accueil lit `/api/rooms` une fois au montage et ne réécoute plus rien : un b
   export const myRoom: Readable<RoomView | null>;
   ```
 
-- [ ] **Step 1: Write the store**
+- [x] **Step 1: Write the store**
 
 Créer `frontend/src/lib/rooms/my-room.ts` :
 
@@ -699,7 +699,7 @@ if (browser) {
 }
 ```
 
-- [ ] **Step 2: Read the store from the TopBar**
+- [x] **Step 2: Read the store from the TopBar**
 
 Dans `frontend/src/lib/components/TopBar.svelte`, supprimer la ligne 28 (`export let activeRooms: any[] = [];`), importer le store :
 
@@ -713,7 +713,7 @@ et passer le store à la liste d'amis (`:307`) :
     <FriendsList bind:this={friendsListRef} activeRooms={$activeRooms} on:friendClicked={handleFriendClicked} />
 ```
 
-- [ ] **Step 3: Drop the two HTTP reads**
+- [x] **Step 3: Drop the two HTTP reads**
 
 Dans `frontend/src/routes/+page.svelte` : supprimer `activeRooms` (`:27`), `loadRooms` (`:50-60`), l'appel dans `loadUserData` (`:107` devient `await loadGames();`), et remplacer `<TopBar {activeRooms} />` par `<TopBar />`. Remplacer les deux dérivés `:37-38` par :
 
@@ -727,7 +727,7 @@ et, dans le gabarit, `myRoom.id` devient `$myRoom.id`.
 
 Dans `frontend/src/routes/profile/+page.svelte` : supprimer `activeRooms` (`:33`) et son `fetch` (`:175-178`), et remplacer `<TopBar {activeRooms} />` par `<TopBar />`.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH"
@@ -737,7 +737,7 @@ npm run build --workspace frontend 2>&1 | tail -8
 
 Attendu : 0 erreur, build vert. Puis à l'œil, application lancée : le bouton « reprendre le salon » de l'accueil apparaît toujours quand un salon existe, et disparaît sans rechargement quand on le quitte — ce que la lecture unique ne faisait pas.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/lib/rooms/my-room.ts frontend/src/lib/components/TopBar.svelte frontend/src/routes/+page.svelte frontend/src/routes/profile/+page.svelte
@@ -765,7 +765,7 @@ Une implémentation d'« inviter », appelée depuis la liste d'amis et depuis l
   export function launchSolo(game: { id: string; title: string }, saveId?: string): Promise<void>;
   ```
 
-- [ ] **Step 1: Write the actions**
+- [x] **Step 1: Write the actions**
 
 Créer `frontend/src/lib/rooms/actions.ts` :
 
@@ -891,7 +891,7 @@ export async function launchSolo(
 }
 ```
 
-- [ ] **Step 2: Add the copy, in both languages**
+- [x] **Step 2: Add the copy, in both languages**
 
 Dans `frontend/src/lib/i18n/translations.ts`, ajouter dans le bloc `en` (près des clés `friends` / `invitations`) :
 
@@ -923,7 +923,7 @@ et, aux mêmes emplacements du bloc `fr` :
     chooseGameFromLibrary: 'Choisissez un jeu dans votre bibliothèque pour commencer.',
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH"
@@ -932,7 +932,7 @@ npm run check --workspace frontend 2>&1 | tail -20
 
 Attendu : 0 erreur. `actions.ts` n'a pas encore d'appelant, ce que `svelte-check` ne reproche pas.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/src/lib/rooms/actions.ts frontend/src/lib/i18n/translations.ts
@@ -967,7 +967,7 @@ Une carte épinglée, montée dans le layout, donc visible partout — et pas se
   export const inGame: Writable<boolean>;
   ```
 
-- [ ] **Step 1: Move the invitation logic into a store**
+- [x] **Step 1: Move the invitation logic into a store**
 
 Créer `frontend/src/lib/lobby/invitations.ts`. Les quatre règles qui suivent sont **déménagées telles quelles** depuis `TopBar.svelte:92-155` : la liste remplacée et non fusionnée, la clé par identifiant, l'oubli après réponse, et l'attribution d'un refus au seul envoi en vol.
 
@@ -1089,7 +1089,7 @@ if (browser) {
 }
 ```
 
-- [ ] **Step 2: The signal that a game is running**
+- [x] **Step 2: The signal that a game is running**
 
 Créer `frontend/src/lib/stores/in-game.ts` :
 
@@ -1110,7 +1110,7 @@ import { writable } from 'svelte/store';
 export const inGame = writable(false);
 ```
 
-- [ ] **Step 3: Write the card**
+- [x] **Step 3: Write the card**
 
 Créer `frontend/src/lib/components/InvitationCard.svelte` :
 
@@ -1322,7 +1322,7 @@ Créer `frontend/src/lib/components/InvitationCard.svelte` :
 </style>
 ```
 
-- [ ] **Step 4: Mount it, and listen for `room:opened`**
+- [x] **Step 4: Mount it, and listen for `room:opened`**
 
 Dans `frontend/src/routes/+layout.svelte` : importer la carte et `waitForSocket`, monter la carte à côté de `<NotificationToast />`, et ajouter l'écoute unique de la navigation.
 
@@ -1366,13 +1366,13 @@ et dans le gabarit, juste après `<NotificationToast />` :
 <InvitationCard />
 ```
 
-- [ ] **Step 5: Take the drawer out of the TopBar**
+- [x] **Step 5: Take the drawer out of the TopBar**
 
 Dans `frontend/src/lib/components/TopBar.svelte`, supprimer : l'interface `Invitation` (`:33-47`), `invitations`, `showInvitations`, `invitationError`, `answering`, `now`, `clock`, `liveInvitations` (`:76-79`), `expiryLabel` (`:82`), les cinq handlers `handleInvitations` / `handleInvitation` / `handleAccepted` / `handleDeclined` / `handleCancelled` / `handleError` (`:92-155`), `acceptInvitation` / `declineInvitation` (`:147-160`), les six `on`/`off` de `lobby:*` et `error`, `toggleInvitations` (`:202`), le bouton badge (`:227-232`) et tout le bloc `{#if showInvitations ...}` (`:248-294`) avec les styles `.invites-panel`, `.invite`, `.invite-*`, `.badge`.
 
 `onMount` conserve `waitForSocket` **seulement** si autre chose l'utilise ; sinon il ne reste que `toggleFriends`, le tiroir d'amis et le modal. Supprimer aussi `alive` et l'`onDestroy` s'ils n'ont plus rien à garder, et l'import de `goto` s'il n'est plus utilisé.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH"
@@ -1382,7 +1382,7 @@ npm run build --workspace frontend 2>&1 | tail -8
 
 Attendu : 0 erreur, build vert.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/lib/lobby/invitations.ts frontend/src/lib/components/InvitationCard.svelte frontend/src/lib/stores/in-game.ts frontend/src/routes/+layout.svelte frontend/src/lib/components/TopBar.svelte
@@ -1401,7 +1401,7 @@ git commit -m "Put an invitation in front of the player, wherever they are"
 - Consumes: `gameClick` (Task 3), `myRoom` (Task 4), `inviteToGroup` / `leaveGroup` / `chooseGameForGroup` / `launchSolo` / `cancelGroupInvitation` (Task 5), les clés de traduction (Task 5).
 - Produces: `GameCard` accepte `playDisabled: boolean` et `playLabel: string`.
 
-- [ ] **Step 1: Let a card say what its button does**
+- [x] **Step 1: Let a card say what its button does**
 
 Dans `frontend/src/lib/components/GameCard.svelte`, ajouter aux propriétés :
 
@@ -1430,7 +1430,7 @@ Ajouter le style désactivé à côté de `.btn-play` :
   }
 ```
 
-- [ ] **Step 2: Route the click, and show the group**
+- [x] **Step 2: Route the click, and show the group**
 
 Dans `frontend/src/routes/+page.svelte`, remplacer `createRoom`, `createEmptyRoom`, `resumeFromSave` et `openRoom` par :
 
@@ -1572,7 +1572,7 @@ Styles à ajouter, en remplacement de `.btn-create-room` (`:566-580`) :
   }
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH"
@@ -1582,7 +1582,7 @@ npm run build --workspace frontend 2>&1 | tail -8
 
 Attendu : 0 erreur, build vert.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/src/routes/+page.svelte frontend/src/lib/components/GameCard.svelte
@@ -1600,7 +1600,7 @@ git commit -m "Choose the game, and who plays it, from the library"
 - Consumes: `myRoom` (Task 4), `inviteToGroup` / `cancelGroupInvitation` (Task 5), les clés de traduction (Task 5).
 - Produces: rien.
 
-- [ ] **Step 1: Add the button and its three states**
+- [x] **Step 1: Add the button and its three states**
 
 Dans `frontend/src/lib/components/FriendsList.svelte`, ajouter aux imports :
 
@@ -1697,7 +1697,7 @@ Styles à ajouter :
 
 Si `.friend` ou `.friend-main` portent déjà un `display`, fusionner plutôt que dupliquer la règle.
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH"
@@ -1707,7 +1707,7 @@ npm run build --workspace frontend 2>&1 | tail -8
 
 Attendu : 0 erreur, build vert.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add frontend/src/lib/components/FriendsList.svelte
@@ -1727,7 +1727,7 @@ Le sélecteur de jeu et le panneau d'invitation partent, avec toute la plomberie
 - Consumes: `inGame` (Task 6), `TopBar`.
 - Produces: rien.
 
-- [ ] **Step 1: Delete**
+- [x] **Step 1: Delete**
 
 Retirer, du `<script>` :
 
@@ -1745,7 +1745,7 @@ Et du gabarit : les deux boutons « choisir un jeu » / « inviter un ami » (`:
 
 Le bloc `{#if room.status === 'waiting'}` **reste** : il ne porte plus que le bouton et le panneau de sauvegarde.
 
-- [ ] **Step 2: Add the bar, and say where the game is chosen**
+- [x] **Step 2: Add the bar, and say where the game is chosen**
 
 Dans les imports :
 
@@ -1790,7 +1790,7 @@ Et l'indice, quand un salon sans jeu est atteint par une URL tapée à la main (
         {/if}
 ```
 
-- [ ] **Step 3: Give the bar its room in the layout**
+- [x] **Step 3: Give the bar its room in the layout**
 
 Dans le `<style>`, `.room-container` garde ses `100vh` pour la partie ; la règle du lobby cesse d'en imposer une (`:973`) :
 
@@ -1804,7 +1804,7 @@ Dans le `<style>`, `.room-container` garde ses `100vh` pour la partie ; la règl
   }
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH"
@@ -1814,7 +1814,7 @@ npm run build --workspace frontend 2>&1 | tail -8
 
 Attendu : 0 erreur, build vert. Vérifier à l'œil que le lobby n'a pas de barre de défilement et que la partie occupe toujours tout l'écran sans barre au-dessus.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add "frontend/src/routes/room/[id]/+page.svelte"
@@ -1827,7 +1827,7 @@ git commit -m "Take the invitation panel and the game picker out of the room"
 
 **Files:** aucun (sauf correctifs révélés ici).
 
-- [ ] **Step 1: The whole suite, on the right Node**
+- [x] **Step 1: The whole suite, on the right Node**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH"
@@ -1836,7 +1836,7 @@ npm run test:all 2>&1 | tail -25
 
 Attendu : 0 échec. Un échec massif de `test:backend` (« Module did not self-register ») veut dire que la version de Node est la mauvaise, pas que la branche est cassée.
 
-- [ ] **Step 2: The bundler, which no test runs**
+- [x] **Step 2: The bundler, which no test runs**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH"
@@ -1846,7 +1846,7 @@ npm run build --workspace frontend 2>&1 | tail -8
 
 Attendu : 0 erreur svelte-check, build vert. Aucune route n'est ajoutée par ce plan, donc rien à déclarer dans `prerender.entries`.
 
-- [ ] **Step 3: Drive it with two players**
+- [x] **Step 3: Drive it with two players**
 
 Application lancée, deux profils de développement (Dev User 1 et Dev User 2), dans deux fenêtres :
 
@@ -1857,7 +1857,7 @@ Application lancée, deux profils de développement (Dev User 1 et Dev User 2), 
 5. Démarrer lance la partie chez les deux.
 6. Sans groupe, un clic sur un jeu lance la partie directement, sans passer par le lobby.
 
-- [ ] **Step 4: Deploy**
+- [x] **Step 4: Deploy**
 
 Le déploiement est la fusion dans `main` : `.github/workflows/trigger-deploy.yml` part sur tout push et dispatche vers le dépôt d'infra privé. Aucune migration n'accompagne ce lot, donc rien à coordonner avec l'autre dépôt.
 
@@ -1868,7 +1868,7 @@ git fetch origin && git rev-parse HEAD origin/main
 
 Le message `remote: - Changes must be made through a pull request.` est attendu et trompeur : la référence est mise à jour quand même. **Ce sont les deux empreintes identiques qui prouvent le push**, pas l'absence d'avertissement.
 
-- [ ] **Step 5: Confirm the deploy landed**
+- [x] **Step 5: Confirm the deploy landed**
 
 ```bash
 gh run list --limit 3
@@ -1901,3 +1901,41 @@ Puis, une fois le déploiement passé, vérifier sur https://snes.pleymor.com qu
 **Cohérence des noms :** `gameClick` / `GameClick` / `GroupRoom` (T3) sont consommés sous ces noms en T7. `myRoom` / `activeRooms` / `RoomView` (T4) sont consommés sous ces noms en T6, T7, T8. `inviteToGroup`, `cancelGroupInvitation`, `leaveGroup`, `chooseGameForGroup`, `launchSolo` (T5) sont appelés sous ces noms en T7 et T8. `inGame` (T6) est écrit en T9. `markPlayerPresent` (T2) est importé sous ce nom dans `index.ts` et dans le harnais de test.
 
 **Placeholders :** aucun `TBD`. Les seules instructions non littérales sont les listes de suppression de T6 Step 5 et T9 Step 1, qui nomment chaque symbole et sa ligne.
+
+---
+
+## Ce qui s'est passé à l'exécution
+
+Le plan a été suivi tel quel. Quatre choses valent d'être notées.
+
+**Un chantier trouvé dans le répertoire de travail.** Au démarrage, quatre
+fichiers modifiés et un test non suivi appartenaient à un autre morceau — l'état
+`unreachable` du lien socket — et deux de ces fichiers (`+layout.svelte`,
+`package.json`) étaient des fichiers de ce plan. Complet et vert (6 tests), il a
+été commité **à part et en premier** (`ad801d7`) pour que les diffs qui suivent
+soient propres et attribuables, et le propriétaire a validé son départ en prod
+avec le reste.
+
+**La présence à la connexion n'a cassé aucun test préexistant.** Le `room:updated`
+supplémentaire émis à chaque connexion dans le harnais était le risque nommé au
+Step 5 de la tâche 2 ; les 46 tests du fichier passent sans retouche.
+
+**Le lobby ne rentre pas dans une fenêtre de 720px, et ne rentrait pas avant.**
+Mesuré à deux navigateurs : contenu 818px, barre 49px. L'ancien
+`height: 100vh; overflow: hidden` **rognait** la différence — le bas du bouton
+Démarrer tombait à 818px avec 49px de défilement disponible, donc hors d'atteinte.
+Le `flex: 1` le laisse défiler. Ce n'est pas une régression de ce lot mais un
+rognage silencieux qui devient visible, et la vérification demande désormais
+l'accessibilité du bouton, pas l'absence de défilement.
+
+**Deux défauts trouvés par les navigateurs, par aucune relecture.** La carte
+d'invitation se posait en travers de la barre du haut. Et la ligne d'ami
+n'apprenait jamais que l'ami avait rejoint : `{#if isGroupMember(...)}` appelait
+une fonction dont le corps lit `$myRoom`, donc l'expression n'avait pas `$myRoom`
+pour dépendance — la quatrième occurrence de ce piège dans ce dépôt, écrite alors
+même que la règle figurait dans les contraintes globales de ce plan. Corrigé par
+un `$:` tenant un `Set` d'identifiants, nommé au site d'appel.
+
+Vérification finale : 540 tests (62 + 11 + 220 + 247), 0 erreur `svelte-check`,
+`vite build` vert, et 20 contrôles à deux navigateurs sur le parcours complet
+plus 5 sur le lancement solo.
