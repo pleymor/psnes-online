@@ -5,6 +5,10 @@
   import type { Game } from '$lib/stores/games';
 
   export let game: Game;
+  /** No click while a game of mine is already running: the server would refuse it. */
+  export let playDisabled = false;
+  /** « Jouer », or « Jouer avec Bob »: the button says which of the two it is. */
+  export let playLabel = '';
 
   const dispatch = createEventDispatcher();
 
@@ -73,8 +77,8 @@
   </div>
 
   <div class="actions">
-    <button on:click={handlePlayClick} class="btn-play">
-      {t($language, 'play')}
+    <button on:click={handlePlayClick} class="btn-play" disabled={playDisabled}>
+      {playLabel || t($language, 'play')}
     </button>
     <button on:click={deleteGame} class="btn-delete">
       {t($language, 'delete')}
@@ -233,9 +237,14 @@
     transition: transform 0.2s, box-shadow 0.2s;
   }
 
-  .btn-play:hover {
+  .btn-play:hover:not(:disabled) {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  }
+
+  .btn-play:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
 
   .btn-delete {

@@ -3,11 +3,18 @@
   import { user, userLoading } from '$lib/stores/user';
   import { games } from '$lib/stores/games';
   import type { Game } from '$lib/stores/games';
-  import { socket } from '$lib/api/socket';
   import { goto } from '$app/navigation';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { myRoom } from '$lib/rooms/my-room';
+  import { gameClick } from '$lib/rooms/game-click';
+  import {
+    inviteToGroup,
+    leaveGroup,
+    chooseGameForGroup,
+    launchSolo,
+    cancelGroupInvitation
+  } from '$lib/rooms/actions';
   import GameCard from '$lib/components/GameCard.svelte';
   import GameDetailsModal from '$lib/components/GameDetailsModal.svelte';
   import LinkRom from '$lib/components/LinkRom.svelte';
@@ -33,6 +40,9 @@
    * says who is here has to change when they arrive and when they leave.
    */
   $: myPartner = $myRoom?.players?.find((p) => p.userId !== $user?.id) ?? null;
+  /** Two members: a group, rather than the leftover of one. */
+  $: inGroup = ($myRoom?.players.length ?? 0) >= 2;
+  $: groupBusy = $myRoom?.status === 'playing';
 
   async function loadGames() {
     const res = await fetch('/api/games', { credentials: 'include' });
@@ -106,65 +116,37 @@
   /** A game from before local ROMs, waiting for the player to point at its file. */
   let gameToLink: Game | null = null;
 
-  function createRoom(gameId: string, gameTitle: string) {
-    // Without a checksum nobody - not even the host - can find the file, so
-    // ask here rather than let the room open onto an error.
-    const game = $games.find((g) => g.id === gameId);
-    if (game && !game.crc32) {
-      gameToLink = game;
-      return;
-    }
-
-    // No cover in the payload: the server reads it from its own row for this
-    // game and ignores anything we send, because a cover is rendered as an
-    // image source and this side does not get to choose it.
-    openRoom({ gameId, gameTitle, autoStart: false });
-  }
-
   /**
-   * A room with nobody's game in it yet.
+   * Where a click on a game goes.
    *
-   * Distinct from the play button on a card, which is still the solo path: this
-   * one opens a place to meet, and the game is chosen from inside it - by
-   * either player, from their own library.
-   */
-  function createEmptyRoom() {
-    openRoom({});
-  }
-
-  /**
-   * Opens a room on a game, already at one of its saves.
+   * Three answers, and `gameClick` is what picks between them - this function
+   * only carries out what was decided. Nothing navigates in the group branch:
+   * `room:opened` comes back from the server and moves *both* players, which is
+   * the whole point of choosing the game from here.
    *
-   * Reuses the ordinary path deliberately: the save is applied by the same
-   * `game:load` the pause menu has always used, once the session is actually
-   * running. So this only has to carry which save as far as the room, and
-   * `autoStart` is left alone - the player still presses start, exactly as the
-   * play button on a card does.
+   * `saveId` is the library's "resume from this save" path. Alone it rides in the
+   * URL, as it always has; in a group it is staged through the server, because
+   * in lockstep both machines have to boot from the same state.
    */
-  function resumeFromSave(game: Game, saveId: string) {
+  function playGame(game: Game, saveId?: string) {
+    // Without a checksum nobody - not even me - can find the file, so ask here
+    // rather than let the game open onto an error.
     if (!game.crc32) {
       gameToLink = game;
       return;
     }
-    openRoom({ gameId: game.id, gameTitle: game.title, autoStart: false }, saveId);
-  }
 
-  function openRoom(
-    payload: { gameId?: string; gameTitle?: string; autoStart?: boolean },
-    resumeSaveId?: string
-  ) {
-    if (!$socket) return;
+    const click = gameClick($myRoom);
 
-    $socket.emit('room:create', payload);
+    // The button is disabled in this state; this is the belt to that braces.
+    if (click.kind === 'blocked') return;
 
-    // Wait for room created event
-    $socket.once('room:created', (room: any) => {
-      // In the URL rather than in a store, like the `?from=invitation` this
-      // page already sets: it survives a reload, and it is visible when
-      // something goes wrong.
-      const query = resumeSaveId ? `?save=${encodeURIComponent(resumeSaveId)}` : '';
-      goto(`/room/${room.id}${query}`);
-    });
+    if (click.kind === 'choose-for-group') {
+      chooseGameForGroup(click.roomId, { id: game.id, title: game.title }, saveId);
+      return;
+    }
+
+    void launchSolo({ id: game.id, title: game.title }, saveId);
   }
 
   // 'unknown' is both the starting point and the failure state. This used to
@@ -296,19 +278,42 @@
           <h1>{t($language, 'library')}</h1>
           <p class="subtitle">{$games.length} {$games.length === 1 ? t($language, 'game') : t($language, 'games')}</p>
         </div>
-        <!-- The room you already have takes the slot, rather than sitting next
-             to a button that would silently give it up: creating one leaves the
-             one you are in. -->
+        <!-- The group's whole state in one strip: who is being waited on, who is
+             here, and the way back into a game that is already running. It takes
+             the place of the "create a room" button, which had nothing left to do
+             once inviting a friend opened the room by itself. -->
         {#if $myRoom}
-          <button class="btn-create-room" on:click={() => goto(`/room/${$myRoom.id}`)}>
-            {myPartner
-              ? `${t($language, 'resumeRoomWith')} ${myPartner.pseudo}`
-              : t($language, 'resumeRoom')}
-          </button>
-        {:else}
-          <button class="btn-create-room" on:click={createEmptyRoom}>
-            {t($language, 'createRoom')}
-          </button>
+          <div class="group-strip">
+            {#if $myRoom.invitation}
+              <span class="group-who">
+                {t($language, 'waitingForInvitee', { name: $myRoom.invitation.toPseudo })}
+              </span>
+              <button
+                class="group-action"
+                on:click={() => cancelGroupInvitation($myRoom?.invitation?.id ?? '')}
+              >
+                {t($language, 'cancelInvitation')}
+              </button>
+            {:else if groupBusy}
+              <span class="group-who">
+                {t($language, 'gameRunning')}{$myRoom.gameTitle ? ` — ${$myRoom.gameTitle}` : ''}
+              </span>
+            {:else if myPartner}
+              <span class="group-who">{t($language, 'inGroupWith', { name: myPartner.pseudo })}</span>
+              <span class="group-hint">{t($language, 'pickAGameTogether')}</span>
+            {/if}
+
+            {#if $myRoom.gameId || groupBusy}
+              <button class="group-action" on:click={() => goto(`/room/${$myRoom?.id}`)}>
+                {t($language, 'backToRoom')}
+              </button>
+            {/if}
+            {#if !groupBusy}
+              <button class="group-action" on:click={() => leaveGroup($myRoom?.id ?? '')}>
+                {t($language, 'leaveGroup')}
+              </button>
+            {/if}
+          </div>
         {/if}
       </div>
 
@@ -325,7 +330,11 @@
             {#each $games as game}
               <GameCard
                 {game}
-                on:play={() => createRoom(game.id, game.title)}
+                playDisabled={groupBusy}
+                playLabel={inGroup && myPartner && !groupBusy
+                  ? t($language, 'playWith', { name: myPartner.pseudo })
+                  : t($language, 'play')}
+                on:play={() => playGame(game)}
                 on:details={() => selectedGame = game}
                 on:delete={() => handleDeleteRequest(game)}
               />
@@ -352,7 +361,7 @@
       game={selectedGame}
       on:close={() => selectedGame = null}
       on:identify={() => { gameToIdentify = selectedGame; selectedGame = null; }}
-      on:resume={(e) => { const g = selectedGame; selectedGame = null; if (g) resumeFromSave(g, e.detail); }}
+      on:resume={(e) => { const g = selectedGame; selectedGame = null; if (g) playGame(g, e.detail); }}
       on:deleted={() => loadGames()}
     />
   {/if}
@@ -547,21 +556,39 @@
     flex-wrap: wrap;
   }
 
-  .btn-create-room {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: #fff;
-    border: none;
-    padding: 0.75rem 1.5rem;
-    font-size: 1rem;
-    font-weight: 600;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: transform 0.2s, box-shadow 0.2s;
+  .group-strip {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.625rem 1rem;
+    background: rgba(102, 126, 234, 0.12);
+    border: 1px solid rgba(102, 126, 234, 0.35);
+    border-radius: 10px;
   }
 
-  .btn-create-room:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  .group-who {
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .group-hint {
+    color: #9aa0b5;
+    font-size: 0.875rem;
+  }
+
+  .group-action {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 0.375rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.875rem;
+  }
+
+  .group-action:hover {
+    background: rgba(255, 255, 255, 0.16);
   }
 
   h1 {
