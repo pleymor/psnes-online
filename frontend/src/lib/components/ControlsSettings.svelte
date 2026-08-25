@@ -25,14 +25,14 @@
     type PlayerControls as PlayerControlsConfig
   } from '$lib/controls/binding';
   import {
-    connectedPads,
     loadAssignments,
+    padDisplayName,
     resolveSources,
     saveAssignments,
     type Assignment,
-    type Assignments,
-    type PadInfo
+    type Assignments
   } from '$lib/znet/devices';
+  import { pads, watchPads } from '$lib/controls/pad-watch';
 
   export let roomId: string = '';
   export let currentConfig: ControlsConfig;
@@ -49,7 +49,6 @@
 
   let workingConfig: ControlsConfig = normaliseControlsConfig(currentConfig);
   let assignments: Assignments = { p1: { keyboard: true, gamepad: 'auto' }, p2: { keyboard: false, gamepad: null } };
-  let pads: PadInfo[] = [];
   let isSaving = false;
   let isLoading = false;
   let errorMessage = '';
@@ -68,15 +67,22 @@
   /** Which player is visible when the container is too narrow for both. */
   let tab: 1 | 2 = 1;
 
-  function refreshPads() {
-    pads = connectedPads();
-  }
+  /**
+   * The shared search, for as long as this panel is on screen.
+   *
+   * The panel used to read the pad list once at mount and then wait for
+   * `gamepadconnected`, which is blind twice over: to a pad that announced
+   * itself while `/api/user/controls` was still in flight - this panel does not
+   * exist until that answers - and to anything the event misses. `pad-watch`
+   * polls until it has found something, and says so.
+   */
+  let stopWatching: (() => void) | null = null;
 
   onMount(() => {
     assignments = loadAssignments(localStorage);
-    refreshPads();
-    window.addEventListener('gamepadconnected', refreshPads);
-    window.addEventListener('gamepaddisconnected', refreshPads);
+    // The profile page starts the same watch at navigation; two watchers share
+    // one timer, so this is free there and is what covers the pause panel.
+    stopWatching = watchPads();
   });
 
   onDestroy(() => {
@@ -88,12 +94,13 @@
       saveTimer = null;
       void saveConfig();
     }
-    if (typeof window === 'undefined') return;
-    window.removeEventListener('gamepadconnected', refreshPads);
-    window.removeEventListener('gamepaddisconnected', refreshPads);
+    stopWatching?.();
+    stopWatching = null;
   });
 
-  $: sources = resolveSources(assignments, pads);
+  $: sources = resolveSources(assignments, $pads);
+  /** Named, because "controller detected" without a name cannot be checked. */
+  $: foundPadName = $pads.length > 0 ? padDisplayName($pads[0].id) || `#${$pads[0].index + 1}` : '';
   $: conflicts = findConflicts(workingConfig, sources);
 
   /**
@@ -218,6 +225,18 @@
 <div class="controls-settings">
   <p class="lead">{t($language, 'twoPlayerControlsHint')}</p>
 
+  <!-- The one thing nothing used to say. A browser does not admit a gamepad
+       exists until one of its buttons has been pressed, so a controller plugged
+       in and left alone is invisible here - and the player had no way to know
+       that pressing anything would reveal it. -->
+  <p class="pad-search" class:found={$pads.length > 0}>
+    {#if $pads.length > 0}
+      🎮 {t($language, 'controllerFound', { name: foundPadName })}
+    {:else}
+      {t($language, 'lookingForController')}
+    {/if}
+  </p>
+
   <!-- Tabs only matter below the threshold; the CSS hides them at full
        width, where the two columns fit side by side. -->
   <div class="tabs">
@@ -236,7 +255,7 @@
         controls={workingConfig.p1}
         assignment={assignments.p1}
         sources={sources.p1}
-        {pads}
+        pads={$pads}
         conflicts={conflicts.p1}
         allowAuto={true}
         busy={busy1}
@@ -251,7 +270,7 @@
         controls={workingConfig.p2}
         assignment={assignments.p2}
         sources={sources.p2}
-        {pads}
+        pads={$pads}
         conflicts={conflicts.p2}
         allowAuto={false}
         playable={localPlayer2Playable}
@@ -315,6 +334,16 @@
 
   .column {
     min-width: 0;
+  }
+
+  .pad-search {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    color: #8b8ba3;
+  }
+
+  .pad-search.found {
+    color: #7fd18a;
   }
 
   .tabs {

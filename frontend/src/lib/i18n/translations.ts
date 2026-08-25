@@ -170,6 +170,8 @@ export const translations = {
     expiresInAMinute: 'Less than a minute left',
 
     // Groups, on the library page
+    lookingForController: 'Looking for a controller — press any button on it',
+    controllerFound: 'Controller detected: {name}',
     inGroupWith: 'In a group with {name}',
     leaveGroup: 'Leave the group',
     pickAGameTogether: 'pick a game to play together',
@@ -528,6 +530,8 @@ export const translations = {
     expiresInAMinute: 'moins d’une minute',
 
     // Groupes, sur la bibliothèque
+    lookingForController: 'Recherche d’une manette — appuyez sur un de ses boutons',
+    controllerFound: 'Manette détectée : {name}',
     inGroupWith: 'En groupe avec {name}',
     leaveGroup: 'Quitter le groupe',
     pickAGameTogether: 'choisissez un jeu à jouer ensemble',

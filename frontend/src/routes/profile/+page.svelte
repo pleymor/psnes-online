@@ -16,6 +16,7 @@
   import { normaliseControlsConfig, type ControlsConfig } from '$lib/controls/binding';
   import TopBar from '$lib/components/TopBar.svelte';
   import ControlsSettings from '$lib/components/ControlsSettings.svelte';
+  import { watchPads } from '$lib/controls/pad-watch';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import RomSourcePanel from '$lib/components/RomSourcePanel.svelte';
   import { SHADERS } from '$lib/shaders';
@@ -152,6 +153,18 @@
     });
     return stop;
   });
+
+  /*
+   * The search for a controller starts with the page, not with the card.
+   *
+   * The controls card waits for `/api/user/controls` before it renders anything,
+   * and a browser only admits a gamepad exists once one of its buttons has been
+   * pressed - so a press during that round trip used to be missed entirely, and
+   * the panel came up saying there was no controller. Watching from here means
+   * the press is caught whenever it lands. Two watchers share one timer, so the
+   * card starting its own costs nothing.
+   */
+  onMount(() => watchPads());
 
   onMount(async () => {
     // localStorage owns the display setting; this page and the pause menu both
