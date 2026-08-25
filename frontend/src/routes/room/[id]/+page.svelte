@@ -906,6 +906,7 @@
         gameTitle={chosenGame.title}
         controls={userControls}
         {resumeSaveId}
+        allowLocalPlayer2={isSinglePlayer}
         on:controlsSaved={(e) => (userControls = e.detail.config)}
       />
     {:else if activeEmulationMode === EmulationMode.LOCKSTEP}

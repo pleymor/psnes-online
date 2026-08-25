@@ -57,6 +57,17 @@
    * savestate, and this cannot get out of step with the one that exists.
    */
   export let resumeSaveId: string | null = null;
+  /**
+   * Whether this machine may drive port 2 as well.
+   *
+   * False as soon as anyone else is in the room. The mode a game started in is
+   * frozen on purpose - a reconnect must not destroy a running emulator - so a
+   * game begun alone keeps running here after someone joins, and port 2 then
+   * belongs to *them*. Without this gate the host's second controller drives
+   * the other player's character. Reactive, so it also switches back off if a
+   * partner returns mid-game.
+   */
+  export let allowLocalPlayer2 = true;
 
   const logger = createLogger('SoloRoom');
 
@@ -436,7 +447,7 @@
         core,
         readLocalInput: () => ({
           pad1: collector1!.read(),
-          pad2: isPlayerActive(assignments.p2) ? collector2!.read() : 0
+          pad2: allowLocalPlayer2 && isPlayerActive(assignments.p2) ? collector2!.read() : 0
         }),
         onFrame: () => {
           renderer!.draw(core!);
