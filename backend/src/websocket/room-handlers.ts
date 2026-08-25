@@ -284,6 +284,9 @@ export function registerRoomHandlers(
 
     io.to(room.id).emit('room:updated', room);
     await broadcastRoomUpdate(io, room, getUserSocket);
+    // Choosing the game is what opens the room: both members go, including the
+    // one who just chose.
+    openRoomForMembers(io, room, getUserSocket);
     logger.info({ roomId: room.id, gameId: game.gameId, by: user.pseudo }, 'Room game chosen');
   });
 
@@ -496,6 +499,24 @@ export function registerRoomHandlers(
     // the room. One more broadcast, after the mark, is what clears it.
     await broadcastRoomUpdate(io, room, getUserSocket);
     socket.emit('lobby:accepted', { invitationId: invitation.id, roomId: room.id });
+
+    /*
+     * Only when there is something to open.
+     *
+     * An invitation answered into a room that already has a game is the "invited
+     * from a room I was already sitting in" case, and the invitee is taken there
+     * as they always were. An invitation into a room with no game forms the
+     * group and nothing else: both players stay on their library, which is where
+     * the game gets chosen now.
+     *
+     * Decided here rather than by the client: the invitation the invitee is
+     * holding may name a room that had no game when it was sent and has one now.
+     */
+    if (room.gameId) {
+      const invitee = getUserSocket(user.id);
+      if (invitee) io.to(invitee).emit('room:opened', { roomId: room.id, reason: 'invitation' });
+    }
+
     logger.info({ roomId: room.id, userId: user.id }, 'Invitation accepted');
   });
 
@@ -898,6 +919,36 @@ async function notifyFriendsAboutRoom(
     if (friendSocketId) {
       io.to(friendSocketId).emit('friend:roomCreated', { userId, room: payload });
     }
+  }
+}
+
+/**
+ * Tells every member of a room to go to its page.
+ *
+ * The one navigation channel, used by whoever chose the game *and* by the member
+ * who did not - one path, so there is one behaviour to describe and one to test.
+ *
+ * Addressed per member, never with `io.to(room.id)`: a socket only enters a
+ * room's channel through `room:create`, `lobby:accept` or `room:join`, and only
+ * the room page emits the third. A member sitting on the library page is in the
+ * channel until their first reload and out of it afterwards, while still holding
+ * their seat - so the channel is exactly the wrong address here.
+ *
+ * `reason` travels because arriving is not always the same event: an invitee
+ * seated into a room that is already playing is told so by the room screen,
+ * which is what the `?from=invitation` marker has always been for.
+ */
+function openRoomForMembers(
+  io: Server,
+  room: Room,
+  getUserSocket: (id: string) => string | undefined,
+  reason?: 'invitation'
+) {
+  const payload = reason ? { roomId: room.id, reason } : { roomId: room.id };
+
+  for (const player of room.players) {
+    const socketId = getUserSocket(player.userId);
+    if (socketId) io.to(socketId).emit('room:opened', payload);
   }
 }
 

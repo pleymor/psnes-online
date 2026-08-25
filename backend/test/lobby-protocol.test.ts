@@ -1427,3 +1427,103 @@ test('a guest arriving after the save was staged still sees it', async () => {
     assert.equal(asBobSees.resumeSaveName, 'Before Lavos');
   });
 });
+
+/*
+ * Where the players are sent, and by whom.
+ *
+ * `room:opened` is the one navigation channel: choosing the game is what opens
+ * the room, and both members go - the chooser included, so that there is one
+ * path to describe rather than two. The second test below is the reason the
+ * event is addressed per member rather than to the room's channel.
+ */
+
+test('choosing the game sends both members to the room page, whoever chose', async () => {
+  await withLobby(async ({ alice, bob, client, gameId }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const invitation = createInvitation(db, room.id, alice.id, bob.id, future());
+    const accepted = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: invitation.id });
+    await accepted;
+
+    // The guest chooses, which is allowed: either member may.
+    const hostOpened = once<{ roomId: string; reason?: string }>(host, 'room:opened');
+    const guestOpened = once<{ roomId: string; reason?: string }>(guest, 'room:opened');
+    guest.emit('room:choose-game', { roomId: room.id, gameId, gameTitle: 'Chrono Trigger' });
+
+    assert.deepEqual(await hostOpened, { roomId: room.id });
+    assert.deepEqual(await guestOpened, { roomId: room.id });
+  });
+});
+
+test('a member who is not in the room channel is still told to go', async () => {
+  await withLobby(async ({ alice, bob, client, drop, gameId }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const invitation = createInvitation(db, room.id, alice.id, bob.id, future());
+    const accepted = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: invitation.id });
+    await accepted;
+
+    /*
+     * The guest reconnects, which is what reloading the library page is. The new
+     * socket holds the seat but has never emitted `room:join`, so it is *not* in
+     * the room's socket.io channel: an `io.to(room.id)` would reach nobody.
+     */
+    await drop(bob);
+    const reloaded = await client(bob);
+    const opened = once<{ roomId: string }>(reloaded, 'room:opened');
+
+    host.emit('room:choose-game', { roomId: room.id, gameId, gameTitle: 'Chrono Trigger' });
+
+    assert.deepEqual(await opened, { roomId: room.id });
+  });
+});
+
+test('accepting into a room that already has a game sends the invitee there', async () => {
+  await withLobby(async ({ alice, bob, client, gameId }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', { gameId, gameTitle: 'Chrono Trigger' });
+    const room = await created;
+
+    const invitation = createInvitation(db, room.id, alice.id, bob.id, future());
+    const opened = once<{ roomId: string; reason?: string }>(guest, 'room:opened');
+    guest.emit('lobby:accept', { invitationId: invitation.id });
+
+    assert.deepEqual(await opened, { roomId: room.id, reason: 'invitation' });
+  });
+});
+
+test('accepting into a room with no game leaves the invitee where they are', async () => {
+  await withLobby(async ({ alice, bob, client }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const invitation = createInvitation(db, room.id, alice.id, bob.id, future());
+    let opened = false;
+    guest.on('room:opened', () => (opened = true));
+    const accepted = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: invitation.id });
+    await accepted;
+
+    // The group is formed on the library page; there is nothing to open yet.
+    assert.equal(opened, false);
+  });
+});
