@@ -1,12 +1,14 @@
 <script lang="ts">
   import '$lib/polyfills'; // Load Node.js polyfills for browser
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { goto } from '$app/navigation';
   import { user, userLoading } from '$lib/stores/user';
-  import { socket, initializeSocket } from '$lib/api/socket';
+  import { socket, initializeSocket, waitForSocket } from '$lib/api/socket';
   import { startLogShipping } from '$lib/utils/log-shipper';
   import { createLogger } from '$lib/utils/logger';
   import { linkState } from '$lib/stores/connection';
   import NotificationToast from '$lib/components/NotificationToast.svelte';
+  import InvitationCard from '$lib/components/InvitationCard.svelte';
   import PseudoGate from '$lib/components/PseudoGate.svelte';
 
   const logger = createLogger('AppLayout');
@@ -27,6 +29,34 @@
       userLoading.set(false);
     }
   });
+
+  /**
+   * The one place a `room:opened` is acted on.
+   *
+   * It means "go to this room's page", and it is the server's answer to a game
+   * being chosen - by me, or by the other member of my group - and to an
+   * invitation accepted into a room that already has a game. It lives here
+   * rather than on a page because the whole point is that it reaches a player
+   * who is looking at something else.
+   *
+   * `?from=invitation` is rebuilt from `reason`: the room screen uses it to say
+   * so when it lands in a match that is already running.
+   */
+  function handleRoomOpened({ roomId, reason }: { roomId: string; reason?: string }) {
+    if (!roomId) return;
+    const query = reason === 'invitation' ? '?from=invitation' : '';
+    void goto(`/room/${roomId}${query}`);
+  }
+
+  /** Held so `onDestroy` can take the listener off the shared socket. */
+  let navigator: Awaited<ReturnType<typeof waitForSocket>> = null;
+
+  onMount(async () => {
+    navigator = await waitForSocket();
+    navigator?.on('room:opened', handleRoomOpened);
+  });
+
+  onDestroy(() => navigator?.off('room:opened', handleRoomOpened));
 
   /**
    * The gate, and with it the inertness of everything behind it.
@@ -102,6 +132,13 @@
   made the wiring worth doing.
 -->
 <NotificationToast />
+
+<!--
+  Mounted here rather than in the top bar, which only two pages carry: an
+  invitation that arrived while the player was in a lobby, on their profile or
+  on a room screen used to appear nowhere at all.
+-->
+<InvitationCard />
 
 {#if needsPseudo}
   <PseudoGate />
