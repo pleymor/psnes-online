@@ -1202,6 +1202,7 @@
   .p2p-room {
     width: 100%;
     height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     background: #1a1a1a;

@@ -154,7 +154,10 @@
   }
 
   .app {
+    /* See the note on .room-container: 100vh is taller than the visible window
+       on a phone whose address bar is showing. */
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     flex-direction: column;
   }

@@ -721,7 +721,20 @@
 
 <style>
   .room-container {
+    /*
+     * Two heights, and the order matters.
+     *
+     * On a phone `100vh` is the *large* viewport - the window as it would be
+     * with the address bar collapsed - so while that bar is on screen the
+     * bottom of this box sits below what the player can see. The toolbar lives
+     * there, and this page sets `body { overflow: hidden }` while a game runs:
+     * the menu button was not merely hard to reach, it was unreachable, and
+     * with it the only way to quit without a keyboard. `100dvh` follows the
+     * visible window instead; the `100vh` line above stays for browsers that
+     * do not know the unit.
+     */
     height: 100vh;
+    height: 100dvh;
     width: 100vw;
     display: flex;
     justify-content: center;
