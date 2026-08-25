@@ -13,6 +13,8 @@
   import LockstepRoom from '$lib/components/LockstepRoom.svelte';
   import SoloRoom from '$lib/components/SoloRoom.svelte';
   import RoomPlayers from '$lib/components/RoomPlayers.svelte';
+  import TopBar from '$lib/components/TopBar.svelte';
+  import { inGame } from '$lib/stores/in-game';
   import SaveGrid from '$lib/components/SaveGrid.svelte';
   import type { SaveSummary } from '$lib/saves/api';
   import ConfirmModal from '$lib/components/ConfirmModal.svelte';
@@ -155,75 +157,10 @@
     : null;
   $: myRoomSaves = (myGameForRoom?.saves ?? []) as SaveSummary[];
 
-  /** The library to choose from, and the friends who can be invited into it. */
-  let friends: { friendshipId: string; friend: { id: string; pseudo: string; avatar?: string } }[] = [];
-  let showGamePicker = false;
-  let showInvite = false;
   let showSavePicker = false;
 
-  /**
-   * The one invitation this room is waiting on, as the server describes it.
-   *
-   * It rides on the *public* room view (`room:update` and GET /api/rooms), not
-   * on `room:updated`: the raw room has no idea invitations exist. That is what
-   * makes the panel below a fact about the room rather than about this tab -
-   * it survives a reload, and the other player sees the same thing.
-   */
-  interface PendingInvitation {
-    id: string;
-    toUserId: string;
-    toPseudo: string;
-    toAvatar?: string;
-    /**
-     * An ISO string, not a Date: Socket.IO serialises dates on the way out and
-     * never revives them, so this is parsed before anything is done with it.
-     */
-    expiresAt: string;
-  }
-
-  let pendingInvitation: PendingInvitation | null = null;
-  /** Whether a public view has landed, so the slower HTTP seed cannot overwrite it. */
-  let sawRoomView = false;
   /** Set when we could not enter at all; the screen stops waiting and says so. */
   let entryFailed = '';
-  let now = Date.now();
-  let clock: ReturnType<typeof setInterval> | undefined;
-
-  /**
-   * The invitation still standing at this instant.
-   *
-   * The server resolves expiry when it builds the view, but a screen left open
-   * outlives that answer: without a clock of its own this panel would go on
-   * saying "waiting for Bob" long after the ten minutes ran out, and would keep
-   * hiding the friend list that the player needs to invite anybody again.
-   */
-  $: liveInvitation =
-    pendingInvitation && new Date(pendingInvitation.expiresAt).getTime() > now
-      ? pendingInvitation
-      : null;
-
-  /**
-   * `at` and `lang` are arguments rather than reads of `now` and `$language`,
-   * so the template tracks them: an expression whose dependencies are hidden
-   * inside a function body never re-runs when they change, and this one ticks.
-   */
-  function expiryLabel(invitation: PendingInvitation, at: number, lang: 'en' | 'fr'): string {
-    const minutes = Math.ceil((new Date(invitation.expiresAt).getTime() - at) / 60_000);
-    return minutes <= 1
-      ? t(lang, 'expiresInAMinute')
-      : t(lang, 'expiresInMinutes', { count: minutes });
-  }
-  /**
-   * The picker opens by itself on a room that has no game, once.
-   *
-   * After that first state it obeys the button: reopening it on every
-   * `room:updated` would fight the player who just closed it.
-   */
-  let pickerDecided = false;
-  $: if (room && !pickerDecided) {
-    pickerDecided = true;
-    showGamePicker = !room.gameId;
-  }
 
   /**
    * Whether we got here by answering an invitation.
@@ -325,26 +262,6 @@
     }
   }
 
-  /**
-   * The public view of this room, which is the only payload carrying the
-   * pending invitation.
-   *
-   * `room` itself comes from `room:updated`, the raw room with every player's
-   * keyConfig; this one is `toPublicRoom`, broadcast as `room:update`, and it
-   * is read only for the invitation - it has no keyConfig, so it cannot
-   * replace `room` without dropping the local player's controls.
-   */
-  function handleRoomView(view: {
-    id: string;
-    invitation?: PendingInvitation;
-  }) {
-    if (view?.id !== roomId) return;
-    sawRoomView = true;
-    // Absent means the room is waiting on nobody - invited and then cancelled,
-    // answered, or run out - and that is what brings the friend list back.
-    pendingInvitation = view.invitation ?? null;
-  }
-
   function showNotification(message: string, type: 'success' | 'error' = 'success') {
     toastMessage = message;
     toastType = type;
@@ -381,20 +298,6 @@
     showNotification(payload.message, 'error');
   }
 
-  function handleInviteSent() {
-    showNotification(t($language, 'invitationSent'), 'success');
-  }
-
-  function handleInviteDeclined(payload: { roomId: string; pseudo: string }) {
-    if (payload?.roomId !== roomId) return;
-    showNotification(t($language, 'invitationDeclined', { name: payload.pseudo }), 'error');
-  }
-
-  function handleInviteCancelled(payload: { roomId: string }) {
-    if (payload?.roomId !== roomId) return;
-    showNotification(t($language, 'invitationCancelled'), 'success');
-  }
-
   /**
    * The library, always re-read rather than trusted from the store.
    *
@@ -415,47 +318,6 @@
     }
   }
 
-  async function loadFriends() {
-    try {
-      const res = await fetch('/api/friends', { credentials: 'include' });
-      if (res.ok) friends = await res.json();
-    } catch (error) {
-      logger.error('Failed to load friends:', error);
-    }
-  }
-
-  /**
-   * Seeds the pending invitation from the HTTP room list, for the reload path.
-   *
-   * The reload path, and the only one there is: rejoining a seat you already
-   * hold answers with `room:updated` alone, which carries no invitation, so
-   * without this the panel would come back on every reload while the
-   * invitation was still running.
-   */
-  async function seedPendingInvitation() {
-    try {
-      const res = await fetch('/api/rooms', { credentials: 'include' });
-      if (!res.ok) return;
-      const rooms: {
-        id: string;
-        invitation?: PendingInvitation;
-      }[] = await res.json();
-      const mine = rooms.find(r => r.id === roomId);
-      if (!mine) return;
-      if (!sawRoomView) pendingInvitation = mine.invitation ?? null;
-    } catch (error) {
-      logger.error('Failed to read the pending invitation:', error);
-    }
-  }
-
-  function chooseGame(game: Game) {
-    // Only the id and the title travel. The checksum and the cover are read
-    // from the chooser's own row on the server, which is the only copy either
-    // player can trust.
-    $socket?.emit('room:choose-game', { roomId, gameId: game.id, gameTitle: game.title });
-    showGamePicker = false;
-  }
-
   /*
    * Stage the save this room will start on, or clear it.
    *
@@ -473,25 +335,12 @@
     $socket?.emit('room:choose-save', { roomId, saveId: null });
   }
 
-  function inviteFriend(friendId: string) {
-    $socket?.emit('lobby:invite', { roomId, friendId });
-  }
-
-  /**
-   * Take the invitation back.
-   *
-   * Either member may do this, which is why the button is not the sender's
-   * alone. The panel is not hidden here: the server's broadcast of the room
-   * view is what removes it, so both screens change for the same reason and a
-   * refusal leaves the invitation visibly still standing.
-   */
-  function cancelInvitation(invitationId: string) {
-    $socket?.emit('lobby:cancel', { invitationId });
-  }
-
   function enterGame(mode: EmulationMode) {
     activeEmulationMode = mode;
     gameStarted = true;
+    // The invitation card steps aside while this is true: a panel over an
+    // emulator steals a click, and accepting would walk out of this match.
+    inGame.set(true);
 
     // Prevent scrolling when game is active
     if (browser) {
@@ -513,6 +362,7 @@
 
   function handleGameStopped() {
     activeEmulationMode = null;
+    inGame.set(false);
     // Restore scrolling
     if (browser) {
       document.body.style.overflow = '';
@@ -577,13 +427,10 @@
     // navigates, so a destroyed instance must stop here rather than there.
     if (!alive) return;
 
-    // The lobby's own material: what can be chosen, who can be invited, and
-    // the invitation this room may already be waiting on. Not awaited - the
-    // room state is what the screen needs first, and each of these fills in
-    // its own corner when it lands.
+    // The lobby's own material: my library, which is what names this room's ROM
+    // in my own rows and carries its saves. Not awaited - the room state is what
+    // the screen needs first, and this fills in its own corner when it lands.
     void loadMyGames();
-    void loadFriends();
-    void seedPendingInvitation();
 
     // Join room
     sock.emit('room:join', { roomId });
@@ -595,18 +442,9 @@
     // game into single-player mode.
     sock.on('connect', handleReconnect);
     sock.on('room:updated', handleRoomUpdated);
-    sock.on('room:update', handleRoomView);
     sock.on('game:started', handleGameStarted);
     sock.on('game:stopped', handleGameStopped);
     sock.on('error', handleSocketError);
-    sock.on('lobby:invite-sent', handleInviteSent);
-    sock.on('lobby:invitation-declined', handleInviteDeclined);
-    sock.on('lobby:cancelled', handleInviteCancelled);
-
-    // Ticks the expiry label, and drops the panel by itself when the ten
-    // minutes run out with nobody having answered - no broadcast comes for
-    // that, because nothing happened on the server.
-    clock = setInterval(() => (now = Date.now()), 15_000);
   });
 
   onDestroy(() => {
@@ -627,17 +465,14 @@
       // the reconnection banner and the netplay slot alive.
       $socket.off('connect', handleReconnect);
       $socket.off('room:updated', handleRoomUpdated);
-      $socket.off('room:update', handleRoomView);
       $socket.off('game:started', handleGameStarted);
       $socket.off('game:stopped', handleGameStopped);
       $socket.off('error', handleSocketError);
-      $socket.off('lobby:invite-sent', handleInviteSent);
-      $socket.off('lobby:invitation-declined', handleInviteDeclined);
-      $socket.off('lobby:cancelled', handleInviteCancelled);
     }
 
-    clearInterval(clock);
     clearTimeout(toastTimer);
+    // A game does not go on running on a page that has been left.
+    inGame.set(false);
 
     if (browser) {
       document.body.style.overflow = '';
@@ -689,6 +524,13 @@
   }
 </script>
 
+{#if !gameStarted}
+  <!-- The bar comes with the friends list, which is the only place an invitation
+       is sent from now - so a room keeps a way to invite without carrying a
+       panel of its own. Never over a running game. -->
+  <TopBar />
+{/if}
+
 <div class="room-container">
   {#if !gameStarted}
     <div class="lobby">
@@ -732,34 +574,22 @@
           </div>
         {/if}
 
-        <!-- Only while waiting: the server refuses a game change once the
-             room has started, so offering one here would be a button that
-             cannot work. -->
-        {#if room.status === 'waiting'}
+        <!-- Only while waiting: the server refuses a change once the room has
+             started, so offering one here would be a button that cannot work.
+
+             The game is not chosen here any more, and neither is the friend: both
+             happen in the library now, and choosing a game there is what sends
+             both players to this page. What is left is the starting save, which
+             belongs to the room rather than to the library. -->
+        {#if room.status === 'waiting' && isRoomCreator && room.gameId && myRoomSaves.length > 0}
           <div class="lobby-setup">
             <div class="setup-buttons">
-              <button class="btn-setup" class:on={showGamePicker} on:click={() => (showGamePicker = !showGamePicker)}>
-                {room.gameId ? t($language, 'changeGame') : t($language, 'chooseGame')}
-              </button>
-              <!-- The button goes away entirely while an invitation stands:
-                   the server allows one at a time, so a second one would only
-                   earn a refusal. The panel below says who is being waited on
-                   and offers the way out. -->
-              {#if room.players.length < 2 && !liveInvitation}
-                <button class="btn-setup" class:on={showInvite} on:click={() => (showInvite = !showInvite)}>
-                  {t($language, 'inviteFriend')}
-                </button>
-              {/if}
               <!-- Creator-only, like the latency mode: where the game starts is
                    not a private preference, it decides where both players begin.
-                   And only with a game and a save of my own to offer - the
-                   library sends its own saves here through `?save=`, but from
-                   inside a lobby this button is the only door. -->
-              {#if isRoomCreator && room.gameId && myRoomSaves.length > 0}
-                <button class="btn-setup" class:on={showSavePicker} on:click={() => (showSavePicker = !showSavePicker)}>
-                  {t($language, 'startFromSave')}
-                </button>
-              {/if}
+                   And only with a save of my own to offer. -->
+              <button class="btn-setup" class:on={showSavePicker} on:click={() => (showSavePicker = !showSavePicker)}>
+                {t($language, 'startFromSave')}
+              </button>
             </div>
 
             {#if showSavePicker && myGameForRoom}
@@ -770,83 +600,6 @@
                   actionLabel={t($language, 'startHere')}
                   on:select={(e) => chooseSave(e.detail)}
                 />
-              </div>
-            {/if}
-
-            {#if showGamePicker}
-              <div class="panel">
-                {#if $games.length === 0}
-                  <p class="panel-empty">{t($language, 'emptyLibrary')}</p>
-                {:else}
-                  <ul class="panel-list">
-                    {#each $games as game (game.id)}
-                      <li>
-                        <button
-                          class="panel-row picker-row"
-                          class:chosen={game.id === room.gameId}
-                          disabled={!game.crc32}
-                          on:click={() => chooseGame(game)}
-                        >
-                          <span class="panel-name">{game.title}</span>
-                          <!-- Without a checksum the server has nothing to give
-                               either player to find the file with, so this one
-                               cannot be chosen until it has been located once
-                               from the library. -->
-                          {#if !game.crc32}
-                            <span class="panel-note">{t($language, 'needsRom')}</span>
-                          {/if}
-                        </button>
-                      </li>
-                    {/each}
-                  </ul>
-                {/if}
-                <p class="panel-hint">{t($language, 'ownLibraryOnly')}</p>
-              </div>
-            {/if}
-
-            <!-- One invitation at a time, so the friend list is replaced rather
-                 than shown alongside: there is nobody left to invite until this
-                 one is cancelled, answered, or runs out. -->
-            {#if liveInvitation}
-              <div class="panel">
-                <div class="panel-row invited-row">
-                  {#if liveInvitation.toAvatar}
-                    <img class="invited-avatar" src={liveInvitation.toAvatar} alt="" />
-                  {/if}
-                  <span class="panel-name">
-                    {t($language, 'waitingForInvitee', { name: liveInvitation.toPseudo })}
-                  </span>
-                  <span class="panel-note">{expiryLabel(liveInvitation, now, $language)}</span>
-                  <button class="btn-cancel-invite" on:click={() => cancelInvitation(liveInvitation.id)}>
-                    {t($language, 'cancelInvitation')}
-                  </button>
-                </div>
-                <p class="panel-hint">{t($language, 'onlyOneInvitation')}</p>
-              </div>
-            <!-- The same capacity condition as the button that opens this.
-                 `showInvite` is sticky on purpose - cancelling an invitation
-                 should hand the list straight back - but the room filling up
-                 is the one case where the list must close on its own, and
-                 without this it reappeared the moment the invitation stopped
-                 being pending, which is exactly when the guest arrived. -->
-            {:else if showInvite && room.players.length < 2}
-              <div class="panel">
-                {#if friends.length === 0}
-                  <p class="panel-empty">{t($language, 'noFriendsYet')}</p>
-                {:else}
-                  <ul class="panel-list">
-                    {#each friends as friendData (friendData.friendshipId)}
-                      <li>
-                        <div class="panel-row">
-                          <span class="panel-name">{friendData.friend.pseudo}</span>
-                          <button class="btn-invite" on:click={() => inviteFriend(friendData.friend.id)}>
-                            {t($language, 'invite')}
-                          </button>
-                        </div>
-                      </li>
-                    {/each}
-                  </ul>
-                {/if}
               </div>
             {/if}
           </div>
@@ -883,7 +636,10 @@
         </div>
 
         {#if !room.gameId}
-          <p class="start-hint">{t($language, 'chooseGameToStart')}</p>
+          <!-- Not a state of the ordinary flow any more - the game is chosen
+               before anyone arrives here - but a hand-typed URL still reaches it,
+               so it says where the game comes from. -->
+          <p class="start-hint">{t($language, 'chooseGameFromLibrary')}</p>
         {/if}
       {:else if entryFailed}
         <p class="entry-failed">{t($language, 'roomGone')}</p>
@@ -971,6 +727,10 @@
   }
 
   .room-container:has(.lobby) {
+    /* The bar takes the top of the page, so the lobby takes what is left rather
+       than a second full viewport - which would push it off screen. */
+    height: auto;
+    flex: 1;
     padding: 2rem;
   }
 
@@ -1044,113 +804,7 @@
     text-align: left;
   }
 
-  .panel-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    max-height: 15rem;
-    overflow-y: auto;
-  }
-
-  .panel-row {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.5rem 0.6rem;
-    background: transparent;
-    border: none;
-    border-radius: 6px;
-    color: #d6d6e6;
-    font-size: 0.95rem;
-    text-align: left;
-  }
-
-  .picker-row {
-    cursor: pointer;
-  }
-
-  .picker-row:hover:not(:disabled) {
-    background: #2a2a3a;
-    color: #fff;
-  }
-
-  .picker-row:disabled {
-    cursor: not-allowed;
-    color: #6f6f85;
-  }
-
-  .picker-row.chosen {
-    background: rgba(102, 126, 234, 0.18);
-    color: #fff;
-  }
-
-  .panel-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .panel-note {
-    flex-shrink: 0;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    color: #f59e0b;
-  }
-
   .panel-empty,
-  .panel-hint {
-    color: #8b8ba3;
-    font-size: 0.8rem;
-    margin: 0.5rem 0.6rem 0;
-  }
-
-  .btn-invite {
-    flex-shrink: 0;
-    background: #667eea;
-    border: none;
-    color: #fff;
-    padding: 0.3rem 0.8rem;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    cursor: pointer;
-  }
-
-  .btn-invite:hover {
-    background: #7b8ff0;
-  }
-
-  /* The name takes the slack so the deadline and the cancel button stay put
-     together on the right, rather than drifting apart with the name's length. */
-  .invited-row .panel-name {
-    flex: 1;
-  }
-
-  .invited-avatar {
-    flex-shrink: 0;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    object-fit: cover;
-  }
-
-  .btn-cancel-invite {
-    flex-shrink: 0;
-    background: transparent;
-    border: 1px solid #6b4a4a;
-    color: #f0a0a0;
-    padding: 0.3rem 0.8rem;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    cursor: pointer;
-  }
-
-  .btn-cancel-invite:hover {
-    background: #3a2a2a;
-    color: #ffc9c9;
-  }
 
   .start-hint {
     color: #8b8ba3;
