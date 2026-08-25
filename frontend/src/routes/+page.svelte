@@ -7,6 +7,7 @@
   import { goto } from '$app/navigation';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
+  import { myRoom } from '$lib/rooms/my-room';
   import GameCard from '$lib/components/GameCard.svelte';
   import GameDetailsModal from '$lib/components/GameDetailsModal.svelte';
   import LinkRom from '$lib/components/LinkRom.svelte';
@@ -24,18 +25,14 @@
   let toastType: 'success' | 'error' = 'success';
   let showDeleteConfirm = false;
   let gameToDelete: Game | null = null;
-  let activeRooms: any[] = [];
-
   /*
-   * The room you are already a member of, if any.
+   * The other member of my group, if there is one.
    *
-   * `/api/rooms` and `rooms:list` both already carry it - a member always sees
-   * their own room, whatever its state - so this door needs no new event and no
-   * new field. One room at a time is what makes `find` the right call rather
-   * than a list.
+   * `myRoom` is a store now, kept in step with the server: this page reads the
+   * group's state continuously rather than once at mount, because a banner that
+   * says who is here has to change when they arrive and when they leave.
    */
-  $: myRoom = activeRooms.find((r) => r.players?.some((p: any) => p.userId === $user?.id));
-  $: myPartner = myRoom?.players?.find((p: any) => p.userId !== $user?.id);
+  $: myPartner = $myRoom?.players?.find((p) => p.userId !== $user?.id) ?? null;
 
   async function loadGames() {
     const res = await fetch('/api/games', { credentials: 'include' });
@@ -44,19 +41,6 @@
       // Sort games alphabetically by title
       gamesData.sort((a: Game, b: Game) => a.title.localeCompare(b.title));
       games.set(gamesData);
-    }
-  }
-
-  async function loadRooms() {
-    try {
-      const res = await fetch('/api/rooms', { credentials: 'include' });
-      if (res.ok) {
-        const rooms = await res.json();
-        activeRooms = rooms;
-        logger.debug('Active rooms:', activeRooms);
-      }
-    } catch (error) {
-      logger.error('Failed to load rooms:', error);
     }
   }
 
@@ -104,7 +88,7 @@
   }
 
   async function loadUserData() {
-    await Promise.all([loadGames(), loadRooms()]);
+    await loadGames();
   }
 
   onMount(async () => {
@@ -303,7 +287,7 @@
 {:else}
   <!-- Library page for authenticated users -->
   <div class="app-layout">
-    <TopBar {activeRooms} />
+    <TopBar />
 
     <!-- Main Content -->
     <main class="main-content">
@@ -315,8 +299,8 @@
         <!-- The room you already have takes the slot, rather than sitting next
              to a button that would silently give it up: creating one leaves the
              one you are in. -->
-        {#if myRoom}
-          <button class="btn-create-room" on:click={() => goto(`/room/${myRoom.id}`)}>
+        {#if $myRoom}
+          <button class="btn-create-room" on:click={() => goto(`/room/${$myRoom.id}`)}>
             {myPartner
               ? `${t($language, 'resumeRoomWith')} ${myPartner.pseudo}`
               : t($language, 'resumeRoom')}

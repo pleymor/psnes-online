@@ -24,8 +24,7 @@
   import { t } from '$lib/i18n/translations';
   import FriendsList from './FriendsList.svelte';
   import FriendDetailsModal from './FriendDetailsModal.svelte';
-
-  export let activeRooms: any[] = [];
+  import { activeRooms } from '$lib/rooms/my-room';
 
   let showFriends = false;
   let friendsListRef: FriendsList;
@@ -304,7 +303,7 @@
        the only place either is reachable from. The drawer is 24rem wide, which
        is what the full layout was built for in the sidebar. -->
   <div class="friends-drawer">
-    <FriendsList bind:this={friendsListRef} {activeRooms} on:friendClicked={handleFriendClicked} />
+    <FriendsList bind:this={friendsListRef} activeRooms={$activeRooms} on:friendClicked={handleFriendClicked} />
   </div>
 {/if}
 

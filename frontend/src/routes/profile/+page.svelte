@@ -30,7 +30,6 @@
   // The bar is the same one the library page shows, so the page keeps its
   // chrome instead of stranding the user with a lone back link. It needs the
   // active rooms for the friends drawer's join buttons.
-  let activeRooms: any[] = [];
   let controlsConfig: ControlsConfig | null = null;
   let controlsError = '';
   let shader = '';
@@ -171,14 +170,6 @@
       controlsError = t($language, 'controlsLoadFailed');
     }
 
-    try {
-      const res = await fetch('/api/rooms', { credentials: 'include' });
-      // A drawer that cannot offer "join" is a smaller loss than a page that
-      // fails to render, so this stays quiet on failure.
-      if (res.ok) activeRooms = await res.json();
-    } catch (err) {
-      logger.error('Could not load active rooms', err);
-    }
   });
 
   function chooseShader(id: string): void {
@@ -233,7 +224,7 @@
   }
 </script>
 
-<TopBar {activeRooms} />
+<TopBar />
 
 <div class="profile">
   <header class="identity">
