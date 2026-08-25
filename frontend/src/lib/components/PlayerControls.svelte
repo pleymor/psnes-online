@@ -1,11 +1,12 @@
 <script lang="ts">
   /**
-   * One player: their sources, the table they are editing, their drawing.
+   * One player: their device, their bindings, their drawing.
    *
    * Two distinct questions live here, and conflating them would be the
    * mistake: "which device does this player hold" (the assignment, which
-   * also decides whether they play at all) and "which table am I editing
-   * right now" (keyboard or pad, two independent tables and both live).
+   * also decides whether they play at all) and which of the two stored tables
+   * the drawing shows. The second is no longer a separate choice: the device
+   * decides it, which is what let the Keyboard/Controller tabs go away.
    */
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { language, type Language } from '$lib/stores/language';
@@ -26,10 +27,14 @@
     type PlayerControls as PlayerControlsConfig
   } from '$lib/controls/binding';
   import {
+    assignmentFor,
+    choiceOf,
     connectedPads,
+    editedTable,
     isPlayerActive,
     padDisplayName,
     type Assignment,
+    type DeviceChoice,
     type PadInfo
   } from '$lib/znet/devices';
 
@@ -56,8 +61,9 @@
     capturing: { active: boolean };
   }>();
 
-  /** Which of the two tables the drawing shows and captures into. */
-  let editing: 'keys' | 'pad' = 'keys';
+  /** Derived from the device, never chosen: a pad edits `pad`, anything else `keys`. */
+  $: choice = choiceOf(assignment);
+  $: editing = editedTable(choice);
   let capturing: Button | null = null;
   let sequence = -1;
   let controlsBeforeSequence: PlayerControlsConfig | null = null;
@@ -80,10 +86,9 @@
     start: t($language, 'startButton'), select: t($language, 'selectButton')
   } as Record<Button, string>;
 
-  $: hasPad = assignment.gamepad !== null;
+  $: hasPad = choice.kind === 'pad' || choice.kind === 'auto';
   // A player with no pad has nothing to edit on the pad side. The selector
   // would otherwise sit on a table nobody reads.
-  $: if (!hasPad && editing === 'pad') editing = 'keys';
 
   $: bindings = Object.fromEntries(
     BUTTONS.map((button) => [
@@ -348,30 +353,28 @@
 
   /* -------------------------------------------------------- assignment */
 
-  function setKeyboard(on: boolean) {
-    assignment = { ...assignment, keyboard: on };
+  /** The dropdown speaks in choices; the stored shape stays what it was. */
+  function setChoice(value: string) {
+    const next: DeviceChoice =
+      value === 'auto'
+        ? { kind: 'auto' }
+        : value === 'keyboard'
+          ? { kind: 'keyboard' }
+          : value === 'none'
+            ? { kind: 'none' }
+            : padChoice(Number(value.slice('pad:'.length)));
+    assignment = assignmentFor(next);
     dispatch('assign', { assignment });
   }
 
-  function setGamepad(value: string) {
-    const gamepad =
-      value === 'none' ? null : value === 'auto' ? 'auto' : padFromValue(value);
-    assignment = { ...assignment, gamepad };
-    dispatch('assign', { assignment });
-  }
-
-  function padFromValue(value: string) {
-    const index = Number(value);
+  /** Falls back to no device when the pad vanished between render and change. */
+  function padChoice(index: number): DeviceChoice {
     const pad = pads.find((p) => p.index === index);
-    return pad ? { id: pad.id, index: pad.index } : null;
+    return pad ? { kind: 'pad', ref: { id: pad.id, index: pad.index } } : { kind: 'none' };
   }
 
-  $: gamepadValue =
-    assignment.gamepad === null
-      ? 'none'
-      : assignment.gamepad === 'auto'
-        ? 'auto'
-        : String(assignment.gamepad.index);
+  $: choiceValue =
+    choice.kind === 'pad' ? `pad:${choice.ref.index}` : choice.kind;
 
   function resetPadToStandard() {
     // clonePad, not a spread: the values are arrays, and a spread would hand
@@ -397,24 +400,15 @@
     <h4>{t($language, player === 1 ? 'player1' : 'player2')}</h4>
 
     <div class="sources" role="group" aria-label={t($language, 'inputSources')}>
-      <label>
-        <input
-          type="checkbox"
-          checked={assignment.keyboard}
-          disabled={busy}
-          on:change={(e) => setKeyboard(e.currentTarget.checked)}
-        />
-        {t($language, 'keyboardSource')}
-      </label>
-
-      <select value={gamepadValue} disabled={busy} on:change={(e) => setGamepad(e.currentTarget.value)}>
-        <option value="none">{t($language, 'noController')}</option>
+      <select value={choiceValue} disabled={busy} on:change={(e) => setChoice(e.currentTarget.value)}>
         {#if allowAuto}
-          <option value="auto">{t($language, 'allFreeControllers')}</option>
+          <option value="auto">{t($language, 'deviceAuto')}</option>
         {/if}
+        <option value="keyboard">{t($language, 'deviceKeyboard')}</option>
         {#each pads as pad}
-          <option value={String(pad.index)}>{padDisplayName(pad.id) || `#${pad.index + 1}`}</option>
+          <option value={`pad:${pad.index}`}>{padDisplayName(pad.id) || `#${pad.index + 1}`}</option>
         {/each}
+        <option value="none">{t($language, 'deviceNone')}</option>
       </select>
 
       <button
@@ -426,27 +420,6 @@
       </button>
     </div>
   </header>
-
-  <div class="tables" role="group">
-    <button
-      type="button"
-      class:on={editing === 'keys'}
-      disabled={capturing !== null}
-      on:click={() => (editing = 'keys')}
-    >
-      {t($language, 'editingKeyboard')}
-    </button>
-    {#if hasPad}
-      <button
-        type="button"
-        class:on={editing === 'pad'}
-        disabled={capturing !== null}
-        on:click={() => (editing = 'pad')}
-      >
-        {t($language, 'editingController')}
-      </button>
-    {/if}
-  </div>
 
   <SnesPad
     {bindings}
@@ -534,15 +507,8 @@
     color: #ccc;
   }
 
-  .sources label {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-
   .sources select,
   .sources button,
-  .tables button,
   .actions button {
     background: #333;
     color: #eee;
@@ -554,18 +520,7 @@
   }
 
   .sources select {
-    max-width: 12rem;
-  }
-
-  .tables {
-    display: flex;
-    gap: 0.25rem;
-  }
-
-  .tables button.on {
-    background: #1976d2;
-    border-color: #1976d2;
-    font-weight: 600;
+    max-width: 16rem;
   }
 
   .actions {

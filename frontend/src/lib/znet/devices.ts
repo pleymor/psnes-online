@@ -203,3 +203,60 @@ export function resolveSources(
 		}
 	};
 }
+
+/* ------------------------------------------------------- the device choice */
+
+/**
+ * What the panel's one dropdown offers, per player.
+ *
+ * The stored `Assignment` can express combinations this choice cannot - a
+ * keyboard and an explicit pad at once, most of all - because it predates the
+ * dropdown and because `'auto'` still means "keyboard plus every free pad".
+ * Keeping the stored shape untouched is deliberate: the simplification is an
+ * interface change, and a data migration would be a much larger promise.
+ */
+export type DeviceChoice =
+	| { kind: 'auto' }
+	| { kind: 'keyboard' }
+	| { kind: 'pad'; ref: GamepadRef }
+	| { kind: 'none' };
+
+/**
+ * Reads a stored assignment back as the choice that best represents it.
+ *
+ * The gamepad is consulted first, so a legacy row holding both a keyboard and
+ * an explicit pad shows as the pad - the more specific of the two, and the one
+ * the player went out of their way to name.
+ */
+export function choiceOf(assignment: Assignment): DeviceChoice {
+	if (assignment.gamepad === 'auto') return { kind: 'auto' };
+	if (assignment.gamepad !== null) return { kind: 'pad', ref: assignment.gamepad };
+	if (assignment.keyboard) return { kind: 'keyboard' };
+	return { kind: 'none' };
+}
+
+/** The assignment a choice writes. One device per player, `'auto'` aside. */
+export function assignmentFor(choice: DeviceChoice): Assignment {
+	switch (choice.kind) {
+		case 'auto':
+			return { keyboard: true, gamepad: 'auto' };
+		case 'keyboard':
+			return { keyboard: true, gamepad: null };
+		case 'pad':
+			return { keyboard: false, gamepad: choice.ref };
+		case 'none':
+			return { keyboard: false, gamepad: null };
+	}
+}
+
+/**
+ * Which table the drawing shows and captures into.
+ *
+ * This is what replaced the Keyboard/Controller tabs: the device decides, so
+ * there is nothing extra to choose. The cost is that `'auto'` tunes the
+ * keyboard - to rebind a pad you select it explicitly, which also turns the
+ * keyboard off for that player.
+ */
+export function editedTable(choice: DeviceChoice): 'keys' | 'pad' {
+	return choice.kind === 'pad' ? 'pad' : 'keys';
+}

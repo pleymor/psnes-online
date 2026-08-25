@@ -253,7 +253,11 @@ export const translations = {
     failedToResetControls: 'Failed to reset controls',
 
     // Two-player controls
-    inputSources: 'Sources',
+    inputSources: 'Device',
+    savedAutomatically: 'Changes save as you make them',
+    deviceAuto: 'Auto: keyboard + pads',
+    deviceKeyboard: 'Keyboard',
+    deviceNone: 'No device',
     keyboardSource: 'Keyboard',
     noController: 'No controller',
     allFreeControllers: 'Free controllers',
@@ -605,7 +609,11 @@ export const translations = {
     failedToResetControls: 'Échec de la réinitialisation des contrôles',
 
     // Contrôles à deux joueurs
-    inputSources: 'Sources',
+    inputSources: 'Périphérique',
+    savedAutomatically: 'Les changements sont enregistrés au fur et à mesure',
+    deviceAuto: 'Auto : clavier + manettes',
+    deviceKeyboard: 'Clavier',
+    deviceNone: 'Aucun périphérique',
     keyboardSource: 'Clavier',
     noController: 'Aucune manette',
     allFreeControllers: 'Manettes libres',

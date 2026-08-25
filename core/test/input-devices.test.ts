@@ -11,6 +11,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+	assignmentFor,
+	choiceOf,
+	editedTable,
 	DEVICES_STORAGE_KEY,
 	LEGACY_SOURCE_KEY,
 	connectedPads,
@@ -257,4 +260,43 @@ test('a corrupt gamepad field does not lose the player\'s valid keyboard choice'
 	const assignments = loadAssignments(storage);
 	assert.equal(assignments.p1.keyboard, false, 'a deliberately disabled keyboard must survive');
 	assert.equal(assignments.p1.gamepad, 'auto', 'only the invalid field falls back to the default');
+});
+
+/* ------------------------------------------------------- the device choice */
+
+test('the four device choices map onto the stored assignment shape', () => {
+	assert.deepEqual(assignmentFor({ kind: 'auto' }), { keyboard: true, gamepad: 'auto' });
+	assert.deepEqual(assignmentFor({ kind: 'keyboard' }), { keyboard: true, gamepad: null });
+	assert.deepEqual(assignmentFor({ kind: 'none' }), { keyboard: false, gamepad: null });
+
+	const ref = { id: PADS[0].id, index: 0 };
+	assert.deepEqual(assignmentFor({ kind: 'pad', ref }), { keyboard: false, gamepad: ref });
+});
+
+test('a stored assignment reads back as the choice that produced it', () => {
+	for (const choice of [
+		{ kind: 'auto' },
+		{ kind: 'keyboard' },
+		{ kind: 'none' },
+		{ kind: 'pad', ref: { id: PADS[1].id, index: 1 } }
+	] as const) {
+		assert.deepEqual(choiceOf(assignmentFor(choice)), choice, `${choice.kind} does not round-trip`);
+	}
+});
+
+test('shapes the new dropdown cannot produce still read as their nearest choice', () => {
+	// The old UI could set a keyboard AND an explicit pad at once. Such a row
+	// survives in localStorage, and the dropdown has to show something for it:
+	// the pad, since that is the more specific of the two.
+	const ref = { id: PADS[0].id, index: 0 };
+	assert.deepEqual(choiceOf({ keyboard: true, gamepad: ref }), { kind: 'pad', ref });
+	// Pads-only auto is likewise not offered; auto is auto.
+	assert.deepEqual(choiceOf({ keyboard: false, gamepad: 'auto' }), { kind: 'auto' });
+});
+
+test('the drawing follows the device, which is what replaced the table tabs', () => {
+	assert.equal(editedTable({ kind: 'keyboard' }), 'keys');
+	assert.equal(editedTable({ kind: 'auto' }), 'keys', 'auto tunes the keyboard; the pad keeps the standard mapping');
+	assert.equal(editedTable({ kind: 'none' }), 'keys');
+	assert.equal(editedTable({ kind: 'pad', ref: { id: 'x', index: 0 } }), 'pad');
 });

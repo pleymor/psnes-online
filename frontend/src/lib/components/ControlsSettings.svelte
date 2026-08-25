@@ -56,6 +56,8 @@
    * other one be made busy, which is what keeps the two apart.
    */
   let capturingPlayer: 1 | 2 | null = null;
+  /** Long enough that a twelve-button run is one request, short enough to feel instant. */
+  const SAVE_DEBOUNCE_MS = 600;
   /** Which player is visible when the container is too narrow for both. */
   let tab: 1 | 2 = 1;
 
@@ -78,8 +80,6 @@
 
   $: sources = resolveSources(assignments, pads);
   $: conflicts = findConflicts(workingConfig, sources);
-  $: hasChanges = JSON.stringify(workingConfig) !== JSON.stringify(normaliseControlsConfig(currentConfig));
-  $: canSave = hasChanges && conflicts.count === 0 && capturingPlayer === null;
 
   /**
    * A player is busy while the *other* one is binding, never while it is.
@@ -111,6 +111,30 @@
 
   function onPlayerChange(player: 1 | 2, controls: PlayerControlsConfig) {
     workingConfig = { ...workingConfig, [player === 1 ? 'p1' : 'p2']: controls };
+    scheduleSave();
+  }
+
+  /**
+   * Bindings persist the moment they are captured, with no button.
+   *
+   * The device assignment already saved on the spot - it describes this
+   * machine and lives in localStorage - while bindings waited for a "save"
+   * nothing distinguished visually. The drawing updated under the player's
+   * fingers either way, so everything said the change had landed. One panel
+   * with two persistence models taught the wrong lesson, and the bindings were
+   * the half that quietly did not stick.
+   *
+   * Debounced, because binding all twelve buttons in a run would otherwise be
+   * twelve round trips.
+   */
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function scheduleSave() {
+    if (saveTimer !== null) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      void saveConfig();
+    }, SAVE_DEBOUNCE_MS);
   }
 
   function onAssign(player: 1 | 2, assignment: Assignment) {
@@ -140,6 +164,8 @@
       currentConfig = workingConfig;
       dispatch('saved', { config: workingConfig });
     } catch (error) {
+      // The binding stays on screen rather than being quietly reverted: the
+      // player made a deliberate choice, and the next capture retries.
       logger.error('Error saving controls:', error);
       errorMessage = t($language, 'failedToSaveControls');
     } finally {
@@ -239,9 +265,9 @@
     >
       {isLoading ? t($language, 'resetting') : t($language, 'resetToDefaults')}
     </button>
-    <button class="btn-save" on:click={saveConfig} disabled={!canSave || isSaving}>
-      {isSaving ? t($language, 'saving') : t($language, 'saveChanges')}
-    </button>
+    <span class="save-state" aria-live="polite">
+      {isSaving ? t($language, 'saving') : t($language, 'savedAutomatically')}
+    </span>
   </div>
 </div>
 
@@ -344,10 +370,10 @@
     font-weight: 500;
   }
 
-  .btn-save {
-    background: #4caf50;
-    border-color: #4caf50;
-    color: white;
+  .save-state {
+    align-self: center;
+    font-size: 0.8rem;
+    color: #999;
   }
 
   .actions button:disabled {
