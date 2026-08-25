@@ -102,7 +102,10 @@
 <style>
   .invitation-stack {
     position: fixed;
-    top: 1rem;
+    /* Below the top bar rather than over it: the bar is 49px tall on the two
+       pages that carry one, and a card across it hides the friends button and
+       the avatar. */
+    top: 4rem;
     right: 1rem;
     z-index: 2500;
     display: flex;

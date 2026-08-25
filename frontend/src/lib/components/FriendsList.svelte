@@ -282,10 +282,16 @@
   $: groupFull = ($myRoom?.players.length ?? 0) >= 2;
   $: groupBusy = $myRoom?.status === 'playing';
   $: invitedId = $myRoom?.invitation?.toUserId ?? null;
-
-  function isGroupMember(friendId: string) {
-    return $myRoom?.players.some((p) => p.userId === friendId) ?? false;
-  }
+  /*
+   * A set, and a `$:` value rather than a function.
+   *
+   * A function declaration called from the markup does not make `$myRoom` a
+   * dependency of the expression that calls it: Svelte tracks the names in the
+   * expression, not what the body reads. So the row would settle on whatever it
+   * showed the first time and never learn that the friend had joined - which is
+   * exactly what it did, showing no tag at all once the invitation was accepted.
+   */
+  $: groupMemberIds = new Set(($myRoom?.players ?? []).map((p) => p.userId));
 
   export async function removeFriend(friendshipId: string) {
     const res = await fetch(`/api/friends/${friendshipId}`, {
@@ -389,7 +395,7 @@
             <!-- Outside `.friend-main`, and with `stopPropagation`: that block
                  opens the details modal on click, and an invite button inside it
                  would open the modal too. -->
-            {#if isGroupMember(friendData.friend.id)}
+            {#if groupMemberIds.has(friendData.friend.id)}
               <span class="friend-tag">{t($language, 'inYourGroup')}</span>
             {:else if invitedId === friendData.friend.id}
               <button
