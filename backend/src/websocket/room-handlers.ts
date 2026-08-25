@@ -809,6 +809,33 @@ async function joinRoom(
 }
 
 /**
+ * Marks a user present in every room they belong to, and tells those rooms.
+ *
+ * The exact twin of `markPlayerAway` below, and it exists for the asymmetry it
+ * closes: a disconnect marks a member away, but only `room:join` ever marked one
+ * back - and only the room page emits it. A member sitting on their library was
+ * therefore away for the rest of the session after a single reload, which showed
+ * their partner an empty seat and collapsed the room to single player.
+ *
+ * This does not loosen the "away" guard on `game:start`. `online` already means
+ * "a socket is connected and the seat is theirs", not "looking at the room
+ * page": leaving that page has not marked anyone away since the lobby stopped
+ * dying with it.
+ */
+export async function markPlayerPresent(
+  io: Server,
+  rooms: Map<string, Room>,
+  userId: string,
+  getUserSocket: (id: string) => string | undefined
+) {
+  for (const room of rooms.values()) {
+    if (!markOnline(room, userId)) continue;
+    io.to(room.id).emit('room:updated', room);
+    await broadcastRoomUpdate(io, room, getUserSocket);
+  }
+}
+
+/**
  * Marks a user away in every room they belong to, and tells those rooms.
  *
  * Exported rather than inlined into the disconnect handler for two reasons.

@@ -43,7 +43,7 @@ const {
 } = await import('../src/db/invitations.js');
 const { createSave } = await import('../src/db/saves.js');
 const {
-  registerRoomHandlers, pendingInvitationsFor, markPlayerAway
+  registerRoomHandlers, pendingInvitationsFor, markPlayerAway, markPlayerPresent
 } = await import('../src/websocket/room-handlers.js');
 const { toPublicRoomFor } = await import('../src/websocket/room-view.js');
 const { registerGameHandlers } = await import('../src/websocket/game-handlers.js');
@@ -136,6 +136,13 @@ async function withLobby(run: (lobby: Lobby) => Promise<void>): Promise<void> {
     // only shows when a room-handler event (choose-game) and a game-handler
     // event (saveSram) are driven by two different players in the same room.
     registerGameHandlers(socket, io, user.id, rooms, getUserSocket);
+    /*
+     * The presence half of what `websocket/index.ts` does on a *connection*,
+     * mirroring the disconnect half below. A reconnecting member is present
+     * again the moment their socket is back, without waiting for a `room:join`
+     * that only the room page ever sends.
+     */
+    void markPlayerPresent(io, rooms, userId, getUserSocket);
     /*
      * The presence half of what `websocket/index.ts` does on a disconnect.
      *
@@ -1525,5 +1532,39 @@ test('accepting into a room with no game leaves the invitee where they are', asy
 
     // The group is formed on the library page; there is nothing to open yet.
     assert.equal(opened, false);
+  });
+});
+
+test('reconnecting makes a member present again, and tells the other one', async () => {
+  await withLobby(async ({ alice, bob, client, drop, rooms }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const invitation = createInvitation(db, room.id, alice.id, bob.id, future());
+    const accepted = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: invitation.id });
+    await accepted;
+
+    await drop(bob);
+    assert.equal(rooms.get(room.id)!.players.find(p => p.userId === bob.id)!.online, false);
+
+    /*
+     * A reload of the library page. The seat was never given up, and nothing on
+     * that page will ever emit `room:join` - which is why the seat used to stay
+     * marked away for the rest of the session, showing the partner an empty
+     * chair and collapsing the room to a single player.
+     */
+    const updated = once<Room>(host, 'room:updated');
+    await client(bob);
+    await updated;
+
+    const seat = rooms.get(room.id)!.players.find(p => p.userId === bob.id)!;
+    assert.equal(seat.online, true);
+    // And the room is off the abandonment clock again.
+    assert.equal(rooms.get(room.id)!.abandonedAt, undefined);
   });
 });

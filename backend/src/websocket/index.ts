@@ -3,7 +3,12 @@ import { Room, User } from '../types/index.js';
 import { getDb } from '../db/sqlite.js';
 import { findUserById } from '../db/users.js';
 import { notifyFriendsStatusChanged, getOnlineFriends } from '../services/friends.js';
-import { markPlayerAway, pendingInvitationsFor, registerRoomHandlers } from './room-handlers.js';
+import {
+  markPlayerAway,
+  markPlayerPresent,
+  pendingInvitationsFor,
+  registerRoomHandlers
+} from './room-handlers.js';
 import { registerGameHandlers } from './game-handlers.js';
 import { registerP2PHandlers } from './p2p-handlers.js';
 import { registerSyncHandlers } from './sync-handlers.js';
@@ -123,6 +128,17 @@ async function handleConnection(io: Server, socket: Socket) {
   registerSyncHandlers(socket, io, user.id, rooms);
   registerZnetHandlers(socket, user, io, rooms);
   registerRomTransferHandlers(socket, user, io, rooms, getUserSocket);
+
+  /*
+   * Back from wherever they were: their seat is theirs again in every room they
+   * belong to.
+   *
+   * Before the two emits below, so the rooms list this socket is about to
+   * receive already says so. Without this a member who reloaded any page other
+   * than the room screen stayed marked away for the rest of the session: only
+   * `room:join` ever marked anyone back, and only the room screen sends it.
+   */
+  await markPlayerPresent(io, rooms, user.id, getUserSocket);
 
   // Invitations that were waiting while they were away. Sent before the rooms
   // list because that list doubles as the "setup finished" signal, and scoped
