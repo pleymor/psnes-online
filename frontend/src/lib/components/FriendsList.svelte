@@ -6,6 +6,8 @@
   import { t } from '$lib/i18n/translations';
   import { createLogger } from '$lib/utils/logger';
   import { parseHandle } from '$lib/pseudo';
+  import { myRoom } from '$lib/rooms/my-room';
+  import { inviteToGroup, cancelGroupInvitation } from '$lib/rooms/actions';
 
   export let compact = false; // Compact mode for small screens
   export let activeRooms: any[] = []; // List of active rooms from API
@@ -266,6 +268,25 @@
     dispatch('friendClicked', friendData);
   }
 
+  /*
+   * Whether this friend can be asked to play, and what to show instead.
+   *
+   * Read from my own room rather than from a local flag: the invitation lives on
+   * the room's public view, so it survives a reload, it is the same fact both
+   * members see, and cancelling it from anywhere makes this row change back on
+   * its own.
+   *
+   * `groupFull` counts members, not the players present: an away member's seat is
+   * still theirs, and inviting somebody else would be refused.
+   */
+  $: groupFull = ($myRoom?.players.length ?? 0) >= 2;
+  $: groupBusy = $myRoom?.status === 'playing';
+  $: invitedId = $myRoom?.invitation?.toUserId ?? null;
+
+  function isGroupMember(friendId: string) {
+    return $myRoom?.players.some((p) => p.userId === friendId) ?? false;
+  }
+
   export async function removeFriend(friendshipId: string) {
     const res = await fetch(`/api/friends/${friendshipId}`, {
       method: 'DELETE',
@@ -365,6 +386,26 @@
                 {/if}
               </div>
             </div>
+            <!-- Outside `.friend-main`, and with `stopPropagation`: that block
+                 opens the details modal on click, and an invite button inside it
+                 would open the modal too. -->
+            {#if isGroupMember(friendData.friend.id)}
+              <span class="friend-tag">{t($language, 'inYourGroup')}</span>
+            {:else if invitedId === friendData.friend.id}
+              <button
+                class="btn-invite-friend cancel"
+                on:click|stopPropagation={() => cancelGroupInvitation($myRoom?.invitation?.id ?? '')}
+              >
+                {t($language, 'invitedWaiting')} ✕
+              </button>
+            {:else if !groupFull && !groupBusy && !invitedId}
+              <button
+                class="btn-invite-friend"
+                on:click|stopPropagation={() => inviteToGroup(friendData.friend.id)}
+              >
+                {t($language, 'invite')}
+              </button>
+            {/if}
           </div>
         {/each}
       {/if}
@@ -593,6 +634,29 @@
     flex: 1;
     cursor: pointer;
     min-width: 0; /* Allow text truncation */
+  }
+
+  .btn-invite-friend {
+    flex: 0 0 auto;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    border: none;
+    padding: 0.375rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  .btn-invite-friend.cancel {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .friend-tag {
+    flex: 0 0 auto;
+    font-size: 0.75rem;
+    color: #9aa0b5;
   }
 
   .avatar {
