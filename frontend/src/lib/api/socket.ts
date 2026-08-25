@@ -1,7 +1,7 @@
 import { get, writable } from 'svelte/store';
 import { io, Socket } from 'socket.io-client';
 import { createLogger } from '$lib/utils/logger';
-import { linkState } from '$lib/stores/connection';
+import { attachLinkState } from '$lib/stores/connection';
 
 const logger = createLogger('Socket');
 
@@ -60,18 +60,24 @@ export function initializeSocket() {
     reconnectionAttempts: Infinity
   });
 
+  // The state machine itself lives with the store, so it can be tested without
+  // a server. This file keeps only the logging.
+  attachLinkState(socketInstance);
+
   socketInstance.on('connect', () => {
     logger.debug('Socket connected');
-    linkState.set('connected');
   });
 
   socketInstance.on('disconnect', (reason: Socket.DisconnectReason) => {
     logger.debug('Socket disconnected', { reason });
-    // socket.io does not retry after either side ended the connection on
-    // purpose - a deliberate logout or a server-initiated kick - so those two
-    // reasons are the only ones where "reconnecting…" would be false.
-    const isExplicitDisconnect = reason === 'io client disconnect' || reason === 'io server disconnect';
-    linkState.set(isExplicitDisconnect ? 'offline' : 'reconnecting');
+  });
+
+  // Logged at error level, not debug: with polling disabled below there is no
+  // fallback transport, so a client that only ever raises this is cut off from
+  // presence and invitations entirely. That was invisible in the logs, and the
+  // one report of it arrived as "my friend never shows up online".
+  socketInstance.on('connect_error', (error: Error) => {
+    logger.error('Socket connect failed', { message: error.message });
   });
 
   socketInstance.on('error', (error: any) => {

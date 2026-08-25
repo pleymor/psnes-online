@@ -76,6 +76,18 @@
     <div class="link-banner" role="status">Connection lost — reconnecting…</div>
   {:else if $user && $linkState === 'offline'}
     <div class="link-banner" role="status">Connection lost — reload the page to continue.</div>
+  {:else if $user && $linkState === 'unreachable'}
+    <!--
+      Deliberately not "connection lost": this player never had one. The two
+      messages above sent the last person to hit this looking for a fault in
+      their friends list instead of in their own browser, so this one names the
+      symptom they are actually looking at.
+    -->
+    <div class="link-banner" role="alert">
+      Can't reach the game server — friends will show as offline and invitations
+      won't arrive. An ad blocker, an antivirus scanning HTTPS, or a restricted
+      network can block the connection.
+    </div>
   {/if}
   <slot />
 </div>
