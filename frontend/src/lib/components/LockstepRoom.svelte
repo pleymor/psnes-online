@@ -447,7 +447,8 @@
     controls = event.detail.config;
     keyConfig = event.detail.config.p1.keys;
     dispatch('controlsSaved', event.detail);
-    closePauseMenu();
+    // Deliberately does not resume: saving happens on every rebind now, so
+    // closing here would throw the player back into the game mid-edit.
   }
 
   function quitToLobby() {

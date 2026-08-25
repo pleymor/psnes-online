@@ -73,6 +73,14 @@
   });
 
   onDestroy(() => {
+    // A pending save must not die with the panel: closing the submenu within
+    // the debounce window would otherwise silently drop the last binding, and
+    // the last binding is the one the player just made.
+    if (saveTimer !== null) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      void saveConfig();
+    }
     if (typeof window === 'undefined') return;
     window.removeEventListener('gamepadconnected', refreshPads);
     window.removeEventListener('gamepaddisconnected', refreshPads);

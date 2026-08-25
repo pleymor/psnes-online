@@ -178,11 +178,19 @@
   // The list can grow or shrink between rooms; never leave the cursor past its end.
   $: if (selectedIndex >= menuItems.length) selectedIndex = menuItems.length - 1;
 
+  /**
+   * A save is no longer the end of anything, so it closes nothing.
+   *
+   * This used to fire once, when the player pressed a "save" button, and
+   * returning them to the menu was the natural end of that gesture. Bindings
+   * now persist as they are captured, so the same handler ran on every single
+   * rebind and shut the panel under the player's hands - which read as the
+   * binding having failed. The submenu closes when they ask it to: the Close
+   * button, or Escape.
+   */
   function handleSaved(event: CustomEvent<{ config: ControlsConfig }>) {
     controls = event.detail.config;
     dispatch('controlsSaved', { config: event.detail.config });
-    showKeyConfig = false;
-    selectedIndex = 0; // Reset selection when returning to main menu
   }
 
   function handleKeyDown(e: KeyboardEvent) {
