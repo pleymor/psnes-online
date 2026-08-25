@@ -18,6 +18,8 @@
   import { setLogLabels } from '$lib/utils/log-shipper';
   import { socket } from '$lib/api/socket';
   import LocateRom from './LocateRom.svelte';
+  import TouchControls from './TouchControls.svelte';
+  import { TouchPad, touchPadWanted } from '$lib/controls/touch';
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import PauseMenu from './PauseMenu.svelte';
@@ -87,6 +89,16 @@
   let audio: AudioSink | null = null;
   let collector1: InputCollector | null = null;
   let collector2: InputCollector | null = null;
+  /**
+   * The on-screen controller, for a machine with no keys.
+   *
+   * Created once and kept for the life of the room even while it is not drawn:
+   * the collector holds a reference to it, and swapping the object under the
+   * collector every time a controller is plugged in or out would be one more
+   * thing to get wrong for no gain.
+   */
+  const touchPad = new TouchPad();
+  let showTouchPad = false;
   let assignments = loadAssignments(localStorage);
   let session: SoloSession | null = null;
   let governor: FrameGovernor | null = null;
@@ -250,9 +262,13 @@
    */
   function applySources(): void {
     assignments = loadAssignments(localStorage);
-    const sources = resolveSources(assignments, connectedPads());
+    const pads = connectedPads();
+    const sources = resolveSources(assignments, pads);
     collector1?.setSources(sources.p1);
     collector2?.setSources(sources.p2);
+    // Plugging a controller into a tablet takes the drawn one away, and
+    // unplugging it brings it back: this runs on both gamepad events.
+    showTouchPad = touchPadWanted(pads.length);
   }
 
   /** Finds the ROM locally, then asks the player. There is no host to ask. */
@@ -430,10 +446,15 @@
       needsAudioGesture = audio.needsGesture;
 
       assignments = loadAssignments(localStorage);
-      const sources = resolveSources(assignments, connectedPads());
+      const pads = connectedPads();
+      const sources = resolveSources(assignments, pads);
+      showTouchPad = touchPadWanted(pads.length);
 
       collector1 = new InputCollector(controls.p1, sources.p1);
       collector1.attach();
+      // Player 1 only: the touch pad is this machine's own screen, and a phone
+      // is held by one player.
+      collector1.setTouchPad(touchPad);
       // Created even when P2 is silent: its sources are then empty, it reads
       // 0, and assigning it mid-session then only has to push new sources
       // rather than construct anything.
@@ -681,7 +702,7 @@
   });
 </script>
 
-<div class="solo" class:paused={showPauseMenu} bind:this={container}>
+<div class="solo" class:paused={showPauseMenu} class:touch={showTouchPad} bind:this={container}>
   <!--
     Double-click toggles fullscreen, the way a video player does. It is not a
     menu entry because Escape has to reach the menu, and the browser keeps
@@ -736,6 +757,21 @@
   <div class="toolbar">
     <button class="action" on:click={() => openPauseMenu(isFullscreen)}>☰ Menu (Esc)</button>
   </div>
+  <!-- Not while the menu is up: a lockstep session keeps running behind it,
+       so a thumb still resting on the pad would go on playing under a menu
+       the player thinks has stopped the game. Unmounting releases what was
+       held. -->
+  {#if showTouchPad && !showPauseMenu}
+    <!--
+      Below the picture in landscape, floating over the black in portrait -
+      which is what the media query at the bottom of this file decides. The
+      component knows neither: it fills the box it is given.
+    -->
+    <div class="touch-zone">
+      <TouchControls pad={touchPad} />
+    </div>
+  {/if}
+
   {#if romPrompt}
     <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
   {/if}
@@ -763,6 +799,8 @@
   .solo {
     display: flex;
     flex-direction: column;
+    /* What the touch pad is positioned against in portrait. */
+    position: relative;
     align-items: center;
     gap: 0.75rem;
     /* The page centres its children, so claim the full height rather than
@@ -775,6 +813,65 @@
        'Stretch' looked identical because the box already matched the picture's
        ratio, and 'Sharp' had nothing to smooth because nothing was upscaled. */
     width: 100%;
+  }
+
+  .touch-zone {
+    /* Landscape: the controller takes the bottom of the window and the picture
+       keeps the rest. Nothing else has to change - .screen is flex: 1 and
+       fitToBox re-measures it, so the canvas reshapes itself. */
+    width: 100%;
+    height: clamp(8rem, 40vh, 15rem);
+    flex: none;
+  }
+
+  /*
+   * A phone on its side: the picture takes the whole height and the controls
+   * move into the black beside it.
+   *
+   * The 8:7 picture cannot use that width - on a 844x390 screen it leaves
+   * about 200px of black on each side - so a band below was paying for the
+   * controls twice. Measured on that screen: the picture goes from 203x178 to
+   * 395x346. The aspect-ratio condition is what keeps a 4:3 tablet out of
+   * this: below 16/9 a full-height picture leaves too little black to hold a
+   * stick, and the band below is right. TouchControls rearranges itself under
+   * the same query.
+   */
+  @media (orientation: landscape) and (min-aspect-ratio: 16 / 9) {
+    .solo.touch .touch-zone {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: min(74vh, 17rem);
+      pointer-events: none;
+    }
+  }
+
+  @media (orientation: portrait) {
+    .touch-zone {
+      /* Upright there is no height to give away: a 4:3 picture across a phone
+         already leaves little, and a second band would make the game
+         postage-stamp sized. So the pad floats over the black instead, dimmed
+         until a thumb lands on it. */
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: min(40vh, 20rem);
+      opacity: 0.75;
+    }
+
+    /* The menu button would sit under the floating pad, and it is the only way
+       into the menu without a keyboard - so on a phone it moves to the top. */
+    .solo.touch .toolbar {
+      order: -1;
+    }
+
+    /* And the picture goes up, out of the pad's way, rather than staying
+       centred in a box the pad now covers the bottom of. */
+    .solo.touch .screen {
+      align-items: flex-start;
+    }
   }
 
   .screen {

@@ -11,6 +11,7 @@
 
 import type { PlayerControls, InputSources, Button, PadCodeDescriptor } from '../controls/binding.js';
 import { BUTTONS, parsePadCode } from '../controls/binding.js';
+import type { TouchPad } from '../controls/touch.js';
 import { PAD, type PadMask } from './protocol.js';
 
 const BUTTON_BITS: Record<Button, number> = {
@@ -55,6 +56,12 @@ export class InputCollector {
 	 */
 	private padBits: Array<[PadCodeDescriptor, number]> = [];
 	private sources: InputSources = EVERYTHING;
+	/**
+	 * The on-screen pad, when there is one. Not part of `InputSources`: that
+	 * describes hardware the browser enumerates, and a touch pad is drawn by the
+	 * room rather than plugged into the machine.
+	 */
+	private touch: TouchPad | null = null;
 	private attached = false;
 	private onKeyDown = (e: KeyboardEvent) => this.handleKey(e, true);
 	private onKeyUp = (e: KeyboardEvent) => this.handleKey(e, false);
@@ -97,6 +104,18 @@ export class InputCollector {
 		return { ...this.sources };
 	}
 
+	/**
+	 * Attaches, or drops, the on-screen pad this player plays with.
+	 *
+	 * Passing `null` silences it immediately rather than waiting for a release
+	 * event: the pad is dropped precisely when it stops being drawn - a
+	 * controller was plugged in, or the room is going away - and the button
+	 * under the thumb at that moment would never get its `pointerup`.
+	 */
+	setTouchPad(pad: TouchPad | null): void {
+		this.touch = pad;
+	}
+
 	attach(target: Window = window): void {
 		if (this.attached) return;
 		target.addEventListener('keydown', this.onKeyDown);
@@ -124,7 +143,7 @@ export class InputCollector {
 				if (this.held.has(code)) mask |= bit;
 			}
 		}
-		return sanitise(mask | this.readPads());
+		return sanitise(mask | this.readPads() | (this.touch?.mask ?? 0));
 	}
 
 	private readPads(): number {

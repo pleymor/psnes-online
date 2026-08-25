@@ -24,6 +24,8 @@
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import LocateRom from './LocateRom.svelte';
+  import TouchControls from './TouchControls.svelte';
+  import { TouchPad, touchPadWanted } from '$lib/controls/touch';
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
@@ -136,6 +138,15 @@
   let governor: FrameGovernor | null = null;
   let transport: Transport | null = null;
   let collector: InputCollector | null = null;
+  /**
+   * The on-screen controller, for a machine with no keys.
+   *
+   * Its mask joins the session through the same collector a keyboard does, so
+   * the pads that travel to the other peer are indistinguishable from a
+   * keyboard player's - lockstep needs no notion of a phone.
+   */
+  const touchPad = new TouchPad();
+  let showTouchPad = false;
   let renderer: Renderer | null = null;
   let audio: AudioSink | null = null;
 
@@ -415,7 +426,11 @@
    */
   function applySources(): void {
     assignments = loadAssignments(localStorage);
-    collector?.setSources(resolveSources(assignments, connectedPads()).p1);
+    const pads = connectedPads();
+    collector?.setSources(resolveSources(assignments, pads).p1);
+    // Plugging a controller into a tablet takes the drawn one away, and
+    // unplugging it brings it back: this runs on both gamepad events.
+    showTouchPad = touchPadWanted(pads.length);
   }
 
   function closePauseMenu() {
@@ -557,11 +572,15 @@
       needsAudioGesture = audio.needsGesture;
 
       assignments = loadAssignments(localStorage);
+      const pads = connectedPads();
+      showTouchPad = touchPadWanted(pads.length);
       collector = new InputCollector(
         { keys: keyConfig, pad: controls.p1.pad },
-        resolveSources(assignments, connectedPads()).p1
+        resolveSources(assignments, pads).p1
       );
       collector.attach();
+      // This machine has one player, whichever port they hold in the match.
+      collector.setTouchPad(touchPad);
 
       // A pad plugged in after boot must be seen: without these, a controller
       // connected once the match is running stays dead for the session.
@@ -1213,6 +1232,7 @@
 <div
   class="lockstep"
   class:paused={showPauseMenu}
+  class:touch={showTouchPad}
   class:chrome-hidden={isFullscreen && !chromeVisible}
   bind:this={stage}
 >
@@ -1310,6 +1330,21 @@
     {/if}
   </div>
 
+  <!-- Not while the menu is up: a lockstep session keeps running behind it,
+       so a thumb still resting on the pad would go on playing under a menu
+       the player thinks has stopped the game. Unmounting releases what was
+       held. -->
+  {#if showTouchPad && !showPauseMenu}
+    <!--
+      Below the picture in landscape, floating over the black in portrait -
+      which is what the media query at the bottom of this file decides. The
+      component knows neither: it fills the box it is given.
+    -->
+    <div class="touch-zone">
+      <TouchControls pad={touchPad} />
+    </div>
+  {/if}
+
   {#if showPauseMenu}
     <!-- port 2 is the remote peer here, never a second local player -->
     <PauseMenu
@@ -1383,12 +1418,73 @@
     font-variant-numeric: tabular-nums;
   }
 
+  .touch-zone {
+    /* Landscape: the controller takes the bottom of the window and the picture
+       keeps the rest. Nothing else has to change - .screen is flex: 1 and
+       fitToBox re-measures it, so the canvas reshapes itself. */
+    width: 100%;
+    height: clamp(8rem, 40vh, 15rem);
+    flex: none;
+  }
+
+  /*
+   * A phone on its side: the picture takes the whole height and the controls
+   * move into the black beside it.
+   *
+   * The 8:7 picture cannot use that width - on a 844x390 screen it leaves
+   * about 200px of black on each side - so a band below was paying for the
+   * controls twice. Measured on that screen: the picture goes from 203x178 to
+   * 395x346. The aspect-ratio condition is what keeps a 4:3 tablet out of
+   * this: below 16/9 a full-height picture leaves too little black to hold a
+   * stick, and the band below is right. TouchControls rearranges itself under
+   * the same query.
+   */
+  @media (orientation: landscape) and (min-aspect-ratio: 16 / 9) {
+    .lockstep.touch .touch-zone {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: min(74vh, 17rem);
+      pointer-events: none;
+    }
+  }
+
+  @media (orientation: portrait) {
+    .touch-zone {
+      /* Upright there is no height to give away: a 4:3 picture across a phone
+         already leaves little, and a second band would make the game
+         postage-stamp sized. So the pad floats over the black instead, dimmed
+         until a thumb lands on it. */
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: min(40vh, 20rem);
+      opacity: 0.75;
+    }
+
+    /* The menu button would sit under the floating pad, and it is the only way
+       into the menu without a keyboard - so on a phone it moves to the top. */
+    .lockstep.touch .bar {
+      order: -1;
+    }
+
+    /* And the picture goes up, out of the pad's way, rather than staying
+       centred in a box the pad now covers the bottom of. */
+    .lockstep.touch .screen {
+      align-items: flex-start;
+    }
+  }
+
   .lockstep {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 0.75rem;
     width: 100%;
+    /* What the touch pad is positioned against in portrait. */
+    position: relative;
     /* The page centres its children; claim the full height instead. */
     align-self: stretch;
     height: 100%;
