@@ -22,6 +22,7 @@
   import { EmulationMode } from '$lib/types';
   import { defaultControlsConfig, normaliseControlsConfig, type ControlsConfig } from '$lib/controls/binding';
   import { onlinePlayers } from '$lib/rooms/online-players';
+  import { resumeSaveToRequest } from '$lib/rooms/resume-save';
   import { createLogger } from '$lib/utils/logger';
 
   const logger = createLogger('RoomPage');
@@ -180,7 +181,8 @@
    */
   let urlSaveId: string | null = null;
   /**
-   * The save whichever emulator component will start on.
+   * The save whichever emulator component will start on, when this client is the
+   * one that gets to ask for it.
    *
    * Carried down as a prop, and the component asks the server for it once the
    * session is playing - nothing here applies it, the existing `game:load` /
@@ -189,14 +191,15 @@
    * components null their copy after using it so that a reconnect cannot rewind
    * the game, and a reactive value would push the save straight back down on the
    * next `room:updated`.
+   *
+   * Which member asks is a rule of its own, in `resumeSaveToRequest`: a guest
+   * asking for the creator's staged save earns a refusal and nothing else, while
+   * the resume works perfectly around it.
    */
   let resumeSaveId: string | null = null;
   let resumeSaveResolved = false;
   $: if (gameStarted && !resumeSaveResolved) {
-    // The room wins over the URL: it is where both players agree, and it is the
-    // later word - the creator may have staged something else from the lobby
-    // after arriving on a `?save=` link.
-    resumeSaveId = room?.resumeSaveId ?? urlSaveId;
+    resumeSaveId = resumeSaveToRequest(room, isRoomCreator, urlSaveId);
     resumeSaveResolved = true;
   }
   let toastTimer: ReturnType<typeof setTimeout> | undefined;

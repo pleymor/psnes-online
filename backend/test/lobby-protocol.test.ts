@@ -1568,3 +1568,51 @@ test('reconnecting makes a member present again, and tells the other one', async
     assert.equal(rooms.get(room.id)!.abandonedAt, undefined);
   });
 });
+
+/*
+ * Who may ask the server to open a save, and who is served by the answer.
+ *
+ * The pair below is the server half of a rule the client has to know: a guest
+ * asking for the room's staged save gets a refusal, and needs nothing else,
+ * because the answer to the *creator's* request is broadcast to the whole room.
+ * A lockstep guest that asked anyway had "Not authorized to load this save"
+ * thrown at it on every resume, while the resume itself worked perfectly around
+ * the refusal - which is exactly the shape of bug that survives for months.
+ */
+
+test('a guest asking for the creator\'s staged save is refused', async () => {
+  await withLobby(async lobby => {
+    const { host, guest, room } = await roomOfTwo(lobby);
+    const save = stageable(lobby.gameId, 'Before Lavos');
+
+    const staged = once<Room>(guest, 'room:updated');
+    host.emit('room:choose-save', { roomId: room.id, saveId: save.id });
+    await staged;
+
+    const refused = once<{ message: string }>(guest, 'error');
+    guest.emit('game:load', { roomId: room.id, saveId: save.id });
+    assert.equal((await refused).message, 'Not authorized to load this save');
+  });
+});
+
+test('the creator asking is served, and the answer reaches both players', async () => {
+  await withLobby(async lobby => {
+    const { host, guest, room } = await roomOfTwo(lobby);
+    const save = stageable(lobby.gameId, 'Before Lavos');
+
+    const staged = once<Room>(guest, 'room:updated');
+    host.emit('room:choose-save', { roomId: room.id, saveId: save.id });
+    await staged;
+
+    // Both, from the one request: this is what makes the guest's own request
+    // pointless rather than merely unauthorised.
+    const hostGets = once<{ saveId: string; name: string }>(host, 'game:loaded');
+    const guestGets = once<{ saveId: string; name: string }>(guest, 'game:loaded');
+    host.emit('game:load', { roomId: room.id, saveId: save.id });
+
+    for (const loaded of [await hostGets, await guestGets]) {
+      assert.equal(loaded.saveId, save.id);
+      assert.equal(loaded.name, 'Before Lavos');
+    }
+  });
+});
