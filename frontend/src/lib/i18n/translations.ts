@@ -144,8 +144,8 @@ export const translations = {
     // Room
     loading: 'Loading...',
     startGame: 'Start Game',
-    leaveRoom: 'Leave Room',
-    leaveRoomWarning: 'You give up your seat. Your partner will have to invite you again.',
+    releaseGame: 'Leave the game',
+    gameReleasedNotice: '{name} left the game. You are both back home.',
     playerAway: 'away',
     roomGone: 'This room no longer exists.',
     joiningRoom: 'Joining room...',
@@ -504,8 +504,8 @@ export const translations = {
     // Room
     loading: 'Chargement...',
     startGame: 'Démarrer le jeu',
-    leaveRoom: 'Quitter le salon',
-    leaveRoomWarning: 'Tu rends ta place. Ton partenaire devra t\'inviter à nouveau.',
+    releaseGame: 'Quitter la partie',
+    gameReleasedNotice: '{name} a quitté la partie. Vous êtes tous les deux de retour à l’accueil.',
     playerAway: 'absent',
     roomGone: 'Ce salon n’existe plus.',
     joiningRoom: 'Connexion au salon...',

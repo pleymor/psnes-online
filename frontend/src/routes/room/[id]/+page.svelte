@@ -17,7 +17,6 @@
   import { inGame } from '$lib/stores/in-game';
   import SaveGrid from '$lib/components/SaveGrid.svelte';
   import type { SaveSummary } from '$lib/saves/api';
-  import ConfirmModal from '$lib/components/ConfirmModal.svelte';
   import type { Room } from '$lib/types';
   import { EmulationMode } from '$lib/types';
   import { defaultControlsConfig, normaliseControlsConfig, type ControlsConfig } from '$lib/controls/binding';
@@ -72,11 +71,11 @@
    * Set once the player has chosen to leave, and never unset.
    *
    * Forgetting the room on the way out is not enough on its own: quitting emits
-   * `game:stop`, the server answers `room:updated`, and that reassignment
-   * re-runs the note-keeping below - which wrote the note straight back after
-   * it had been cleared. Pressing Back then rebuilt the room the player had
-   * just left. The flag is what makes leaving stick against a reply still in
-   * flight.
+   * `room:release-game`, the server answers `room:updated`, and that
+   * reassignment re-runs the note-keeping below - which wrote the note
+   * straight back after it had been cleared. Pressing Back then rebuilt the
+   * room the player had just left. The flag is what makes leaving stick
+   * against a reply still in flight.
    */
   let departing = false;
 
@@ -485,28 +484,53 @@
   }
 
   /**
+   * Named to the partner: the other half of `room:release-game`.
+   *
+   * `game:stopped` already sends the partner home through `leaveGame` above -
+   * that is the path a component in a running game already unmounts through.
+   * This handler adds the one thing that path cannot say on its own: who did
+   * it. Skipped for my own release, which I already acted on locally the
+   * moment I clicked; `byUserId` is how the two are told apart.
+   *
+   * `departing` is set before the notification and the navigation, not after,
+   * so a `room:updated` still in flight cannot re-run the note-keeping at
+   * line 240 and fight the departure - the same reason `leaveGame` sets it
+   * first.
+   */
+  function handleGameReleased(payload: { byUserId: string; byPseudo: string }) {
+    if (payload.byUserId === $user?.id) return;
+
+    departing = true;
+    showNotification(t($language, 'gameReleasedNotice', { name: payload.byPseudo }), 'success');
+    goto('/');
+  }
+
+  /**
    * Leaving the game, from either of the two things that end one.
    *
    * The server's `game:stopped` is one of them, and it is the only one that can
    * reach the *other* player of a netplay room. The quitting player's own
    * button is the other, and it deliberately does not wait for the broadcast to
-   * come back: `game:stop` is a room-scoped event, and the server drops those
-   * without a word when it no longer has the room - which stopped being exotic
-   * the moment a room of one began dying with its player's window. The socket
-   * only has to go quiet for the ping timeout, which on a phone costs a tunnel
-   * or a lock screen, and the emulator runs entirely in the client and notices
-   * none of it. The player was then holding a game the server had no record of,
-   * with a quit button that could only ask permission from something with
-   * nothing left to answer. `lobby-protocol.test.ts` pins that silence.
+   * come back: `room:release-game` is a room-scoped event, and the server
+   * drops those without a word when it no longer has the room - which stopped
+   * being exotic the moment a room of one began dying with its player's
+   * window. The socket only has to go quiet for the ping timeout, which on a
+   * phone costs a tunnel or a lock screen, and the emulator runs entirely in
+   * the client and notices none of it. The player was then holding a game the
+   * server had no record of, with a quit button that could only ask
+   * permission from something with nothing left to answer.
+   * `lobby-protocol.test.ts` pins that silence for `game:stop`, the sibling
+   * event this one now stands in for on the way out of a game; both are
+   * guarded the same way, by `getMemberRoom`.
    *
    * So this runs locally first and is safe to run twice, because a player who
    * quits a live room runs it again when the broadcast does arrive: assigning
    * the same values, and `goto` to the page we are already on.
    *
-   * The rooms still emit `game:stop` themselves rather than leaving it here -
-   * they have their own ordering to keep around it, chiefly getting the battery
-   * save out while the server still counts them as a member - and then say so
-   * upwards, which is the `on:quit` below.
+   * The rooms still emit `room:release-game` themselves rather than leaving it
+   * here - they have their own ordering to keep around it, chiefly getting the
+   * battery save out while the server still counts them as a member - and then
+   * say so upwards, which is the `on:quit` below.
    */
   function leaveGame() {
     activeEmulationMode = null;
@@ -616,7 +640,8 @@
       onError: handleSocketError,
       onStarted: handleGameStarted,
       onReconnect: handleReconnect,
-      onStopped: leaveGame
+      onStopped: leaveGame,
+      onGameReleased: handleGameReleased
     });
   });
 
@@ -647,23 +672,32 @@
     $socket?.emit('game:start', { roomId });
   }
 
-  let confirmingLeave = false;
-
-  /*
-   * The only path that gives up a seat.
+  /**
+   * The lobby's own quit button.
    *
-   * This used to be a bare `goto('/')`, because `onDestroy` emitted
-   * `room:leave` for it - which is exactly the coupling this release removes.
-   * With the unmount silent, the event has to be sent from here or nobody could
-   * ever give up a seat at all.
+   * The same action as quitting a running game (the product decision behind
+   * this whole release): it detaches the room's game and sends both players
+   * home, and never touches membership - the group survives. No confirmation,
+   * for the same reason a game's own quit button has none: this is that
+   * action, not the group-dissolving one `leaveRoom` used to be.
    *
-   * Confirmed because it is not undoable from this side: the other player has
-   * to invite you again, and if you were the last one out the room goes with
-   * its invitations.
+   * There is no component's own `quitToLobby` to call this from - the button
+   * lives on this page - so it emits `room:release-game` itself, exactly as
+   * `quitToLobby` does from inside a game.
    */
-  function leaveRoom() {
-    confirmingLeave = false;
-    $socket?.emit('room:leave', { roomId });
+  function releaseGame() {
+    $socket?.emit('room:release-game', { roomId });
+
+    /*
+     * A room of one still gives up its seat on the way out - see the comment
+     * on the matching check in `leaveGame`. A lobby that never started a game
+     * is still a room, and one nobody else was ever in is still worth reaping
+     * rather than leaving behind.
+     */
+    if ((room?.players.length ?? 0) <= 1) {
+      $socket?.emit('room:leave', { roomId });
+    }
+
     // Chosen, so never rebuilt. Same reason as in `leaveGame`.
     departing = true;
     forgetRoom();
@@ -797,8 +831,8 @@
           <button on:click={startGame} class="btn-start" disabled={!canStartGame || !room.gameId}>
             {t($language, 'startGame')}
           </button>
-          <button on:click={() => (confirmingLeave = true)} class="btn-leave">
-            {t($language, 'leaveRoom')}
+          <button on:click={releaseGame} class="btn-leave">
+            {t($language, 'releaseGame')}
           </button>
         </div>
 
@@ -874,17 +908,6 @@
     </div>
   {/if}
 </div>
-
-{#if confirmingLeave}
-  <ConfirmModal
-    title={t($language, 'leaveRoom')}
-    message={t($language, 'leaveRoomWarning')}
-    confirmText={t($language, 'leaveRoom')}
-    danger={true}
-    on:confirm={leaveRoom}
-    on:cancel={() => (confirmingLeave = false)}
-  />
-{/if}
 
 <style>
   .room-container {

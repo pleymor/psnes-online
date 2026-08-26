@@ -67,12 +67,15 @@ export function deriveRoomView(room: Room | null, userId: string | undefined): R
  * only shows up after several room changes, which is what made it hard to find
  * the first time.
  *
- * Five events, not three - `onMount` also rejoins on `connect` (the socket
- * reconnects on its own, but `room:join` does not replay itself) and leaves
- * the game on `game:stopped` (the only path that can reach the *other* player
- * of a netplay room when the match ends). Both are as much a part of the
- * subscription's lifetime as the other three, and both used to be paired with
- * their own `off` in `onDestroy`.
+ * Six events, not three - `onMount` also rejoins on `connect` (the socket
+ * reconnects on its own, but `room:join` does not replay itself), leaves the
+ * game on `game:stopped` (the only path that can reach the *other* player of
+ * a netplay room when the match ends), and leaves the room page itself on
+ * `room:gameReleased` (the only path that can reach the *other* player when
+ * the game is detached from the room, whether from a running game's pause
+ * menu or the idle lobby). All three are as much a part of the subscription's
+ * lifetime as the natural three, and all three used to be paired with their
+ * own `off` in `onDestroy`.
  *
  * Every removal names its own handler, `connect` included: the socket is
  * shared, so a bare `off('connect')` would take the reconnection banner and
@@ -86,18 +89,21 @@ export function subscribeToRoom(opts: {
 	onStarted: () => void;
 	onReconnect: () => void;
 	onStopped: () => void;
+	onGameReleased: (payload: { byUserId: string; byPseudo: string }) => void;
 }): () => void {
 	const { socket } = opts;
 	socket.on('connect', opts.onReconnect);
 	socket.on('room:updated', opts.onRoom);
 	socket.on('game:started', opts.onStarted);
 	socket.on('game:stopped', opts.onStopped);
+	socket.on('room:gameReleased', opts.onGameReleased);
 	socket.on('error', opts.onError);
 	return () => {
 		socket.off('connect', opts.onReconnect);
 		socket.off('room:updated', opts.onRoom);
 		socket.off('game:started', opts.onStarted);
 		socket.off('game:stopped', opts.onStopped);
+		socket.off('room:gameReleased', opts.onGameReleased);
 		socket.off('error', opts.onError);
 	};
 }

@@ -706,12 +706,12 @@
   async function handleQuit(): Promise<void> {
     // Save SRAM before quitting
     await saveSRAM();
-    $socket?.emit('game:stop', { roomId });
-    // Said upwards rather than waited for. `game:stop` is how the server and
-    // any partner hear about this, but the room page leaves on its own: a
-    // room-scoped event naming a room the server no longer has is dropped in
-    // silence, and then a quit that waited for `game:stopped` would never
-    // come back at all. See the page's own `leaveGame`.
+    $socket?.emit('room:release-game', { roomId });
+    // Said upwards rather than waited for. `room:release-game` is how the
+    // server and any partner hear about this, but the room page leaves on its
+    // own: a room-scoped event naming a room the server no longer has is
+    // dropped in silence, and then a quit that waited for `game:stopped`
+    // would never come back at all. See the page's own `leaveGame`.
     dispatch('quit');
   }
 

@@ -220,6 +220,45 @@ export function registerRoomHandlers(
     logger.info({ roomId: room.id, gameId: game.gameId, by: user.pseudo }, 'Room game chosen');
   });
 
+  // Release the room's game - the inverse of `room:choose-game`.
+  //
+  // Quitting a game or a lobby no longer quits the group: it only detaches
+  // the game from the room, so both members land back on the home screen
+  // still able to pick another game together. Leaving the group itself is a
+  // home-screen action now (`leaveGroup`); this handler never touches
+  // membership.
+  socket.on('room:release-game', async (data: { roomId: string }) => {
+    const room = getMemberRoom(rooms, data?.roomId, user.id, 'room:release-game');
+    if (!room) {
+      socket.emit('error', { message: 'Room not found' });
+      return;
+    }
+
+    room.gameId = undefined;
+    room.gameTitle = undefined;
+    room.gameCoverUrl = undefined;
+    room.gameCrc32 = undefined;
+    room.resumeSaveId = undefined;
+    room.resumeSaveName = undefined;
+
+    // Same reset as `game:stop` (game-handlers.ts): a seated player is ready
+    // again, an unseated one is not. This handler can fire mid-game, so it
+    // has to leave the room in the same state `game:stop` would.
+    room.status = 'waiting';
+    room.players.forEach(p => {
+      p.isReady = p.port !== null;
+    });
+
+    // Lets a component already mounted on a running game unmount through the
+    // path it already listens for, instead of this event teaching it a
+    // second way to do the same thing.
+    io.to(room.id).emit('game:stopped');
+    io.to(room.id).emit('room:gameReleased', { byUserId: user.id, byPseudo: user.pseudo });
+    io.to(room.id).emit('room:updated', room);
+    await broadcastRoomUpdate(io, room, getUserSocket);
+    logger.info({ roomId: room.id, by: user.pseudo }, 'Room game released');
+  });
+
   // Leave room
   socket.on('room:leave', (data: { roomId: string }) => {
     // The only path that gives up a seat. A dropped socket no longer comes

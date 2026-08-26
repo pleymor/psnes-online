@@ -8,6 +8,7 @@ import {
 // Events a non-member must never be able to trigger on someone else's room.
 const HOSTILE_EVENTS = (roomId: string): Array<[string, unknown]> => [
   ['game:stop', { roomId }],
+  ['room:release-game', { roomId }],
   ['game:pause', { roomId }],
   ['game:start', { roomId }],
   ['game:setSpeed', { roomId, speed: 4 }],
@@ -20,7 +21,7 @@ const HOSTILE_EVENTS = (roomId: string): Array<[string, unknown]> => [
 
 // Events the host would observe if any of the above took effect.
 const LEAK_EVENTS = [
-  'game:stopped', 'game:paused', 'game:started', 'game:loaded',
+  'game:stopped', 'room:gameReleased', 'game:paused', 'game:started', 'game:loaded',
   'game:speedChanged', 'p2p:peer-joined', 'webrtc:signal', 'sync:result'
 ];
 
