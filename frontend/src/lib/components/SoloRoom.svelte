@@ -118,7 +118,16 @@
   let shaderNotice: string | null = null;
   let shaderSwapToken = 0;
 
+  /**
+   * Fast-forward, latched from the pause menu.
+   *
+   * Distinct from `turboHeld` below because the two are different gestures on
+   * the same setting, and either one alone must be able to turn it on. The
+   * emulator runs fast if either says so; see the `$:` that applies the union.
+   */
   let turbo = false;
+  /** Fast-forward for as long as a thumb is on the touch pad's button. */
+  let turboHeld = false;
   let showPauseMenu = false;
   let pauseRestoresFullscreen = false;
   let isFullscreen = false;
@@ -638,9 +647,37 @@
    */
   function toggleTurbo(): void {
     turbo = !turbo;
-    governor?.setTurbo(turbo);
-    audio?.setMuted(turbo);
   }
+
+  /**
+   * The union, applied wherever it lands.
+   *
+   * Reactive rather than pushed from each handler, because there are two ways
+   * in - a menu entry that latches and a pad button that is held - and the
+   * governor must never be told one of them in isolation. Releasing the button
+   * therefore does not cancel a fast-forward the menu had switched on, which
+   * is the whole reason this is a union and not a single flag.
+   *
+   * It also re-runs when `governor` and `audio` are assigned during boot, which
+   * is how a state set before they existed reaches them.
+   */
+  $: {
+    const fast = turbo || turboHeld;
+    governor?.setTurbo(fast);
+    audio?.setMuted(fast);
+  }
+
+  /*
+   * A button that is gone cannot be released.
+   *
+   * The touch pad is unmounted whenever the pause menu opens, and unmounting
+   * fires no `pointerup` - so a thumb still on fast-forward when the menu came
+   * up would leave the game running at four times speed with nothing holding
+   * it and nothing to let go of. The component says so on its way out too;
+   * this is the half that cannot be missed, because it is derived from whether
+   * the pad is on screen at all rather than from an event.
+   */
+  $: if (!showTouchPad || showPauseMenu) turboHeld = false;
 
   function onKeyDown(event: KeyboardEvent): void {
     if (event.altKey && event.key === 'Enter') {
@@ -811,7 +848,7 @@
       component knows neither: it fills the box it is given.
     -->
     <div class="touch-zone">
-      <TouchControls pad={touchPad} />
+      <TouchControls pad={touchPad} canTurbo={true} on:turbo={(e) => (turboHeld = e.detail)} />
     </div>
   {/if}
 

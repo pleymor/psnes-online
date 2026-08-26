@@ -12,12 +12,24 @@
    * only asks for a direction, and it is the same twelve-bit mask either way -
    * the emulated machine still sees a d-pad.
    */
-  import { onDestroy } from 'svelte';
+  import { onDestroy, createEventDispatcher } from 'svelte';
   import type { Button } from '$lib/controls/binding';
   import type { FaceTarget, TouchPad } from '$lib/controls/touch';
   import { facesAt } from '$lib/controls/touch';
 
   export let pad: TouchPad;
+
+  /**
+   * Whether to offer fast-forward, which only solo can answer for.
+   *
+   * False by default because lockstep must not: the clock is agreed between
+   * two peers, and one of them running four times faster is the same thing as
+   * one of them stalling. `FrameGovernor.setTurbo` exists there and nothing
+   * calls it, for exactly this reason.
+   */
+  export let canTurbo = false;
+
+  const dispatch = createEventDispatcher<{ turbo: boolean }>();
 
   /**
    * Which buttons are lit. The drawing only: the emulator reads `pad`, never
@@ -59,6 +71,34 @@
     } catch {
       // Uncapturable pointer: the press still counts.
     }
+  }
+
+  /**
+   * Fast-forward, held rather than latched.
+   *
+   * Reported as a plain boolean instead of going through `pad`, because it is
+   * not a button on the emulated machine - nothing in the twelve-bit mask says
+   * "run faster". The room decides what to do with it.
+   *
+   * `turboHeld` is tracked here only so the release is idempotent: a
+   * `pointercancel` after a `pointerup` would otherwise report a release
+   * nobody was holding, which is harmless today and the sort of thing that
+   * stops being harmless once something counts them.
+   */
+  let turboHeld = false;
+
+  function turboDown(event: PointerEvent) {
+    capture(event);
+    event.preventDefault();
+    if (turboHeld) return;
+    turboHeld = true;
+    dispatch('turbo', true);
+  }
+
+  function turboUp() {
+    if (!turboHeld) return;
+    turboHeld = false;
+    dispatch('turbo', false);
   }
 
   function release(button: Button) {
@@ -109,7 +149,14 @@
   }
 
   // Whatever is under a thumb when the room goes away never gets its release.
-  onDestroy(() => pad.releaseAll());
+  onDestroy(() => {
+    pad.releaseAll();
+    // Unmounting fires no `pointerup`, and this component is unmounted the
+    // moment the pause menu opens - so a thumb still on fast-forward would
+    // leave the game running at four times speed with nothing holding it. The
+    // room clears its own copy too; this is the half that belongs here.
+    turboUp();
+  });
 
   /**
    * Which face buttons each thumb currently holds.
@@ -208,6 +255,22 @@
     on:pointerup={() => release('r')}
     on:pointercancel={() => release('r')}
   >R</button>
+
+  {#if canTurbo}
+    <!--
+      Against the diamond's inner edge, so the right thumb can reach it from
+      the face buttons without leaving the pad's playing half.
+    -->
+    <button
+      type="button"
+      class="turbo"
+      class:on={turboHeld}
+      aria-label="Fast-forward"
+      on:pointerdown={turboDown}
+      on:pointerup={turboUp}
+      on:pointercancel={turboUp}
+    >&gt;&gt;</button>
+  {/if}
 
   <div
     class="stick"
@@ -423,6 +486,49 @@
     letter-spacing: 0.06em;
   }
 
+  /*
+   * The middle column of the playing row, hugging the diamond.
+   *
+   * Two placements were measured first and both cost something. Above the
+   * diamond: in landscape the diamond's height is bound by `cqh`, not `cqw` -
+   * 163px of a 272px band once the top row and the padding have taken theirs -
+   * so a button stacked over it comes straight off the control the previous
+   * change had just widened, and it still overlapped by 13px. Beside R in the
+   * top row: no vertical cost, but at 390px of portrait, L plus the centred
+   * pills plus R already want more width than there is, and it landed 33px
+   * inside the pills.
+   *
+   * This column is the one place that costs nothing either way. It is `auto`
+   * and was empty, and the stick and the diamond are pinned to the outer edges
+   * and sized from the container rather than from their columns - so widening
+   * this one eats slack between them and takes nothing from either. There is
+   * 420px of that slack in landscape and 84px in portrait.
+   */
+  .turbo {
+    grid-row: 2;
+    grid-column: 2;
+    align-self: center;
+    /* Toward the diamond rather than centred in the gap: the right thumb is
+       the one that reaches here, and it starts on the face buttons. Not right
+       up against it, though - `justify-self` alone left 6px between this and
+       Y, and a thumb is wider than that. `facesAt` resolves a touch by its
+       point, so those 6px are the difference between reaching for Y and
+       fast-forwarding by accident. */
+    justify-self: end;
+    margin-right: 0.75rem;
+    letter-spacing: 0.08em;
+    /* Declared twice, as everything here is: see .shoulder for why. */
+    height: 1.9rem;
+    height: min(15cqh, 8cqw);
+    min-height: 1.5rem;
+    width: 3.4rem;
+    width: min(14cqw, 4rem);
+    font-size: 0.9rem;
+    font-size: clamp(0.75rem, min(10cqh, 4.5cqw), 1.1rem);
+    border-radius: 999px;
+    line-height: 1;
+  }
+
   .faces {
     grid-row: 2;
     grid-column: 3;
@@ -472,6 +578,9 @@
        * picture on a screen narrower than the one this was measured on.
        */
       --margin: calc((100vw - 114.3vh) / 2 - 0.75rem);
+      /* Named because fast-forward is placed just past L and must not drift
+         from L's actual width if that ever changes. */
+      --shoulder-w: min(26cqw, 7rem, var(--margin));
 
       grid-template-rows: auto 1fr auto;
       /* Only the controls take touches: a double-click on the picture has to
@@ -507,7 +616,43 @@
       height: 1.9rem;
       height: min(13cqh, 7cqw);
       width: 6rem;
-      width: min(26cqw, 7rem, var(--margin));
+      width: var(--shoulder-w);
+    }
+
+    /*
+     * Into the left margin, under the stick.
+     *
+     * This layout exists to keep the controls off the picture - that is what
+     * the `--margin` sizing above is for, and what `pointer-events: none` on
+     * the pad protects. The middle column, which is where fast-forward sits in
+     * every other shape, is precisely the picture here, so it cannot stay
+     * there. The right margin is already full: the diamond takes 161 of the
+     * 195px this row has. The left has room, because the stick is the smaller
+     * of the two - 125px, leaving about 70 under it.
+     *
+     * Beside L rather than under the stick, and that is measured rather than
+     * taste. Under the stick looks better and does not fit: the row's 70px of
+     * slack is split above and below a stick the grid centres, so what is
+     * free under it is 35 - which left 8px between a thumb-sized button and
+     * the stick a thumb is already dragging. Up here the row is `auto` and
+     * sized by the shoulders, which are taller than this, so it costs nothing;
+     * and the margin has 69px left once L has taken its 112 of 187.
+     *
+     * The left index finger is already on L, which is a better home for a
+     * button held down than any thumb reach: both thumbs stay on the stick and
+     * the diamond while the game runs fast.
+     */
+    .turbo {
+      grid-row: 1;
+      grid-column: 1;
+      justify-self: start;
+      align-self: center;
+      margin: 0 0 0 calc(var(--shoulder-w) + 0.4rem);
+      height: 1.6rem;
+      height: min(11cqh, 5.5cqw);
+      min-height: 1.4rem;
+      width: 3rem;
+      width: min(20cqw, 3.5rem);
     }
   }
 
