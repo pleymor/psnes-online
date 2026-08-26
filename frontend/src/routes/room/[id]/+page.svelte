@@ -24,6 +24,7 @@
   import { rememberRoom, recallRoom, forgetRoom } from '$lib/rooms/remembered-room';
   import { deriveRoomView, subscribeToRoom } from '$lib/rooms/room-session';
   import { createLogger } from '$lib/utils/logger';
+  import { notifications } from '$lib/services/notification';
 
   const logger = createLogger('RoomPage');
 
@@ -501,7 +502,16 @@
     if (payload.byUserId === $user?.id) return;
 
     departing = true;
-    showNotification(t($language, 'gameReleasedNotice', { name: payload.byPseudo }), 'success');
+    /*
+     * The layout's toast, not this page's own.
+     *
+     * `showNotification` writes to a `showToast` this page renders itself, and
+     * the `goto` below unmounts it about a frame later - so the partner was
+     * told nothing, which is the exact silence the notice exists to prevent.
+     * `NotificationToast` is mounted once in `+layout.svelte`, outside the
+     * slot, precisely so a toast can outlive the screen that raised it.
+     */
+    notifications.show(t($language, 'gameReleasedNotice', { name: payload.byPseudo }), 'info', 5000);
     goto('/');
   }
 
