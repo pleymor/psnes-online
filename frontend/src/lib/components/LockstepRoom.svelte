@@ -17,8 +17,10 @@
   import type { KeyConfig } from '$lib/types';
   import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
-  import { toBase64, fromBase64 } from '$lib/saves/base64';
+  import { fromBase64 } from '$lib/saves/base64';
   import { setLogLabels } from '$lib/utils/log-shipper';
+  import { encodeSram, decodeSram } from '$lib/rooms/sram';
+  import { applyInputSources } from '$lib/rooms/input-sources';
   import PauseMenu from './PauseMenu.svelte';
   import { language, type Language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
@@ -426,12 +428,11 @@
    * direction is sent to the other player too.
    */
   function applySources(): void {
-    assignments = loadAssignments(localStorage);
-    const pads = connectedPads();
-    collector?.setSources(resolveSources(assignments, pads).p1);
+    const applied = applyInputSources(localStorage, [collector]);
+    assignments = applied.assignments;
     // Plugging a controller into a tablet takes the drawn one away, and
     // unplugging it brings it back: this runs on both gamepad events.
-    showTouchPad = touchPadWanted(pads.length);
+    showTouchPad = touchPadWanted(applied.padCount);
   }
 
   function closePauseMenu() {
@@ -911,7 +912,7 @@
         sock.off('game:sramLoaded', onLoaded);
         try {
           if (payload?.sramData && core) {
-            const bytes = fromBase64(payload.sramData);
+            const bytes = decodeSram(payload.sramData);
             core.loadSram(bytes);
             logger.info('Battery save restored', { bytes: bytes.length });
           }
@@ -934,10 +935,10 @@
    */
   function persistSram() {
     if (!isHost || !core || !$socket) return;
-    const sram = core.sram();
-    if (sram.length === 0) return;
+    const sramData = encodeSram(core);
+    if (!sramData) return;
 
-    $socket.emit('game:saveSram', { roomId, sramData: toBase64(sram) });
+    $socket.emit('game:saveSram', { roomId, sramData });
   }
 
   function onSaveLoaded(payload: { saveData?: string; name?: string }) {

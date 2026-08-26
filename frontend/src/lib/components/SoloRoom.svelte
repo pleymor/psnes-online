@@ -15,8 +15,10 @@
   import { goto } from '$app/navigation';
   import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
-  import { toBase64, fromBase64 } from '$lib/saves/base64';
+  import { fromBase64 } from '$lib/saves/base64';
   import { setLogLabels } from '$lib/utils/log-shipper';
+  import { encodeSram, decodeSram } from '$lib/rooms/sram';
+  import { applyInputSources } from '$lib/rooms/input-sources';
   import { socket } from '$lib/api/socket';
   import LocateRom from './LocateRom.svelte';
   import TouchControls from './TouchControls.svelte';
@@ -272,14 +274,11 @@
    * session.
    */
   function applySources(): void {
-    assignments = loadAssignments(localStorage);
-    const pads = connectedPads();
-    const sources = resolveSources(assignments, pads);
-    collector1?.setSources(sources.p1);
-    collector2?.setSources(sources.p2);
+    const applied = applyInputSources(localStorage, [collector1, collector2]);
+    assignments = applied.assignments;
     // Plugging a controller into a tablet takes the drawn one away, and
     // unplugging it brings it back: this runs on both gamepad events.
-    showTouchPad = touchPadWanted(pads.length);
+    showTouchPad = touchPadWanted(applied.padCount);
   }
 
   /** Finds the ROM locally, then asks the player. There is no host to ask. */
@@ -340,7 +339,7 @@
         clearTimeout(timeoutHandle);
         try {
           if (data.sramData) {
-            const bytes = fromBase64(data.sramData);
+            const bytes = decodeSram(data.sramData);
             core!.loadSram(bytes);
             logger.info('Battery save restored', { bytes: bytes.length });
             sramLoaded = true;
@@ -437,9 +436,9 @@
   function persistSram(): void {
     if (!sramLoaded) return;
     if (!core || !$socket) return;
-    const sram = core.sram();
-    if (sram.length === 0) return;
-    $socket.emit('game:saveSram', { roomId, sramData: toBase64(sram) });
+    const sramData = encodeSram(core);
+    if (!sramData) return;
+    $socket.emit('game:saveSram', { roomId, sramData });
   }
 
   async function boot() {
