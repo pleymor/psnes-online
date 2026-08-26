@@ -20,6 +20,7 @@
   import { encodeSram, decodeSram } from '$lib/rooms/sram';
   import { applyInputSources } from '$lib/rooms/input-sources';
   import { createRendererSurface, type SurfaceState } from '$lib/rooms/renderer-surface';
+  import { createFullscreen } from '$lib/rooms/fullscreen';
   import { socket } from '$lib/api/socket';
   import LocateRom from './LocateRom.svelte';
   import TouchControls from './TouchControls.svelte';
@@ -135,6 +136,24 @@
   let isFullscreen = false;
   let sramTimer: ReturnType<typeof setInterval> | null = null;
   let container: HTMLDivElement;
+
+  // Solo has no toolbar to hide and never opens its menu on a fullscreen
+  // change we did not ask for, so the deliberate/Escape distinction the
+  // module also reports is simply unused here.
+  const fullscreen = createFullscreen({
+    element: () => container,
+    onChange: (active) => {
+      isFullscreen = active;
+    }
+  });
+
+  async function toggleFullscreen(): Promise<void> {
+    try {
+      await fullscreen.toggle();
+    } catch (err) {
+      logger.error('Could not toggle fullscreen', err);
+    }
+  }
 
   /**
    * Whether the battery save was actually read back from the server.
@@ -538,19 +557,6 @@
     needsAudioGesture = audio?.needsGesture ?? false;
   }
 
-  async function toggleFullscreen(): Promise<void> {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await container?.requestFullscreen();
-    } catch (err) {
-      logger.error('Could not toggle fullscreen', err);
-    }
-  }
-
-  function onFullscreenChange(): void {
-    isFullscreen = document.fullscreenElement !== null;
-  }
-
   /**
    * Opens the pause menu and actually pauses.
    *
@@ -741,12 +747,12 @@
     renderer = null;
     core?.dispose();
     core = null;
-    document.removeEventListener('fullscreenchange', onFullscreenChange);
+    fullscreen.detach();
     window.removeEventListener('keydown', onKeyDown);
   }
 
   onMount(() => {
-    document.addEventListener('fullscreenchange', onFullscreenChange);
+    fullscreen.attach();
     window.addEventListener('keydown', onKeyDown);
     void boot();
   });

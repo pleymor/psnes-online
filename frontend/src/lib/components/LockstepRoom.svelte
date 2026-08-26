@@ -22,6 +22,8 @@
   import { encodeSram, decodeSram } from '$lib/rooms/sram';
   import { applyInputSources } from '$lib/rooms/input-sources';
   import { createRendererSurface, type SurfaceState } from '$lib/rooms/renderer-surface';
+  import { createFullscreen } from '$lib/rooms/fullscreen';
+  import { createChromeAutohide } from '$lib/rooms/chrome-autohide';
   import PauseMenu from './PauseMenu.svelte';
   import { language, type Language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
@@ -195,13 +197,6 @@
    * two players can be in different states without any risk to the lockstep.
    */
   let isFullscreen = false;
-  /**
-   * Distinguishes a fullscreen change we asked for from one Escape forced on
-   * us. The browser exits fullscreen on Escape and swallows the keydown, so
-   * without this flag there is no way to tell "the player wanted out" from
-   * "the player asked for the menu" - and the menu would never open.
-   */
-  let deliberateFullscreenChange = false;
   /** Set when the menu was opened from fullscreen, so resuming can go back. */
   let wasFullscreen = false;
 
@@ -213,17 +208,45 @@
    */
   const CHROME_IDLE_MS = 2500;
   let chromeVisible = true;
-  let chromeTimer: ReturnType<typeof setTimeout> | null = null;
-  /**
-   * Whether the pointer or the focus is on the toolbar itself.
-   *
-   * A pointer resting on a button sends no further mousemove, so the countdown
-   * would hide the very control the player is reaching for - and a hidden
-   * toolbar takes `pointer-events: none`, so CSS `:hover` cannot rescue it.
-   * The hold has to be tracked here, where it can stop the timer.
-   */
-  let chromeHeld = false;
 
+  const chrome = createChromeAutohide({
+    idleMs: CHROME_IDLE_MS,
+    onVisibility: (visible) => (chromeVisible = visible)
+  });
+
+  const fullscreen = createFullscreen({
+    element: () => stage,
+    onChange: (active, deliberate) => {
+      isFullscreen = active;
+      if (active) {
+        chrome.reveal(true);
+        return;
+      }
+      // Matches the original: only the timer and visibility reset here, not
+      // `chrome`'s own hold state - a hover on the toolbar that is still held
+      // when fullscreen drops must still be held the next time it opens.
+      chrome.reveal(false);
+      // The only way out of fullscreen we did not ask for is Escape, which in
+      // this room means "open the menu" - and the keydown never reached us.
+      if (!deliberate) openPauseMenu(true);
+    }
+  });
+
+  async function toggleFullscreen(): Promise<void> {
+    try {
+      await fullscreen.toggle();
+    } catch (err) {
+      logger.error('Could not toggle fullscreen', err);
+    }
+  }
+
+  /**
+   * Cheap guard on a listener that fires on every mouse move in the page: out
+   * of fullscreen the toolbar is in normal flow and there is nothing to show.
+   */
+  function onPointerActivity(): void {
+    if (isFullscreen) chrome.reveal(true);
+  }
 
   /**
    * Mirrors a renderer-surface change into the plain `let`s Svelte tracks.
@@ -329,12 +352,11 @@
     // the toolbar. pointerdown covers touch, which sends no mousemove.
     window.addEventListener('mousemove', onPointerActivity);
     window.addEventListener('pointerdown', onPointerActivity);
-    document.addEventListener('fullscreenchange', onFullscreenChange);
+    fullscreen.attach();
     return () => {
       window.removeEventListener('keydown', onGlobalKey);
       window.removeEventListener('mousemove', onPointerActivity);
       window.removeEventListener('pointerdown', onPointerActivity);
-      document.removeEventListener('fullscreenchange', onFullscreenChange);
     };
   });
 
@@ -405,12 +427,7 @@
     // Still inside the click that dispatched 'resume', so the browser counts
     // this as a user gesture. Reached from a gamepad it is not, and the
     // request is refused - hence the swallowed rejection rather than a throw.
-    if (wasFullscreen && !document.fullscreenElement) {
-      deliberateFullscreenChange = true;
-      stage?.requestFullscreen().catch(() => {
-        deliberateFullscreenChange = false;
-      });
-    }
+    if (wasFullscreen) fullscreen.restore();
     wasFullscreen = false;
   }
 
@@ -447,10 +464,7 @@
     // Leave the picture before leaving the room: a lobby rendered fullscreen
     // is not what anyone asked for.
     wasFullscreen = false;
-    if (document.fullscreenElement) {
-      deliberateFullscreenChange = true;
-      void document.exitFullscreen().catch(() => {});
-    }
+    if (document.fullscreenElement) void fullscreen.toggle().catch(() => {});
     closePauseMenu();
     $socket?.emit('game:stop', { roomId });
     // Said upwards rather than waited for. `game:stop` is how the server and
@@ -459,65 +473,6 @@
     // silence, and then a quit that waited for `game:stopped` would never
     // come back at all. See the page's own `leaveGame`.
     dispatch('quit');
-  }
-
-  async function toggleFullscreen() {
-    deliberateFullscreenChange = true;
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await stage?.requestFullscreen();
-    } catch (err) {
-      deliberateFullscreenChange = false;
-      logger.error('Could not toggle fullscreen', err);
-    }
-  }
-
-  function onFullscreenChange() {
-    const deliberate = deliberateFullscreenChange;
-    deliberateFullscreenChange = false;
-    isFullscreen = !!document.fullscreenElement;
-
-    if (isFullscreen) {
-      revealChrome();
-      return;
-    }
-
-    if (chromeTimer) clearTimeout(chromeTimer);
-    chromeTimer = null;
-    chromeVisible = true;
-    // The only way out of fullscreen we did not ask for is Escape, which in
-    // this room means "open the menu" - and the keydown never reached us.
-    if (!deliberate) openPauseMenu(true);
-  }
-
-  /**
-   * Cheap guard on a listener that fires on every mouse move in the page: out
-   * of fullscreen the toolbar is in normal flow and there is nothing to show.
-   */
-  function onPointerActivity() {
-    if (isFullscreen) revealChrome();
-  }
-
-  /** Shows the toolbar and restarts the countdown that hides it again. */
-  function revealChrome() {
-    chromeVisible = true;
-    if (chromeTimer) clearTimeout(chromeTimer);
-    chromeTimer = null;
-    if (!isFullscreen || chromeHeld) return;
-    chromeTimer = setTimeout(() => {
-      chromeTimer = null;
-      chromeVisible = false;
-    }, CHROME_IDLE_MS);
-  }
-
-  function holdChrome() {
-    chromeHeld = true;
-    revealChrome();
-  }
-
-  function releaseChrome() {
-    chromeHeld = false;
-    revealChrome();
   }
 
   onDestroy(() => {
@@ -1200,8 +1155,8 @@
     destroyed = true;
     if (stallTimer) clearTimeout(stallTimer);
     stallTimer = null;
-    if (chromeTimer) clearTimeout(chromeTimer);
-    chromeTimer = null;
+    chrome.stop();
+    fullscreen.detach();
     persistSram();
     if (sramTimer) clearInterval(sramTimer);
     sramTimer = null;
@@ -1311,10 +1266,10 @@
     class="bar"
     role="group"
     aria-label="Emulator controls"
-    on:mouseenter={holdChrome}
-    on:mouseleave={releaseChrome}
-    on:focusin={holdChrome}
-    on:focusout={releaseChrome}
+    on:mouseenter={chrome.hold}
+    on:mouseleave={chrome.release}
+    on:focusin={chrome.hold}
+    on:focusout={chrome.release}
   >
     {#if needsAudioGesture}
       <button class="action" on:click={enableAudio}>Enable sound</button>
@@ -1377,7 +1332,7 @@
   {/if}
 
   {#if showStats && stats}
-    <dl class="stats" on:mouseenter={holdChrome} on:mouseleave={releaseChrome}>
+    <dl class="stats" on:mouseenter={chrome.hold} on:mouseleave={chrome.release}>
       <div><dt>Frame</dt><dd>{stats.frame}</dd></div>
       <div><dt>Round trip</dt><dd>{stats.rtt ? `${Math.round(stats.rtt)} ms` : '—'}</dd></div>
       <!-- Next to the round trip on purpose: latency alone costs a one-off offset
