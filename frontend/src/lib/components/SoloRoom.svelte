@@ -11,7 +11,7 @@
    * showed a "LATENCE" panel built for comparing streaming against dual, and
    * why it had none of the toolbar the lockstep room grew.
    */
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { goto } from '$app/navigation';
   import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
@@ -72,6 +72,7 @@
   export let allowLocalPlayer2 = true;
 
   const logger = createLogger('SoloRoom');
+  const dispatch = createEventDispatcher();
 
   /**
    * One canvas per context type.
@@ -674,6 +675,12 @@
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     closePauseMenu();
     $socket?.emit('game:stop', { roomId });
+    // Said upwards rather than waited for. `game:stop` is how the server and
+    // any partner hear about this, but the room page leaves on its own: a
+    // room-scoped event naming a room the server no longer has is dropped in
+    // silence, and then a quit that waited for `game:stopped` would never
+    // come back at all. See the page's own `leaveGame`.
+    dispatch('quit');
   }
 
   function teardown() {

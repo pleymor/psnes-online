@@ -476,6 +476,12 @@
     }
     closePauseMenu();
     $socket?.emit('game:stop', { roomId });
+    // Said upwards rather than waited for. `game:stop` is how the server and
+    // any partner hear about this, but the room page leaves on its own: a
+    // room-scoped event naming a room the server no longer has is dropped in
+    // silence, and then a quit that waited for `game:stopped` would never
+    // come back at all. See the page's own `leaveGame`.
+    dispatch('quit');
   }
 
   async function toggleFullscreen() {

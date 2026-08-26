@@ -363,7 +363,31 @@
     enterGame(effectiveEmulationMode ?? EmulationMode.SINGLE);
   }
 
-  function handleGameStopped() {
+  /**
+   * Leaving the game, from either of the two things that end one.
+   *
+   * The server's `game:stopped` is one of them, and it is the only one that can
+   * reach the *other* player of a netplay room. The quitting player's own
+   * button is the other, and it deliberately does not wait for the broadcast to
+   * come back: `game:stop` is a room-scoped event, and the server drops those
+   * without a word when it no longer has the room - which stopped being exotic
+   * the moment a room of one began dying with its player's window. The socket
+   * only has to go quiet for the ping timeout, which on a phone costs a tunnel
+   * or a lock screen, and the emulator runs entirely in the client and notices
+   * none of it. The player was then holding a game the server had no record of,
+   * with a quit button that could only ask permission from something with
+   * nothing left to answer. `lobby-protocol.test.ts` pins that silence.
+   *
+   * So this runs locally first and is safe to run twice, because a player who
+   * quits a live room runs it again when the broadcast does arrive: assigning
+   * the same values, and `goto` to the page we are already on.
+   *
+   * The rooms still emit `game:stop` themselves rather than leaving it here -
+   * they have their own ordering to keep around it, chiefly getting the battery
+   * save out while the server still counts them as a member - and then say so
+   * upwards, which is the `on:quit` below.
+   */
+  function leaveGame() {
     activeEmulationMode = null;
     inGame.set(false);
     // Restore scrolling
@@ -462,7 +486,7 @@
     sock.on('connect', handleReconnect);
     sock.on('room:updated', handleRoomUpdated);
     sock.on('game:started', handleGameStarted);
-    sock.on('game:stopped', handleGameStopped);
+    sock.on('game:stopped', leaveGame);
     sock.on('error', handleSocketError);
   });
 
@@ -485,7 +509,7 @@
       $socket.off('connect', handleReconnect);
       $socket.off('room:updated', handleRoomUpdated);
       $socket.off('game:started', handleGameStarted);
-      $socket.off('game:stopped', handleGameStopped);
+      $socket.off('game:stopped', leaveGame);
       $socket.off('error', handleSocketError);
     }
 
@@ -682,6 +706,7 @@
         controls={userControls}
         {resumeSaveId}
         allowLocalPlayer2={isSinglePlayer}
+        on:quit={leaveGame}
         on:controlsSaved={(e) => (userControls = e.detail.config)}
       />
     {:else if activeEmulationMode === EmulationMode.LOCKSTEP}
@@ -698,6 +723,7 @@
         latencyMode={room?.latencyMode ?? 'auto'}
         canSetLatency={isRoomCreator}
         {resumeSaveId}
+        on:quit={leaveGame}
         on:controlsSaved={(e) => (userControls = e.detail.config)}
       />
     {:else}
@@ -711,6 +737,7 @@
         {keyConfig}
         controls={userControls}
         emulationMode={activeEmulationMode ?? EmulationMode.SINGLE}
+        on:quit={leaveGame}
         on:controlsSaved={(e) => (userControls = e.detail.config)}
       />
     {/if}

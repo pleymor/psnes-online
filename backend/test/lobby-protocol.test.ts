@@ -655,6 +655,56 @@ test('a disconnect still never releases a seat somebody else is waiting on', asy
   });
 });
 
+/*
+ * The phone that lost its socket mid-game, and then could not put the game down.
+ *
+ * `game:stop` is the whole of what the quit button does, and a room-scoped
+ * event naming a room the server no longer has is dropped without a word -
+ * deliberately, since room ids travel and answering a non-member tells them
+ * something they should not learn. What changed is how ordinary that state is:
+ * a room of one is now reaped when its player's window closes (the test above),
+ * and the window only has to go quiet for the ping timeout - a tunnel, a lock
+ * screen. Meanwhile the emulator runs entirely in the client and notices none
+ * of it, so the player is still playing a game the server has no record of.
+ *
+ * Pinned here as the reason the client must not treat quitting as a request:
+ * the server is within its rights to have nothing to answer, and a quit button
+ * that waits for an answer is a quit button that does nothing.
+ */
+test('a quit naming a room the server no longer has is dropped in silence', async () => {
+  await withLobby(async ({ alice, gameId, client, rooms, drop }) => {
+    const phone = await client(alice);
+
+    const created = once<Room>(phone, 'room:created');
+    phone.emit('room:create', { gameId, gameTitle: 'Chrono Trigger', autoStart: true });
+    const room = await created;
+    assert.equal(rooms.get(room.id)!.status, 'playing');
+
+    // A tunnel, a lock screen, a main thread the emulator stalled past the
+    // ping timeout: the socket closes without the player putting the pad down.
+    await drop(alice);
+    assert.equal(rooms.get(room.id), undefined, 'a room of one does not outlive its window');
+
+    // socket.io reconnects on its own, and the game never stopped running.
+    const back = await client(alice);
+    let answered = false;
+    back.once('game:stopped', () => { answered = true; });
+    back.emit('game:stop', { roomId: room.id });
+
+    /*
+     * A second event the server does answer, on the same socket, so the
+     * assertion below is not a race: socket.io preserves order, so an answer
+     * to this one means the quit ahead of it has already had its turn. Never a
+     * sleep, per this file's own rule.
+     */
+    const refused = once(back, 'error');
+    back.emit('room:join', { roomId: room.id });
+    await refused;
+
+    assert.equal(answered, false, 'so a client that waits for the answer waits for ever');
+  });
+});
+
 test('a member who left comes back through room:join, with no new invitation', async () => {
   await withLobby(async ({ alice, bob, client, rooms, drop }) => {
     const host = await client(alice);
