@@ -1,10 +1,83 @@
-# Architecture Technique - PSNES Online
+# Architecture technique — PSNES Online
 
 ## Vue d'ensemble
 
-PSNES Online est une plateforme de jeu rétro multijoueur avec **émulation côté client** et **synchronisation P2P (peer-to-peer)** via WebRTC. Chaque joueur exécute sa propre instance de l'émulateur, le serveur ne servant que de signalisation pour établir les connexions directes entre clients.
+PSNES Online est une plateforme de jeu rétro SNES multijoueur avec **émulation
+côté client dans tous les modes**. Le serveur ne fait jamais tourner de core
+SNES : il s'occupe de la signalisation (WebSocket, WebRTC), du relais
+d'entrées, et de la persistance (comptes, jeux, sauvegardes). Chaque joueur
+exécute sa propre instance de l'émulateur dans son navigateur.
 
-## Principe de fonctionnement
+Une room démarre dans l'un de quatre modes, choisi à la création
+(`room:create`, `backend/src/websocket/room-handlers.ts:54`) et non modifiable
+en cours de partie (changer de mode démonterait une session en cours) :
+
+| Mode | Composant | Logique | Coût |
+|---|---|---|---|
+| `lockstep` (défaut) | `LockstepRoom.svelte` | `frontend/src/lib/znet/` | D frames de latence d'entrée, blocage franc si le réseau hoquette |
+| `single` | `SoloRoom.svelte` | `frontend/src/lib/znet/solo.ts` | — |
+| `streaming` | `P2PRoom.svelte` | `frontend/src/lib/multiplayer/streaming-mode.ts`, `frontend/src/lib/webrtc/` | l'invité subit la latence d'encodage vidéo, pas de savestate partagé |
+| `dual` (alpha) | `P2PRoom.svelte` | `frontend/src/lib/multiplayer/dual-mode.ts`, `frontend/src/lib/netplay/` | peut diverger silencieusement |
+
+`lockstep` est le défaut (`emulationMode: payload.emulationMode ?? 'lockstep'`,
+`backend/src/websocket/room-handlers.ts:109`) et le seul mode activement
+développé. Un lecteur de cette documentation doit partir de ce mode-là, pas du
+streaming P2P — historiquement le premier écrit, et le seul que cette
+documentation décrivait avant cette révision.
+
+`single` est le mode solo : un seul joueur, pas de réseau, la même machine à
+états lockstep tournant sans pair distant (`znet/solo.ts`).
+
+`streaming` et `dual` reposent tous deux sur `P2PRoom.svelte` et une connexion
+WebRTC directe entre les deux navigateurs (`frontend/src/lib/webrtc/p2p-manager.ts`) ;
+ce qu'ils en font diffère complètement, voir plus bas.
+
+## Le chemin lockstep, en bref
+
+Le principe (ZSNES-style, pas de rollback) : les deux pairs font tourner le
+même core déterministe depuis le même savestate. L'entrée locale lue à la
+frame F est programmée pour la frame F+D (« délai d'entrée »), la fenêtre
+laissée au paquet pour traverser le réseau. Une frame n'avance pas tant que
+les manettes des deux joueurs pour cette frame ne sont pas arrivées : si un
+paquet est en retard, l'émulateur attend, exactement comme ZSNES. Un checksum
+est échangé périodiquement ; s'il diverge, l'hôte renvoie un savestate complet
+et les deux côtés redémarrent dessus.
+
+Le prix : D frames de latence d'entrée et un blocage franc à chaque hoquet
+réseau — le compromis assumé pour ne jamais produire la classe de bug
+« correct localement, faux à distance ».
+
+**Ce document ne détaille pas plus loin le netcode** : voir
+[`LOCKSTEP_NETPLAY.md`](LOCKSTEP_NETPLAY.md), qui reste la référence sur le
+sujet (pourquoi ce mode existe plutôt qu'un quatrième correctif au mode
+`dual`, le core wasm dédié dans `core/`, le protocole de synchronisation).
+
+Ce que cette passe de refactoring a découpé hors de
+`frontend/src/lib/znet/session.ts` (1517 → 1161 lignes), qui ne porte plus que
+la machine à états, le transport et l'epoch :
+- `pad-timeline.ts` — ce qui a été échantillonné et ce qui est arrivé
+- `link-metrics.ts` — ce que fait le lien (RTT, gigue, retards)
+- `delay-control.ts` — si le délai d'entrée D doit bouger
+
+Le reste de `znet/` (`core.ts`, `governor.ts`, `protocol.ts`, `output.ts`,
+`webgl-renderer.ts`, `input.ts`, `devices.ts`, …) est le moteur lockstep
+complet : encodage/compression du protocole, rendu WebGL, gestion des
+manettes. `LockstepRoom.svelte` est le composant Svelte qui l'orchestre côté
+UI.
+
+## Le mode streaming (WebRTC)
+
+C'était, jusqu'à cette révision, la seule architecture que ce document
+décrivait. Elle reste exacte pour ce mode précis — elle a seulement cessé
+d'être une description du produit entier.
+
+**Rôles :**
+- **Host :** exécute l'émulateur, capture le flux vidéo/audio du canvas,
+  l'envoie par WebRTC.
+- **Guest :** reçoit le flux WebRTC, l'affiche dans un `<video>`, envoie ses
+  entrées par DataChannel.
+- **Serveur :** signalisation WebRTC uniquement (pas d'émulation, pas de
+  streaming côté serveur).
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -71,18 +144,11 @@ PSNES Online est une plateforme de jeu rétro multijoueur avec **émulation côt
 └─────────────────────────────────────────────────────┘
 ```
 
-**Rôles:**
-- **Host (Client 1):** Exécute l'émulateur, capture le flux vidéo/audio, envoie via WebRTC
-- **Guest (Client 2):** Reçoit le flux WebRTC, affiche via `<video>`, envoie ses inputs via DataChannel
-- **Serveur:** Signalisation WebRTC uniquement (pas d'émulation, pas de streaming)
-
-## Flux de données
-
-### 1. Initialisation P2P et connexion WebRTC
+### Établissement de la connexion P2P
 
 ```
 1. Host crée une room (via WebSocket classique)
-   Client → Socket.io: room:create { gameId, gameTitle }
+   Client → Socket.io: room:create { gameId, gameTitle, emulationMode: 'streaming' }
    Server → Client: room:created { room }
    Server → Friends: friend:roomCreated
 
@@ -118,9 +184,9 @@ PSNES Online est une plateforme de jeu rétro multijoueur avec **émulation côt
    → P2P connection established ✅
 ```
 
-### 2. Gameplay loop P2P (60 FPS)
+### Boucle de jeu (60 FPS)
 
-**Côté HOST:**
+**Côté HOST :**
 ```
 Every 16.67ms (60Hz):
   ┌─ Emulator (Snes9x WASM) runs 1 frame
@@ -143,7 +209,7 @@ Every 16.67ms (60Hz):
 Local display: Canvas → Screen (0ms)
 ```
 
-**Côté GUEST:**
+**Côté GUEST :**
 ```
 Every frame:
   ┌─ Receive WebRTC stream
@@ -160,9 +226,7 @@ Every frame:
 Display: <video> element renders stream
 ```
 
-### 3. Latence et synchronisation P2P
-
-**Pipeline de latence (Guest):**
+### Latence
 
 ```
 Input détecté (Guest)
@@ -180,283 +244,156 @@ Display mis à jour
 Total: ~30-60ms (optimal en LAN: 30-40ms)
 ```
 
-**Latence mesurée (code P2PRoom.svelte:100-122):**
-- **Input latency:** RTT Guest → Host → Guest (~10-20ms LAN)
-- **Total latency:** Input RTT + video encoding/decoding (~33ms estimate)
+Optimisations appliquées : encodage H.264 matériel (GPU), `playoutDelayHint =
+0` pour un buffer vidéo minimal, `jitterBufferTarget = 0` pour l'audio
+(`frontend/src/lib/webrtc/p2p-manager.ts`), P2P direct sans relais TURN quand
+possible, DataChannel pour les entrées (<5ms).
 
-**Optimisations appliquées:**
-- H.264 hardware encoding (GPU acceleration)
-- `playoutDelayHint = 0` pour buffer minimal (p2p-manager.ts:432)
-- `jitterBufferTarget = 0` pour audio (p2p-manager.ts:444)
-- Direct P2P (pas de relay TURN si possible)
-- Canvas capture @ 60fps natif
-- DataChannel pour inputs (ultra-rapide, <5ms)
+C'est ce coût — l'invité subit la latence d'encodage vidéo et il n'existe pas
+de savestate partagé entre les deux pairs — qui a motivé le mode `lockstep`
+plutôt qu'un correctif de plus sur ce chemin.
 
-## Architecture des données
+## Le mode dual (alpha)
 
-### Base de données SQLite (Persistante)
+`dual` fait tourner deux instances RetroArch indépendantes
+(`frontend/src/lib/netplay/`), synchronisées par échange d'entrées plutôt que
+par un flux vidéo — chaque joueur voit sa propre émulation locale au lieu de
+recevoir l'image de l'hôte. `simple-sync-manager.ts` porte la synchronisation
+courante ; `rollback-manager.ts`, `frame-controller.ts`, `input-buffer.ts` et
+`state-buffer.ts` portent les briques d'un netcode par prédiction/rollback.
 
-```sql
-User
-  - id (PK)
-  - googleId (unique)
-  - email
-  - displayName
-  - avatar
+C'est un mode alpha : il peut diverger silencieusement, pour des raisons
+structurelles documentées dans `LOCKSTEP_NETPLAY.md` (RetroArch ne peut pas
+avancer d'exactement une frame sur commande, les entrées sont injectées via
+des événements clavier simulés dont le timing n'est pas garanti, les réglages
+par joueur ne sont pas comparés, et le core snes9x seed sa RAM de travail
+depuis l'horloge murale). C'est exactement ce que le mode `lockstep` a été
+écrit pour éliminer.
 
-Friendship
-  - id (PK)
-  - initiatorId (FK → User)
-  - receiverId (FK → User)
-  - status (pending|accepted|rejected)
+## Le serveur
 
-Game
-  - id (PK)
-  - userId (FK → User)
-  - title
-  - romPath
-  - uploadedAt
+Le serveur ne fait tourner aucun core SNES. Son rôle : authentifier, servir
+l'API REST, signaler et relayer par WebSocket, persister.
 
-Save
-  - id (PK)
-  - gameId (FK → Game)
-  - slotNumber (1-10)
-  - name
-  - data (BLOB)
-  - screenshot
-  - createdAt
+**Amorçage (`backend/src/`) :**
+- `index.ts` (73 lignes) — assemble la séquence de démarrage : garde
+  d'environnement, connexion Redis, construction de l'app, restauration des
+  rooms depuis Redis, ouverture du port, arrêt propre.
+- `bootstrap/env-guard.ts` — refuse de démarrer en production si une variable
+  d'environnement obligatoire manque.
+- `bootstrap/app.ts` — construit l'application Express : session, CORS,
+  Helmet, compression, routeurs, gestion d'erreurs.
+- `bootstrap/jobs.ts` — restaure les rooms actives depuis Redis au démarrage,
+  balaie les rooms orphelines, tâches de fond périodiques.
+- `bootstrap/shutdown.ts` — installe les handlers `SIGTERM`/`SIGINT` pour un
+  arrêt propre (fermeture HTTP, Redis, sauvegarde de l'état des rooms).
+
+**API REST (`backend/src/api/`) :** `auth.ts`, `games.ts`, `friends.ts`,
+`rooms.ts`, `user.ts`, `avatars.ts`, `metadata.ts`, `covers.ts`, `logs.ts`,
+`pseudo.ts`, `entry-input.ts` — un routeur Express par domaine, montés dans
+`bootstrap/app.ts`.
+
+**WebSocket (`backend/src/websocket/`) :** sept groupes de handlers,
+enregistrés par `index.ts` à chaque connexion authentifiée
+(`registerRoomHandlers`, `registerInvitationHandlers`, `registerGameHandlers`,
+`registerP2PHandlers`, `registerSyncHandlers`, `registerZnetHandlers`,
+`registerRomTransferHandlers`) :
+- `room-handlers.ts` (689 lignes, réduit de 1054) — cycle de vie de la room :
+  création (mode d'émulation par défaut : `lockstep`), rejoindre/quitter,
+  choix de port, config touches, ready, mode de latence.
+- `invitation-handlers.ts` (381 lignes) — extrait de `room-handlers.ts` lors
+  de cette passe : invitations et acceptation.
+- `game-handlers.ts` — sélection du jeu, démarrage de partie.
+- `p2p-handlers.ts` — signalisation WebRTC (offer/answer/ICE) pour les modes
+  `streaming` et `dual`.
+- `sync-handlers.ts` — synchronisation d'état pour le mode `dual`.
+- `znet-handlers.ts` — relais des paquets d'entrée pour le mode `lockstep`.
+- `rom-transfer.ts` — transfert de ROM hôte → invité.
+- `presence.ts`, `guards.ts`, `room-view.ts`, `room-snapshot.ts` — support
+  partagé (présence en ligne, garde-fous d'accès, vues publiques de room,
+  snapshot pour la restauration).
+
+**Persistance :**
+- **SQLite** (`backend/src/db/`) — comptes (`User`), amitiés (`Friendship`),
+  bibliothèque de jeux (`Game`), sauvegardes (`Save`, avec le blob et une
+  capture d'écran).
+- **Redis** — sessions (TTL 7 jours), état des rooms actives (`room:{roomId}`),
+  statut de présence (`user:{userId}:status`). C'est aussi la source dont
+  `bootstrap/jobs.ts` restaure les rooms au redémarrage.
+
+## Frontend : au-delà des modes
+
+**`frontend/src/lib/rooms/`** — logique partagée entre les composants de
+room, extraite lors de cette passe :
+- `room-session.ts` — cycle de vie de session commun.
+- `sram.ts` — persistance de la SRAM de la cartouche.
+- `input-sources.ts` — sources d'entrée (clavier, tactile, manette).
+- `renderer-surface.ts` — surface de rendu partagée.
+- `fullscreen.ts`, `chrome-autohide.ts` — plein écran et masquage de l'UI du
+  navigateur.
+- `actions.ts`, `game-click.ts`, `my-room.ts`, `online-players.ts`,
+  `remembered-room.ts`, `resume-save.ts` — préexistants à cette passe.
+
+**`frontend/src/lib/emulator/`** — le wrapper WasmEmulator (Snes9x WASM,
+forké de Nostalgist.js) commun à tous les modes, et `input-manager.ts` pour la
+capture d'entrée bas niveau.
+
+**`frontend/src/lib/components/`** — les composants de room
+(`LockstepRoom.svelte`, `SoloRoom.svelte`, `P2PRoom.svelte`,
+`ClientEmulator.svelte`, `DualClientEmulator.svelte`) et les composants d'UI
+partagés (menus, contrôles, listes d'amis, cartes de jeu).
+
+**`scripts/svelte-frozen-props.mjs`** — lint créé lors de cette passe : une
+déclaration de fonction appelée depuis un bloc réactif `$:` ou un template
+Svelte 4 se compile en initialisation à usage unique plutôt qu'en dépendance
+réactive. Le bug est invisible à la lecture ; ce script le détecte
+statiquement.
+
+## Carte des répertoires
+
 ```
-
-### Redis (Volatile - Sessions & Rooms)
-
+psnes/
+├── ARCHITECTURE.md          # ce document
+├── LOCKSTEP_NETPLAY.md      # référence netcode lockstep
+├── README.md
+├── core/                    # core wasm dédié au mode lockstep (snes9x + libretro frontend maison)
+│   └── src/psnes_core.c
+├── docs/
+│   ├── history/             # instantanés de travaux terminés (voir docs/history/README.md)
+│   ├── QUICKSTART.md
+│   ├── GOOGLE_OAUTH_SETUP.md
+│   ├── GITHUB_ACTIONS.md
+│   ├── ROM_SYNC_FEATURE.md
+│   ├── SPEED_CONTROLS.md
+│   └── P2P_ARCHITECTURE.md  # détail du mode streaming
+├── backend/src/
+│   ├── index.ts              # 73 lignes — assemble le démarrage
+│   ├── bootstrap/             # env-guard, app, jobs, shutdown
+│   ├── api/                   # un routeur Express par domaine
+│   ├── websocket/             # sept groupes de handlers socket.io
+│   ├── auth/                  # Passport / OAuth Google
+│   ├── db/                    # SQLite + Redis
+│   ├── rooms/                 # état des rooms en mémoire
+│   ├── saves/                 # gestion des sauvegardes
+│   ├── middleware/
+│   └── types/
+├── frontend/src/
+│   ├── routes/                 # pages SvelteKit
+│   └── lib/
+│       ├── components/          # LockstepRoom, SoloRoom, P2PRoom, ClientEmulator, …
+│       ├── znet/                 # moteur lockstep (session, transport, rendu WebGL)
+│       ├── rooms/                 # logique de room partagée entre modes
+│       ├── multiplayer/            # streaming-mode.ts, dual-mode.ts
+│       ├── netplay/                 # sync manager, rollback, buffers (mode dual)
+│       ├── webrtc/                   # p2p-manager.ts (signalisation + DataChannel)
+│       ├── emulator/                  # wrapper WasmEmulator, input-manager
+│       ├── api/, stores/, services/, config/, controls/, saves/, lobby/, games/, roms/, i18n/, utils/
+│       └── components/…
+├── e2e/                       # tests Playwright (dont probe-lockstep.mjs)
+├── sync-test/                 # harnais de test de synchro autonome
+└── scripts/                   # svelte-frozen-props.mjs, net-probe.sh, …
 ```
-session:{sessionId} → User session data (TTL: 7 days)
-
-room:{roomId} → {
-  gameId,
-  gameTitle,
-  hostId,
-  players: [{
-    userId,
-    displayName,
-    avatar,
-    port: 1|2|null,
-    isReady: boolean,
-    keyConfig
-  }],
-  status: 'waiting'|'playing'|'paused'
-}
-
-user:{userId}:status → 'online'|'offline'|'in-game'
-```
-
-## WebSocket Events API
-
-### Room Management
-
-**Client → Server:**
-- `room:create` → Créer nouvelle room
-- `room:join` → Rejoindre room existante
-- `room:leave` → Quitter room
-- `room:selectPort` → Choisir port manette (1 ou 2)
-- `room:updateKeyConfig` → Modifier config touches
-- `room:toggleReady` → Toggle état ready
-
-**Server → Client:**
-- `room:created` → Room créée avec succès
-- `room:updated` → État room modifié
-- `room:destroyed` → Room fermée
-
-### WebRTC P2P Events
-
-**Client → Server (Signaling):**
-- `p2p:join` → Rejoindre room P2P
-- `webrtc:signal` → Transmettre SDP offer/answer/ICE candidates
-
-**Server → Client (Signaling):**
-- `p2p:joined` → Confirmation join P2P
-- `p2p:peer-joined` → Notification nouveau peer
-- `webrtc:signal` → Relayer signal WebRTC
-
-**Host → Guest (WebRTC DataChannel):**
-- `{ type: 'input_ack', inputId, timestamp }` → ACK input reçu
-
-**Guest → Host (WebRTC DataChannel):**
-- `{ type: 'input', button, pressed, timestamp, inputId }` → Envoyer input P2
-
-### Friends & Presence
-
-**Server → Client:**
-- `friends:online` → Liste amis en ligne
-- `friend:statusChanged` → Ami online/offline
-- `friend:roomCreated` → Ami a créé une room
-
-## Format des données WebRTC
-
-### MediaStream (Host → Guest via WebRTC)
-
-**Video Track:**
-- Codec: H.264 (hardware accelerated)
-- Résolution: 256×224 (native SNES) ou 512×448 (upscaled)
-- Framerate: 60 FPS
-- Bitrate: 1-5 Mbps (adaptatif selon réseau)
-- Source: `canvas.captureStream(60)`
-
-**Audio Track:**
-- Codec: Opus
-- Sample rate: 32 kHz (SNES native)
-- Channels: 2 (stereo)
-- Bitrate: ~128 kbps
-- Source: Web Audio API → MediaStream
-
-**Bande passante totale (par connexion):** ~1.5-5 Mbps
-
-### DataChannel Messages (Guest → Host)
-
-**Input message:**
-```typescript
-{
-  type: 'input',
-  button: 'a' | 'b' | 'x' | 'y' | 'l' | 'r' | 'start' | 'select' |
-          'up' | 'down' | 'left' | 'right',
-  pressed: boolean,
-  timestamp: number,  // performance.now()
-  inputId: string     // unique ID pour tracking latence
-}
-```
-
-**Input ACK (Host → Guest):**
-```typescript
-{
-  type: 'input_ack',
-  inputId: string,
-  timestamp: number  // original timestamp for RTT calculation
-}
-```
-
-**Taille:** ~100 bytes par message
-**Fréquence:** Variable (seulement lors changements)
-**Bande passante:** Négligeable (<5 KB/s)
-**Latence:** <5ms (direct P2P)
-
-## Scalabilité
-
-### Architecture P2P : Avantages majeurs
-
-**Charge serveur minimale:**
-- Le serveur ne fait **QUE de la signalisation WebRTC** (SDP/ICE)
-- **Pas d'émulation** côté serveur
-- **Pas de streaming** vidéo/audio
-- Charge CPU/RAM négligeable par room (~1-2% CPU par connexion active)
-
-**Ressources par room active (serveur):**
-- **CPU:** <1% (signalisation WebSocket uniquement)
-- **RAM:** ~5-10 MB (state de la room + sessions)
-- **Réseau sortant:** Négligeable (~10-50 KB/s pour signaling)
-
-### Capacité serveur (estimations P2P)
-
-**Serveur modeste (2 cores, 4GB RAM):**
-- Rooms simultanées: 500-1000
-- Joueurs concurrent: 1000-2000
-
-**Serveur dédié (4 cores, 8GB RAM):**
-- Rooms simultanées: 2000-5000
-- Joueurs concurrent: 4000-10000
-
-**Limites:**
-- Limite principale: Connexions WebSocket concurrentes
-- RAM pour sessions/rooms (SQLite + Redis)
-- Bande passante pour signaling (très faible)
-
-**Scaling horizontal:**
-- Load balancer (nginx)
-- Multiple instances backend
-- Redis cluster pour sessions partagées
-- Sticky sessions pour WebSocket (signaling)
-- Pas besoin de synchronisation d'état émulateur (clients autonomes)
-
-## Sécurité
-
-### Authentification
-- OAuth 2.0 Google (pas de passwords stockés)
-- Session cookies HttpOnly + Secure
-- CSRF protection via same-site cookies
-
-### Uploads
-- Validation type fichier (whitelist extensions)
-- Limite taille: 10 MB
-- Scan antivirus optionnel
-- Stockage isolé par utilisateur
-
-### WebSocket
-- Authentication via session cookie
-- Rate limiting sur events
-- Validation inputs (sanitization)
-- Rooms access control
-
-### Production
-- HTTPS obligatoire (Let's Encrypt)
-- Helmet.js headers sécurisés
-- CORS strict
-- Secrets rotation régulière
-
-## Monitoring & Observabilité
-
-### Métriques clés
-
-**Performance:**
-- Latence moyenne input→display
-- FPS moyen par room
-- Décrochages audio/vidéo
-
-**Business:**
-- Utilisateurs actifs (DAU/MAU)
-- Rooms créées/jour
-- Jeux uploadés
-- Durée sessions moyenne
-
-**Infrastructure:**
-- CPU/RAM par room
-- Bande passante utilisée
-- Erreurs WebSocket
-- Latence Redis/SQLite
-
-### Stack recommandée
-
-- **Prometheus:** Collecte métriques
-- **Grafana:** Dashboards
-- **Loki:** Logs centralisés
-- **Alertmanager:** Alertes (CPU > 80%, etc.)
-
-## Améliorations futures
-
-### ✅ Déjà implémenté
-1. ~~Intégration émulateur réel (snes9x-wasm)~~ → **Fait** (WasmEmulator, forked from Nostalgist.js)
-2. ~~Compression vidéo H.264~~ → **Fait** (WebRTC hardware encoding)
-3. ~~WebRTC peer-to-peer~~ → **Fait** (architecture P2P complète)
-
-### Court terme
-1. Améliorer stabilité WebRTC (reconnexion auto)
-2. Optimiser input buffering (réduire latency <30ms)
-3. Support multi-room simultané par utilisateur
-4. Metrics temps réel (latence, FPS, qualité connexion)
-
-### Moyen terme
-5. Filtres vidéo (CRT, scanlines, upscaling)
-6. Support gamepad physique (Gamepad API)
-7. Spectator mode (>2 joueurs, broadcast stream)
-8. Save states synchronisés (host/guest)
-9. Chat vocal intégré (WebRTC audio bidirectionnel)
-
-### Long terme
-10. Multi-console (NES, Genesis, Game Boy, N64)
-11. Cloud saves sync automatique
-12. Replay recording & partage
-13. Tournois & classements
-14. Support mobile (touch controls)
-15. Netplay rollback pour latence WAN élevée
 
 ---
 
-**Dernière mise à jour:** 2025-11-24
+**Dernière mise à jour :** 2026-08-26
