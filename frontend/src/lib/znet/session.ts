@@ -18,6 +18,16 @@
  *
  * The engine owns no timers. Everything happens inside `tick()`, so the test
  * suite drives entire sessions through a virtual clock at full CPU speed.
+ *
+ * The engine is split three ways. `pad-timeline.ts` holds what has been
+ * sampled and what has arrived; `link-metrics.ts` measures what the link is
+ * doing; `delay-control.ts` decides whether the input delay should move. What
+ * is left here is the state machine, the transport, and the epoch.
+ *
+ * The message handlers below are deliberately not extracted. They mutate about
+ * fifteen private fields between them, so giving them their own module would
+ * mean widening this class's surface to let them in - a shorter file that is
+ * harder to reason about.
  */
 
 import type { Transport } from './transport.js';
@@ -33,6 +43,17 @@ import {
 } from './protocol.js';
 import { PadTimeline, PLAYER_COUNT } from './pad-timeline.js';
 import { LinkMetrics } from './link-metrics.js';
+import {
+	DelayController,
+	DEFAULT_FPS,
+	DEFAULT_HUNGER_SECONDS,
+	MIN_MANUAL_DELAY,
+	MAX_INPUT_DELAY,
+	SIZING_SAMPLES,
+	SIZING_PING_GAP_MS
+} from './delay-control.js';
+
+export { suggestInputDelay } from './delay-control.js';
 
 /**
  * What the session needs from an emulator, and nothing more.
@@ -150,125 +171,6 @@ export interface SessionOptions {
 	onFrame?: (frame: number) => void;
 }
 
-/**
- * Floor for the *estimate*, which is a guess and has to be a cautious one.
- *
- * It comes from five pings over 300ms, and that burst under-reads this relay:
- * one session measured 66ms while sizing and then ran at a median of 81ms.
- * Being a frame too tight costs the *other* player stutter, so the handshake
- * starts no lower than three whatever it thinks it saw. The loop may go lower
- * than this, but only on evidence - see MIN_AUTO_DELAY.
- */
-const MIN_INPUT_DELAY = 3;
-
-/**
- * Floor for where the loop may *walk* the delay, which is a measurement.
- *
- * Two frames is reachable and correct on a good link: a real pair on a 52ms
- * relay path played at two each with strain at zero on both sides, and their own
- * verdict was that it was the best the game had felt. Thirty consecutive seconds
- * without a single late frame is a far better reason to sit at two than a
- * handshake's opinion, and if it turns out wrong the loop takes the frame back
- * within ten strained seconds.
- */
-const MIN_AUTO_DELAY = 2;
-/**
- * Floor for a delay someone set on purpose.
- *
- * Because the requirement is on the sum, a peer can sit well under the
- * automatic floor as long as its partner sits above: on a 90ms round trip a
- * 1/5 split runs with exactly as few stalls as 3/3 and the player on the short
- * end feels 17ms instead of 50. Zero is not offered - with no lead at all every
- * frame waits a full one-way trip.
- */
-const MIN_MANUAL_DELAY = 1;
-/** Hard ceiling. Past sixteen frames the game is unplayable anyway. */
-const MAX_INPUT_DELAY = 16;
-
-/** SNES NTSC, used when the caller does not say what the machine runs at. */
-const DEFAULT_FPS = 60.0988;
-
-/**
- * Late frames per window at which the peer is judged to be in trouble.
- *
- * Zero is the healthy figure, including for the follower: measured against a
- * deliberately generous split, the follower lost no frames at all while its
- * stalled-tick count ran into the thousands. A tight split cost 250 late frames
- * in twenty seconds, which is about 27 per window - so this sits well clear of
- * both.
- */
-const STRAIN_AT = 6;
-
-/** Sliding window, in seconds, over which strained seconds are counted. */
-const STRAIN_WINDOW_SECONDS = 30;
-
-/**
- * Strained seconds inside that window before a peer adds a frame.
- *
- * Counted in seconds rather than in packets, which is what an earlier version
- * did and got wrong. Packets arrive fifty times a second, so a single
- * three-second burst supplied more than a hundred consecutive hungry ones and
- * tripped the loop by itself - and the frame it cost was permanent. Measured on
- * a real link, strain sat at zero for 96% of a session and spiked on two to four
- * isolated seconds: exactly the shape that must *not* buy a frame.
- *
- * A third of the window is the bar. One burst marks about five seconds, because
- * strain is itself a 128-frame sliding window whose tail outlasts the burst; two
- * bursts in the same half-minute clear ten and earn the frame.
- */
-const DEFAULT_HUNGER_SECONDS = 10;
-
-/** Round-trip samples the host collects before sizing the input delay. */
-const SIZING_SAMPLES = 5;
-/** Gap between the pings of the sizing burst, in ms. */
-const SIZING_PING_GAP_MS = 60;
-/** How long the host waits for the burst before sizing on what it has. */
-const SIZING_BUDGET_MS = 700;
-/**
- * Frames of input delay for a set of round-trip samples.
- *
- * Lives here rather than in the barrel so the netcode keeps a single copy of
- * it: this file is deliberately free of imports beyond the protocol and the
- * transport, and index.ts re-exports this function rather than restating it.
- *
- * The question is "how long does a pad packet realistically take to arrive",
- * not "what was the average round trip". So the estimate works from the
- * fastest sample plus the spread around it - the pessimistic trip - and adds
- * one frame of slack. The old formula used a single sample and a flat
- * two-frame margin, which overpaid on a clean link and underpaid on a
- * jittery one.
- *
- * The single worst sample is discarded before the spread is measured. A
- * session's first round trip carries the socket, the TLS session and the
- * relay's route cache all waking up; it reads far above the link and never
- * repeats. Two slow samples, though, are a slow link, and those still count.
- */
-export function suggestInputDelay(samples: number[] | number, fps = DEFAULT_FPS): number {
-	const all = typeof samples === 'number' ? [samples] : samples;
-	if (all.length === 0) return MIN_INPUT_DELAY;
-	const sorted = [...all].sort((a, b) => a - b);
-	const considered = sorted.length >= 3 ? sorted.slice(0, -1) : sorted;
-	const best = considered[0];
-	const spread = considered[considered.length - 1] - best;
-	const frameMs = 1000 / fps;
-	/*
-	 * Two frames of margin at minimum, and the measured spread on top when it
-	 * asks for more.
-	 *
-	 * The spread was tried as a replacement for the flat two frames and that was
-	 * wrong in production: it is measured over a 300ms burst during the
-	 * handshake, and it cannot see how the relay actually delivers under play.
-	 * A real session sized this way held 0 to 2 frames of the peer's pads and
-	 * stalled twenty-four times a second - the same "50fps, stalling on almost
-	 * every frame" the flat margin had been introduced to cure. Pads do not
-	 * arrive one per frame down a TCP relay; they arrive in clumps, and the
-	 * margin is the buffer that absorbs a clump.
-	 */
-	const margin = Math.max(2, Math.ceil(spread / 2 / frameMs));
-	const needed = Math.ceil(best / 2 / frameMs) + margin;
-	return Math.max(MIN_INPUT_DELAY, Math.min(MAX_INPUT_DELAY, needed));
-}
-
 /** Reships tolerated before a host gives up and restarts the handshake. */
 const MAX_SHIP_ATTEMPTS = 6;
 
@@ -371,38 +273,20 @@ export class NetplaySession implements TickSource {
 	/** Consecutive stalled ticks, used to pace pad re-sends. */
 	private stallCounter = 0;
 
-	/**
-	 * Which of the last thirty seconds the peer reported strain in, and how many.
-	 *
-	 * A ring of one-second buckets rather than a count of packets: what matters
-	 * is how much of the recent past was rough, not how many packets happened to
-	 * land inside one rough moment.
-	 */
-	private strainedRing = new Uint8Array(STRAIN_WINDOW_SECONDS);
-	/** Bucket for the second in progress, or -1 before the first one. */
-	private strainedAt = -1;
-	private strainedSecond = 0;
-	private strainedCount = 0;
-	/** Seconds observed since the window was last reset, so "a full window" means it. */
-	private observedSeconds = 0;
-
 	private peerHello = false;
 	private nextPingId = 1;
 
 	/** RTT, jitter, our own late-frame strain, and the peer's reported strain. */
 	private metrics: LinkMetrics;
 
+	/** Whether the input delay should move, and by how much. Never applies it. */
+	private delayControl: DelayController;
+
 	/** Debounces the rejoin handling so a duplicate HELLO cannot loop. */
 	private lastRejoinAt = 0;
 
 	/** When the host started waiting for a round-trip sample before shipping. */
 	private sizingSince = 0;
-	/** Raw round-trip samples gathered during the sizing burst. */
-	private sizingSamples: number[] = [];
-	/** Pings the sizing burst has sent so far. */
-	private sizingPings = 0;
-	/** False when the caller pinned the delay, so measurement must not override it. */
-	private autoInputDelay: boolean;
 
 	/**
 	 * Largest delay used this epoch.
@@ -456,7 +340,6 @@ export class NetplaySession implements TickSource {
 		this.readLocalInput = options.readLocalInput;
 		this.onEvent = options.onEvent ?? (() => {});
 		this.onFrame = options.onFrame ?? (() => {});
-		this.autoInputDelay = !options.inputDelay;
 		this.opts = {
 			inputDelay: options.inputDelay || 5,
 			crcInterval: options.crcInterval ?? 60,
@@ -471,6 +354,11 @@ export class NetplaySession implements TickSource {
 		this.stats.inputDelay = this.opts.inputDelay;
 		this.epochMaxDelay = this.opts.inputDelay;
 		this.metrics = new LinkMetrics(this.opts.fps);
+		this.delayControl = new DelayController({
+			fps: this.opts.fps,
+			hungerSeconds: this.opts.hungerSeconds,
+			automatic: !options.inputDelay
+		});
 
 		this.transport.onMessage((data) => this.handleMessage(data));
 	}
@@ -508,7 +396,7 @@ export class NetplaySession implements TickSource {
 	 * to agree.
 	 */
 	setInputDelay(frames: number): void {
-		this.autoInputDelay = false;
+		this.delayControl.pin();
 		this.setDelay(Math.max(MIN_MANUAL_DELAY, Math.min(MAX_INPUT_DELAY, Math.round(frames))));
 	}
 
@@ -527,11 +415,7 @@ export class NetplaySession implements TickSource {
 	 * lost frames in a third of its seconds and nothing was coming to help.
 	 */
 	resumeAutomaticDelay(): void {
-		if (this.autoInputDelay) return;
-		this.autoInputDelay = true;
-		// Start the evidence fresh: what the link did while nobody was acting on
-		// it should not spend its first frame the instant control returns.
-		this.resetStrainWindow();
+		this.delayControl.resumeAutomatic();
 	}
 
 	private setDelay(frames: number): void {
@@ -667,10 +551,10 @@ export class NetplaySession implements TickSource {
 			this._state === 'syncing' &&
 			this.stateShippedAt === 0 &&
 			this.sizingSince > 0 &&
-			this.sizingPings < SIZING_SAMPLES &&
+			this.delayControl.sizingPings < SIZING_SAMPLES &&
 			now - this.lastPingAt >= SIZING_PING_GAP_MS
 		) {
-			this.sizingPings++;
+			this.delayControl.noteSizingPing();
 			this.ping();
 		}
 
@@ -682,21 +566,17 @@ export class NetplaySession implements TickSource {
 			this._state === 'syncing' &&
 			this.stateShippedAt === 0 &&
 			this.sizingSince > 0 &&
-			(this.sizingSamples.length >= SIZING_SAMPLES ||
-				(this.sizingSamples.length > 0 && now - this.sizingSince > SIZING_BUDGET_MS) ||
-				now - this.sizingSince > 1000)
+			this.delayControl.sizingVerdict(this.sizingSince, now) === 'ship'
 		) {
-			if (this.sizingSamples.length > 0 && this.autoInputDelay) {
-				const sized = suggestInputDelay(this.sizingSamples, this.opts.fps);
-				if (sized !== this.opts.inputDelay) {
-					const best = Math.round(Math.min(...this.sizingSamples));
-					this.onEvent({
-						type: 'state',
-						message: `input delay ${sized} frames from ${this.sizingSamples.length} samples, best ${best}ms`
-					});
-				}
-				this.setDelay(sized);
+			const sized = this.delayControl.sizedDelay();
+			if (sized !== null && sized !== this.opts.inputDelay) {
+				const best = Math.round(Math.min(...this.delayControl.sizingSamples));
+				this.onEvent({
+					type: 'state',
+					message: `input delay ${sized} frames from ${this.delayControl.sizingSamples.length} samples, best ${best}ms`
+				});
 			}
+			if (sized !== null) this.setDelay(sized);
 			this.sizingSince = 0;
 			this.resetTimeline(this.core.frame);
 			this.shipState(this.frame);
@@ -894,122 +774,33 @@ export class NetplaySession implements TickSource {
 	}
 
 	/**
-	 * Adds a frame of delay when the peer says it is losing frames.
+	 * Records the peer's reported strain, and acts on `delay-control.ts`'s
+	 * verdict about whether the input delay should move.
 	 *
-	 * This is the one adjustment the side that needs it cannot make: what keeps
-	 * a peer's frames on time is *our* input delay arriving early enough, and
-	 * nothing the peer controls itself. So it reports, and we act.
-	 *
-	 * One-way on purpose - it only ever raises. Lowering is what two earlier
-	 * attempts got wrong, both times by reading a signal that measures the
-	 * follower's ordinary position rather than its distress. The asymmetry is
-	 * also the honest trade: a frame too generous costs 17 to 20ms of latency,
-	 * a frame too tight costs the other player several stutters a second.
-	 *
-	 * A hand-pinned delay is left alone, exactly as the handshake measurement
-	 * leaves it alone: an escape hatch that moves by itself is not one.
+	 * The policy - the asymmetric hysteresis, the reasoning for each threshold,
+	 * the production incidents behind them - lives entirely in
+	 * `DelayController.observePeerStrain`. This is just the wiring: it applies
+	 * the verdict with `setDelay`, which the controller cannot do itself
+	 * because raising the delay leaves a hole in the pad timeline that has to
+	 * be filled and reshipped.
 	 */
 	private notePeerStrain(strain: number): void {
 		// Recorded before the gates below, so the diagnostics show what the peer
 		// reported even when this side is pinned and will not act on it.
 		this.metrics.notePeerStrain(strain);
-		if (!this.autoInputDelay || this.opts.hungerSeconds <= 0) return;
 		if (this._state !== 'running') return;
 
-		const second = Math.floor(this.now() / 1000);
-		if (this.strainedAt < 0) {
-			this.strainedAt = 0;
-			this.strainedSecond = second;
-		} else if (second > this.strainedSecond) {
-			const elapsed = second - this.strainedSecond;
-			this.observedSeconds = Math.min(
-				STRAIN_WINDOW_SECONDS,
-				this.observedSeconds + elapsed
-			);
-			if (elapsed >= STRAIN_WINDOW_SECONDS) {
-				// A gap longer than the window means nothing inside it is still
-				// relevant. Clearing beats walking the ring, and beats replaying a
-				// stall or a backgrounded tab as thirty strained seconds.
-				this.strainedRing.fill(0);
-				this.strainedCount = 0;
-				this.strainedAt = 0;
-			} else {
-				for (let i = 0; i < elapsed; i++) {
-					this.strainedAt = (this.strainedAt + 1) % STRAIN_WINDOW_SECONDS;
-					this.strainedCount -= this.strainedRing[this.strainedAt];
-					this.strainedRing[this.strainedAt] = 0;
-				}
-			}
-			this.strainedSecond = second;
-		}
+		const verdict = this.delayControl.observePeerStrain(strain, this.opts.inputDelay, this.now());
+		if (!verdict) return;
 
-		// One strained second, no matter how many packets inside it said so.
-		if (strain >= STRAIN_AT && this.strainedRing[this.strainedAt] === 0) {
-			this.strainedRing[this.strainedAt] = 1;
-			this.strainedCount++;
-		}
-
-		if (this.strainedCount >= this.opts.hungerSeconds) {
-			if (this.opts.inputDelay >= MAX_INPUT_DELAY) return;
-			this.setDelay(this.opts.inputDelay + 1);
-			/*
-			 * Start the window over rather than demanding twice the evidence next
-			 * time. The frame either helped, in which case strain falls and this
-			 * will not qualify again, or the link is genuinely worse than one frame
-			 * can cover, in which case it will - and should.
-			 */
-			this.resetStrainWindow();
-			this.onEvent({
-				type: 'state',
-				message: `input delay up to ${this.opts.inputDelay} frames to keep the other player smooth`
-			});
-			return;
-		}
-
-		/*
-		 * And back down when the link has been quiet for a whole window.
-		 *
-		 * The loop was one-way at first, on the argument that being a frame too
-		 * generous is cheap. It is not, over a session: a real link had a bad
-		 * patch, the loop paid frames for it, the link recovered and the frames
-		 * stayed - eight of them, 160ms, on a link that had gone back to needing
-		 * four. Every frame held past its usefulness is latency the player feels
-		 * on every button press.
-		 *
-		 * Coming down is safe now only because there is a signal worth trusting.
-		 * Two earlier attempts lowered on `stats.stalls` and on buffer depth, and
-		 * both read the follower's ordinary position as distress. "No strained
-		 * second in thirty" says something real: not one frame arrived late in the
-		 * whole window.
-		 *
-		 * The asymmetry is the whole of the hysteresis - thirty clean seconds to
-		 * give a frame back against ten strained ones to take it - so the loop is
-		 * quick to protect the other player and slow to reclaim latency for this
-		 * one. A link sitting exactly on a frame boundary will cycle between two
-		 * values on a timescale of tens of seconds; that is tolerable precisely
-		 * because it means the delay is already within one frame of right. An
-		 * earlier attempt also refused to descend below any value that had ever
-		 * strained, which sounds prudent and instead froze the delay at its
-		 * high-water mark for the rest of the session.
-		 */
-		if (
-			this.observedSeconds >= STRAIN_WINDOW_SECONDS &&
-			this.strainedCount === 0 &&
-			this.opts.inputDelay - 1 >= MIN_AUTO_DELAY
-		) {
-			this.setDelay(this.opts.inputDelay - 1);
-			this.resetStrainWindow();
-			this.onEvent({
-				type: 'state',
-				message: `input delay down to ${this.opts.inputDelay} frames, the link has been quiet`
-			});
-		}
-	}
-
-	private resetStrainWindow(): void {
-		this.strainedRing.fill(0);
-		this.strainedCount = 0;
-		this.observedSeconds = 0;
+		this.setDelay(this.opts.inputDelay + verdict.delta);
+		this.onEvent({
+			type: 'state',
+			message:
+				verdict.delta > 0
+					? `input delay up to ${this.opts.inputDelay} frames ${verdict.reason}`
+					: `input delay down to ${this.opts.inputDelay} frames, ${verdict.reason}`
+		});
 	}
 
 	private sendPads(upTo: number): void {
@@ -1104,8 +895,12 @@ export class NetplaySession implements TickSource {
 		// spacing measured across the seam would be nonsense, and a resync's
 		// own gap is not strain either.
 		this.metrics.resetFrameTiming();
-		this.resetStrainWindow();
-		this.strainedAt = -1;
+		this.delayControl.resetWindow();
+		// Also forgets the wall-clock reference: no strain reports reach the
+		// controller while the state isn't 'running', so without this the next
+		// one would see a large elapsed gap across the resync itself and credit
+		// it toward the clean window.
+		this.delayControl.resetElapsedOrigin();
 	}
 
 	/**
@@ -1180,7 +975,7 @@ export class NetplaySession implements TickSource {
 				// Kept raw, and kept apart from the smoothed number metrics keeps:
 				// the delay is sized from the spread across these samples, which an
 				// average has already thrown away.
-				if (this.sizingSince > 0) this.sizingSamples.push(sample);
+				if (this.sizingSince > 0) this.delayControl.addSizingSample(sample);
 				// notePingReply just set it from this very sample, so it cannot be
 				// null here - the getter's type just cannot see that.
 				this.onEvent({ type: 'rtt', value: this.metrics.rtt! });
@@ -1216,8 +1011,11 @@ export class NetplaySession implements TickSource {
 			 */
 			this.setState('syncing');
 			this.sizingSince = this.now();
-			this.sizingSamples = [];
-			this.sizingPings = 1;
+			// The sizing burst runs exactly once per session - this branch cannot
+			// re-enter, since a resync moves through 'resyncing', never back
+			// through 'handshake' - so the controller's own [] and 0 are already
+			// the fresh state this ping's count needs to start from.
+			this.delayControl.noteSizingPing();
 			this.ping();
 			return;
 		}

@@ -60,10 +60,6 @@ export class LinkMetrics {
 		this.fps = fps;
 	}
 
-	setFps(fps: number): void {
-		this.fps = fps;
-	}
-
 	get rtt(): number | null {
 		return this._rtt;
 	}
