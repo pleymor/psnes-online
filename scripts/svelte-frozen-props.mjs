@@ -50,9 +50,26 @@ function readsOf(node) {
 }
 
 let reported = 0;
+let failed = 0;
 
 for (const file of process.argv.slice(2)) {
-	const ast = parse(stripTypes(fs.readFileSync(file, 'utf8')));
+	/*
+	 * A file that fails to parse is a file whose reactive sites were never
+	 * checked - reporting nothing for it would read as "clean", which is the
+	 * exact false confidence this instrument exists to prevent. So a bad file
+	 * is named and counted as a failure, and the batch moves on: tasks 10-13
+	 * run this over all components after every extraction step, and one
+	 * work-in-progress syntax error must not blank the result for the rest.
+	 */
+	let ast;
+	try {
+		ast = parse(stripTypes(fs.readFileSync(file, 'utf8')));
+	} catch (err) {
+		failed++;
+		console.log(`${file}`);
+		console.log(`  FAILED TO PARSE: ${err.message}`);
+		continue;
+	}
 	if (!ast.instance) continue;
 
 	const callables = new Map();
@@ -140,8 +157,13 @@ for (const file of process.argv.slice(2)) {
 	}
 }
 
+if (failed > 0) {
+	console.error(`\n${failed} file(s) failed to parse and were not checked`);
+}
 if (reported > 0) {
 	console.error(`\n${reported} reactive site(s) with untracked dependencies`);
+}
+if (reported > 0 || failed > 0) {
 	process.exit(1);
 }
 console.log('no frozen reactive sites found');
