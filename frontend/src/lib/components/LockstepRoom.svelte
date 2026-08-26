@@ -646,6 +646,11 @@
         }
       });
 
+      // The session declares this hook rather than calling core.reset() itself:
+      // NetplayCore does not require a reset, so a core that has none simply
+      // leaves it null. Ours has one, so hand it over.
+      session.coreReset = () => core!.reset();
+
       pushRememberedLatencyMode();
       applyLatencyMode();
 
@@ -941,6 +946,23 @@
       }
     } catch (err) {
       logger.error('Could not decode the save', err);
+    }
+  }
+
+  /**
+   * Restarts the machine on both peers.
+   *
+   * The same manoeuvre as loading a save, and for the same reason: the host
+   * restarts, reseeds the session, and the guest is handed the new state
+   * through the ordinary resync path. Nothing is sent through the room server
+   * - only the host is offered the button (see `canReset` below), so there is
+   * no guest press to relay.
+   */
+  function resetGame(): void {
+    if (!session) return;
+    if (session.resetAuthoritative()) {
+      audio?.flush();
+      logger.info('Restarted the machine and reseeded the session');
     }
   }
 
@@ -1357,10 +1379,12 @@
       {showStats}
       {latencyMode}
       {canSetLatency}
+      canReset={isHost}
       gamepadLabel={gamepadLabel(assignments, $language)}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}
+      on:reset={resetGame}
       on:display={(e) => void onDisplayChange(e.detail)}
       on:stats={() => (showStats = !showStats)}
       on:latency={cycleLatencyMode}

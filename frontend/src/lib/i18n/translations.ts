@@ -211,6 +211,8 @@ export const translations = {
     saveGame: 'Save Game',
     loadGame: 'Load Game',
     resume: 'Resume',
+    resetGame: 'Restart Game',
+    confirmResetGame: 'Restart the game from the beginning? Any progress since your last save will be lost.',
     quit: 'Quit',
 
     // Controls configuration
@@ -571,6 +573,8 @@ export const translations = {
     saveGame: 'Sauvegarder',
     loadGame: 'Charger',
     resume: 'Reprendre',
+    resetGame: 'Redémarrer le jeu',
+    confirmResetGame: 'Redémarrer le jeu depuis le début ? Toute progression depuis votre dernière sauvegarde sera perdue.',
     quit: 'Quitter',
 
     // Controls configuration

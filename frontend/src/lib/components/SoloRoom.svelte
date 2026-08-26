@@ -392,6 +392,24 @@
     }
   }
 
+  /**
+   * A power cycle: the CPU restarts, the cartridge keeps its battery.
+   *
+   * `core.reset()` leaves SRAM alone, which is what a real console does and
+   * why this deliberately does not call `persistSram()` or clear anything -
+   * the player's in-game save file survives a restart, exactly as it should.
+   *
+   * The flush is for the same reason as in `onGameLoaded`: audio queued for
+   * the frames that are about to stop existing would otherwise play over the
+   * title screen.
+   */
+  function resetGame(): void {
+    if (!core) return;
+    core.reset();
+    audio?.flush();
+    logger.info('Restarted the machine');
+  }
+
   function persistSram(): void {
     if (!sramLoaded) return;
     if (!core || !$socket) return;
@@ -785,9 +803,11 @@
       localPlayer2Playable={allowLocalPlayer2}
       {display}
       {turbo}
+      canReset={true}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}
+      on:reset={resetGame}
       on:display={(e) => void onDisplayChange(e.detail)}
       on:turbo={toggleTurbo}
       on:controlsSaved={(e) => (controls = e.detail.config)}

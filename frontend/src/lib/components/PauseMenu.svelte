@@ -5,6 +5,7 @@
   import ControlsSettings from './ControlsSettings.svelte';
   import LoadSavesMenu from './LoadSavesMenu.svelte';
   import SaveGameMenu from './SaveGameMenu.svelte';
+  import ConfirmModal from './ConfirmModal.svelte';
   import { socket } from '$lib/api/socket';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
@@ -61,6 +62,18 @@
    */
   export let canSetLatency = false;
 
+  /**
+   * Whether this room offers a restart, and this player may press it.
+   *
+   * False by default, which is what the dual and streaming rooms want: they
+   * have no savestate path at all, so there is nothing here that could put a
+   * game back on its feet afterwards. In lockstep only the host is offered it,
+   * because the restart reaches the guest as a resync - two peers each
+   * restarting on their own would be two machines that merely started from the
+   * same reset, which is the distinction `onSaveLoaded` is built around too.
+   */
+  export let canReset = false;
+
   const dispatch = createEventDispatcher();
 
   interface MenuItem {
@@ -86,6 +99,7 @@
   let showLoadSaves = false;
   let showSaveGame = false;
   let showVideo = false;
+  let showResetConfirm = false;
   let selectedIndex = 0;
   let menuButtons: HTMLButtonElement[] = [];
   let gamepadPollInterval: number | null = null;
@@ -174,6 +188,15 @@
     { label: t($language, 'saveGame'), action: () => showSaveGame = true },
     ...(display ? [{ label: t($language, 'video'), action: () => (showVideo = true) }] : []),
     ...extraItems,
+    ...(canReset
+      ? [
+          {
+            label: t($language, 'resetGame'),
+            action: () => (showResetConfirm = true),
+            danger: true
+          }
+        ]
+      : []),
     { label: t($language, 'quit'), action: () => dispatch('quit'), danger: true }
   ];
 
@@ -196,6 +219,10 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    // The confirmation owns the keyboard while it is up: it binds Escape and
+    // Enter on the window itself, so acting on them here as well would answer
+    // the modal and step out of the menu behind it in the same press.
+    if (showResetConfirm) return;
     if (e.key === 'Escape') {
       // The browser takes this press to leave fullscreen, so acting on it too
       // would do two things at once. Let it have this one; the next press
@@ -238,6 +265,20 @@
   }
 
 
+  /**
+   * Restarts the machine and puts the player back in front of it.
+   *
+   * Resuming is the point rather than an afterthought: this is a power cycle,
+   * and a power cycle ends with the game on screen. It also has to happen in
+   * this click - restoring fullscreen needs a user gesture, and the modal's
+   * confirm button is the last one available.
+   */
+  function confirmReset() {
+    showResetConfirm = false;
+    dispatch('reset');
+    handleResumeWithFullscreen();
+  }
+
   function handleResumeWithFullscreen() {
     // Request fullscreen (must be in user gesture handler)
     if (restoreFullscreen && !document.fullscreenElement) {
@@ -270,8 +311,9 @@
     if (gamepadPollInterval !== null) return;
 
     gamepadPollInterval = window.setInterval(() => {
-      // Skip if in submenus
-      if (showKeyConfig || showLoadSaves || showSaveGame || showVideo) return;
+      // Skip if in submenus, or under the restart confirmation: a pad press
+      // there would click whichever menu button is hidden behind it.
+      if (showKeyConfig || showLoadSaves || showSaveGame || showVideo || showResetConfirm) return;
 
       const gamepads = navigator.getGamepads();
 
@@ -438,6 +480,18 @@
 
   </div>
 </div>
+
+{#if showResetConfirm}
+  <ConfirmModal
+    title={t($language, 'resetGame')}
+    message={t($language, 'confirmResetGame')}
+    confirmText={t($language, 'resetGame')}
+    cancelText={t($language, 'cancel')}
+    danger={true}
+    on:confirm={confirmReset}
+    on:cancel={() => (showResetConfirm = false)}
+  />
+{/if}
 
 <style>
   /**

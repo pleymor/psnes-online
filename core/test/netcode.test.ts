@@ -1179,6 +1179,69 @@ test('only the host can reseed the session', async () => {
 	harness.dispose();
 });
 
+test('a restart travels to the guest as a resync', async () => {
+	// The pause menu's restart is loadAuthoritativeState's sibling: the host
+	// restarts its own machine and reseeds, and the guest is handed the result
+	// through the ordinary resync path. Restarting on both sides independently
+	// would give two machines that merely started from the same reset, and the
+	// first pad still in flight would land on only one of them.
+	const harness = await NetplayHarness.create(
+		harnessOptions(30_000, { link: { latency: 35, jitter: 4, seed: 51 }, inputDelay: 4 })
+	);
+	harness.host.session.coreReset = () => (harness.host.core as FakeCore).reset();
+	harness.handshake();
+	harness.run(6_000);
+
+	const before = harness.host.core.stateCrc();
+	const epochBefore = harness.host.session.getStats().epoch;
+
+	assert.ok(harness.host.session.resetAuthoritative(), 'the host must accept the restart');
+	assert.notEqual(
+		harness.host.core.stateCrc(),
+		before,
+		'the machine must actually have restarted, not merely changed epoch'
+	);
+
+	harness.run(15_000);
+	assert.notEqual(
+		harness.host.session.getStats().epoch,
+		epochBefore,
+		'a restart must open a new epoch, so pads for the old timeline are discarded'
+	);
+	assert.equal(harness.host.session.state, 'running');
+	assert.equal(harness.guest.session.state, 'running');
+
+	harness.clearLogs();
+	harness.run(10_000);
+	assert.equal(harness.firstDivergence(), null, 'both peers must be on the restarted machine');
+	assert.ok(harness.statesMatchWhenAligned(), 'and agree byte for byte');
+	assert.equal(harness.host.session.getStats().desyncs, 0, 'a restart is not a desync');
+
+	harness.dispose();
+});
+
+test('only the host can restart the machine', async () => {
+	// Same rule as reseeding from a save, and it is why the pause menu only
+	// offers the entry to the host: a guest restarting locally would walk off
+	// the shared timeline on its own.
+	const harness = await NetplayHarness.create(
+		harnessOptions(2000, { link: { latency: 30, seed: 93 }, inputDelay: 4 })
+	);
+	let guestCoreReset = false;
+	harness.guest.session.coreReset = () => {
+		guestCoreReset = true;
+	};
+	harness.handshake();
+	harness.run(2_000);
+
+	assert.equal(harness.guest.session.resetAuthoritative(), false, 'a guest must not restart');
+	assert.equal(guestCoreReset, false, 'and must not have touched its own machine either');
+
+	harness.run(3_000);
+	assert.equal(harness.firstDivergence(), null);
+	harness.dispose();
+});
+
 test('the host sizes the input delay from the link before shipping state', async () => {
 	// The delay travels with the state and the guest adopts it there, so it has
 	// to be right before the state goes out - and measuring afterwards is

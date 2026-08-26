@@ -18,12 +18,36 @@ const WORDS = 64;
 export class FakeCore implements NetplayCore {
 	private ram = new Uint32Array(WORDS);
 	private counter = 0;
+	private readonly seed: number;
 	frame = 0;
 
 	constructor(seed = 0x1234abcd) {
+		this.seed = seed;
+		this.seedRam();
+	}
+
+	private seedRam(): void {
 		for (let i = 0; i < WORDS; i++) {
-			this.ram[i] = (seed + i * 0x9e3779b1) >>> 0;
+			this.ram[i] = (this.seed + i * 0x9e3779b1) >>> 0;
 		}
+	}
+
+	/**
+	 * A power cycle: back to the machine this was constructed as.
+	 *
+	 * `NetplayCore` does not require this - a core without a reset leaves the
+	 * session's `coreReset` hook null - so it is not part of the interface. It
+	 * exists here because the reset path is worth testing, and because this
+	 * machine is history-sensitive enough that "did it actually restart" is a
+	 * question the state answers rather than one the test has to trust.
+	 *
+	 * `frame` is deliberately untouched, matching `loadState`'s treatment of it:
+	 * the session counts its own frames, and the timeline does not rewind
+	 * because the machine on it did.
+	 */
+	reset(): void {
+		this.seedRam();
+		this.counter = 0;
 	}
 
 	runFrame(pad1: number, pad2: number): void {
