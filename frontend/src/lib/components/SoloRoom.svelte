@@ -19,6 +19,7 @@
   import { setLogLabels } from '$lib/utils/log-shipper';
   import { encodeSram, decodeSram } from '$lib/rooms/sram';
   import { applyInputSources } from '$lib/rooms/input-sources';
+  import { createRendererSurface, type SurfaceState } from '$lib/rooms/renderer-surface';
   import { socket } from '$lib/api/socket';
   import LocateRom from './LocateRom.svelte';
   import TouchControls from './TouchControls.svelte';
@@ -33,8 +34,6 @@
   import {
     AudioSink,
     CanvasRenderer,
-    WebglRenderer,
-    loadShaderPreset,
     FrameGovernor,
     InputCollector,
     SoloSession,
@@ -90,6 +89,7 @@
 
   let core: PsnesCore | null = null;
   let renderer: Renderer | null = null;
+  let surface: ReturnType<typeof createRendererSurface> | null = null;
   let audio: AudioSink | null = null;
   let collector1: InputCollector | null = null;
   let collector2: InputCollector | null = null;
@@ -119,7 +119,6 @@
 
   let display: DisplayOptions = { ...DEFAULT_DISPLAY };
   let shaderNotice: string | null = null;
-  let shaderSwapToken = 0;
 
   /**
    * Fast-forward, latched from the pause menu.
@@ -183,17 +182,23 @@
     : null;
 
 
+  /**
+   * Mirrors a renderer-surface change into the plain `let`s Svelte tracks.
+   *
+   * Must assign these by name rather than hand the surface itself to the
+   * template: see the module doc on why it reports through a callback instead
+   * of being reactive state.
+   */
+  function onSurfaceChange(state: SurfaceState): void {
+    renderer = state.renderer;
+    usingGl = state.usingGl;
+    display = { ...display, shader: state.shader };
+    shaderNotice = state.notice;
+  }
+
   /** Drops back to the 2D renderer on its own canvas. Always succeeds. */
   function useCanvasRenderer(): void {
-    renderer?.dispose();
-    usingGl = false;
-    // The button reads display.shader and nothing else, so leaving it set
-    // would keep advertising a shader that is not running. The stored
-    // preference is left alone: it is the player's choice, retried next boot.
-    display = { ...display, shader: '' };
-    renderer = new CanvasRenderer(canvas2d);
-    renderer.setOptions(display);
-    if (core) renderer.draw(core);
+    surface?.useCanvas(display);
   }
 
   /**
@@ -203,40 +208,10 @@
    * never left looking at a black canvas wondering whether the game crashed.
    */
   async function applyShader(shaderId: string): Promise<void> {
-    const token = ++shaderSwapToken;
+    // Cleared synchronously, same as before the extraction: a stale notice
+    // must not sit on screen for the whole length of the shader fetch.
     shaderNotice = null;
-
-    if (!shaderId) {
-      useCanvasRenderer();
-      return;
-    }
-
-    const loaded = await loadShaderPreset(shaderId);
-    if (token !== shaderSwapToken) return;
-
-    if (!loaded.ok) {
-      logger.warn('shader unavailable', { shaderId, reason: loaded.reason });
-      shaderNotice = 'That shader could not be loaded; showing raw pixels.';
-      useCanvasRenderer();
-      return;
-    }
-
-    // The second dispose on the failure path below is safe: both renderers
-    // guard every deletion and null what they delete.
-    renderer?.dispose();
-
-    const webgl = WebglRenderer.create(canvasGl, loaded.preset);
-    if (!webgl) {
-      logger.warn('webgl2 unavailable or the shader would not compile', { shaderId });
-      shaderNotice = 'Shaders need WebGL2, which this browser did not provide.';
-      useCanvasRenderer();
-      return;
-    }
-
-    usingGl = true;
-    renderer = webgl;
-    renderer.setOptions(display);
-    if (core) renderer.draw(core);
+    await surface?.apply(shaderId, display);
   }
 
   /**
@@ -259,11 +234,7 @@
 
   /** Falls back to 2D if the GL context died mid-game. One boolean per slice. */
   function checkRendererHealth(): void {
-    if (renderer instanceof WebglRenderer && renderer.unusable) {
-      logger.warn('webgl context lost, falling back to 2D');
-      shaderNotice = 'Hardware shaders stopped working; showing raw pixels.';
-      useCanvasRenderer();
-    }
+    surface?.checkHealth(display);
   }
 
   /**
@@ -444,6 +415,14 @@
   async function boot() {
     try {
       setLogLabels({ roomId, player: 'solo' });
+
+      surface = createRendererSurface({
+        canvas2d,
+        canvasGl,
+        getCore: () => core,
+        logger,
+        onChange: onSurfaceChange
+      });
 
       statusText = 'Loading emulator core…';
       core = await loadCore();
@@ -757,7 +736,8 @@
     collector2 = null;
     void audio?.stop();
     audio = null;
-    renderer?.dispose();
+    surface?.dispose();
+    surface = null;
     renderer = null;
     core?.dispose();
     core = null;

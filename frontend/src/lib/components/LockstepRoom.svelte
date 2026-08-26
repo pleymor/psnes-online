@@ -21,6 +21,7 @@
   import { setLogLabels } from '$lib/utils/log-shipper';
   import { encodeSram, decodeSram } from '$lib/rooms/sram';
   import { applyInputSources } from '$lib/rooms/input-sources';
+  import { createRendererSurface, type SurfaceState } from '$lib/rooms/renderer-surface';
   import PauseMenu from './PauseMenu.svelte';
   import { language, type Language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
@@ -36,8 +37,6 @@
   import {
     AudioSink,
     CanvasRenderer,
-    WebglRenderer,
-    loadShaderPreset,
     FrameGovernor,
     InputCollector,
     NetplaySession,
@@ -151,6 +150,7 @@
   const touchPad = new TouchPad();
   let showTouchPad = false;
   let renderer: Renderer | null = null;
+  let surface: ReturnType<typeof createRendererSurface> | null = null;
   let audio: AudioSink | null = null;
 
   /**
@@ -188,8 +188,6 @@
   let display: DisplayOptions = { ...DEFAULT_DISPLAY };
   /** Set when a shader was asked for and could not be delivered. Plain English, like the rest of this component. */
   let shaderNotice: string | null = null;
-  /** Guards against overlapping swaps when the player clicks the button quickly. */
-  let shaderSwapToken = 0;
 
   /**
    * Fullscreen, which is local and cosmetic like the display options: it
@@ -227,18 +225,23 @@
   let chromeHeld = false;
 
 
+  /**
+   * Mirrors a renderer-surface change into the plain `let`s Svelte tracks.
+   *
+   * Must assign these by name rather than hand the surface itself to the
+   * template: see the module doc on why it reports through a callback instead
+   * of being reactive state.
+   */
+  function onSurfaceChange(state: SurfaceState): void {
+    renderer = state.renderer;
+    usingGl = state.usingGl;
+    display = { ...display, shader: state.shader };
+    shaderNotice = state.notice;
+  }
+
   /** Drops back to the 2D renderer on its own canvas. Always succeeds. */
   function useCanvasRenderer(): void {
-    renderer?.dispose();
-    usingGl = false;
-    // The button reads display.shader, so leaving it set would keep
-    // advertising a shader that is not running. The stored preference is
-    // deliberately left alone: it is the player's choice, and it should be
-    // retried on the next load rather than silently forgotten.
-    display = { ...display, shader: '' };
-    renderer = new CanvasRenderer(canvas2d);
-    renderer.setOptions(display);
-    if (core) renderer.draw(core);
+    surface?.useCanvas(display);
   }
 
   /**
@@ -250,43 +253,10 @@
    * before it was removed from the shader list.
    */
   async function applyShader(shaderId: string): Promise<void> {
-    const token = ++shaderSwapToken;
+    // Cleared synchronously, same as before the extraction: a stale notice
+    // must not sit on screen for the whole length of the shader fetch.
     shaderNotice = null;
-
-    if (!shaderId) {
-      useCanvasRenderer();
-      return;
-    }
-
-    const loaded = await loadShaderPreset(shaderId);
-    // The player may have picked something else while this was fetching.
-    if (token !== shaderSwapToken) return;
-
-    if (!loaded.ok) {
-      logger.warn('shader unavailable', { shaderId, reason: loaded.reason });
-      shaderNotice = 'That shader could not be loaded; showing raw pixels.';
-      useCanvasRenderer();
-      return;
-    }
-
-    // If WebglRenderer.create fails below, useCanvasRenderer() disposes this
-    // same (already-disposed) renderer again. That is safe: dispose() on both
-    // renderer types guards every deletion and nulls what it deletes, so
-    // nothing gets double-freed.
-    renderer?.dispose();
-
-    const webgl = WebglRenderer.create(canvasGl, loaded.preset);
-    if (!webgl) {
-      logger.warn('webgl2 unavailable or the shader would not compile', { shaderId });
-      shaderNotice = 'Shaders need WebGL2, which this browser did not provide.';
-      useCanvasRenderer();
-      return;
-    }
-
-    usingGl = true;
-    renderer = webgl;
-    renderer.setOptions(display);
-    if (core) renderer.draw(core);
+    await surface?.apply(shaderId, display);
   }
 
   /**
@@ -314,15 +284,7 @@
    * refuses. One boolean read per slice, and no new timer.
    */
   function checkRendererHealth(): void {
-    if (renderer instanceof WebglRenderer && renderer.unusable) {
-      // Reason-agnostic on purpose: `unusable` covers both a lost browser
-      // context and allocate() giving up (e.g. a shader's render target
-      // too large for the driver), and the player does not need to know
-      // which - both end the same way, a working 2D picture.
-      logger.warn('webgl renderer unusable, falling back to 2D');
-      shaderNotice = 'Hardware shaders stopped working; showing raw pixels.';
-      useCanvasRenderer();
-    }
+    surface?.checkHealth(display);
   }
 
   /**
@@ -567,6 +529,14 @@
       // Lets one query pull both players' lines for the same match.
       setLogLabels({ roomId, player: isHost ? 'p1' : 'p2' });
 
+      surface = createRendererSurface({
+        canvas2d,
+        canvasGl,
+        getCore: () => core,
+        logger,
+        onChange: onSurfaceChange
+      });
+
       statusText = 'Loading emulator core…';
       core = await loadCore();
       if (destroyed) return teardown();
@@ -703,7 +673,7 @@
       // by however long a slow CDN takes, for a reason that has nothing to do
       // with them. Not awaited: onFrame above closes over the mutable
       // `renderer` binding, so a later swap is picked up, and applyShader is
-      // already re-entrancy-safe through shaderSwapToken.
+      // already re-entrancy-safe through the renderer surface's own swap token.
       if (storedShader) void applyShader(storedShader);
 
       startDiagnostics();
@@ -1248,7 +1218,8 @@
     collector?.detach();
     void audio?.stop();
     core?.dispose();
-    renderer?.dispose();
+    surface?.dispose();
+    surface = null;
     renderer = null;
     governor = null;
     session = null;
