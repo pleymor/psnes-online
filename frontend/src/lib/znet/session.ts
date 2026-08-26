@@ -361,19 +361,6 @@ export class NetplaySession implements TickSource {
 	private timeline = new PadTimeline();
 
 	/**
-	 * Compatibility shim: `core/test/netcode.test.ts` reaches past the public
-	 * surface with `(session as unknown as {...}).pads[playerIndex].has(f)` to
-	 * assert the delay-raise gap-fill leaves no hole. That test is frozen for
-	 * this extraction, so the reflected shape stays available, sourced from
-	 * `timeline` rather than a second copy of the state.
-	 */
-	private get pads(): Array<{ has(frame: number): boolean }> {
-		return Array.from({ length: PLAYER_COUNT }, (_, p) => ({
-			has: (frame: number) => this.timeline.has(p, frame)
-		}));
-	}
-
-	/**
 	 * The last savestate this peer adopted. State delivery is idempotent: a
 	 * duplicate chunk that arrives after adoption is answered with another ack
 	 * rather than restarting the transfer.

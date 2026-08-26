@@ -93,15 +93,16 @@ test('raising the delay leaves no hole in our own pads, at any phase', async () 
 
 		const host = harness.host.session as unknown as {
 			setDelay(n: number): void;
-			pads: Array<Map<number, number>>;
+			timeline: { has(player: number, frame: number): boolean };
 			frame: number;
 			playerIndex: number;
 		};
 		host.setDelay(5);
 
-		const mine = host.pads[host.playerIndex];
 		const missing: number[] = [];
-		for (let f = host.frame; f <= host.frame + 5; f++) if (!mine.has(f)) missing.push(f);
+		for (let f = host.frame; f <= host.frame + 5; f++) {
+			if (!host.timeline.has(host.playerIndex, f)) missing.push(f);
+		}
 		assert.deepEqual(missing, [], `hole in our own pads at seed ${seed}`);
 
 		const before = harness.host.session.getStats().framesRun;
