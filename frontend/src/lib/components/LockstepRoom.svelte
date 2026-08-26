@@ -17,6 +17,7 @@
   import type { KeyConfig } from '$lib/types';
   import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
+  import { toBase64, fromBase64 } from '$lib/saves/base64';
   import { setLogLabels } from '$lib/utils/log-shipper';
   import PauseMenu from './PauseMenu.svelte';
   import { language, type Language } from '$lib/stores/language';
@@ -910,9 +911,7 @@
         sock.off('game:sramLoaded', onLoaded);
         try {
           if (payload?.sramData && core) {
-            const binary = atob(payload.sramData);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const bytes = fromBase64(payload.sramData);
             core.loadSram(bytes);
             logger.info('Battery save restored', { bytes: bytes.length });
           }
@@ -938,12 +937,7 @@
     const sram = core.sram();
     if (sram.length === 0) return;
 
-    let binary = '';
-    const CHUNK = 0x8000;
-    for (let i = 0; i < sram.length; i += CHUNK) {
-      binary += String.fromCharCode(...sram.subarray(i, i + CHUNK));
-    }
-    $socket.emit('game:saveSram', { roomId, sramData: btoa(binary) });
+    $socket.emit('game:saveSram', { roomId, sramData: toBase64(sram) });
   }
 
   function onSaveLoaded(payload: { saveData?: string; name?: string }) {
@@ -956,9 +950,7 @@
     }
 
     try {
-      const binary = atob(payload.saveData);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const bytes = fromBase64(payload.saveData);
       if (session.loadAuthoritativeState(bytes, `save "${payload.name ?? ''}"`)) {
         audio?.flush();
         logger.info('Loaded save and reseeded the session', { name: payload.name });

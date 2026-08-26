@@ -9,7 +9,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { toBase64 } from '../../frontend/src/lib/saves/base64.js';
+import { toBase64, fromBase64 } from '../../frontend/src/lib/saves/base64.js';
 import {
 	QUICK_SAVE_NAME,
 	findQuickSave,
@@ -45,6 +45,22 @@ test('a savestate-sized buffer encodes without blowing the stack', () => {
 
 test('an empty buffer encodes to an empty string rather than throwing', () => {
 	assert.equal(toBase64(new Uint8Array(0)), '');
+});
+
+test('a buffer larger than the argument limit survives a round trip', () => {
+	// 800KB is a real savestate; 100k arguments is roughly where a spread call
+	// blows the stack, so anything above it exercises the chunking.
+	const bytes = new Uint8Array(800 * 1024);
+	for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 7) & 0xff;
+
+	const back = fromBase64(toBase64(bytes));
+
+	assert.equal(back.length, bytes.length);
+	assert.ok(back.every((b, i) => b === bytes[i]), 'every byte survives');
+});
+
+test('an empty buffer round trips to an empty buffer', () => {
+	assert.equal(fromBase64(toBase64(new Uint8Array(0))).length, 0);
 });
 
 /*

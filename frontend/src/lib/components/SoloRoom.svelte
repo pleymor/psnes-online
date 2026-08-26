@@ -15,6 +15,7 @@
   import { goto } from '$app/navigation';
   import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
+  import { toBase64, fromBase64 } from '$lib/saves/base64';
   import { setLogLabels } from '$lib/utils/log-shipper';
   import { socket } from '$lib/api/socket';
   import LocateRom from './LocateRom.svelte';
@@ -339,9 +340,7 @@
         clearTimeout(timeoutHandle);
         try {
           if (data.sramData) {
-            const binary = atob(data.sramData);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const bytes = fromBase64(data.sramData);
             core!.loadSram(bytes);
             logger.info('Battery save restored', { bytes: bytes.length });
             sramLoaded = true;
@@ -389,9 +388,7 @@
   function onGameLoaded(payload: { saveData?: string; name?: string }): void {
     if (!core || !payload?.saveData) return;
     try {
-      const binary = atob(payload.saveData);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const bytes = fromBase64(payload.saveData);
       core.loadState(bytes);
       // Otherwise audio buffered before the jump plays over the restored
       // state.
@@ -442,9 +439,7 @@
     if (!core || !$socket) return;
     const sram = core.sram();
     if (sram.length === 0) return;
-    let binary = '';
-    for (let i = 0; i < sram.length; i++) binary += String.fromCharCode(sram[i]);
-    $socket.emit('game:saveSram', { roomId, sramData: btoa(binary) });
+    $socket.emit('game:saveSram', { roomId, sramData: toBase64(sram) });
   }
 
   async function boot() {
