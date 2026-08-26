@@ -6,9 +6,9 @@ import { notifyFriendsStatusChanged, getOnlineFriends } from '../services/friend
 import {
   markPlayerAway,
   markPlayerPresent,
-  pendingInvitationsFor,
   registerRoomHandlers
 } from './room-handlers.js';
+import { registerInvitationHandlers, pendingInvitationsFor } from './invitation-handlers.js';
 import { registerGameHandlers } from './game-handlers.js';
 import { registerP2PHandlers } from './p2p-handlers.js';
 import { registerSyncHandlers } from './sync-handlers.js';
@@ -123,6 +123,7 @@ async function handleConnection(io: Server, socket: Socket) {
   });
 
   registerRoomHandlers(socket, io, user, rooms, getUserSocket);
+  registerInvitationHandlers(socket, io, user, rooms, getUserSocket);
   registerGameHandlers(socket, io, user.id, rooms, getUserSocket);
   registerP2PHandlers(socket, user, io, rooms);
   registerSyncHandlers(socket, io, user.id, rooms);
