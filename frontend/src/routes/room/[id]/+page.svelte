@@ -23,6 +23,7 @@
   import { defaultControlsConfig, normaliseControlsConfig, type ControlsConfig } from '$lib/controls/binding';
   import { onlinePlayers } from '$lib/rooms/online-players';
   import { resumeSaveToRequest } from '$lib/rooms/resume-save';
+  import { rememberRoom, recallRoom, forgetRoom } from '$lib/rooms/remembered-room';
   import { createLogger } from '$lib/utils/logger';
 
   const logger = createLogger('RoomPage');
@@ -69,6 +70,18 @@
 
   /** One rebuild at a time, so a refusal cannot become a loop of them. */
   let rebuildingRoom = false;
+
+  /**
+   * Set once the player has chosen to leave, and never unset.
+   *
+   * Forgetting the room on the way out is not enough on its own: quitting emits
+   * `game:stop`, the server answers `room:updated`, and that reassignment
+   * re-runs the note-keeping below - which wrote the note straight back after
+   * it had been cleared. Pressing Back then rebuilt the room the player had
+   * just left. The flag is what makes leaving stick against a reply still in
+   * flight.
+   */
+  let departing = false;
 
   /**
    * Player 1's mapping.
@@ -237,6 +250,24 @@
     $socket?.emit('room:join', { roomId });
   }
 
+  /*
+   * Keep the tab's note about this room in step with the room itself.
+   *
+   * Only while it is a room of one: a room with a partner in it does not die
+   * with one window, so there is nothing a reload would need to rebuild - and
+   * rebuilding one would put the two players in different rooms. The note is
+   * dropped rather than left stale when a second member arrives, so a reload
+   * after that gets the honest error instead of a room built behind the
+   * partner's back.
+   */
+  $: if (!departing && room?.gameId) {
+    if (room.players.length <= 1) {
+      rememberRoom({ roomId, gameId: room.gameId, gameTitle: room.gameTitle ?? '' });
+    } else {
+      forgetRoom();
+    }
+  }
+
   function handleRoomUpdated(updatedRoom: Room) {
     if (updatedRoom.id !== roomId) return;
 
@@ -321,10 +352,9 @@
    * reaches it as a prop, which is all it needs to address the new room for
    * saves and for the battery.
    */
-  function rebuildRoom() {
+  function rebuildRoom(game: { id: string; title: string }) {
     const sock = $socket;
-    const game = chosenGame;
-    if (!sock || !game || rebuildingRoom) return;
+    if (!sock || rebuildingRoom) return;
 
     rebuildingRoom = true;
     const settle = setTimeout(() => {
@@ -346,7 +376,17 @@
       // lands on the error screen. No navigation: this page is already the
       // right page, and navigating would destroy the running emulator.
       replaceState(`/room/${created.id}`, $page.state);
-      logger.info('Rebuilt the room under a running game', { roomId: created.id });
+      /*
+       * Entering the game is this path's own job when it arrives without one.
+       *
+       * `room:create` does not emit `game:started` - the library's solo launch
+       * gets into the game by navigating to the room, and `room:join` is what
+       * hands a newcomer a running one. Rebuilding does neither: the page is
+       * already here and nobody joined anything. Solo, because only a room of
+       * one is ever rebuilt.
+       */
+      if (created.status === 'playing' && !gameStarted) enterGame(EmulationMode.SINGLE);
+      logger.info('Rebuilt the room', { roomId: created.id, wasInGame: gameStarted });
       showNotification(t($language, 'roomReopened'), 'success');
     }
 
@@ -354,12 +394,7 @@
     // `autoStart`, because the game did not stop: the room has to come back in
     // the state the player is already in, not in a lobby they would have to
     // start out of.
-    sock.emit('room:create', {
-      gameId: game.id,
-      gameTitle: room?.gameTitle ?? '',
-      autoStart: true,
-      emulationMode: room?.emulationMode
-    });
+    sock.emit('room:create', { gameId: game.id, gameTitle: game.title, autoStart: true });
   }
 
   function handleSocketError(payload: { message?: string; code?: string; roomId?: string }) {
@@ -369,14 +404,29 @@
      * Our own room, refused on the way back in, with a game still running in
      * front of the player. Rebuilt rather than reported; see `rebuildRoom`.
      */
-    if (
-      payload.code === 'roomGone' &&
-      payload.roomId === roomId &&
-      activeEmulationMode === EmulationMode.SINGLE &&
-      chosenGame
-    ) {
-      rebuildRoom();
-      return;
+    if (payload.code === 'roomGone' && payload.roomId === roomId) {
+      /*
+       * Two ways to be holding a room the server has forgotten, and the
+       * difference is only where the game's name comes from.
+       *
+       * Mid-game we still have the room object, so `chosenGame` has it. On
+       * arrival - which is what a reload is, and a reload is what kills a room
+       * of one in the first place - there is no room and no game, only an id
+       * the server has never heard of. That is what the tab's note is for.
+       */
+      const game = chosenGame
+        ? { id: chosenGame.id, title: room?.gameTitle ?? '' }
+        : (() => {
+            const noted = recallRoom(roomId);
+            return noted ? { id: noted.gameId, title: noted.gameTitle } : null;
+          })();
+
+      if (game) {
+        rebuildRoom(game);
+        return;
+      }
+      // Nothing remembered: a hand-typed URL, or another tab's room. The
+      // honest answer is that it is gone.
     }
     /*
      * An error that arrives before we ever had a room is fatal for this page,
@@ -503,6 +553,11 @@
     if ((room?.players.length ?? 0) <= 1) {
       $socket?.emit('room:leave', { roomId });
     }
+
+    // Chosen, so never rebuilt: without this, quitting and pressing Back would
+    // put the player straight back into the room they had just left.
+    departing = true;
+    forgetRoom();
 
     // Redirect to home when game is stopped
     goto('/');
@@ -636,6 +691,9 @@
   function leaveRoom() {
     confirmingLeave = false;
     $socket?.emit('room:leave', { roomId });
+    // Chosen, so never rebuilt. Same reason as in `leaveGame`.
+    departing = true;
+    forgetRoom();
     goto('/');
   }
 
