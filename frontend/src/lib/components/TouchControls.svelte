@@ -387,16 +387,36 @@
   }
 
   .middle {
-    grid-row: 2;
-    grid-column: 2;
+    /*
+     * Up with the shoulders, between L and R.
+     *
+     * Select and Start were a column in the middle of the pad, and that column
+     * was width taken from the two controls that are actually played with: the
+     * thumbs' half of the pad ended where the pills began. Moved into the top
+     * row - which the shoulders already own and which is taller than a pill -
+     * they cost no height, and the diamond grows by a quarter into the space
+     * they left.
+     */
+    grid-row: 1;
+    /*
+     * Across the whole row and centred on the pad, not on the middle column:
+     * the diamond is wider than the stick, so the two side columns are not the
+     * same width, and a pill centred in what is left between them sits visibly
+     * off to one side. L and R keep their corners either way.
+     */
+    grid-column: 1 / -1;
+    justify-self: center;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    align-items: center;
     justify-content: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
+    min-width: 0;
   }
 
   .pill {
-    padding: 0.35rem 0.9rem;
+    padding: 0.35rem 0.75rem;
+    white-space: nowrap;
     border-radius: 999px;
     font-size: 0.7rem;
     font-size: clamp(0.5rem, min(7cqh, 2.6cqw), 0.75rem);
@@ -408,8 +428,13 @@
     grid-column: 3;
     justify-self: end;
     position: relative;
-    height: 8.5rem;
-    height: min(80cqh, 34cqw);
+    /* A quarter wider than it was, which is the width the pills used to take
+       out of this half of the pad. */
+    height: 10.5rem;
+    /* 76cqh, not more: the top row and the padding take the rest of the band,
+       and a diamond taller than what is left hangs out of the pad on a tablet,
+       where height rather than width is the binding constraint. */
+    height: min(76cqh, 42cqw);
     aspect-ratio: 1;
   }
 
@@ -476,7 +501,8 @@
     /* Same discipline: a plain value first, so a browser that cannot read the
        container units still draws a controller. */
     .stick { height: 7rem; height: max(4.5rem, min(46cqh, var(--margin))); }
-    .faces { height: 7.5rem; height: max(4.5rem, min(50cqh, var(--margin))); }
+    /* The same quarter here, as far as the black beside the picture allows. */
+    .faces { height: 9rem; height: max(4.5rem, min(62cqh, var(--margin))); }
     .shoulder {
       height: 1.9rem;
       height: min(13cqh, 7cqw);
