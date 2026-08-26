@@ -222,7 +222,19 @@ export function registerRoomHandlers(
     const room = getMemberRoom(rooms, data?.roomId, user.id, 'room:join');
 
     if (!room) {
-      socket.emit('error', { message: 'Room not found' });
+      /*
+       * The same answer as before, with a name on it.
+       *
+       * `code` is deliberately one value for both halves of the refusal - the
+       * room is gone, or it was never the caller's - because telling those two
+       * apart is exactly what `getMemberRoom` refuses to do: room ids travel,
+       * and confirming a room exists to somebody outside it tells them
+       * something they should not learn. What the code adds is only that *this*
+       * event was refused, which the caller already knew it had sent. The room
+       * page uses it to tell its own dead room apart from any other complaint
+       * arriving on the shared `error` channel.
+       */
+      socket.emit('error', { message: 'Room not found', code: 'roomGone', roomId: data?.roomId });
       return;
     }
 

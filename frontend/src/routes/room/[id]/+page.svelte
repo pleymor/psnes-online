@@ -50,7 +50,25 @@
   /** My two-player config, from my account - the one the panel edits. */
   let userControls: ControlsConfig = defaultControlsConfig();
 
-  $: roomId = data.roomId;
+  /**
+   * The room this page is in.
+   *
+   * Seeded from the route, and normally the same thing - but not bound to it.
+   * `rebuildRoom` can move us into a room the URL does not name yet, and the
+   * `replaceState` that follows does not re-run `load`, so `data` would go on
+   * naming the dead one for the rest of the visit. A real navigation to another
+   * room does change `data.roomId`, and that still wins: hence the comparison
+   * rather than a plain `let`.
+   */
+  let routeRoomId = data.roomId;
+  let roomId = data.roomId;
+  $: if (data.roomId !== routeRoomId) {
+    routeRoomId = data.roomId;
+    roomId = data.roomId;
+  }
+
+  /** One rebuild at a time, so a refusal cannot become a loop of them. */
+  let rebuildingRoom = false;
 
   /**
    * Player 1's mapping.
@@ -283,8 +301,83 @@
    * used to swallow all of it, leaving a button that looked like it had done
    * nothing.
    */
-  function handleSocketError(payload: { message?: string }) {
+  /**
+   * Rebuilds the room under a game that is still running.
+   *
+   * A room of one dies with its player's window, and on a phone that window
+   * closes by being backgrounded for the length of a ping timeout. The
+   * emulator never noticed: it runs entirely here, holding the only copy of
+   * the play that matters. So the room is the thing that was lost, and the
+   * room is bookkeeping - a game, a seat, an id - all of which we still have.
+   * Rebuilding it is cheaper for everyone than telling the player their room
+   * is gone while they are plainly still playing in it.
+   *
+   * Solo only. In a netplay room the partner is in the real room, and building
+   * a second one would put the two players in different places while telling
+   * neither; there the complaint is the honest answer.
+   *
+   * The emulator is not touched. It is not re-keyed and does not remount, so
+   * the machine, its audio and its battery carry straight across; `roomId`
+   * reaches it as a prop, which is all it needs to address the new room for
+   * saves and for the battery.
+   */
+  function rebuildRoom() {
+    const sock = $socket;
+    const game = chosenGame;
+    if (!sock || !game || rebuildingRoom) return;
+
+    rebuildingRoom = true;
+    const settle = setTimeout(() => {
+      // The rebuild is best-effort: if it does not come back, say the thing we
+      // would have said in the first place rather than leaving it silent.
+      if (!rebuildingRoom) return;
+      rebuildingRoom = false;
+      sock.off('room:created', onRebuilt);
+      showNotification(t($language, 'roomGone'), 'error');
+    }, 8000);
+
+    function onRebuilt(created: Room) {
+      clearTimeout(settle);
+      rebuildingRoom = false;
+      sock!.off('room:created', onRebuilt);
+      roomId = created.id;
+      room = created;
+      // The URL has to stop naming a room that no longer exists, or a reload
+      // lands on the error screen. No navigation: this page is already the
+      // right page, and navigating would destroy the running emulator.
+      replaceState(`/room/${created.id}`, $page.state);
+      logger.info('Rebuilt the room under a running game', { roomId: created.id });
+      showNotification(t($language, 'roomReopened'), 'success');
+    }
+
+    sock.on('room:created', onRebuilt);
+    // `autoStart`, because the game did not stop: the room has to come back in
+    // the state the player is already in, not in a lobby they would have to
+    // start out of.
+    sock.emit('room:create', {
+      gameId: game.id,
+      gameTitle: room?.gameTitle ?? '',
+      autoStart: true,
+      emulationMode: room?.emulationMode
+    });
+  }
+
+  function handleSocketError(payload: { message?: string; code?: string; roomId?: string }) {
     if (!payload?.message) return;
+
+    /*
+     * Our own room, refused on the way back in, with a game still running in
+     * front of the player. Rebuilt rather than reported; see `rebuildRoom`.
+     */
+    if (
+      payload.code === 'roomGone' &&
+      payload.roomId === roomId &&
+      activeEmulationMode === EmulationMode.SINGLE &&
+      chosenGame
+    ) {
+      rebuildRoom();
+      return;
+    }
     /*
      * An error that arrives before we ever had a room is fatal for this page,
      * not a passing complaint: it means we could not get in. Toasting it and

@@ -707,6 +707,56 @@ test('a battery save still lands after game:stop, and is refused once the seat i
 });
 
 /*
+ * What a player whose room was reaped mid-game is told, and what they can do
+ * about it without leaving the game.
+ *
+ * The refusal carries a code so the room page can tell its own dead room apart
+ * from any other complaint on the shared `error` channel, and the code is one
+ * value for both halves of the refusal on purpose - see the handler. From
+ * there the rebuild is nothing exotic: the same `room:create` the library
+ * sends, carrying the same game, coming back already `playing` because the
+ * game never stopped.
+ */
+test('a reaped room refuses the rejoin by name, and can be rebuilt under the running game', async () => {
+  await withLobby(async ({ alice, gameId, client, rooms, drop }) => {
+    const phone = await client(alice);
+    const created = once<Room>(phone, 'room:created');
+    phone.emit('room:create', { gameId, gameTitle: 'Chrono Trigger', autoStart: true });
+    const room = await created;
+
+    // Chrome goes to the background for longer than a ping timeout.
+    await drop(alice);
+    assert.equal(rooms.get(room.id), undefined);
+
+    const back = await client(alice);
+    const refused = once<{ message: string; code?: string; roomId?: string }>(back, 'error');
+    back.emit('room:join', { roomId: room.id });
+    const answer = await refused;
+    assert.equal(answer.code, 'roomGone', 'named, so the page can act on it');
+    assert.equal(answer.roomId, room.id, 'and about the room we asked for');
+
+    const rebuilt = await new Promise<Room>(resolve => {
+      back.once('room:created', resolve);
+      back.emit('room:create', { gameId, gameTitle: 'Chrono Trigger', autoStart: true });
+    });
+    assert.notEqual(rebuilt.id, room.id, 'a new room, because the old one is genuinely gone');
+    assert.equal(rebuilt.status, 'playing', 'in the state the player is already in');
+    assert.equal(rebuilt.gameId, gameId, 'carrying the game still running in front of them');
+    assert.equal(rebuilt.players.length, 1);
+    assert.equal(rebuilt.players[0].userId, alice.id);
+
+    // And the battery still has somewhere to go, which is the point of keeping
+    // the same game rather than starting a fresh anything.
+    const saved = once(back, 'game:sramSaved');
+    back.emit('game:saveSram', {
+      roomId: rebuilt.id, sramData: Buffer.from([0x77]).toString('base64')
+    });
+    await saved;
+    assert.deepEqual([...findGameById(db, gameId)!.sram!], [0x77]);
+  });
+});
+
+/*
  * The phone that lost its socket mid-game, and then could not put the game down.
  *
  * `game:stop` is the whole of what the quit button does, and a room-scoped
