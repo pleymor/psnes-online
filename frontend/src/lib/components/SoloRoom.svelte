@@ -678,12 +678,15 @@
 
   /** Leaving the room: told to the server the same way LockstepRoom does it. */
   function quitToLobby(): void {
-    // Before game:stop, mirroring P2PRoom's handleQuit: the parent page emits
-    // room:leave in its own onDestroy, which runs before this component's
-    // onDestroy (Svelte destroys a parent's on_destroy callbacks before its
-    // children's). The server gates game:saveSram on room membership, so a
-    // save that arrives after room:leave is silently dropped. Saving here,
-    // while we are still a member, is what actually reaches the server.
+    // First, and this is not decoration. The server gates `game:saveSram` on
+    // room membership, and quitting a room of one gives that membership up:
+    // the page's `leaveGame` emits `room:leave` before it navigates. Anything
+    // written after that is refused, teardown's own attempt included. Saving
+    // here, while the seat is still ours, is what actually reaches the server.
+    //
+    // (It used to be the page's `onDestroy` that emitted `room:leave`, which is
+    // what the comment here described until dbed6c9 took it out. The ordering
+    // conclusion survived the mechanism that produced it.)
     persistSram();
     // Reset first, not read back from document.fullscreenElement inside
     // closePauseMenu() after exitFullscreen() - that promise resolves
@@ -704,14 +707,12 @@
     destroyed = true;
     if (sramTimer) clearInterval(sramTimer);
     sramTimer = null;
-    // Best-effort only, and usually a no-op: by the time onDestroy runs here,
-    // the parent room page has already emitted room:leave from its own
-    // onDestroy (a parent's on_destroy callbacks run before its children's),
-    // so the server no longer counts us as a room member and rejects the
-    // save. The real saves are the ones in quitToLobby() and
-    // openPauseMenu(), which run while membership is still live. This one
-    // only helps on a path that quits without going through either - e.g. a
-    // parent-initiated teardown - and only if the drop happens to lag behind.
+    // Best-effort, and refused on the one path that matters: quitting a room
+    // of one has already emitted `room:leave` by now, so the server no longer
+    // counts us as a member. The saves that carry are the ones in
+    // quitToLobby() and openPauseMenu(), which run while the seat is live.
+    // This one covers leaving by any other route - closing the tab, navigating
+    // away - where membership is untouched and it lands.
     persistSram();
     $socket?.off('game:loaded', onGameLoaded);
     window.removeEventListener('gamepadconnected', applySources);

@@ -656,6 +656,57 @@ test('a disconnect still never releases a seat somebody else is waiting on', asy
 });
 
 /*
+ * When the battery still reaches the server on the way out, and when it stops.
+ *
+ * Both emulator rooms write the battery as the player quits, and both also
+ * write it again from their teardown. Which of the two actually carries is a
+ * property of this handler, not of theirs: `game:saveSram` asks for membership
+ * and a chosen game, and nothing else - `game:stop` having already moved the
+ * room back to `waiting` is not an obstacle. Giving the seat up is, and quitting
+ * a room of one does exactly that before navigating. That is the whole reason
+ * the rooms save before the emit rather than trusting teardown to do it.
+ */
+test('a battery save still lands after game:stop, and is refused once the seat is given up', async () => {
+  await withLobby(async ({ alice, gameId, client }) => {
+    const player = await client(alice);
+
+    const created = once<Room>(player, 'room:created');
+    player.emit('room:create', { gameId, gameTitle: 'Chrono Trigger', autoStart: true });
+    const room = await created;
+
+    player.emit('game:stop', { roomId: room.id });
+    await once(player, 'game:stopped');
+
+    // Still a member, so teardown's own attempt would have carried too.
+    const saved = once(player, 'game:sramSaved');
+    player.emit('game:saveSram', {
+      roomId: room.id, sramData: Buffer.from([0x11, 0x22]).toString('base64')
+    });
+    await saved;
+    assert.deepEqual([...findGameById(db, gameId)!.sram!], [0x11, 0x22]);
+
+    // And now the seat, which is what quitting a room of one gives up.
+    player.emit('room:leave', { roomId: room.id });
+    const refused = once(player, 'error');
+    player.emit('game:saveSram', {
+      roomId: room.id, sramData: Buffer.from([0x99, 0x99]).toString('base64')
+    });
+    /*
+     * The refusal is silence, not a message: `getMemberRoom` returns null and
+     * the handler bails. So a second event that does answer is what proves the
+     * save had its turn - the same ordering trick as the quit test below.
+     */
+    player.emit('room:join', { roomId: room.id });
+    await refused;
+
+    assert.deepEqual(
+      [...findGameById(db, gameId)!.sram!], [0x11, 0x22],
+      'the row still holds what was written while the seat was ours'
+    );
+  });
+});
+
+/*
  * The phone that lost its socket mid-game, and then could not put the game down.
  *
  * `game:stop` is the whole of what the quit button does, and a room-scoped

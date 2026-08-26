@@ -467,6 +467,19 @@
   }
 
   function quitToLobby() {
+    /*
+     * The battery, before anything else, as both sibling rooms do.
+     *
+     * `teardown` persists it too, and in an ordinary two-player quit that is
+     * enough: nothing has stripped our membership by then, so the write lands.
+     * What it depends on is the member count - the page gives the seat up on
+     * the way out only for a room of one - and a lockstep room can be down to
+     * one member with a game still in hand, because a partner who leaves is
+     * removed while our core goes on holding the SRAM. Saving here costs one
+     * refused emit on the guest, which does not persist anyway, and makes the
+     * battery stop depending on who else is still in the room.
+     */
+    persistSram();
     // Leave the picture before leaving the room: a lobby rendered fullscreen
     // is not what anyone asked for.
     wasFullscreen = false;
