@@ -14,7 +14,8 @@
    */
   import { onDestroy } from 'svelte';
   import type { Button } from '$lib/controls/binding';
-  import type { TouchPad } from '$lib/controls/touch';
+  import type { FaceTarget, TouchPad } from '$lib/controls/touch';
+  import { facesAt } from '$lib/controls/touch';
 
   export let pad: TouchPad;
 
@@ -110,6 +111,73 @@
   // Whatever is under a thumb when the room goes away never gets its release.
   onDestroy(() => pad.releaseAll());
 
+  /**
+   * Which face buttons each thumb currently holds.
+   *
+   * Per pointer rather than one set, so two thumbs on the diamond cannot
+   * release each other's buttons: what the pad gets is the union.
+   */
+  const faceHolds = new Map<number, Button[]>();
+  let facesEl: HTMLElement | null = null;
+
+  /**
+   * A touch anywhere on the diamond, resolved by geometry rather than by which
+   * element it landed on.
+   *
+   * Per-button handlers gave one button per thumb and nothing at all in the gap
+   * between two - which is precisely where a player aiming at A+B puts their
+   * thumb. Measured on every move, so a thumb rolling from Y to B plays both on
+   * the way, the way it does on a real pad.
+   */
+  function faceTargets(): FaceTarget[] {
+    if (!facesEl) return [];
+    const targets: FaceTarget[] = [];
+    for (const node of facesEl.querySelectorAll<HTMLElement>('button[data-face]')) {
+      const button = node.dataset.face as Button;
+      const box = node.getBoundingClientRect();
+      targets.push({
+        button,
+        x: box.left + box.width / 2,
+        y: box.top + box.height / 2,
+        r: box.width / 2
+      });
+    }
+    return targets;
+  }
+
+  function facesDown(event: PointerEvent) {
+    capture(event);
+    event.preventDefault();
+    faceHolds.set(event.pointerId, facesAt(event.clientX, event.clientY, faceTargets()));
+    applyFaces();
+  }
+
+  function facesMove(event: PointerEvent) {
+    if (!faceHolds.has(event.pointerId)) return;
+    event.preventDefault();
+    faceHolds.set(event.pointerId, facesAt(event.clientX, event.clientY, faceTargets()));
+    applyFaces();
+  }
+
+  function facesUp(event: PointerEvent) {
+    if (!faceHolds.delete(event.pointerId)) return;
+    applyFaces();
+  }
+
+  /** The pad holds the union of what the thumbs hold, and nothing else. */
+  function applyFaces() {
+    const union = new Set<Button>();
+    for (const buttons of faceHolds.values()) for (const b of buttons) union.add(b);
+
+    const lit: Partial<Record<Button, boolean>> = { ...held };
+    for (const face of FACES) {
+      if (union.has(face.b)) pad.press(face.b);
+      else pad.release(face.b);
+      lit[face.b] = union.has(face.b);
+    }
+    held = lit;
+  }
+
   const FACES: Array<{ b: Button; label: string; cell: string }> = [
     { b: 'x', label: 'X', cell: 'top' },
     { b: 'y', label: 'Y', cell: 'left' },
@@ -175,16 +243,28 @@
     >START</button>
   </div>
 
-  <div class="faces">
+  <!--
+    The diamond takes the touches, not its four buttons: a thumb is wider than
+    the gap between them, and which element a contact point lands on is the
+    wrong question. facesAt answers the right one.
+  -->
+  <div
+    class="faces"
+    bind:this={facesEl}
+    role="presentation"
+    on:pointerdown={facesDown}
+    on:pointermove={facesMove}
+    on:pointerup={facesUp}
+    on:pointercancel={facesUp}
+  >
     {#each FACES as face (face.b)}
       <button
         type="button"
         class="face {face.cell}"
         class:on={held[face.b]}
+        data-face={face.b}
         aria-label={face.label}
-        on:pointerdown={(e) => press(e, face.b)}
-        on:pointerup={() => release(face.b)}
-        on:pointercancel={() => release(face.b)}
+        tabindex="-1"
       >{face.label}</button>
     {/each}
   </div>
@@ -375,7 +455,10 @@
     }
 
     .pad button,
-    .pad .stick {
+    .pad .stick,
+    /* The gap between two face buttons belongs to the diamond, not to the
+       picture behind it: that gap is where A+B is played. */
+    .pad .faces {
       pointer-events: auto;
     }
 

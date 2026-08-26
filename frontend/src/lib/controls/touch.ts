@@ -156,3 +156,45 @@ export function touchPadWanted(padCount: number, view: TouchView = globalThis): 
 		padCount
 	});
 }
+
+/** One face button, as a circle on the glass. */
+export interface FaceTarget {
+	button: Button;
+	/** Centre, in whatever coordinates the caller measures the thumb in. */
+	x: number;
+	y: number;
+	r: number;
+}
+
+/**
+ * How much wider than a point a thumb is, in pixels.
+ *
+ * A contact patch, not a cursor: a thumb pressed on glass is roughly 35px
+ * across, so it genuinely covers two adjacent face buttons when it lands in the
+ * gap between them.
+ */
+const THUMB = 18;
+
+/**
+ * The face buttons a thumb at this point is holding.
+ *
+ * Nearest first, and never more than two: a SNES asks for A+B and Y+B in the
+ * same moment, but no thumb means three at once, and letting a wide contact
+ * reach a third button turns an intended pair into a mash.
+ *
+ * A thumb that reaches none of them still gets the nearest, provided it is not
+ * far - otherwise the middle of the diamond, where the four circles all fall
+ * just out of reach, would be a dead spot in the centre of the control the
+ * player uses most.
+ */
+export function facesAt(px: number, py: number, targets: FaceTarget[]): Button[] {
+	const byDistance = targets
+		.map((t) => ({ button: t.button, gap: Math.hypot(px - t.x, py - t.y) - t.r }))
+		.sort((a, b) => a.gap - b.gap);
+
+	const touched = byDistance.filter((t) => t.gap <= THUMB).slice(0, 2);
+	if (touched.length > 0) return touched.map((t) => t.button);
+
+	const nearest = byDistance[0];
+	return nearest && nearest.gap <= THUMB * 2 ? [nearest.button] : [];
+}

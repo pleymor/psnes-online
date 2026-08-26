@@ -11,8 +11,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TouchPad, shouldShowTouchPad, stickMask, touchPadWanted } from '../../frontend/src/lib/controls/touch.js';
+import { TouchPad, facesAt, shouldShowTouchPad, stickMask, touchPadWanted } from '../../frontend/src/lib/controls/touch.js';
 import { InputCollector } from '../../frontend/src/lib/znet/input.js';
+import type { FaceTarget } from '../../frontend/src/lib/controls/touch.js';
 import { PAD } from '../../frontend/src/lib/znet/protocol.js';
 import { STANDARD_PAD } from '../../frontend/src/lib/controls/binding.js';
 
@@ -188,4 +189,55 @@ test('a desktop browser answers no, and one without matchMedia is not a phone', 
 	};
 	assert.equal(touchPadWanted(0, desktop), false);
 	assert.equal(touchPadWanted(0, {}), false);
+});
+
+/**
+ * One thumb, two buttons.
+ *
+ * A SNES asks for A+B or Y+B in the same moment, and a thumb is wider than the
+ * gap between two face buttons. Sending whichever button happens to be under
+ * the contact point loses those inputs; sending nothing at all - which is what
+ * the gap between two circles gives you - is worse, and it is exactly where a
+ * player aiming at both puts their thumb.
+ *
+ * The geometry below is the real diamond: a 130px square, buttons 36% of it.
+ */
+const R = 23.4;
+const DIAMOND: FaceTarget[] = [
+	{ button: 'x', x: 65, y: 23.4 },
+	{ button: 'y', x: 23.4, y: 65 },
+	{ button: 'a', x: 106.6, y: 65 },
+	{ button: 'b', x: 65, y: 106.6 }
+].map((t) => ({ ...t, r: R })) as FaceTarget[];
+
+test('a thumb on a button presses that button, and only it', () => {
+	assert.deepEqual(facesAt(106.6, 65, DIAMOND), ['a']);
+	assert.deepEqual(facesAt(65, 23.4, DIAMOND), ['x']);
+});
+
+test('a thumb in the gap between A and B presses both', () => {
+	// Halfway between the two centres: the point a player aiming at both picks.
+	assert.deepEqual(new Set(facesAt(85.8, 85.8, DIAMOND)), new Set(['a', 'b']));
+});
+
+test('a thumb slightly off centre still presses only its own button', () => {
+	// A few pixels toward B from A's centre is still a deliberate A.
+	assert.deepEqual(facesAt(103, 72, DIAMOND), ['a']);
+});
+
+test('never three at once: a thumb is not that wide', () => {
+	for (const [x, y] of [[85.8, 85.8], [65, 65], [95, 50], [45, 45]]) {
+		assert.ok(facesAt(x, y, DIAMOND).length <= 2, `${x},${y} pressed too many`);
+	}
+});
+
+test('the middle of the diamond still plays something', () => {
+	// Equidistant from all four. Pressing nothing there is a dead spot in the
+	// middle of the one control the player uses most.
+	assert.ok(facesAt(65, 65, DIAMOND).length >= 1);
+});
+
+test('a thumb outside the diamond presses nothing', () => {
+	assert.deepEqual(facesAt(-40, -40, DIAMOND), []);
+	assert.deepEqual(facesAt(65, 200, DIAMOND), []);
 });
