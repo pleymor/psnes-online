@@ -45,12 +45,6 @@
   /** null where there are no network statistics to show: solo. */
   export let showStats: boolean | null = null;
   /**
-   * The already-formatted name of the gamepad driving this player, or null
-   * where there is no picker. Formatted by the room rather than here: which
-   * pads are connected is its business, and this only has to render a string.
-   */
-  export let gamepadLabel: string | null = null;
-  /**
    * The room's latency trade-off, or null where there is none to show: solo, and
    * the modes that are not lockstep.
    */
@@ -152,14 +146,6 @@
           {
             label: `${t($language, 'fastForward')}: ${t($language, turbo ? 'on' : 'off')}`,
             action: () => dispatch('turbo')
-          }
-        ]),
-    ...(gamepadLabel === null
-      ? []
-      : [
-          {
-            label: `${t($language, 'gamepad')}: ${gamepadLabel}`,
-            action: () => dispatch('gamepad')
           }
         ]),
     ...(showStats === null

@@ -266,8 +266,6 @@ export const translations = {
     deviceKeyboard: 'Keyboard',
     deviceNone: 'No device',
     keyboardSource: 'Keyboard',
-    noController: 'No controller',
-    allFreeControllers: 'Free controllers',
     detectController: 'Detect',
     pressButtonOnController: 'Press a button on player {player}\'s controller',
     editingKeyboard: 'Keyboard',
@@ -326,7 +324,6 @@ export const translations = {
     shader: 'Shader',
     // Display settings, shown in the pause menu since the on-screen toolbar went
     video: 'Video',
-    gamepad: 'Gamepad',
     aspect: 'Aspect',
     fastForward: 'Fast-forward',
     netplayStats: 'Netplay stats',
@@ -629,8 +626,6 @@ export const translations = {
     deviceKeyboard: 'Clavier',
     deviceNone: 'Aucun périphérique',
     keyboardSource: 'Clavier',
-    noController: 'Aucune manette',
-    allFreeControllers: 'Manettes libres',
     detectController: 'Détecter',
     pressButtonOnController: 'Appuie sur un bouton de la manette du joueur {player}',
     editingKeyboard: 'Clavier',
@@ -689,7 +684,6 @@ export const translations = {
     shader: 'Shader',
     // Réglages d'affichage, dans le menu pause depuis la disparition de la barre
     video: 'Vidéo',
-    gamepad: 'Manette',
     aspect: 'Format',
     fastForward: 'Accéléré',
     netplayStats: 'Statistiques réseau',

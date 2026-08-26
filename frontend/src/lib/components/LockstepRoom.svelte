@@ -25,7 +25,7 @@
   import { createFullscreen } from '$lib/rooms/fullscreen';
   import { createChromeAutohide } from '$lib/rooms/chrome-autohide';
   import PauseMenu from './PauseMenu.svelte';
-  import { language, type Language } from '$lib/stores/language';
+  import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
@@ -52,7 +52,6 @@
     aspectRatioOf,
     fitToBox,
     loadAssignments,
-    saveAssignments,
     resolveSources,
     connectedPads,
     type Assignments,
@@ -1112,34 +1111,6 @@
     }, STALL_VISIBLE_AFTER_MS);
   }
 
-  /**
-   * Toggles P1's gamepad between "every free controller" and "none".
-   *
-   * Lockstep has only one local player per machine, so this shortcut only
-   * ever has two positions to offer.
-   */
-  function cycleGamepadSource() {
-    const next = assignments.p1.gamepad === null ? 'auto' : null;
-    // Written first, then re-read through applySources(): storage is the one
-    // place this preference lives, and going through the same path as a
-    // replug leaves a single description of "what does P1 listen to now".
-    saveAssignments(localStorage, { ...assignments, p1: { ...assignments.p1, gamepad: next } });
-    applySources();
-  }
-
-  /**
-   * Takes the assignment and the language as parameters rather than reading
-   * them off the closure: Svelte 4 derives a template expression's
-   * dependencies from the identifiers written in it, so `gamepadLabel()`
-   * alone compiled to a one-time initialisation and the menu item kept the
-   * text it was born with - through both a toggle and a language change.
-   */
-  function gamepadLabel(current: Assignments, lang: Language): string {
-    return current.p1.gamepad === null
-      ? t(lang, 'noController')
-      : t(lang, 'allFreeControllers');
-  }
-
   async function enableAudio() {
     try {
       await audio?.resume();
@@ -1318,7 +1289,6 @@
       {latencyMode}
       {canSetLatency}
       canReset={isHost}
-      gamepadLabel={gamepadLabel(assignments, $language)}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}
@@ -1326,7 +1296,6 @@
       on:display={(e) => void onDisplayChange(e.detail)}
       on:stats={() => (showStats = !showStats)}
       on:latency={cycleLatencyMode}
-      on:gamepad={cycleGamepadSource}
       on:controlsSaved={handleControlsSaved}
     />
   {/if}
