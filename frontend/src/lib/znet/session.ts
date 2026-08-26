@@ -32,6 +32,7 @@ import {
 	type StateMsg
 } from './protocol.js';
 import { PadTimeline, PLAYER_COUNT } from './pad-timeline.js';
+import { LinkMetrics } from './link-metrics.js';
 
 /**
  * What the session needs from an emulator, and nothing more.
@@ -186,15 +187,6 @@ const MAX_INPUT_DELAY = 16;
 
 /** SNES NTSC, used when the caller does not say what the machine runs at. */
 const DEFAULT_FPS = 60.0988;
-
-/** Window over which late frames are counted, and reported to the peer. */
-const STRAIN_WINDOW = 128;
-
-/**
- * A frame gap this much wider than the machine's own is a stutter a player sees.
- * The same threshold the offline instrument uses, so the two agree.
- */
-const LATE_FACTOR = 1.5;
 
 /**
  * Late frames per window at which the peer is judged to be in trouble.
@@ -394,40 +386,11 @@ export class NetplaySession implements TickSource {
 	/** Seconds observed since the window was last reset, so "a full window" means it. */
 	private observedSeconds = 0;
 
-	/** The last strain the peer reported, kept for the diagnostics. */
-	private _peerStrain = 0;
-
-	/**
-	 * "Was this frame late", as a ring over the last window, with its sum.
-	 *
-	 * A ring rather than a running total, because the figure has to *fall* again
-	 * once a rough patch passes. A total would keep an old outage on the books
-	 * for the rest of the session and hold the delay up with it.
-	 */
-	private lateRing = new Uint8Array(STRAIN_WINDOW);
-	private lateAt = 0;
-	private lateCount = 0;
-	private lastFrameAt: number | null = null;
-
 	private peerHello = false;
-	private pendingPings = new Map<number, number>();
 	private nextPingId = 1;
-	private _rtt: number | null = null;
 
-	/**
-	 * Interarrival jitter over the pad stream, the way RFC 3550 computes it for
-	 * RTP: the running mean of how far each packet's spacing departs from the
-	 * spacing it was sent with.
-	 *
-	 * Pad packets are the right carrier for it. The peer emits one per frame it
-	 * executes, so they sample the path sixty times a second and they each name
-	 * the frame they belong to - which gives the intended spacing for free, with
-	 * no clock to synchronise. Deriving it from the ping instead would sample
-	 * once every two seconds and say nothing about variation at frame scale.
-	 */
-	private _jitter: number | null = null;
-	/** Arrival time and newest frame of the last pad packet that advanced. */
-	private lastPadArrival: { at: number; frame: number } | null = null;
+	/** RTT, jitter, our own late-frame strain, and the peer's reported strain. */
+	private metrics: LinkMetrics;
 
 	/** Debounces the rejoin handling so a duplicate HELLO cannot loop. */
 	private lastRejoinAt = 0;
@@ -507,6 +470,7 @@ export class NetplaySession implements TickSource {
 		};
 		this.stats.inputDelay = this.opts.inputDelay;
 		this.epochMaxDelay = this.opts.inputDelay;
+		this.metrics = new LinkMetrics(this.opts.fps);
 
 		this.transport.onMessage((data) => this.handleMessage(data));
 	}
@@ -607,11 +571,11 @@ export class NetplaySession implements TickSource {
 	}
 
 	get rtt(): number | null {
-		return this._rtt;
+		return this.metrics.rtt;
 	}
 
 	get jitter(): number | null {
-		return this._jitter;
+		return this.metrics.jitter;
 	}
 
 	getStats(): SessionStats {
@@ -619,10 +583,10 @@ export class NetplaySession implements TickSource {
 		return {
 			...this.stats,
 			frame: this.frame,
-			rtt: this._rtt,
-			jitter: this._jitter,
-			strain: this.lateCount,
-			peerStrain: this._peerStrain,
+			rtt: this.metrics.rtt,
+			jitter: this.metrics.jitter,
+			strain: this.metrics.strain,
+			peerStrain: this.metrics.peerStrain,
 			epoch: this.epoch,
 			padsAhead
 		};
@@ -838,7 +802,7 @@ export class NetplaySession implements TickSource {
 		const pad1 = this.timeline.get(0, this.frame) ?? 0;
 		const pad2 = this.timeline.get(1, this.frame) ?? 0;
 
-		this.noteFrameTiming();
+		this.metrics.noteFrameRun(this.now());
 		this.core.runFrame(pad1, pad2);
 		const executed = this.frame;
 		this.frame++;
@@ -901,7 +865,7 @@ export class NetplaySession implements TickSource {
 	ping(): void {
 		const id = this.nextPingId++;
 		this.lastPingAt = this.now();
-		this.pendingPings.set(id, this.lastPingAt);
+		this.metrics.notePingSent(id, this.lastPingAt);
 		this.send({ type: MsgType.Ping, id });
 	}
 
@@ -930,45 +894,6 @@ export class NetplaySession implements TickSource {
 	}
 
 	/**
-	 * Folds one pad packet's arrival into the jitter estimate.
-	 *
-	 * Only packets whose newest frame has advanced count. Every pad packet
-	 * repeats the last few frames the sender already transmitted, and the engine
-	 * re-sends the whole reachable range while stalled, so a great many arrivals
-	 * carry nothing new - timing those would measure the re-send policy rather
-	 * than the link.
-	 */
-	private sampleJitter(newestFrame: number): void {
-		const at = this.now();
-		const previous = this.lastPadArrival;
-		if (previous === null || newestFrame <= previous.frame) {
-			if (previous === null) this.lastPadArrival = { at, frame: newestFrame };
-			return;
-		}
-
-		// What the spacing should have been: the sender emits one packet per frame
-		// it runs, so the frames between the two packets are the intended gap.
-		const expected = ((newestFrame - previous.frame) * 1000) / this.opts.fps;
-		const drift = Math.abs(at - previous.at - expected);
-		// RFC 3550's smoothing, gain 1/16: slow enough that one reordered packet
-		// does not move the figure, quick enough to follow a route that changes.
-		this._jitter = this._jitter === null ? drift : this._jitter + (drift - this._jitter) / 16;
-		this.lastPadArrival = { at, frame: newestFrame };
-	}
-
-	/** Notes whether the frame about to run is arriving late. */
-	private noteFrameTiming(): void {
-		const at = this.now();
-		const previous = this.lastFrameAt;
-		this.lastFrameAt = at;
-		if (previous === null) return;
-		const late = at - previous > (1000 / this.opts.fps) * LATE_FACTOR ? 1 : 0;
-		this.lateCount += late - this.lateRing[this.lateAt];
-		this.lateRing[this.lateAt] = late;
-		this.lateAt = (this.lateAt + 1) % STRAIN_WINDOW;
-	}
-
-	/**
 	 * Adds a frame of delay when the peer says it is losing frames.
 	 *
 	 * This is the one adjustment the side that needs it cannot make: what keeps
@@ -987,7 +912,7 @@ export class NetplaySession implements TickSource {
 	private notePeerStrain(strain: number): void {
 		// Recorded before the gates below, so the diagnostics show what the peer
 		// reported even when this side is pinned and will not act on it.
-		this._peerStrain = strain;
+		this.metrics.notePeerStrain(strain);
 		if (!this.autoInputDelay || this.opts.hungerSeconds <= 0) return;
 		if (this._state !== 'running') return;
 
@@ -1101,7 +1026,7 @@ export class NetplaySession implements TickSource {
 			baseFrame: run.baseFrame,
 			// How deep our own reserve of the peer's pads is. Only the peer can
 			// do anything about it, since it is the peer's delay that fills it.
-			strain: this.lateCount,
+			strain: this.metrics.strain,
 			pads: run.pads
 		});
 	}
@@ -1176,16 +1101,11 @@ export class NetplaySession implements TickSource {
 		// there too.
 		this.epochMaxDelay = this.opts.inputDelay;
 		// Frame numbers mean something different on a new timeline, so the
-		// spacing measured across the seam would be nonsense.
-		this.lastPadArrival = null;
+		// spacing measured across the seam would be nonsense, and a resync's
+		// own gap is not strain either.
+		this.metrics.resetFrameTiming();
 		this.resetStrainWindow();
 		this.strainedAt = -1;
-		// A resync's own gap is not strain, and neither is anything measured on
-		// the timeline we just abandoned.
-		this.lastFrameAt = null;
-		this.lateRing.fill(0);
-		this.lateCount = 0;
-		this.lateAt = 0;
 	}
 
 	/**
@@ -1255,18 +1175,15 @@ export class NetplaySession implements TickSource {
 			case MsgType.Ping:
 				return this.send({ type: MsgType.Pong, id: msg.id });
 			case MsgType.Pong: {
-				const sentAt = this.pendingPings.get(msg.id);
-				if (sentAt === undefined) return;
-				this.pendingPings.delete(msg.id);
-				const sample = this.now() - sentAt;
-				// Kept raw, and kept apart from the smoothed number below: the
-				// delay is sized from the spread across these samples, which an
+				const sample = this.metrics.notePingReply(msg.id, this.now());
+				if (sample === null) return;
+				// Kept raw, and kept apart from the smoothed number metrics keeps:
+				// the delay is sized from the spread across these samples, which an
 				// average has already thrown away.
 				if (this.sizingSince > 0) this.sizingSamples.push(sample);
-				// Light smoothing: a single outlier should not move the number
-				// the UI shows, but it should still track a real route change.
-				this._rtt = this._rtt === null ? sample : this._rtt * 0.7 + sample * 0.3;
-				this.onEvent({ type: 'rtt', value: this._rtt });
+				// notePingReply just set it from this very sample, so it cannot be
+				// null here - the getter's type just cannot see that.
+				this.onEvent({ type: 'rtt', value: this.metrics.rtt! });
 				return;
 			}
 		}
@@ -1338,7 +1255,7 @@ export class NetplaySession implements TickSource {
 		if (epoch !== this.epoch) return; // belongs to a timeline we abandoned
 		if (playerIndex === this.playerIndex || playerIndex >= PLAYER_COUNT) return;
 
-		this.sampleJitter(baseFrame + pads.length - 1);
+		this.metrics.samplePadArrival(baseFrame + pads.length - 1, this.now());
 		this.notePeerStrain(peerStrain);
 
 		for (let i = 0; i < pads.length; i++) {
