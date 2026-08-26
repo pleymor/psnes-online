@@ -31,6 +31,7 @@ import {
 	type PadMask,
 	type StateMsg
 } from './protocol.js';
+import { PadTimeline, PLAYER_COUNT } from './pad-timeline.js';
 
 /**
  * What the session needs from an emulator, and nothing more.
@@ -147,8 +148,6 @@ export interface SessionOptions {
 	onEvent?: (event: SessionEvent) => void;
 	onFrame?: (frame: number) => void;
 }
-
-const PLAYER_COUNT = 2;
 
 /**
  * Floor for the *estimate*, which is a guess and has to be a cautious one.
@@ -357,13 +356,22 @@ export class NetplaySession implements TickSource {
 
 	/** Next frame to execute. Mirrors the core's own frame counter. */
 	private frame = 0;
-	/** First frame of the current epoch; nothing before it is meaningful. */
-	private baseFrame = 0;
 
-	private pads: Array<Map<number, PadMask>> = [new Map(), new Map()];
+	/** What has been sampled, what has arrived, and the questions asked about it. */
+	private timeline = new PadTimeline();
 
-	private localCrcs = new Map<number, number>();
-	private remoteCrcs = new Map<number, number>();
+	/**
+	 * Compatibility shim: `core/test/netcode.test.ts` reaches past the public
+	 * surface with `(session as unknown as {...}).pads[playerIndex].has(f)` to
+	 * assert the delay-raise gap-fill leaves no hole. That test is frozen for
+	 * this extraction, so the reflected shape stays available, sourced from
+	 * `timeline` rather than a second copy of the state.
+	 */
+	private get pads(): Array<{ has(frame: number): boolean }> {
+		return Array.from({ length: PLAYER_COUNT }, (_, p) => ({
+			has: (frame: number) => this.timeline.has(p, frame)
+		}));
+	}
 
 	/**
 	 * The last savestate this peer adopted. State delivery is idempotent: a
@@ -595,10 +603,7 @@ export class NetplaySession implements TickSource {
 		 * Repeat the newest pad across the gap. It is the only value available
 		 * without inventing input the player never gave, and repeating recent
 		 * frames is what the pad packets do anyway.
-		 */
-		const mine = this.pads[this.playerIndex];
-
-		/*
+		 *
 		 * The gap starts at `frame + previous`, not one above it.
 		 *
 		 * A raise arrives between ticks, and `tick()` samples before it runs, so
@@ -606,20 +611,11 @@ export class NetplaySession implements TickSource {
 		 * than it looks. Starting the fill one frame too high left exactly one
 		 * hole, at the very frame the peer would need first, and the session
 		 * wedged the instant it reached it: thirteen flawless seconds, then a
-		 * permanent freeze on the first step. The `has` guard below makes the
-		 * lower bound safe either way, so it costs nothing to start low.
+		 * permanent freeze on the first step. The lower bound below makes the
+		 * fill safe either way, so it costs nothing to start low.
 		 */
-		let last = 0;
-		for (let f = this.frame + previous; f >= this.frame; f--) {
-			const held = mine.get(f);
-			if (held !== undefined) {
-				last = held;
-				break;
-			}
-		}
-		for (let f = this.frame + previous; f <= this.frame + frames; f++) {
-			if (!mine.has(f)) mine.set(f, last);
-		}
+		const last = this.timeline.newestAtOrBelow(this.playerIndex, this.frame + previous, this.frame);
+		this.timeline.fillGap(this.playerIndex, this.frame + previous, this.frame + frames, last);
 		this.sendPadRange(this.frame + previous, this.frame + frames);
 	}
 
@@ -632,11 +628,7 @@ export class NetplaySession implements TickSource {
 	}
 
 	getStats(): SessionStats {
-		const padsAhead = this.pads.map((map) => {
-			let ahead = 0;
-			while (map.has(this.frame + ahead)) ahead++;
-			return ahead;
-		});
+		const padsAhead = this.timeline.padsAhead(this.frame);
 		return {
 			...this.stats,
 			frame: this.frame,
@@ -827,13 +819,13 @@ export class NetplaySession implements TickSource {
 		// this once per executed frame (rather than once per wall-clock tick)
 		// is what keeps the two peers' input tapes the same length.
 		const target = this.frame + this.opts.inputDelay;
-		if (!this.pads[this.playerIndex].has(target)) {
+		if (!this.timeline.has(this.playerIndex, target)) {
 			const pad = this.readLocalInput() & 0xffff;
-			this.pads[this.playerIndex].set(target, pad);
+			this.timeline.set(this.playerIndex, target, pad);
 			this.sendPads(target);
 		}
 
-		if (!this.hasAllPads(this.frame)) {
+		if (!this.timeline.hasAll(this.frame)) {
 			if (this.stallCounter === 0) this.stats.stalls++;
 			this.stats.stalledTicks++;
 
@@ -856,8 +848,8 @@ export class NetplaySession implements TickSource {
 		}
 		this.stallCounter = 0;
 
-		const pad1 = this.pads[0].get(this.frame) ?? 0;
-		const pad2 = this.pads[1].get(this.frame) ?? 0;
+		const pad1 = this.timeline.get(0, this.frame) ?? 0;
+		const pad2 = this.timeline.get(1, this.frame) ?? 0;
 
 		this.noteFrameTiming();
 		this.core.runFrame(pad1, pad2);
@@ -866,7 +858,9 @@ export class NetplaySession implements TickSource {
 		this.stats.framesRun++;
 
 		this.maybeChecksum(executed);
-		this.pruneHistory();
+		// Keep well clear of the re-send window: a pruned pad is one we can no
+		// longer retransmit, and the peer may still be waiting for it.
+		this.timeline.prune(this.frame - Math.max(120, this.epochMaxDelay * 4));
 		this.onFrame(this.frame);
 
 		return 'ran';
@@ -1106,70 +1100,23 @@ export class NetplaySession implements TickSource {
 		this.observedSeconds = 0;
 	}
 
-	private hasAllPads(frame: number): boolean {
-		for (let p = 0; p < PLAYER_COUNT; p++) {
-			if (!this.pads[p].has(frame)) return false;
-		}
-		return true;
-	}
-
 	private sendPads(upTo: number): void {
 		this.sendPadRange(upTo - this.opts.padRedundancy + 1, upTo);
 	}
 
 	private sendPadRange(from: number, upTo: number): void {
-		const first = Math.max(this.baseFrame, from);
-		const run: PadMask[] = [];
-		for (let f = first; f <= upTo; f++) {
-			const pad = this.pads[this.playerIndex].get(f);
-			if (pad === undefined) {
-				// A gap means history was pruned; start the run after it.
-				run.length = 0;
-				continue;
-			}
-			run.push(pad);
-		}
-		if (run.length === 0) return;
+		const run = this.timeline.runEndingAt(this.playerIndex, from, upTo);
+		if (!run) return;
 		this.send({
 			type: MsgType.Pads,
 			playerIndex: this.playerIndex,
 			epoch: this.epoch,
-			baseFrame: upTo - run.length + 1,
+			baseFrame: run.baseFrame,
 			// How deep our own reserve of the peer's pads is. Only the peer can
 			// do anything about it, since it is the peer's delay that fills it.
 			strain: this.lateCount,
-			pads: run
+			pads: run.pads
 		});
-	}
-
-	/**
-	 * Neutral pads for the first D frames of an epoch.
-	 *
-	 * Nobody can have sent a pad for frame 0 through D-1: those are exactly the
-	 * frames whose input would have been sampled before the session existed.
-	 * Both peers fill them with "no buttons held", which is the one value they
-	 * are guaranteed to agree on.
-	 */
-	private primeStartupPads(from: number): void {
-		for (let p = 0; p < PLAYER_COUNT; p++) {
-			for (let f = from; f < from + this.opts.inputDelay; f++) {
-				this.pads[p].set(f, 0);
-			}
-		}
-	}
-
-	private pruneHistory(): void {
-		// Keep well clear of the re-send window: a pruned pad is one we can no
-		// longer retransmit, and the peer may still be waiting for it.
-		const cutoff = this.frame - Math.max(120, this.epochMaxDelay * 4);
-		if (cutoff <= this.baseFrame) return;
-		for (let p = 0; p < PLAYER_COUNT; p++) {
-			for (const f of this.pads[p].keys()) {
-				if (f < cutoff) this.pads[p].delete(f);
-			}
-		}
-		for (const f of this.localCrcs.keys()) if (f < cutoff) this.localCrcs.delete(f);
-		for (const f of this.remoteCrcs.keys()) if (f < cutoff) this.remoteCrcs.delete(f);
 	}
 
 	private maybeChecksum(executedFrame: number): void {
@@ -1181,7 +1128,7 @@ export class NetplaySession implements TickSource {
 		// would cost milliseconds inside a 16ms budget, and any divergence that
 		// matters reaches WRAM within a frame or two anyway.
 		const crc = this.core.wramCrc();
-		this.localCrcs.set(executedFrame, crc);
+		this.timeline.setLocalCrc(executedFrame, crc);
 		this.send({
 			type: MsgType.Crc,
 			playerIndex: this.playerIndex,
@@ -1190,7 +1137,7 @@ export class NetplaySession implements TickSource {
 			crc
 		});
 
-		const remote = this.remoteCrcs.get(executedFrame);
+		const remote = this.timeline.getRemoteCrc(executedFrame);
 		if (remote !== undefined) this.compareCrc(executedFrame, crc, remote);
 	}
 
@@ -1235,11 +1182,8 @@ export class NetplaySession implements TickSource {
 	}
 
 	private resetTimeline(from: number): void {
-		this.baseFrame = from;
 		this.frame = from;
-		this.pads = [new Map(), new Map()];
-		this.localCrcs.clear();
-		this.remoteCrcs.clear();
+		this.timeline.reset(from, this.opts.inputDelay);
 		// A new epoch starts from whatever delay the two peers have just agreed
 		// on, so the window that has to reach back over a delay change starts
 		// there too.
@@ -1255,7 +1199,6 @@ export class NetplaySession implements TickSource {
 		this.lateRing.fill(0);
 		this.lateCount = 0;
 		this.lateAt = 0;
-		this.primeStartupPads(from);
 	}
 
 	/**
@@ -1411,21 +1354,20 @@ export class NetplaySession implements TickSource {
 		this.sampleJitter(baseFrame + pads.length - 1);
 		this.notePeerStrain(peerStrain);
 
-		const map = this.pads[playerIndex];
 		for (let i = 0; i < pads.length; i++) {
 			const f = baseFrame + i;
 			if (f < this.frame) continue; // already executed; redundant copy
 			// First value wins. A redundant repeat must never overwrite a pad
 			// we already ran a frame with.
-			if (!map.has(f)) map.set(f, pads[i] & 0xffff);
+			if (!this.timeline.has(playerIndex, f)) this.timeline.set(playerIndex, f, pads[i] & 0xffff);
 		}
 	}
 
 	private onCrc(epoch: number, frame: number, crc: number): void {
 		if (epoch !== this.epoch) return;
-		const local = this.localCrcs.get(frame);
+		const local = this.timeline.getLocalCrc(frame);
 		if (local === undefined) {
-			this.remoteCrcs.set(frame, crc);
+			this.timeline.setRemoteCrc(frame, crc);
 			return;
 		}
 		this.compareCrc(frame, local, crc);
