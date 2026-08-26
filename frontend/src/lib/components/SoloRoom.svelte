@@ -411,6 +411,23 @@
     logger.info('Restarted the machine');
   }
 
+  /**
+   * A rebind: applied here, and reported upward.
+   *
+   * Assigning locally is what makes the new bindings live on this machine at
+   * once, without waiting for a round trip. The dispatch is the other half,
+   * and it was missing: this component had no dispatcher at all, so the page's
+   * `on:controlsSaved` was a listener nothing ever fired. Its `userControls`
+   * therefore stayed at whatever it held on arrival, and since that value is
+   * pushed back down as the `controls` prop, anything that re-evaluated it
+   * handed this component its own pre-rebind config again. The same shape as
+   * LockstepRoom's `handleControlsSaved`, for the same reason.
+   */
+  function handleControlsSaved(event: CustomEvent<{ config: ControlsConfig }>): void {
+    controls = event.detail.config;
+    dispatch('controlsSaved', event.detail);
+  }
+
   function persistSram(): void {
     if (!sramLoaded) return;
     if (!core || !$socket) return;
@@ -817,7 +834,7 @@
       on:reset={resetGame}
       on:display={(e) => void onDisplayChange(e.detail)}
       on:turbo={toggleTurbo}
-      on:controlsSaved={(e) => (controls = e.detail.config)}
+      on:controlsSaved={handleControlsSaved}
     />
   {/if}
 </div>
