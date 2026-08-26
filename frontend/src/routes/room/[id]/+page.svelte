@@ -21,15 +21,12 @@
   import type { Room } from '$lib/types';
   import { EmulationMode } from '$lib/types';
   import { defaultControlsConfig, normaliseControlsConfig, type ControlsConfig } from '$lib/controls/binding';
-  import { onlinePlayers } from '$lib/rooms/online-players';
   import { resumeSaveToRequest } from '$lib/rooms/resume-save';
   import { rememberRoom, recallRoom, forgetRoom } from '$lib/rooms/remembered-room';
+  import { deriveRoomView, subscribeToRoom } from '$lib/rooms/room-session';
   import { createLogger } from '$lib/utils/logger';
 
   const logger = createLogger('RoomPage');
-
-  // Check if current user is the room creator (only they can change mode)
-  $: isRoomCreator = room?.createdBy === $user?.id;
 
   export let data;
 
@@ -103,43 +100,22 @@
    */
   $: keyConfig = userControls.p1.keys;
 
-  // Determine if current player is the room host
-  $: isRoomHost = room?.hostId === $user?.id;
-
-  /*
-   * Online, not member count.
+  /**
+   * What the lobby needs to know about the room and the viewer, derived in one
+   * place by `deriveRoomView` - see that function for what each field means
+   * and why (online count vs. member count, the resume-mode gate, and so on).
    *
-   * A partner who closed their tab is still in `room.players`, so counting
-   * members here would put a single player into netplay: two cores exchanging
-   * inputs with nobody on the other end. The invite panel still counts members
-   * - an away member's seat is theirs - which is why these two disagree.
+   * Called from a `$:` that names both its inputs, not from a nested access:
+   * Svelte 4 reads a statement's dependencies from the identifiers written in
+   * it, and a call whose arguments hide them would freeze the whole view at
+   * mount.
    */
-  $: isSinglePlayer = room ? onlinePlayers(room).length <= 1 : true;
-
-  // Determine effective emulation mode for game start
-  $: effectiveEmulationMode = isSinglePlayer ? EmulationMode.SINGLE : room?.emulationMode;
-
-  /*
-   * Whether the mode this room would start in can open on a save at all.
-   *
-   * Only `SoloRoom` and `LockstepRoom` listen for `game:loaded`; `P2PRoom`,
-   * which runs the dual and streaming modes, has no savestate path at all - not
-   * from here and not from its own pause menu. So a staged save in those modes
-   * is not a bug to route around, it is a thing that does not exist, and the
-   * lobby says so rather than starting a fresh game without a word.
-   *
-   * Derived from the effective mode, which collapses to SINGLE while the partner
-   * is away. That makes the notice come and go with the partner, which is
-   * exactly right: with one player it is `SoloRoom` that runs, and it resumes.
-   */
-  $: modeCanResume =
-    effectiveEmulationMode === EmulationMode.SINGLE ||
-    effectiveEmulationMode === EmulationMode.LOCKSTEP;
+  $: view = deriveRoomView(room, $user?.id);
 
   /**
    * The mode the running game was started in, frozen at `game:started`.
    *
-   * `effectiveEmulationMode` is derived from the live player count, so a single
+   * `view.effectiveMode` is derived from the live player count, so a single
    * `room:updated` carrying one player - a socket.io reconnect is enough, and
    * the emulator stalling the main thread makes those routine - flipped it to
    * SINGLE mid-game. That swapped the rendered component, which destroyed the
@@ -230,7 +206,7 @@
   let resumeSaveId: string | null = null;
   let resumeSaveResolved = false;
   $: if (gameStarted && !resumeSaveResolved) {
-    resumeSaveId = resumeSaveToRequest(room, isRoomCreator, urlSaveId);
+    resumeSaveId = resumeSaveToRequest(room, view.isCreator, urlSaveId);
     resumeSaveResolved = true;
   }
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -244,6 +220,8 @@
    * would ever come for it.
    */
   let alive = true;
+  /** The teardown `subscribeToRoom` hands back; set once `onMount` wires it up. */
+  let unsubscribeRoom: (() => void) | undefined;
 
   function handleReconnect() {
     logger.info('Socket reconnected, rejoining room');
@@ -295,7 +273,7 @@
      * peer that is still there, and there is nothing to rejoin otherwise.
      *
      * The mode is read from the room rather than from
-     * `effectiveEmulationMode`, for two reasons. It is a `$:` value and so is
+     * `view.effectiveMode`, for two reasons. It is a `$:` value and so is
      * still stale in this tick, and it collapses to SINGLE whenever the room
      * momentarily holds one player - which is exactly what happens while the
      * other player is reconnecting, and would drop us into a single-player
@@ -497,13 +475,13 @@
   function handleGameStarted() {
     // The server re-emits `game:started` to anyone rejoining a room that is
     // already `playing` - every reconnect and every reload. Re-running
-    // `enterGame` there re-derives the mode from `effectiveEmulationMode`,
+    // `enterGame` there re-derives the mode from `view.effectiveMode`,
     // which collapses to SINGLE while the room momentarily holds one player,
     // and swapping to it destroys the running LockstepRoom. Once a game has
     // started, resume has already picked the mode from `room.emulationMode`
     // in `handleRoomUpdated`; there is nothing left for this handler to do.
     if (gameStarted) return;
-    enterGame(effectiveEmulationMode ?? EmulationMode.SINGLE);
+    enterGame(view.effectiveMode ?? EmulationMode.SINGLE);
   }
 
   /**
@@ -631,35 +609,30 @@
     // `room:join` only ran in onMount, so the player stayed dropped. The room
     // then sat at one player permanently, which is also what pushed a running
     // game into single-player mode.
-    sock.on('connect', handleReconnect);
-    sock.on('room:updated', handleRoomUpdated);
-    sock.on('game:started', handleGameStarted);
-    sock.on('game:stopped', leaveGame);
-    sock.on('error', handleSocketError);
+    unsubscribeRoom = subscribeToRoom({
+      socket: sock,
+      roomId,
+      onRoom: handleRoomUpdated,
+      onError: handleSocketError,
+      onStarted: handleGameStarted,
+      onReconnect: handleReconnect,
+      onStopped: leaveGame
+    });
   });
 
   onDestroy(() => {
     alive = false;
 
-    if ($socket) {
-      /*
-       * No `room:leave` here, deliberately, and this line is the whole point of
-       * the release.
-       *
-       * Emitting it on unmount made navigating to the library a permanent
-       * departure - and the last one out destroyed the room - which is why
-       * playing together twice took two invitations. Leaving is a button now,
-       * and going away is just a socket that is no longer here.
-       */
-      // With the handler, not without: a bare off('connect') removes every
-      // connect listener on the shared socket, including the ones that keep
-      // the reconnection banner and the netplay slot alive.
-      $socket.off('connect', handleReconnect);
-      $socket.off('room:updated', handleRoomUpdated);
-      $socket.off('game:started', handleGameStarted);
-      $socket.off('game:stopped', leaveGame);
-      $socket.off('error', handleSocketError);
-    }
+    /*
+     * No `room:leave` here, deliberately, and this line is the whole point of
+     * the release.
+     *
+     * Emitting it on unmount made navigating to the library a permanent
+     * departure - and the last one out destroyed the room - which is why
+     * playing together twice took two invitations. Leaving is a button now,
+     * and going away is just a socket that is no longer here.
+     */
+    unsubscribeRoom?.();
 
     clearTimeout(toastTimer);
     // A game does not go on running on a page that has been left.
@@ -713,7 +686,7 @@
   }
 
   function setEmulationMode(mode: EmulationMode) {
-    if (!isRoomCreator) return;
+    if (!view.isCreator) return;
     $socket?.emit('room:setEmulationMode', { roomId, emulationMode: mode });
   }
 </script>
@@ -747,7 +720,7 @@
         <!-- Emulation Mode selector (only shown when 2+ players).
              Three modes now rather than two, so a segmented control replaces
              the old on/off toggle. -->
-        {#if !isSinglePlayer}
+        {#if !view.isSinglePlayer}
           <div class="mode-toggle-container">
             <div class="mode-segments" role="group" aria-label={t($language, 'emulationMode')}>
               {#each modeOptions as option}
@@ -755,7 +728,7 @@
                   type="button"
                   class="mode-segment"
                   class:active={room.emulationMode === option.mode}
-                  disabled={!isRoomCreator}
+                  disabled={!view.isCreator}
                   aria-pressed={room.emulationMode === option.mode}
                   on:click={() => setEmulationMode(option.mode)}
                 >
@@ -775,7 +748,7 @@
              happen in the library now, and choosing a game there is what sends
              both players to this page. What is left is the starting save, which
              belongs to the room rather than to the library. -->
-        {#if room.status === 'waiting' && isRoomCreator && room.gameId && myRoomSaves.length > 0}
+        {#if room.status === 'waiting' && view.isCreator && room.gameId && myRoomSaves.length > 0}
           <div class="lobby-setup">
             <div class="setup-buttons">
               <!-- Creator-only, like the latency mode: where the game starts is
@@ -807,12 +780,12 @@
             <span class="starting-save-label">
               {t($language, 'startingFrom', { name: room.resumeSaveName ?? '' })}
             </span>
-            {#if isRoomCreator}
+            {#if view.isCreator}
               <button class="btn-clear-save" on:click={clearStartingSave}>
                 {t($language, 'startFromBeginning')}
               </button>
             {/if}
-            {#if !modeCanResume}
+            {#if !view.canResume}
               <span class="starting-save-warning">{t($language, 'saveNeedsLockstep')}</span>
             {/if}
           </div>
@@ -856,7 +829,7 @@
         gameTitle={chosenGame.title}
         controls={userControls}
         {resumeSaveId}
-        allowLocalPlayer2={isSinglePlayer}
+        allowLocalPlayer2={view.isSinglePlayer}
         on:quit={leaveGame}
         on:controlsSaved={(e) => (userControls = e.detail.config)}
       />
@@ -868,11 +841,11 @@
         gameId={chosenGame.id}
         gameCrc32={chosenGame.crc32}
         gameTitle={chosenGame.title}
-        isHost={isRoomHost}
+        isHost={view.isHost}
         {keyConfig}
         controls={userControls}
         latencyMode={room?.latencyMode ?? 'auto'}
-        canSetLatency={isRoomCreator}
+        canSetLatency={view.isCreator}
         {resumeSaveId}
         on:quit={leaveGame}
         on:controlsSaved={(e) => (userControls = e.detail.config)}
@@ -884,7 +857,7 @@
         gameId={chosenGame.id}
         gameCrc32={chosenGame.crc32}
         gameTitle={chosenGame.title}
-        isHost={isRoomHost}
+        isHost={view.isHost}
         {keyConfig}
         controls={userControls}
         emulationMode={activeEmulationMode ?? EmulationMode.SINGLE}
