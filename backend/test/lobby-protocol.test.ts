@@ -152,7 +152,7 @@ async function withLobby(run: (lobby: Lobby) => Promise<void>): Promise<void> {
      * answer and the guard has nothing to decide.
      */
     socket.on('disconnect', () => {
-      awayDone.set(userId, markPlayerAway(io, rooms, userId, new Date(), getUserSocket));
+      awayDone.set(userId, markPlayerAway(io, rooms, user, new Date(), getUserSocket));
     });
   });
 
@@ -607,7 +607,17 @@ test('re-inviting restarts the clock instead of handing over the leftovers', asy
 });
 
 
-test('a disconnect never releases the seat, even from the last player in the room', async () => {
+/*
+ * Away-not-gone is a rule about groups, and this is where the two halves of it
+ * are pinned side by side.
+ *
+ * A seat is kept for somebody a second player is still waiting on. Alone there
+ * is nobody waiting, and a room left behind is not free: one player may only be
+ * in one room, so a room outliving its only player's window disables every Play
+ * button in that player's own library until the sweep gets to it, twelve hours
+ * later.
+ */
+test('a room of one dies with the window of the player in it', async () => {
   await withLobby(async ({ alice, client, rooms, drop }) => {
     const host = await client(alice);
 
@@ -617,11 +627,31 @@ test('a disconnect never releases the seat, even from the last player in the roo
 
     await drop(alice);
 
+    assert.equal(rooms.get(room.id), undefined, 'nobody was left for it to be for');
+  });
+});
+
+test('a disconnect still never releases a seat somebody else is waiting on', async () => {
+  await withLobby(async ({ alice, bob, client, rooms, drop }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const acked = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: (await delivered).id });
+    await acked;
+
+    await drop(alice);
+
     const after = rooms.get(room.id);
-    assert.ok(after, 'the room outlives the only player in it');
-    assert.deepEqual(after.players.map(p => p.userId), [alice.id]);
-    assert.equal(after.players[0].online, false, 'away, not gone');
-    assert.ok(after.abandonedAt instanceof Date, 'and the clock has started');
+    assert.ok(after, 'the room outlives one of its two players');
+    assert.deepEqual(after.players.map(p => p.userId).sort(), [alice.id, bob.id].sort());
+    assert.equal(after.players.find(p => p.userId === alice.id)!.online, false, 'away, not gone');
   });
 });
 

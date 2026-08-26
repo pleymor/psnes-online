@@ -38,3 +38,17 @@ export function markOnline(room: Room, userId: string): boolean {
 
   return true;
 }
+
+/**
+ * Whether this room dies with the member who just left it.
+ *
+ * A room with one member is that member's own: nobody else is waiting in it,
+ * nothing in it means anything to anyone else, and keeping it alive after their
+ * window closes leaves a room `playing` with nobody in it - which is what
+ * disables every Play button in their own library, since one player may only be
+ * in one room. Two members is a group, and a group survives one of them
+ * dropping: that is what `markOffline` above is for.
+ */
+export function endsWithItsPlayer(room: Room): boolean {
+  return room.players.length <= 1;
+}

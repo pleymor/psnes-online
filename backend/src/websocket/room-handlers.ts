@@ -26,7 +26,7 @@ import {
 } from '../db/invitations.js';
 import { invitationState } from '../rooms/invitation-state.js';
 import { requireGame } from '../rooms/require-game.js';
-import { markOffline, markOnline } from '../rooms/presence.js';
+import { endsWithItsPlayer, markOffline, markOnline } from '../rooms/presence.js';
 import { getMemberRoom } from './guards.js';
 
 const logger = createLogger('Room');
@@ -849,12 +849,31 @@ export async function markPlayerPresent(
 export async function markPlayerAway(
   io: Server,
   rooms: Map<string, Room>,
-  userId: string,
+  user: User,
   now: Date,
   getUserSocket: (id: string) => string | undefined
 ) {
   for (const room of rooms.values()) {
-    if (!markOffline(room, userId, now)) continue;
+    if (!markOffline(room, user.id, now)) continue;
+
+    /*
+     * A room of one does not wait for its player to come back.
+     *
+     * Away-not-gone is a rule about groups: it keeps a seat warm for somebody a
+     * second player is still waiting on. Alone there is nobody to wait, and the
+     * room outliving the window costs its owner something real - one player may
+     * only be in one room, so a solo room left `playing` disables every Play
+     * button in their library until the twelve-hour sweep.
+     *
+     * The socket is already gone, hence `null`; `handleLeaveRoom` takes the
+     * player out and, finding the room empty, tears it down and tells everyone.
+     * Deleting the current entry while iterating a Map is defined behaviour.
+     */
+    if (endsWithItsPlayer(room)) {
+      await handleLeaveRoom(io, null, room.id, rooms, user, getUserSocket);
+      continue;
+    }
+
     io.to(room.id).emit('room:updated', room);
     await broadcastRoomUpdate(io, room, getUserSocket);
   }

@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 
 import { onlinePlayers } from '../src/rooms/online-players.js';
 import { ABANDON_AFTER_MS, abandonedRoomIds, isAbandoned } from '../src/rooms/abandonment.js';
-import { markOffline, markOnline } from '../src/rooms/presence.js';
+import { endsWithItsPlayer, markOffline, markOnline } from '../src/rooms/presence.js';
 import type { Room } from '../src/types/index.js';
 
 const player = (userId: string, online: boolean) =>
@@ -141,4 +141,27 @@ test('going away twice does not move the deadline', () => {
     ago(60_000),
     'the clock started when they left, not when we noticed again'
   );
+});
+
+/*
+ * A room with one member is that member's own.
+ *
+ * It has no other occupant to hold it open, and leaving it alive after they
+ * close the window is what left a room `playing` with nobody in it - which
+ * disables every Play button in that player's library until the room times
+ * out, twelve hours later.
+ */
+
+test('a room with a single member ends when that member goes', () => {
+  const room = { players: [player('alice', true)] };
+  assert.equal(endsWithItsPlayer(room as never), true);
+});
+
+test('a room with two members outlives one of them closing their window', () => {
+  const room = { players: [player('alice', true), player('bob', false)] };
+  assert.equal(endsWithItsPlayer(room as never), false);
+});
+
+test('an already empty room ends too, rather than being a special case', () => {
+  assert.equal(endsWithItsPlayer({ players: [] } as never), true);
 });

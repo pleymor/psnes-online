@@ -189,7 +189,7 @@ async function handleConnection(io: Server, socket: Socket) {
     //
     // Below the stale-socket guard above, deliberately: acting on a socket the
     // user has already replaced would mark somebody away who is sitting there.
-    await markPlayerAway(io, rooms, user.id, new Date(), getUserSocket);
+    await markPlayerAway(io, rooms, user, new Date(), getUserSocket);
 
   });
 }

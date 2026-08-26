@@ -371,6 +371,22 @@
       document.body.style.overflow = '';
     }
 
+    /*
+     * A room of one ends with its game.
+     *
+     * Quitting used to leave the player in the library still holding an empty
+     * room: a group banner for a group of one, and a Play button their own
+     * room had disabled - one player may only be in one room. Leaving now
+     * spares them undoing something they never asked for. The server destroys
+     * the room as soon as its last member is out.
+     *
+     * Gated on the count because `game:stopped` reaches both players of a
+     * netplay room, and there the room is exactly what they came back to.
+     */
+    if ((room?.players.length ?? 0) <= 1) {
+      $socket?.emit('room:leave', { roomId });
+    }
+
     // Redirect to home when game is stopped
     goto('/');
   }
