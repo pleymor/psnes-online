@@ -36,8 +36,8 @@
    * These used to be a row of buttons along the bottom of the game screen, in
    * both rooms, in hardcoded English. They live here instead because nobody
    * changes them mid-game, and because a menu item inherits this component's
-   * keyboard and gamepad navigation for free - a separate toggle row would be
-   * mouse-only, in a menu built to be driven by a pad.
+   * keyboard navigation for free - a separate toggle row along the bottom of
+   * the picture would be pointer-only.
    */
   export let display: DisplayOptions | null = null;
   /** null where fast-forward is not offered: in lockstep it would stall the peer. */
@@ -100,12 +100,21 @@
   let showSaveGame = false;
   let showVideo = false;
   let showResetConfirm = false;
-  let selectedIndex = 0;
+  /**
+   * -1 for "nothing chosen yet", which is how the menu now opens.
+   *
+   * It used to open on 0 and put the focus ring on Resume, so every pause
+   * began with one entry lit up for no reason the player had given. The
+   * highlight answers the arrow keys now; it is not a greeting.
+   */
+  let selectedIndex = -1;
   let menuButtons: HTMLButtonElement[] = [];
-  let gamepadPollInterval: number | null = null;
-  let lastGamepadState: Record<string, boolean> = {};
 
-  // Create a reverse mapping from key codes to button names
+  // A reverse map from the player's bindings to the button they stand for, so
+  // the keys they play with also work here: B backs out, A and Start choose.
+  // Only the keyboard half can ever match now that the pad no longer drives
+  // this menu - a `Gamepad0Button1` binding simply never equals a KeyboardEvent
+  // code, so those entries sit inert rather than needing to be filtered out.
   let keyCodeToButton: Record<string, keyof KeyConfig> = {};
   $: {
     keyCodeToButton = {};
@@ -116,8 +125,8 @@
 
   /**
    * Display entries, folded into the same array as everything else so they
-   * inherit the arrow-key and gamepad navigation below. Each label carries its
-   * current value, the way the old toolbar buttons did.
+   * inherit the arrow-key navigation below. Each label carries its current
+   * value, the way the old toolbar buttons did.
    */
   let displayItems: MenuItem[] = [];
   $: displayItems = display
@@ -200,7 +209,8 @@
     { label: t($language, 'quit'), action: () => dispatch('quit'), danger: true }
   ];
 
-  // The list can grow or shrink between rooms; never leave the cursor past its end.
+  // The list can grow or shrink between rooms; never leave the cursor past its
+  // end. -1 is not past it: it is the cursor sitting outside the list on purpose.
   $: if (selectedIndex >= menuItems.length) selectedIndex = menuItems.length - 1;
 
   /**
@@ -241,14 +251,16 @@
 
     const button = keyCodeToButton[e.code];
 
-    // Handle D-pad up/down navigation
+    // Up and down, wrapping. Written against the ends of the list rather than
+    // as modular arithmetic because the cursor starts outside it: from -1, up
+    // has to mean the last entry, and `(i - 1 + n) % n` gets that wrong.
     if (button === 'up' || e.key === 'ArrowUp') {
       e.preventDefault();
-      selectedIndex = (selectedIndex - 1 + menuItems.length) % menuItems.length;
+      selectedIndex = selectedIndex <= 0 ? menuItems.length - 1 : selectedIndex - 1;
       menuButtons[selectedIndex]?.focus();
     } else if (button === 'down' || e.key === 'ArrowDown') {
       e.preventDefault();
-      selectedIndex = (selectedIndex + 1) % menuItems.length;
+      selectedIndex = selectedIndex >= menuItems.length - 1 ? 0 : selectedIndex + 1;
       menuButtons[selectedIndex]?.focus();
     }
     // Handle A button or Enter/Start for selection
@@ -292,9 +304,9 @@
     showLoadSaves = false;
     showSaveGame = false;
     showVideo = false;
-    selectedIndex = 0;
-    // Refocus the menu after a short delay to ensure DOM is updated
-    setTimeout(() => menuButtons[selectedIndex]?.focus(), 50);
+    // Back to nothing chosen, and the focus is left where the player put it
+    // rather than yanked onto the first entry.
+    selectedIndex = -1;
   }
 
   function handleNotification(event: CustomEvent<{ message: string; type: 'success' | 'error' }>) {
@@ -306,98 +318,12 @@
     handleBackFromSubmenu();
   }
 
-  // Poll gamepad state for menu navigation
-  function startGamepadPolling() {
-    if (gamepadPollInterval !== null) return;
-
-    gamepadPollInterval = window.setInterval(() => {
-      // Skip if in submenus, or under the restart confirmation: a pad press
-      // there would click whichever menu button is hidden behind it.
-      if (showKeyConfig || showLoadSaves || showSaveGame || showVideo || showResetConfirm) return;
-
-      const gamepads = navigator.getGamepads();
-
-      for (let i = 0; i < gamepads.length; i++) {
-        const gamepad = gamepads[i];
-        if (!gamepad) continue;
-
-        // Check buttons
-        for (let j = 0; j < gamepad.buttons.length; j++) {
-          const inputCode = `Gamepad${i}Button${j}`;
-          const isPressed = gamepad.buttons[j].pressed;
-          const wasPressed = lastGamepadState[inputCode];
-
-          // Only trigger on button press (not hold)
-          if (isPressed && !wasPressed) {
-            const button = keyCodeToButton[inputCode];
-
-            if (button === 'up') {
-              selectedIndex = (selectedIndex - 1 + menuItems.length) % menuItems.length;
-              menuButtons[selectedIndex]?.focus();
-            } else if (button === 'down') {
-              selectedIndex = (selectedIndex + 1) % menuItems.length;
-              menuButtons[selectedIndex]?.focus();
-            } else if (button === 'a' || button === 'start') {
-              menuButtons[selectedIndex]?.click();
-            } else if (button === 'b') {
-              handleResumeWithFullscreen();
-            }
-          }
-
-          lastGamepadState[inputCode] = isPressed;
-        }
-
-        // Check axes (for d-pad on some controllers)
-        for (let j = 0; j < gamepad.axes.length; j++) {
-          const axisValue = gamepad.axes[j];
-
-          if (Math.abs(axisValue) > 0.5) {
-            const direction = axisValue > 0 ? 'Plus' : 'Minus';
-            const inputCode = `Gamepad${i}Axis${j}${direction}`;
-            const wasPressed = lastGamepadState[inputCode];
-
-            if (!wasPressed) {
-              const button = keyCodeToButton[inputCode];
-
-              if (button === 'up') {
-                selectedIndex = (selectedIndex - 1 + menuItems.length) % menuItems.length;
-                menuButtons[selectedIndex]?.focus();
-              } else if (button === 'down') {
-                selectedIndex = (selectedIndex + 1) % menuItems.length;
-                menuButtons[selectedIndex]?.focus();
-              }
-            }
-
-            lastGamepadState[inputCode] = true;
-          } else {
-            // Reset axis state when centered
-            const inputCodePlus = `Gamepad${i}Axis${j}Plus`;
-            const inputCodeMinus = `Gamepad${i}Axis${j}Minus`;
-            lastGamepadState[inputCodePlus] = false;
-            lastGamepadState[inputCodeMinus] = false;
-          }
-        }
-      }
-    }, 100); // Poll every 100ms
-  }
-
-  function stopGamepadPolling() {
-    if (gamepadPollInterval !== null) {
-      clearInterval(gamepadPollInterval);
-      gamepadPollInterval = null;
-    }
-  }
-
   onMount(() => {
     window.addEventListener('keydown', handleKeyDown);
-    startGamepadPolling();
-    // Focus the first menu item on mount
-    setTimeout(() => menuButtons[selectedIndex]?.focus(), 50);
   });
 
   onDestroy(() => {
     window.removeEventListener('keydown', handleKeyDown);
-    stopGamepadPolling();
   });
 </script>
 
