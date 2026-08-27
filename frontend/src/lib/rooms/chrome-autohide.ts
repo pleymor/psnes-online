@@ -29,15 +29,22 @@ export function createChromeAutohide(opts: {
 		}, opts.idleMs);
 	}
 
-	/** Keeps it up while a menu inside it is open. */
-	function hold(): void {
+	/**
+	 * Whether the pointer or the focus is on the toolbar itself.
+	 *
+	 * A pointer resting on a button sends no further mousemove, so the
+	 * countdown would hide the very control the player is reaching for - and a
+	 * hidden toolbar takes `pointer-events: none`, so CSS `:hover` cannot
+	 * rescue it. The hold has to be tracked here, where it can stop the timer.
+	 */
+	function hold(active: boolean): void {
 		held = true;
-		reveal(true);
+		reveal(active);
 	}
 
-	function release(): void {
+	function release(active: boolean): void {
 		held = false;
-		reveal(true);
+		reveal(active);
 	}
 
 	function stop(): void {

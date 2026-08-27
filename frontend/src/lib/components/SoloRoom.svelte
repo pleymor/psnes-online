@@ -215,11 +215,6 @@
     shaderNotice = state.notice;
   }
 
-  /** Drops back to the 2D renderer on its own canvas. Always succeeds. */
-  function useCanvasRenderer(): void {
-    surface?.useCanvas(display);
-  }
-
   /**
    * Switches the renderer to run `shaderId`, or keeps 2D and says why.
    *

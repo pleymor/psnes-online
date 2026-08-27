@@ -49,15 +49,34 @@ test('reveal(false) shows but never schedules a hide - out of fullscreen there i
 
 test('hold() keeps the toolbar up past the idle delay; release() lets the countdown resume', async () => {
   const { chrome, calls } = autohide();
-  chrome.hold();
+  chrome.hold(true);
   assert.deepEqual(calls, [true]);
   await wait(PAST_IDLE);
   assert.deepEqual(calls, [true], 'a held toolbar must not hide on its own');
 
-  chrome.release();
+  chrome.release(true);
   assert.deepEqual(calls, [true, true]);
   await wait(PAST_IDLE);
   assert.deepEqual(calls, [true, true, false]);
+});
+
+test('release(false) does not arm a hide - the caller passes fullscreen state through, the module never assumes it', async () => {
+  // hold(active) has no observable effect of its own: held is set true right
+  // before its reveal() call, and `held` alone already blocks the timer
+  // regardless of `active`. It is release() where the passed-through state
+  // actually matters, because `held` is false by the time it calls reveal().
+  const { chrome, calls } = autohide();
+  chrome.hold(true);
+  calls.length = 0;
+
+  chrome.release(false);
+  assert.deepEqual(calls, [true]);
+  await wait(PAST_IDLE);
+  assert.deepEqual(
+    calls,
+    [true],
+    'out of fullscreen there is nothing to hide - a hardcoded reveal(true) here would arm one anyway'
+  );
 });
 
 test('reveal restarts the countdown instead of stacking a second timer', async () => {
@@ -83,7 +102,7 @@ test('stop() cancels a pending hide and clears the held state', async () => {
 
   // stop() must also drop a hold, or a room torn down while a menu inside the
   // toolbar was open would leave the next reveal() pinned open forever.
-  chrome.hold();
+  chrome.hold(true);
   chrome.stop();
   chrome.reveal(true);
   await wait(PAST_IDLE);

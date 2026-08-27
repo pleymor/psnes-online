@@ -261,11 +261,6 @@
     shaderNotice = state.notice;
   }
 
-  /** Drops back to the 2D renderer on its own canvas. Always succeeds. */
-  function useCanvasRenderer(): void {
-    surface?.useCanvas(display);
-  }
-
   /**
    * Switches the renderer to run `shaderId`, or keeps 2D and says why.
    *
@@ -1237,10 +1232,10 @@
     class="bar"
     role="group"
     aria-label="Emulator controls"
-    on:mouseenter={chrome.hold}
-    on:mouseleave={chrome.release}
-    on:focusin={chrome.hold}
-    on:focusout={chrome.release}
+    on:mouseenter={() => chrome.hold(isFullscreen)}
+    on:mouseleave={() => chrome.release(isFullscreen)}
+    on:focusin={() => chrome.hold(isFullscreen)}
+    on:focusout={() => chrome.release(isFullscreen)}
   >
     {#if needsAudioGesture}
       <button class="action" on:click={enableAudio}>Enable sound</button>
@@ -1301,7 +1296,11 @@
   {/if}
 
   {#if showStats && stats}
-    <dl class="stats" on:mouseenter={chrome.hold} on:mouseleave={chrome.release}>
+    <dl
+      class="stats"
+      on:mouseenter={() => chrome.hold(isFullscreen)}
+      on:mouseleave={() => chrome.release(isFullscreen)}
+    >
       <div><dt>Frame</dt><dd>{stats.frame}</dd></div>
       <div><dt>Round trip</dt><dd>{stats.rtt ? `${Math.round(stats.rtt)} ms` : '—'}</dd></div>
       <!-- Next to the round trip on purpose: latency alone costs a one-off offset

@@ -83,7 +83,6 @@ export function deriveRoomView(room: Room | null, userId: string | undefined): R
  */
 export function subscribeToRoom(opts: {
 	socket: Socket;
-	roomId: string;
 	onRoom: (room: Room) => void;
 	onError: (payload: { message?: string; code?: string; roomId?: string }) => void;
 	onStarted: () => void;

@@ -645,7 +645,6 @@
     // game into single-player mode.
     unsubscribeRoom = subscribeToRoom({
       socket: sock,
-      roomId,
       onRoom: handleRoomUpdated,
       onError: handleSocketError,
       onStarted: handleGameStarted,

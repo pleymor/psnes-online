@@ -61,7 +61,8 @@ export async function restoreAndSweep(rooms: Map<string, Room>): Promise<void> {
 
 /**
  * Arms the recurring jobs: the hourly abandoned-room sweep and periodic room
- * snapshots. Called after `restoreAndSweep` and after the port is listening.
+ * snapshots. Called after `restoreAndSweep`, before `httpServer.listen` -
+ * both are armed before the port opens.
  */
 export function startBackgroundJobs(rooms: Map<string, Room>): void {
   // Hourly: twelve hours is the deadline, so an hour of slack costs nothing and

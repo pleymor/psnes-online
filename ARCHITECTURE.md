@@ -375,6 +375,8 @@ psnes/
 │   ├── db/                    # SQLite + Redis
 │   ├── rooms/                 # état des rooms en mémoire
 │   ├── saves/                 # gestion des sauvegardes
+│   ├── services/               # métadonnées, recherche catalogue, amis, config utilisateur
+│   ├── utils/                   # logger, cache, avatar, pseudo, …
 │   ├── middleware/
 │   └── types/
 ├── frontend/src/
@@ -387,8 +389,7 @@ psnes/
 │       ├── netplay/                 # sync manager, rollback, buffers (mode dual)
 │       ├── webrtc/                   # p2p-manager.ts (signalisation + DataChannel)
 │       ├── emulator/                  # wrapper WasmEmulator, input-manager
-│       ├── api/, stores/, services/, config/, controls/, saves/, lobby/, games/, roms/, i18n/, utils/
-│       └── components/…
+│       └── api/, stores/, services/, config/, controls/, saves/, lobby/, games/, roms/, i18n/, utils/
 ├── e2e/                       # tests Playwright (dont probe-lockstep.mjs)
 ├── sync-test/                 # harnais de test de synchro autonome
 └── scripts/                   # svelte-frozen-props.mjs, net-probe.sh, …
