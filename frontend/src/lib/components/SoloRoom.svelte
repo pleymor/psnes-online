@@ -15,7 +15,12 @@
   import { goto } from '$app/navigation';
   import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
+  import { fromBase64 } from '$lib/saves/base64';
   import { setLogLabels } from '$lib/utils/log-shipper';
+  import { encodeSram, decodeSram } from '$lib/rooms/sram';
+  import { applyInputSources } from '$lib/rooms/input-sources';
+  import { createRendererSurface, type SurfaceState } from '$lib/rooms/renderer-surface';
+  import { createFullscreen } from '$lib/rooms/fullscreen';
   import { socket } from '$lib/api/socket';
   import LocateRom from './LocateRom.svelte';
   import TouchControls from './TouchControls.svelte';
@@ -30,8 +35,6 @@
   import {
     AudioSink,
     CanvasRenderer,
-    WebglRenderer,
-    loadShaderPreset,
     FrameGovernor,
     InputCollector,
     SoloSession,
@@ -87,6 +90,7 @@
 
   let core: PsnesCore | null = null;
   let renderer: Renderer | null = null;
+  let surface: ReturnType<typeof createRendererSurface> | null = null;
   let audio: AudioSink | null = null;
   let collector1: InputCollector | null = null;
   let collector2: InputCollector | null = null;
@@ -116,7 +120,6 @@
 
   let display: DisplayOptions = { ...DEFAULT_DISPLAY };
   let shaderNotice: string | null = null;
-  let shaderSwapToken = 0;
 
   /**
    * Fast-forward, latched from the pause menu.
@@ -133,6 +136,24 @@
   let isFullscreen = false;
   let sramTimer: ReturnType<typeof setInterval> | null = null;
   let container: HTMLDivElement;
+
+  // Solo has no toolbar to hide and never opens its menu on a fullscreen
+  // change we did not ask for, so the deliberate/Escape distinction the
+  // module also reports is simply unused here.
+  const fullscreen = createFullscreen({
+    element: () => container,
+    onChange: (active) => {
+      isFullscreen = active;
+    }
+  });
+
+  async function toggleFullscreen(): Promise<void> {
+    try {
+      await fullscreen.toggle();
+    } catch (err) {
+      logger.error('Could not toggle fullscreen', err);
+    }
+  }
 
   /**
    * Whether the battery save was actually read back from the server.
@@ -180,17 +201,18 @@
     : null;
 
 
-  /** Drops back to the 2D renderer on its own canvas. Always succeeds. */
-  function useCanvasRenderer(): void {
-    renderer?.dispose();
-    usingGl = false;
-    // The button reads display.shader and nothing else, so leaving it set
-    // would keep advertising a shader that is not running. The stored
-    // preference is left alone: it is the player's choice, retried next boot.
-    display = { ...display, shader: '' };
-    renderer = new CanvasRenderer(canvas2d);
-    renderer.setOptions(display);
-    if (core) renderer.draw(core);
+  /**
+   * Mirrors a renderer-surface change into the plain `let`s Svelte tracks.
+   *
+   * Must assign these by name rather than hand the surface itself to the
+   * template: see the module doc on why it reports through a callback instead
+   * of being reactive state.
+   */
+  function onSurfaceChange(state: SurfaceState): void {
+    renderer = state.renderer;
+    usingGl = state.usingGl;
+    display = { ...display, shader: state.shader };
+    shaderNotice = state.notice;
   }
 
   /**
@@ -200,40 +222,10 @@
    * never left looking at a black canvas wondering whether the game crashed.
    */
   async function applyShader(shaderId: string): Promise<void> {
-    const token = ++shaderSwapToken;
+    // Cleared synchronously, same as before the extraction: a stale notice
+    // must not sit on screen for the whole length of the shader fetch.
     shaderNotice = null;
-
-    if (!shaderId) {
-      useCanvasRenderer();
-      return;
-    }
-
-    const loaded = await loadShaderPreset(shaderId);
-    if (token !== shaderSwapToken) return;
-
-    if (!loaded.ok) {
-      logger.warn('shader unavailable', { shaderId, reason: loaded.reason });
-      shaderNotice = 'That shader could not be loaded; showing raw pixels.';
-      useCanvasRenderer();
-      return;
-    }
-
-    // The second dispose on the failure path below is safe: both renderers
-    // guard every deletion and null what they delete.
-    renderer?.dispose();
-
-    const webgl = WebglRenderer.create(canvasGl, loaded.preset);
-    if (!webgl) {
-      logger.warn('webgl2 unavailable or the shader would not compile', { shaderId });
-      shaderNotice = 'Shaders need WebGL2, which this browser did not provide.';
-      useCanvasRenderer();
-      return;
-    }
-
-    usingGl = true;
-    renderer = webgl;
-    renderer.setOptions(display);
-    if (core) renderer.draw(core);
+    await surface?.apply(shaderId, display);
   }
 
   /**
@@ -256,11 +248,7 @@
 
   /** Falls back to 2D if the GL context died mid-game. One boolean per slice. */
   function checkRendererHealth(): void {
-    if (renderer instanceof WebglRenderer && renderer.unusable) {
-      logger.warn('webgl context lost, falling back to 2D');
-      shaderNotice = 'Hardware shaders stopped working; showing raw pixels.';
-      useCanvasRenderer();
-    }
+    surface?.checkHealth(display);
   }
 
   /**
@@ -271,14 +259,11 @@
    * session.
    */
   function applySources(): void {
-    assignments = loadAssignments(localStorage);
-    const pads = connectedPads();
-    const sources = resolveSources(assignments, pads);
-    collector1?.setSources(sources.p1);
-    collector2?.setSources(sources.p2);
+    const applied = applyInputSources(localStorage, [collector1, collector2]);
+    assignments = applied.assignments;
     // Plugging a controller into a tablet takes the drawn one away, and
     // unplugging it brings it back: this runs on both gamepad events.
-    showTouchPad = touchPadWanted(pads.length);
+    showTouchPad = touchPadWanted(applied.padCount);
   }
 
   /** Finds the ROM locally, then asks the player. There is no host to ask. */
@@ -339,9 +324,7 @@
         clearTimeout(timeoutHandle);
         try {
           if (data.sramData) {
-            const binary = atob(data.sramData);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const bytes = decodeSram(data.sramData);
             core!.loadSram(bytes);
             logger.info('Battery save restored', { bytes: bytes.length });
             sramLoaded = true;
@@ -389,9 +372,7 @@
   function onGameLoaded(payload: { saveData?: string; name?: string }): void {
     if (!core || !payload?.saveData) return;
     try {
-      const binary = atob(payload.saveData);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const bytes = fromBase64(payload.saveData);
       core.loadState(bytes);
       // Otherwise audio buffered before the jump plays over the restored
       // state.
@@ -440,16 +421,22 @@
   function persistSram(): void {
     if (!sramLoaded) return;
     if (!core || !$socket) return;
-    const sram = core.sram();
-    if (sram.length === 0) return;
-    let binary = '';
-    for (let i = 0; i < sram.length; i++) binary += String.fromCharCode(sram[i]);
-    $socket.emit('game:saveSram', { roomId, sramData: btoa(binary) });
+    const sramData = encodeSram(core);
+    if (!sramData) return;
+    $socket.emit('game:saveSram', { roomId, sramData });
   }
 
   async function boot() {
     try {
       setLogLabels({ roomId, player: 'solo' });
+
+      surface = createRendererSurface({
+        canvas2d,
+        canvasGl,
+        getCore: () => core,
+        logger,
+        onChange: onSurfaceChange
+      });
 
       statusText = 'Loading emulator core…';
       core = await loadCore();
@@ -563,19 +550,6 @@
     // Re-read rather than clear: if resume failed the button has to stay, or
     // the player is left with silence and nothing to click.
     needsAudioGesture = audio?.needsGesture ?? false;
-  }
-
-  async function toggleFullscreen(): Promise<void> {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await container?.requestFullscreen();
-    } catch (err) {
-      logger.error('Could not toggle fullscreen', err);
-    }
-  }
-
-  function onFullscreenChange(): void {
-    isFullscreen = document.fullscreenElement !== null;
   }
 
   /**
@@ -731,12 +705,12 @@
     pauseRestoresFullscreen = false;
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     closePauseMenu();
-    $socket?.emit('game:stop', { roomId });
-    // Said upwards rather than waited for. `game:stop` is how the server and
-    // any partner hear about this, but the room page leaves on its own: a
-    // room-scoped event naming a room the server no longer has is dropped in
-    // silence, and then a quit that waited for `game:stopped` would never
-    // come back at all. See the page's own `leaveGame`.
+    $socket?.emit('room:release-game', { roomId });
+    // Said upwards rather than waited for. `room:release-game` is how the
+    // server and any partner hear about this, but the room page leaves on its
+    // own: a room-scoped event naming a room the server no longer has is
+    // dropped in silence, and then a quit that waited for `game:stopped`
+    // would never come back at all. See the page's own `leaveGame`.
     dispatch('quit');
   }
 
@@ -763,16 +737,17 @@
     collector2 = null;
     void audio?.stop();
     audio = null;
-    renderer?.dispose();
+    surface?.dispose();
+    surface = null;
     renderer = null;
     core?.dispose();
     core = null;
-    document.removeEventListener('fullscreenchange', onFullscreenChange);
+    fullscreen.detach();
     window.removeEventListener('keydown', onKeyDown);
   }
 
   onMount(() => {
-    document.addEventListener('fullscreenchange', onFullscreenChange);
+    fullscreen.attach();
     window.addEventListener('keydown', onKeyDown);
     void boot();
   });

@@ -18,3 +18,16 @@ export function toBase64(bytes: Uint8Array): string {
 	}
 	return btoa(binary);
 }
+
+/**
+ * The inverse of `toBase64`, and the reason four call sites had their own copy.
+ *
+ * `atob` returns a binary string, so the byte-by-byte walk is unavoidable; what
+ * is avoidable is writing it again in every component that loads a save.
+ */
+export function fromBase64(text: string): Uint8Array<ArrayBuffer> {
+	const binary = atob(text);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+	return bytes;
+}

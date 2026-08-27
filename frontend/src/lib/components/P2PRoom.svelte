@@ -12,6 +12,7 @@
   import { parsePadCode, type ControlsConfig } from '$lib/controls/binding';
   import { EmulationMode } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
+  import { toBase64, fromBase64 } from '$lib/saves/base64';
   import { DualModeHandler } from '$lib/multiplayer/dual-mode';
   import { StreamingModeHandler } from '$lib/multiplayer/streaming-mode';
   import { SimpleSyncManager, destroyFrameController } from '$lib/netplay';
@@ -227,11 +228,7 @@
 
         if (data.sramData) {
           // Convert base64 to Blob
-          const binaryString = atob(data.sramData);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
+          const bytes = fromBase64(data.sramData);
           initialSram = new Blob([bytes], { type: 'application/octet-stream' });
           logger.info(`SRAM loaded (${bytes.length} bytes, updated: ${data.updatedAt})`);
         } else {
@@ -277,8 +274,10 @@
       // Convert Blob to base64
       const arrayBuffer = await sramBlob.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
-      const binaryString = String.fromCharCode(...Array.from(uint8Array));
-      const sramData = btoa(binaryString);
+      // before: the whole SRAM was spread one argument per byte into a
+      // char-code string, exactly the stack overflow toBase64 exists to
+      // prevent.
+      const sramData = toBase64(uint8Array);
 
       $socket?.emit('game:saveSram', { roomId, sramData });
       logger.info(`SRAM saved (${uint8Array.length} bytes)`);
@@ -707,12 +706,12 @@
   async function handleQuit(): Promise<void> {
     // Save SRAM before quitting
     await saveSRAM();
-    $socket?.emit('game:stop', { roomId });
-    // Said upwards rather than waited for. `game:stop` is how the server and
-    // any partner hear about this, but the room page leaves on its own: a
-    // room-scoped event naming a room the server no longer has is dropped in
-    // silence, and then a quit that waited for `game:stopped` would never
-    // come back at all. See the page's own `leaveGame`.
+    $socket?.emit('room:release-game', { roomId });
+    // Said upwards rather than waited for. `room:release-game` is how the
+    // server and any partner hear about this, but the room page leaves on its
+    // own: a room-scoped event naming a room the server no longer has is
+    // dropped in silence, and then a quit that waited for `game:stopped`
+    // would never come back at all. See the page's own `leaveGame`.
     dispatch('quit');
   }
 

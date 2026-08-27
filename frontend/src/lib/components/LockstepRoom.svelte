@@ -17,9 +17,15 @@
   import type { KeyConfig } from '$lib/types';
   import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
+  import { fromBase64 } from '$lib/saves/base64';
   import { setLogLabels } from '$lib/utils/log-shipper';
+  import { encodeSram, decodeSram } from '$lib/rooms/sram';
+  import { applyInputSources } from '$lib/rooms/input-sources';
+  import { createRendererSurface, type SurfaceState } from '$lib/rooms/renderer-surface';
+  import { createFullscreen } from '$lib/rooms/fullscreen';
+  import { createChromeAutohide } from '$lib/rooms/chrome-autohide';
   import PauseMenu from './PauseMenu.svelte';
-  import { language, type Language } from '$lib/stores/language';
+  import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
@@ -33,8 +39,6 @@
   import {
     AudioSink,
     CanvasRenderer,
-    WebglRenderer,
-    loadShaderPreset,
     FrameGovernor,
     InputCollector,
     NetplaySession,
@@ -48,7 +52,6 @@
     aspectRatioOf,
     fitToBox,
     loadAssignments,
-    saveAssignments,
     resolveSources,
     connectedPads,
     type Assignments,
@@ -148,6 +151,7 @@
   const touchPad = new TouchPad();
   let showTouchPad = false;
   let renderer: Renderer | null = null;
+  let surface: ReturnType<typeof createRendererSurface> | null = null;
   let audio: AudioSink | null = null;
 
   /**
@@ -185,8 +189,6 @@
   let display: DisplayOptions = { ...DEFAULT_DISPLAY };
   /** Set when a shader was asked for and could not be delivered. Plain English, like the rest of this component. */
   let shaderNotice: string | null = null;
-  /** Guards against overlapping swaps when the player clicks the button quickly. */
-  let shaderSwapToken = 0;
 
   /**
    * Fullscreen, which is local and cosmetic like the display options: it
@@ -194,13 +196,6 @@
    * two players can be in different states without any risk to the lockstep.
    */
   let isFullscreen = false;
-  /**
-   * Distinguishes a fullscreen change we asked for from one Escape forced on
-   * us. The browser exits fullscreen on Escape and swallows the keydown, so
-   * without this flag there is no way to tell "the player wanted out" from
-   * "the player asked for the menu" - and the menu would never open.
-   */
-  let deliberateFullscreenChange = false;
   /** Set when the menu was opened from fullscreen, so resuming can go back. */
   let wasFullscreen = false;
 
@@ -212,30 +207,58 @@
    */
   const CHROME_IDLE_MS = 2500;
   let chromeVisible = true;
-  let chromeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const chrome = createChromeAutohide({
+    idleMs: CHROME_IDLE_MS,
+    onVisibility: (visible) => (chromeVisible = visible)
+  });
+
+  const fullscreen = createFullscreen({
+    element: () => stage,
+    onChange: (active, deliberate) => {
+      isFullscreen = active;
+      if (active) {
+        chrome.reveal(true);
+        return;
+      }
+      // Matches the original: only the timer and visibility reset here, not
+      // `chrome`'s own hold state - a hover on the toolbar that is still held
+      // when fullscreen drops must still be held the next time it opens.
+      chrome.reveal(false);
+      // The only way out of fullscreen we did not ask for is Escape, which in
+      // this room means "open the menu" - and the keydown never reached us.
+      if (!deliberate) openPauseMenu(true);
+    }
+  });
+
+  async function toggleFullscreen(): Promise<void> {
+    try {
+      await fullscreen.toggle();
+    } catch (err) {
+      logger.error('Could not toggle fullscreen', err);
+    }
+  }
+
   /**
-   * Whether the pointer or the focus is on the toolbar itself.
-   *
-   * A pointer resting on a button sends no further mousemove, so the countdown
-   * would hide the very control the player is reaching for - and a hidden
-   * toolbar takes `pointer-events: none`, so CSS `:hover` cannot rescue it.
-   * The hold has to be tracked here, where it can stop the timer.
+   * Cheap guard on a listener that fires on every mouse move in the page: out
+   * of fullscreen the toolbar is in normal flow and there is nothing to show.
    */
-  let chromeHeld = false;
+  function onPointerActivity(): void {
+    if (isFullscreen) chrome.reveal(true);
+  }
 
-
-  /** Drops back to the 2D renderer on its own canvas. Always succeeds. */
-  function useCanvasRenderer(): void {
-    renderer?.dispose();
-    usingGl = false;
-    // The button reads display.shader, so leaving it set would keep
-    // advertising a shader that is not running. The stored preference is
-    // deliberately left alone: it is the player's choice, and it should be
-    // retried on the next load rather than silently forgotten.
-    display = { ...display, shader: '' };
-    renderer = new CanvasRenderer(canvas2d);
-    renderer.setOptions(display);
-    if (core) renderer.draw(core);
+  /**
+   * Mirrors a renderer-surface change into the plain `let`s Svelte tracks.
+   *
+   * Must assign these by name rather than hand the surface itself to the
+   * template: see the module doc on why it reports through a callback instead
+   * of being reactive state.
+   */
+  function onSurfaceChange(state: SurfaceState): void {
+    renderer = state.renderer;
+    usingGl = state.usingGl;
+    display = { ...display, shader: state.shader };
+    shaderNotice = state.notice;
   }
 
   /**
@@ -247,43 +270,10 @@
    * before it was removed from the shader list.
    */
   async function applyShader(shaderId: string): Promise<void> {
-    const token = ++shaderSwapToken;
+    // Cleared synchronously, same as before the extraction: a stale notice
+    // must not sit on screen for the whole length of the shader fetch.
     shaderNotice = null;
-
-    if (!shaderId) {
-      useCanvasRenderer();
-      return;
-    }
-
-    const loaded = await loadShaderPreset(shaderId);
-    // The player may have picked something else while this was fetching.
-    if (token !== shaderSwapToken) return;
-
-    if (!loaded.ok) {
-      logger.warn('shader unavailable', { shaderId, reason: loaded.reason });
-      shaderNotice = 'That shader could not be loaded; showing raw pixels.';
-      useCanvasRenderer();
-      return;
-    }
-
-    // If WebglRenderer.create fails below, useCanvasRenderer() disposes this
-    // same (already-disposed) renderer again. That is safe: dispose() on both
-    // renderer types guards every deletion and nulls what it deletes, so
-    // nothing gets double-freed.
-    renderer?.dispose();
-
-    const webgl = WebglRenderer.create(canvasGl, loaded.preset);
-    if (!webgl) {
-      logger.warn('webgl2 unavailable or the shader would not compile', { shaderId });
-      shaderNotice = 'Shaders need WebGL2, which this browser did not provide.';
-      useCanvasRenderer();
-      return;
-    }
-
-    usingGl = true;
-    renderer = webgl;
-    renderer.setOptions(display);
-    if (core) renderer.draw(core);
+    await surface?.apply(shaderId, display);
   }
 
   /**
@@ -311,15 +301,7 @@
    * refuses. One boolean read per slice, and no new timer.
    */
   function checkRendererHealth(): void {
-    if (renderer instanceof WebglRenderer && renderer.unusable) {
-      // Reason-agnostic on purpose: `unusable` covers both a lost browser
-      // context and allocate() giving up (e.g. a shader's render target
-      // too large for the driver), and the player does not need to know
-      // which - both end the same way, a working 2D picture.
-      logger.warn('webgl renderer unusable, falling back to 2D');
-      shaderNotice = 'Hardware shaders stopped working; showing raw pixels.';
-      useCanvasRenderer();
-    }
+    surface?.checkHealth(display);
   }
 
   /**
@@ -364,12 +346,11 @@
     // the toolbar. pointerdown covers touch, which sends no mousemove.
     window.addEventListener('mousemove', onPointerActivity);
     window.addEventListener('pointerdown', onPointerActivity);
-    document.addEventListener('fullscreenchange', onFullscreenChange);
+    fullscreen.attach();
     return () => {
       window.removeEventListener('keydown', onGlobalKey);
       window.removeEventListener('mousemove', onPointerActivity);
       window.removeEventListener('pointerdown', onPointerActivity);
-      document.removeEventListener('fullscreenchange', onFullscreenChange);
     };
   });
 
@@ -425,12 +406,11 @@
    * direction is sent to the other player too.
    */
   function applySources(): void {
-    assignments = loadAssignments(localStorage);
-    const pads = connectedPads();
-    collector?.setSources(resolveSources(assignments, pads).p1);
+    const applied = applyInputSources(localStorage, [collector]);
+    assignments = applied.assignments;
     // Plugging a controller into a tablet takes the drawn one away, and
     // unplugging it brings it back: this runs on both gamepad events.
-    showTouchPad = touchPadWanted(pads.length);
+    showTouchPad = touchPadWanted(applied.padCount);
   }
 
   function closePauseMenu() {
@@ -441,12 +421,7 @@
     // Still inside the click that dispatched 'resume', so the browser counts
     // this as a user gesture. Reached from a gamepad it is not, and the
     // request is refused - hence the swallowed rejection rather than a throw.
-    if (wasFullscreen && !document.fullscreenElement) {
-      deliberateFullscreenChange = true;
-      stage?.requestFullscreen().catch(() => {
-        deliberateFullscreenChange = false;
-      });
-    }
+    if (wasFullscreen) fullscreen.restore();
     wasFullscreen = false;
   }
 
@@ -483,77 +458,15 @@
     // Leave the picture before leaving the room: a lobby rendered fullscreen
     // is not what anyone asked for.
     wasFullscreen = false;
-    if (document.fullscreenElement) {
-      deliberateFullscreenChange = true;
-      void document.exitFullscreen().catch(() => {});
-    }
+    if (document.fullscreenElement) void fullscreen.toggle().catch(() => {});
     closePauseMenu();
-    $socket?.emit('game:stop', { roomId });
-    // Said upwards rather than waited for. `game:stop` is how the server and
-    // any partner hear about this, but the room page leaves on its own: a
-    // room-scoped event naming a room the server no longer has is dropped in
-    // silence, and then a quit that waited for `game:stopped` would never
-    // come back at all. See the page's own `leaveGame`.
+    $socket?.emit('room:release-game', { roomId });
+    // Said upwards rather than waited for. `room:release-game` is how the
+    // server and any partner hear about this, but the room page leaves on its
+    // own: a room-scoped event naming a room the server no longer has is
+    // dropped in silence, and then a quit that waited for `game:stopped`
+    // would never come back at all. See the page's own `leaveGame`.
     dispatch('quit');
-  }
-
-  async function toggleFullscreen() {
-    deliberateFullscreenChange = true;
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await stage?.requestFullscreen();
-    } catch (err) {
-      deliberateFullscreenChange = false;
-      logger.error('Could not toggle fullscreen', err);
-    }
-  }
-
-  function onFullscreenChange() {
-    const deliberate = deliberateFullscreenChange;
-    deliberateFullscreenChange = false;
-    isFullscreen = !!document.fullscreenElement;
-
-    if (isFullscreen) {
-      revealChrome();
-      return;
-    }
-
-    if (chromeTimer) clearTimeout(chromeTimer);
-    chromeTimer = null;
-    chromeVisible = true;
-    // The only way out of fullscreen we did not ask for is Escape, which in
-    // this room means "open the menu" - and the keydown never reached us.
-    if (!deliberate) openPauseMenu(true);
-  }
-
-  /**
-   * Cheap guard on a listener that fires on every mouse move in the page: out
-   * of fullscreen the toolbar is in normal flow and there is nothing to show.
-   */
-  function onPointerActivity() {
-    if (isFullscreen) revealChrome();
-  }
-
-  /** Shows the toolbar and restarts the countdown that hides it again. */
-  function revealChrome() {
-    chromeVisible = true;
-    if (chromeTimer) clearTimeout(chromeTimer);
-    chromeTimer = null;
-    if (!isFullscreen || chromeHeld) return;
-    chromeTimer = setTimeout(() => {
-      chromeTimer = null;
-      chromeVisible = false;
-    }, CHROME_IDLE_MS);
-  }
-
-  function holdChrome() {
-    chromeHeld = true;
-    revealChrome();
-  }
-
-  function releaseChrome() {
-    chromeHeld = false;
-    revealChrome();
   }
 
   onDestroy(() => {
@@ -564,6 +477,14 @@
     try {
       // Lets one query pull both players' lines for the same match.
       setLogLabels({ roomId, player: isHost ? 'p1' : 'p2' });
+
+      surface = createRendererSurface({
+        canvas2d,
+        canvasGl,
+        getCore: () => core,
+        logger,
+        onChange: onSurfaceChange
+      });
 
       statusText = 'Loading emulator core…';
       core = await loadCore();
@@ -701,7 +622,7 @@
       // by however long a slow CDN takes, for a reason that has nothing to do
       // with them. Not awaited: onFrame above closes over the mutable
       // `renderer` binding, so a later swap is picked up, and applyShader is
-      // already re-entrancy-safe through shaderSwapToken.
+      // already re-entrancy-safe through the renderer surface's own swap token.
       if (storedShader) void applyShader(storedShader);
 
       startDiagnostics();
@@ -910,9 +831,7 @@
         sock.off('game:sramLoaded', onLoaded);
         try {
           if (payload?.sramData && core) {
-            const binary = atob(payload.sramData);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const bytes = decodeSram(payload.sramData);
             core.loadSram(bytes);
             logger.info('Battery save restored', { bytes: bytes.length });
           }
@@ -935,15 +854,10 @@
    */
   function persistSram() {
     if (!isHost || !core || !$socket) return;
-    const sram = core.sram();
-    if (sram.length === 0) return;
+    const sramData = encodeSram(core);
+    if (!sramData) return;
 
-    let binary = '';
-    const CHUNK = 0x8000;
-    for (let i = 0; i < sram.length; i += CHUNK) {
-      binary += String.fromCharCode(...sram.subarray(i, i + CHUNK));
-    }
-    $socket.emit('game:saveSram', { roomId, sramData: btoa(binary) });
+    $socket.emit('game:saveSram', { roomId, sramData });
   }
 
   function onSaveLoaded(payload: { saveData?: string; name?: string }) {
@@ -956,9 +870,7 @@
     }
 
     try {
-      const binary = atob(payload.saveData);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const bytes = fromBase64(payload.saveData);
       if (session.loadAuthoritativeState(bytes, `save "${payload.name ?? ''}"`)) {
         audio?.flush();
         logger.info('Loaded save and reseeded the session', { name: payload.name });
@@ -1194,34 +1106,6 @@
     }, STALL_VISIBLE_AFTER_MS);
   }
 
-  /**
-   * Toggles P1's gamepad between "every free controller" and "none".
-   *
-   * Lockstep has only one local player per machine, so this shortcut only
-   * ever has two positions to offer.
-   */
-  function cycleGamepadSource() {
-    const next = assignments.p1.gamepad === null ? 'auto' : null;
-    // Written first, then re-read through applySources(): storage is the one
-    // place this preference lives, and going through the same path as a
-    // replug leaves a single description of "what does P1 listen to now".
-    saveAssignments(localStorage, { ...assignments, p1: { ...assignments.p1, gamepad: next } });
-    applySources();
-  }
-
-  /**
-   * Takes the assignment and the language as parameters rather than reading
-   * them off the closure: Svelte 4 derives a template expression's
-   * dependencies from the identifiers written in it, so `gamepadLabel()`
-   * alone compiled to a one-time initialisation and the menu item kept the
-   * text it was born with - through both a toggle and a language change.
-   */
-  function gamepadLabel(current: Assignments, lang: Language): string {
-    return current.p1.gamepad === null
-      ? t(lang, 'noController')
-      : t(lang, 'allFreeControllers');
-  }
-
   async function enableAudio() {
     try {
       await audio?.resume();
@@ -1237,8 +1121,8 @@
     destroyed = true;
     if (stallTimer) clearTimeout(stallTimer);
     stallTimer = null;
-    if (chromeTimer) clearTimeout(chromeTimer);
-    chromeTimer = null;
+    chrome.stop();
+    fullscreen.detach();
     persistSram();
     if (sramTimer) clearInterval(sramTimer);
     sramTimer = null;
@@ -1255,7 +1139,8 @@
     collector?.detach();
     void audio?.stop();
     core?.dispose();
-    renderer?.dispose();
+    surface?.dispose();
+    surface = null;
     renderer = null;
     governor = null;
     session = null;
@@ -1347,10 +1232,10 @@
     class="bar"
     role="group"
     aria-label="Emulator controls"
-    on:mouseenter={holdChrome}
-    on:mouseleave={releaseChrome}
-    on:focusin={holdChrome}
-    on:focusout={releaseChrome}
+    on:mouseenter={() => chrome.hold(isFullscreen)}
+    on:mouseleave={() => chrome.release(isFullscreen)}
+    on:focusin={() => chrome.hold(isFullscreen)}
+    on:focusout={() => chrome.release(isFullscreen)}
   >
     {#if needsAudioGesture}
       <button class="action" on:click={enableAudio}>Enable sound</button>
@@ -1399,7 +1284,6 @@
       {latencyMode}
       {canSetLatency}
       canReset={isHost}
-      gamepadLabel={gamepadLabel(assignments, $language)}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}
@@ -1407,13 +1291,16 @@
       on:display={(e) => void onDisplayChange(e.detail)}
       on:stats={() => (showStats = !showStats)}
       on:latency={cycleLatencyMode}
-      on:gamepad={cycleGamepadSource}
       on:controlsSaved={handleControlsSaved}
     />
   {/if}
 
   {#if showStats && stats}
-    <dl class="stats" on:mouseenter={holdChrome} on:mouseleave={releaseChrome}>
+    <dl
+      class="stats"
+      on:mouseenter={() => chrome.hold(isFullscreen)}
+      on:mouseleave={() => chrome.release(isFullscreen)}
+    >
       <div><dt>Frame</dt><dd>{stats.frame}</dd></div>
       <div><dt>Round trip</dt><dd>{stats.rtt ? `${Math.round(stats.rtt)} ms` : '—'}</dd></div>
       <!-- Next to the round trip on purpose: latency alone costs a one-off offset

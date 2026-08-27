@@ -43,8 +43,9 @@ const {
 } = await import('../src/db/invitations.js');
 const { createSave } = await import('../src/db/saves.js');
 const {
-  registerRoomHandlers, pendingInvitationsFor, markPlayerAway, markPlayerPresent
+  registerRoomHandlers, markPlayerAway, markPlayerPresent
 } = await import('../src/websocket/room-handlers.js');
+const { registerInvitationHandlers, pendingInvitationsFor } = await import('../src/websocket/invitation-handlers.js');
 const { toPublicRoomFor } = await import('../src/websocket/room-view.js');
 const { registerGameHandlers } = await import('../src/websocket/game-handlers.js');
 type Room = import('../src/types/index.js').Room;
@@ -132,6 +133,7 @@ async function withLobby(run: (lobby: Lobby) => Promise<void>): Promise<void> {
     socketsByUser.set(userId, socket.id);
     serverSockets.set(userId, socket);
     registerRoomHandlers(socket, io, user, rooms, getUserSocket);
+    registerInvitationHandlers(socket, io, user, rooms, getUserSocket);
     // The SRAM and launch handlers live here too, and the defect they carried
     // only shows when a room-handler event (choose-game) and a game-handler
     // event (saveSram) are driven by two different players in the same room.
