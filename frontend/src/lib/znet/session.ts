@@ -177,6 +177,38 @@ const MAX_SHIP_ATTEMPTS = 6;
 /** Silence from the peer, in ms, past which the session is reported as lost. */
 const SILENCE_MS = 15_000;
 
+/**
+ * How long a stall may last, on a link that is still delivering, before the
+ * session stops waiting and resynchronises.
+ *
+ * The last resort, and deliberately the only one that needs no theory about
+ * what went wrong. Both known ways to wedge a lockstep session were invisible
+ * from inside it - the state stayed 'running', pads kept arriving, and the
+ * stall re-send kept firing into a hole it could not reach - so the one signal
+ * that generalises is simply that no frame has run for a long time while the
+ * peer is plainly still there.
+ *
+ * Two seconds is far outside anything healthy. Ordinary stalls last a frame or
+ * two; a rough patch on a real link produced thousands of stalled ticks without
+ * ever holding a single frame back this long. By the time this fires the
+ * re-send has already made about fifteen attempts, and an attempt that has
+ * failed fifteen times will not succeed on the sixteenth.
+ */
+const STALL_RESYNC_MS = 2_000;
+
+/**
+ * A gap in arrivals that means the link, not the timeline, is the problem.
+ *
+ * Pads arrive around sixty times a second, so a quarter second of nothing is
+ * already fifteen missing packets. While the link is that quiet the stall clock
+ * is held at zero: an outage is not something a resync can fix - the state
+ * would be shipped into the same void - and it is `SILENCE_MS` and the
+ * link-lost message that own that case. Without this, a session that stalled
+ * right through a six-second outage would resynchronise the instant the link
+ * came back, racing the re-send that was about to repair it for free.
+ */
+const STALL_LIVE_LINK_MS = 250;
+
 export interface SessionStats {
 	frame: number;
 	framesRun: number;
@@ -303,6 +335,15 @@ export class NetplaySession implements TickSource {
 
 	/** Last time anything at all arrived from the peer. */
 	private lastPacketAt = 0;
+
+	/**
+	 * When the current unbroken stall began, or 0 if a frame is running.
+	 *
+	 * Measured in wall-clock rather than in stalled ticks because the ticks are
+	 * driven by the display: a machine that paces badly and one that is wedged
+	 * accumulate them at very different rates, and it is the wedge we are after.
+	 */
+	private stalledSince = 0;
 	private reportedSilence = false;
 
 	/** Wall-clock bookkeeping for the retry logic in `pump()`. */
@@ -517,6 +558,28 @@ export class NetplaySession implements TickSource {
 			});
 		}
 
+		/*
+		 * Stop waiting on a stall that is never going to end.
+		 *
+		 * Host only, and that is enough: a guest stuck on a missing pad stops
+		 * producing its own within `inputDelay` frames, so the host starves a
+		 * quarter of a second behind it however the wedge started. Letting the
+		 * guest ask as well would mean routing it through a Desync message,
+		 * which would count as a desync in the stats - and `desyncs: 0` on a
+		 * wedged session is exactly the fact that made the last one diagnosable.
+		 */
+		if (this.stalledSince > 0 && now - this.lastPacketAt > STALL_LIVE_LINK_MS) {
+			this.stalledSince = now;
+		}
+		if (
+			this.isHost &&
+			this._state === 'running' &&
+			this.stalledSince > 0 &&
+			now - this.stalledSince > STALL_RESYNC_MS
+		) {
+			this.beginResync('stalled too long with the peer still sending');
+		}
+
 		if (this._state === 'handshake' && now - this.helloSentAt >= this.opts.retryMs) {
 			/*
 			 * Keep announcing until we are actually out of the handshake, even
@@ -658,6 +721,7 @@ export class NetplaySession implements TickSource {
 
 		if (!this.timeline.hasAll(this.frame)) {
 			if (this.stallCounter === 0) this.stats.stalls++;
+			if (this.stalledSince === 0) this.stalledSince = this.now();
 			this.stats.stalledTicks++;
 
 			// Re-send our own pending pads while stalled.
@@ -684,6 +748,7 @@ export class NetplaySession implements TickSource {
 		// frame is arriving when it is.
 		const waitedOnPeer = this.stallCounter > 0;
 		this.stallCounter = 0;
+		this.stalledSince = 0;
 
 		const pad1 = this.timeline.get(0, this.frame) ?? 0;
 		const pad2 = this.timeline.get(1, this.frame) ?? 0;
@@ -895,6 +960,7 @@ export class NetplaySession implements TickSource {
 
 	private resetTimeline(from: number): void {
 		this.frame = from;
+		this.stalledSince = 0;
 		this.timeline.reset(from, this.opts.inputDelay);
 		// A new epoch starts from whatever delay the two peers have just agreed
 		// on, so the window that has to reach back over a delay change starts

@@ -984,6 +984,11 @@ test('an outage recovers even when the redundancy window is shorter than the inp
 		`guest stuck at frame ${harness.guest.session.currentFrame} (was ${before})`
 	);
 	assert.equal(harness.firstDivergence(), null, 'recovery must not corrupt the input tape');
+	assert.equal(
+		harness.host.session.getStats().resyncs,
+		0,
+		'the re-send has to do this, not the stall watchdog'
+	);
 	harness.dispose();
 });
 
@@ -1033,6 +1038,57 @@ test('an outage recovers even when the peer holds a far larger delay than ours',
 		`host stuck at frame ${harness.host.session.currentFrame} (was ${before})`
 	);
 	assert.equal(harness.firstDivergence(), null, 'recovery must not corrupt the input tape');
+	assert.equal(
+		harness.host.session.getStats().resyncs,
+		0,
+		'the peer delay on the wire has to do this, not the stall watchdog'
+	);
+	harness.dispose();
+});
+
+test('a stall no re-send can repair ends in a resync rather than a freeze', async () => {
+	// The net for the failure we have not seen yet. Both known causes of a
+	// permanent stall are fixed above, and both were invisible from inside the
+	// session: the state stayed 'running', packets kept flowing in both
+	// directions, and nothing escalated. SILENCE_MS cannot help - it needs the
+	// packets to stop - so the session sat wedged on a healthy link with no way
+	// out but a manual refresh, which is what cost a real match 115 seconds.
+	//
+	// The hole is injected rather than provoked. What ate the pad does not
+	// matter; what matters is that no amount of re-sending brings it back, which
+	// is the one thing every future cause will have in common.
+	const harness = await NetplayHarness.create(
+		harnessOptions(6000, { link: { latency: 30, seed: 11 }, inputDelay: 4 })
+	);
+	harness.handshake();
+	harness.run(2_000);
+
+	const stuckAt = harness.guest.session.currentFrame + 30;
+	const realSend = harness.link.a.send.bind(harness.link.a);
+	harness.link.a.send = (data: Uint8Array) => {
+		const msg = decode(data);
+		if (
+			msg?.type === MsgType.Pads &&
+			msg.baseFrame <= stuckAt &&
+			stuckAt < msg.baseFrame + msg.pads.length
+		) {
+			return; // this frame's pad never reaches the guest, ever
+		}
+		realSend(data);
+	};
+
+	const before = harness.guest.session.currentFrame;
+	harness.run(20_000);
+
+	assert.ok(
+		harness.host.session.getStats().resyncs > 0,
+		'a stall this long on a live link has to escalate'
+	);
+	assert.ok(
+		harness.guest.session.currentFrame > before + 200,
+		`guest stuck at ${harness.guest.session.currentFrame} (was ${before})`
+	);
+	assert.equal(harness.firstDivergence(), null, 'the recovery must not corrupt the tape');
 	harness.dispose();
 });
 
