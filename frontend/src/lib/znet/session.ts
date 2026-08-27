@@ -237,6 +237,24 @@ export interface SessionStats {
 	 */
 	strain: number;
 	peerStrain: number;
+	/**
+	 * How the peer's pads arrive, as peaks rather than an average: the longest
+	 * silence between two deliveries in ms, and the most frames one delivery
+	 * carried.
+	 *
+	 * `jitter` is the average of the same thing and cannot answer the question
+	 * these were added for. On a real session it read 2.0ms calm and 2.1ms under
+	 * load while the round-trip p90 rose 42%, which is what an averaging
+	 * estimator is supposed to do and useless when the buffer that empties is
+	 * emptied by the excursion.
+	 *
+	 * Even delivery is a gap of one frame and a clump of one. A long gap with a
+	 * clump of one means the packets were held and released together; a long gap
+	 * with a clump of several means they were coalesced into one. Both starve
+	 * the buffer, and the delay budget is sized against the gap.
+	 */
+	arrivalGap: number;
+	arrivalClump: number;
 	epoch: number;
 	desyncs: number;
 	resyncs: number;
@@ -361,6 +379,8 @@ export class NetplaySession implements TickSource {
 		jitter: null,
 		strain: 0,
 		peerStrain: 0,
+		arrivalGap: 0,
+		arrivalClump: 0,
 		epoch: 0,
 		desyncs: 0,
 		resyncs: 0,
@@ -512,6 +532,8 @@ export class NetplaySession implements TickSource {
 			jitter: this.metrics.jitter,
 			strain: this.metrics.strain,
 			peerStrain: this.metrics.peerStrain,
+			arrivalGap: this.metrics.arrivalGap,
+			arrivalClump: this.metrics.arrivalClump,
 			epoch: this.epoch,
 			padsAhead
 		};

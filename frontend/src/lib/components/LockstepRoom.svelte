@@ -753,6 +753,14 @@
         // precisely what a player reports as "it dropped frames".
         strain: s.strain,
         peerStrain: s.peerStrain,
+        // How the pads actually turn up, which `jitter` above averages away: the
+        // longest silence between two deliveries, and the most frames one
+        // delivery carried. One frame and 1 is even delivery. A long gap with a
+        // clump of 1 is a relay holding packets and releasing them together; a
+        // long gap with a clump of several is a relay coalescing them. The two
+        // want opposite fixes, and nothing else in this log tells them apart.
+        arrivalGap: Math.round(s.arrivalGap * 10) / 10,
+        arrivalClump: s.arrivalClump,
         inputDelay: s.inputDelay,
         packets: [s.packetsSent, s.packetsReceived],
         video: frame ? `${frame.width}x${frame.height}` : null,

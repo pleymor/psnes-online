@@ -66,6 +66,74 @@ test('late frames are counted over a sliding window', () => {
 	assert.equal(m.strain, 5, 'and five stutters read as five');
 });
 
+test('an even pad stream reads as no gap and no clump', () => {
+	// The control. One packet per frame run, arriving one frame apart, is what
+	// the delay budget assumes and what neither figure should ever flag.
+	const m = new LinkMetrics(NTSC);
+	const frameMs = 1000 / NTSC;
+	let at = 0;
+	for (let f = 1; f <= 120; f++) {
+		at += frameMs;
+		m.samplePadArrival(f, at);
+	}
+	assert.ok(m.arrivalGap <= frameMs * 1.2, `even delivery must not read as a gap: ${m.arrivalGap}`);
+	assert.equal(m.arrivalClump, 1, 'each delivery advanced exactly one frame');
+});
+
+test('pads delivered in clumps are reported as gap and clump', () => {
+	// What a relay actually does under load, and the thing `jitter` cannot say.
+	// Four frames arrive together, then nothing for four frames' worth of time:
+	// the average spacing is identical to an even stream, which is exactly why
+	// an averaging estimator reads the two as the same link.
+	const m = new LinkMetrics(NTSC);
+	const frameMs = 1000 / NTSC;
+	let at = 0;
+	let frame = 0;
+	for (let burst = 0; burst < 30; burst++) {
+		at += frameMs * 4;
+		for (let i = 0; i < 4; i++) m.samplePadArrival(++frame, at + i * 0.2);
+	}
+	assert.ok(m.arrivalGap > frameMs * 3, `the silence before a clump must show: ${m.arrivalGap}`);
+	assert.equal(m.arrivalClump, 1, 'four separate packets each advanced one frame');
+});
+
+test('a single delivery carrying several frames is a clump of that size', () => {
+	// The other shape the same cause takes: the relay coalesces the packets
+	// rather than merely delaying them, so one arrival carries the whole run.
+	const m = new LinkMetrics(NTSC);
+	const frameMs = 1000 / NTSC;
+	let at = 0;
+	for (let burst = 1; burst <= 30; burst++) {
+		at += frameMs * 5;
+		m.samplePadArrival(burst * 5, at);
+	}
+	assert.equal(m.arrivalClump, 5, 'one arrival advanced five frames at once');
+	assert.ok(m.arrivalGap > frameMs * 4, `and the silence before it must show too: ${m.arrivalGap}`);
+});
+
+test('one clump in a calm stream is not averaged away', () => {
+	// The whole reason this instrument exists. Measured on a real session,
+	// `jitter` read 2.0ms calm and 2.1ms while the link was loaded and the RTT
+	// p90 rose 42% - its RFC 3550 smoothing, gain 1/16, is built to ignore
+	// exactly the excursion that starves a lockstep buffer. These are maxima
+	// over a window for that reason: a peak that has to survive being averaged
+	// with two hundred quiet neighbours will not.
+	const m = new LinkMetrics(NTSC);
+	const frameMs = 1000 / NTSC;
+	let at = 0;
+	let frame = 0;
+	for (let i = 0; i < 40; i++) {
+		at += frameMs;
+		m.samplePadArrival(++frame, at);
+	}
+	const calm = m.arrivalGap;
+	at += frameMs * 6;
+	m.samplePadArrival(++frame, at);
+
+	assert.ok(calm <= frameMs * 1.2, `the calm stretch reads calm: ${calm}`);
+	assert.ok(m.arrivalGap > frameMs * 5, `and the single excursion survives it: ${m.arrivalGap}`);
+});
+
 test('a machine that paces its own frames badly is not a strained link', () => {
 	// The production ratchet this closes. A host running its emulator in bursts
 	// reported 25 late frames in every window while its stall counter sat still

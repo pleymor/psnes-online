@@ -20,6 +20,15 @@ const STRAIN_WINDOW = 128;
  */
 const LATE_FACTOR = 1.5;
 
+/**
+ * Arrivals kept for the gap and clump peaks. About 1.2s at 52 packets a second.
+ *
+ * Long enough that a single excursion is still visible when the telemetry is
+ * sampled once a second, short enough that a peak from ten seconds ago is not
+ * still being reported as if it were now.
+ */
+const ARRIVAL_WINDOW = 64;
+
 export class LinkMetrics {
 	private fps: number;
 
@@ -53,6 +62,27 @@ export class LinkMetrics {
 	private lateCount = 0;
 	private lastFrameAt: number | null = null;
 
+	/**
+	 * How the peer's pads actually turn up, as two peaks rather than an average.
+	 *
+	 * `jitter` above is an average, and averages are why this exists. Measured
+	 * across a real session it read 2.0ms while the link was calm and 2.1ms
+	 * while it was loaded and the round-trip p90 had risen 42% - RFC 3550's
+	 * gain-of-1/16 smoothing is built to ignore precisely the excursion that
+	 * empties a lockstep buffer. A peak that has to survive being averaged with
+	 * sixty quiet neighbours does not survive.
+	 *
+	 * So: the longest silence between two deliveries, and the largest number of
+	 * frames a single delivery carried. Even one-per-frame delivery reads as a
+	 * gap of one frame and a clump of one. A relay that batches reads as either
+	 * a long gap followed by several packets at once, or a long gap followed by
+	 * one packet carrying the whole run - the two shapes the same cause takes,
+	 * which is why both numbers are needed to tell them apart.
+	 */
+	private gapRing = new Float64Array(ARRIVAL_WINDOW);
+	private clumpRing = new Uint8Array(ARRIVAL_WINDOW);
+	private arrivalAt = 0;
+
 	/** The last strain the peer reported, kept for the diagnostics. */
 	private _peerStrain = 0;
 
@@ -75,6 +105,20 @@ export class LinkMetrics {
 	}
 	get peerStrain(): number {
 		return this._peerStrain;
+	}
+
+	/** Longest silence between two deliveries in the window, in ms. */
+	get arrivalGap(): number {
+		let worst = 0;
+		for (const gap of this.gapRing) if (gap > worst) worst = gap;
+		return worst;
+	}
+
+	/** Most frames a single delivery carried in the window. */
+	get arrivalClump(): number {
+		let worst = 0;
+		for (const clump of this.clumpRing) if (clump > worst) worst = clump;
+		return worst;
 	}
 
 	notePingSent(id: number, at: number): void {
@@ -125,6 +169,12 @@ export class LinkMetrics {
 		// RFC 3550's smoothing, gain 1/16: slow enough that one reordered packet
 		// does not move the figure, quick enough to follow a route that changes.
 		this._jitter = this._jitter === null ? drift : this._jitter + (drift - this._jitter) / 16;
+
+		// The same two facts, kept unsmoothed. See `gapRing` above for why.
+		this.gapRing[this.arrivalAt] = at - previous.at;
+		this.clumpRing[this.arrivalAt] = Math.min(255, newestFrame - previous.frame);
+		this.arrivalAt = (this.arrivalAt + 1) % ARRIVAL_WINDOW;
+
 		this.lastPadArrival = { at, frame: newestFrame };
 	}
 
@@ -167,6 +217,9 @@ export class LinkMetrics {
 	resetFrameTiming(): void {
 		this.lastPadArrival = null;
 		this.lastFrameAt = null;
+		this.gapRing.fill(0);
+		this.clumpRing.fill(0);
+		this.arrivalAt = 0;
 		this.lateRing.fill(0);
 		this.lateCount = 0;
 		this.lateAt = 0;
