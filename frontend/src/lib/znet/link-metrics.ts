@@ -66,7 +66,10 @@ export class LinkMetrics {
 	get jitter(): number | null {
 		return this._jitter;
 	}
-	/** Our own late frames over the last 128. Zero is the healthy figure. */
+	/**
+	 * Late frames over the last 128 that we spent waiting on the peer. Zero is
+	 * the healthy figure.
+	 */
 	get strain(): number {
 		return this.lateCount;
 	}
@@ -125,12 +128,28 @@ export class LinkMetrics {
 		this.lastPadArrival = { at, frame: newestFrame };
 	}
 
-	/** Notes whether the frame about to run is arriving late. */
-	noteFrameRun(at: number): void {
+	/**
+	 * Notes whether the frame about to run is arriving late, and whether the
+	 * peer is why.
+	 *
+	 * `waitedOnPeer` is the whole of the difference between a number worth
+	 * shipping and one that misleads. A gap wider than the machine's own frame
+	 * has two possible causes, and only one of them is the partner's to fix: a
+	 * pad that had not arrived, or this machine simply not holding cadence.
+	 * Counting both put a host that ran its emulator in bursts at a permanent
+	 * strain of 25 while its stall counter never moved, and its partner - which
+	 * reads the number as "raise your delay, you are starving me" - walked
+	 * itself to MAX_INPUT_DELAY over a stutter no delay could have touched.
+	 *
+	 * So local lateness is dropped here rather than second-guessed by the loop
+	 * downstream. What survives is exactly what the partner's input delay can
+	 * mend, which is what the figure claims to be.
+	 */
+	noteFrameRun(at: number, waitedOnPeer: boolean): void {
 		const previous = this.lastFrameAt;
 		this.lastFrameAt = at;
 		if (previous === null) return;
-		const late = at - previous > (1000 / this.fps) * LATE_FACTOR ? 1 : 0;
+		const late = waitedOnPeer && at - previous > (1000 / this.fps) * LATE_FACTOR ? 1 : 0;
 		this.lateCount += late - this.lateRing[this.lateAt];
 		this.lateRing[this.lateAt] = late;
 		this.lateAt = (this.lateAt + 1) % STRAIN_WINDOW;

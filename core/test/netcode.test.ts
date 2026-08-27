@@ -282,6 +282,38 @@ test('a fed peer never makes the delay creep', async () => {
 	harness.dispose();
 });
 
+test('a pair of slow machines does not talk itself up to the ceiling', async () => {
+	// The other half of the production freeze. `strain` counts frames whose gap
+	// exceeded 1.5x the machine's own, which a machine that cannot hold cadence
+	// reports for ever - and the loop, reading it as distress the partner can
+	// relieve, grants a frame every ten seconds until it hits MAX_INPUT_DELAY.
+	// In production one side sat at strain 25 with its stall counter frozen and
+	// walked its partner from 3 to 16 in under two minutes.
+	//
+	// No delay is passed, so the loop is live: pinning it would prove nothing.
+	const harness = await NetplayHarness.create(
+		harnessOptions(8000, { link: { latency: 20, jitter: 1, seed: 5 } })
+	);
+	harness.handshake();
+	const sized = harness.host.session.inputDelay;
+
+	// Both machines running a third of cadence, on a link so quick that neither
+	// is ever short of the other's pads. Every frame is a visible stutter and
+	// not one of them is anybody's delay to fix.
+	harness.run(60_000, { fps: 20 });
+
+	assert.equal(harness.host.session.getStats().stalledTicks, 0, 'nobody waited on a pad');
+	assert.ok(
+		harness.host.session.inputDelay <= sized,
+		`host talked itself up from ${sized} to ${harness.host.session.inputDelay}`
+	);
+	assert.ok(
+		harness.guest.session.inputDelay <= sized,
+		`guest talked itself up from ${sized} to ${harness.guest.session.inputDelay}`
+	);
+	harness.dispose();
+});
+
 test('handing control back to the loop really hands it back', async () => {
 	// Pinning switches the loop off, which is the point. But the room's setting
 	// can go back to automatic mid-game, and if that only changed a label the
@@ -547,6 +579,7 @@ test('every message survives a round trip', () => {
 			epoch: 3,
 			baseFrame: 123456,
 			strain: 7,
+			inputDelay: 5,
 			pads: [0, PAD.A, 0x0fff]
 		},
 		{ type: MsgType.Crc, playerIndex: 0, epoch: 3, frame: 900, crc: 0xffffffff },
@@ -591,6 +624,7 @@ test('a pad packet stays small enough never to fragment', () => {
 		epoch: 0,
 		baseFrame: 100000,
 		strain: 4,
+		inputDelay: 9,
 		pads: new Array(10).fill(PAD.A)
 	});
 	assert.ok(packet.length <= 32, `pad packet is ${packet.length} bytes`);
@@ -948,6 +982,55 @@ test('an outage recovers even when the redundancy window is shorter than the inp
 	assert.ok(
 		harness.guest.session.currentFrame > before + 200,
 		`guest stuck at frame ${harness.guest.session.currentFrame} (was ${before})`
+	);
+	assert.equal(harness.firstDivergence(), null, 'recovery must not corrupt the input tape');
+	harness.dispose();
+});
+
+test('an outage recovers even when the peer holds a far larger delay than ours', async () => {
+	// The production freeze this reproduces. The strain loop had walked the
+	// guest up to sixteen frames while the host sat at four, and then the host's
+	// socket reconnected and dropped what was in flight. Both peers stalled for
+	// ever with packets still flowing between them - host padsAhead [6, 0],
+	// guest [0, 17], no desync, no resync - until a manual refresh 115 seconds
+	// later triggered the rejoin path.
+	//
+	// The sibling test above covers the symmetric case. Asymmetry is what
+	// defeats the re-send: `epochMaxDelay` is documented as the largest delay
+	// either side has used but is only ever fed this side's own, so the host
+	// reaches back seven frames while the guest, entitled to sit seventeen
+	// behind, is stuck on a frame well below that. The host still holds the pad
+	// - the pruner keeps 120 frames - it simply never offers it again.
+	const harness = await NetplayHarness.create(
+		harnessOptions(6000, { link: { latency: 55, seed: 23 }, inputDelay: 6 })
+	);
+	harness.handshake();
+
+	// Where the loop had really left the pair. The host peaked at six frames
+	// earlier in the epoch and came back down to four, so its `epochMaxDelay` is
+	// six; sixteen is MAX_INPUT_DELAY, which is where the guest had been walked.
+	harness.host.session.setInputDelay(4);
+	harness.guest.session.setInputDelay(16);
+	harness.run(4_000);
+
+	const before = harness.guest.session.currentFrame;
+	assert.ok(before > 100, 'session must be running before the outage');
+
+	// A socket reconnect rather than a network outage: long enough to lose what
+	// is in flight, and no longer. The host cannot run more than the guest's
+	// delay ahead however long it lasts, so half a second is the whole of it.
+	harness.link.setLoss(1);
+	harness.run(500);
+	harness.link.setLoss(0);
+	harness.run(10_000);
+
+	assert.ok(
+		harness.guest.session.currentFrame > before + 200,
+		`guest stuck at frame ${harness.guest.session.currentFrame} (was ${before})`
+	);
+	assert.ok(
+		harness.host.session.currentFrame > before + 200,
+		`host stuck at frame ${harness.host.session.currentFrame} (was ${before})`
 	);
 	assert.equal(harness.firstDivergence(), null, 'recovery must not corrupt the input tape');
 	harness.dispose();

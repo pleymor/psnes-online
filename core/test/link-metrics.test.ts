@@ -52,18 +52,39 @@ test('late frames are counted over a sliding window', () => {
 	const m = new LinkMetrics(NTSC);
 	const frameMs = 1000 / NTSC;
 	let at = 0;
-	m.noteFrameRun(at);
+	m.noteFrameRun(at, false);
 	for (let i = 0; i < 10; i++) {
 		at += frameMs;
-		m.noteFrameRun(at);
+		m.noteFrameRun(at, true);
 	}
 	assert.equal(m.strain, 0, 'a machine on cadence has no strain');
 
 	for (let i = 0; i < 5; i++) {
 		at += frameMs * 3;
-		m.noteFrameRun(at);
+		m.noteFrameRun(at, true);
 	}
 	assert.equal(m.strain, 5, 'and five stutters read as five');
+});
+
+test('a machine that paces its own frames badly is not a strained link', () => {
+	// The production ratchet this closes. A host running its emulator in bursts
+	// reported 25 late frames in every window while its stall counter sat still
+	// for a hundred and forty seconds - it was never once short of its partner's
+	// pads. The partner reads that number as "your delay is starving me" and is
+	// the only side that can act on it, so it walked itself to MAX_INPUT_DELAY,
+	// one frame per ten seconds, for a stutter no delay of its own could mend.
+	//
+	// Lateness this side caused itself must therefore not travel. What is left
+	// is what the partner can actually fix.
+	const m = new LinkMetrics(NTSC);
+	const frameMs = 1000 / NTSC;
+	let at = 0;
+	m.noteFrameRun(at, false);
+	for (let i = 0; i < 60; i++) {
+		at += frameMs * 3;
+		m.noteFrameRun(at, false);
+	}
+	assert.equal(m.strain, 0, 'sixty stutters of our own making are not the link');
 });
 
 test('the peer strain is recorded even when nothing will act on it', () => {

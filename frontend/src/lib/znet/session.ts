@@ -677,12 +677,18 @@ export class NetplaySession implements TickSource {
 			this.stallCounter++;
 			return 'stalled';
 		}
+		// Whether the pad we are about to run on kept us waiting. `hasAll` can
+		// only ever fail on the peer's side - `tick()` samples our own pad for
+		// `frame + delay` above, and a raise fills the hole it leaves - so a
+		// non-zero counter here means the peer, and nothing local, is why this
+		// frame is arriving when it is.
+		const waitedOnPeer = this.stallCounter > 0;
 		this.stallCounter = 0;
 
 		const pad1 = this.timeline.get(0, this.frame) ?? 0;
 		const pad2 = this.timeline.get(1, this.frame) ?? 0;
 
-		this.metrics.noteFrameRun(this.now());
+		this.metrics.noteFrameRun(this.now(), waitedOnPeer);
 		this.core.runFrame(pad1, pad2);
 		const executed = this.frame;
 		this.frame++;
@@ -818,6 +824,9 @@ export class NetplaySession implements TickSource {
 			// How deep our own reserve of the peer's pads is. Only the peer can
 			// do anything about it, since it is the peer's delay that fills it.
 			strain: this.metrics.strain,
+			// How far behind us we are entitled to sit, which is what tells the
+			// peer how far back its stall re-send has to reach.
+			inputDelay: this.opts.inputDelay,
 			pads: run.pads
 		});
 	}
@@ -951,7 +960,14 @@ export class NetplaySession implements TickSource {
 			case MsgType.Hello:
 				return this.onHello(msg.protocol, msg.romCrc);
 			case MsgType.Pads:
-				return this.onPads(msg.playerIndex, msg.epoch, msg.baseFrame, msg.pads, msg.strain);
+				return this.onPads(
+					msg.playerIndex,
+					msg.epoch,
+					msg.baseFrame,
+					msg.pads,
+					msg.strain,
+					msg.inputDelay
+				);
 			case MsgType.Crc:
 				return this.onCrc(msg.epoch, msg.frame, msg.crc);
 			case MsgType.State:
@@ -1048,13 +1064,19 @@ export class NetplaySession implements TickSource {
 		epoch: number,
 		baseFrame: number,
 		pads: PadMask[],
-		peerStrain: number
+		peerStrain: number,
+		peerDelay: number
 	): void {
 		if (epoch !== this.epoch) return; // belongs to a timeline we abandoned
 		if (playerIndex === this.playerIndex || playerIndex >= PLAYER_COUNT) return;
 
 		this.metrics.samplePadArrival(baseFrame + pads.length - 1, this.now());
 		this.notePeerStrain(peerStrain);
+		// The peer's delay is half of how far behind it may legitimately sit, and
+		// the half this side cannot see any other way. Folded in monotonically,
+		// like our own: a peer that comes back down must not shrink a window that
+		// is still covering the frames it fell behind on.
+		this.epochMaxDelay = Math.max(this.epochMaxDelay, peerDelay);
 
 		for (let i = 0; i < pads.length; i++) {
 			const f = baseFrame + i;
