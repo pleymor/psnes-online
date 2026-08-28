@@ -1,5 +1,10 @@
 # Architecture technique — PSNES Online
 
+> Ce document décrit le produit **par mode de room**. Pour le détail du netcode
+> lockstep — protocole octet par octet, diagrammes de séquence, boucle de frame,
+> resynchronisations, transport et métriques — voir
+> [TECHNICAL.md](TECHNICAL.md).
+
 ## Vue d'ensemble
 
 PSNES Online est une plateforme de jeu rétro SNES multijoueur avec **émulation

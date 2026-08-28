@@ -17,6 +17,18 @@ Plateforme de jeu rétro SNES multijoueur en ligne avec émulation côté serveu
 
 ## 🏗️ Architecture
 
+> 📖 **[TECHNICAL.md](TECHNICAL.md) — documentation technique détaillée.**
+> Netcode lockstep, protocole binaire, diagrammes de séquence, transport,
+> resynchronisations, métriques et déploiement. C'est la référence à lire pour
+> travailler sur le multijoueur.
+>
+> Voir aussi [ARCHITECTURE.md](ARCHITECTURE.md) (vue par mode de room) et
+> [LOCKSTEP_NETPLAY.md](LOCKSTEP_NETPLAY.md) (pourquoi le mode lockstep existe).
+
+La liste ci-dessous décrit la pile technique. Attention, elle date d'avant le
+passage au lockstep : l'émulation tourne aujourd'hui **côté client dans tous les
+modes**, et le streaming vidéo n'est plus que l'un des quatre modes.
+
 ### Backend
 - **Node.js/TypeScript** avec Express
 - **Socket.io** pour WebSocket temps réel et signaling WebRTC

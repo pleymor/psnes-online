@@ -1,5 +1,9 @@
 # Lockstep netplay (ZSNES-style)
 
+> Ce document explique **pourquoi** ce mode existe et comment il a été construit.
+> Pour la description de référence du mécanisme tel qu'il tourne aujourd'hui,
+> voir [TECHNICAL.md](TECHNICAL.md).
+
 An alternative to the existing dual and streaming multiplayer modes, modelled
 on how ZSNES does netplay rather than on modern rollback netcode.
 
