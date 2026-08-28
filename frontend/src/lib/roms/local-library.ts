@@ -13,10 +13,19 @@
 import { crc32, normaliseRom, unzipFirstEntry } from './checksum.js';
 
 const DB_NAME = 'psnes-roms';
-const DB_VERSION = 1;
+/**
+ * 2 ajoute le store `files` (voir `kept-files.ts`).
+ *
+ * Les deux modules ouvrent la même base et l'un ou l'autre peut arriver le
+ * premier, donc les deux doivent connaître la même version et créer les trois
+ * stores : ouvrir en v1 après une v2 lève `VersionError` et laisse le joueur
+ * sans bibliothèque du tout.
+ */
+const DB_VERSION = 2;
 const HANDLES = 'handles';
 /** checksum -> filename, so a later launch reads one file instead of hashing a folder. */
 const INDEX = 'index';
+const FILES = 'files';
 
 export const ROM_EXTENSIONS = ['.smc', '.sfc', '.fig', '.swc', '.mgd', '.zip'];
 
@@ -40,6 +49,7 @@ function openDb(): Promise<IDBDatabase> {
 			const db = request.result;
 			if (!db.objectStoreNames.contains(HANDLES)) db.createObjectStore(HANDLES);
 			if (!db.objectStoreNames.contains(INDEX)) db.createObjectStore(INDEX);
+			if (!db.objectStoreNames.contains(FILES)) db.createObjectStore(FILES);
 		};
 		request.onsuccess = () => resolve(request.result);
 		request.onerror = () => reject(request.error);
