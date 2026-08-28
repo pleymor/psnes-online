@@ -38,6 +38,17 @@ export { SocketTransport } from './socket-transport.js';
 export type { SocketLike } from './socket-transport.js';
 export { LagTransport, parseLag } from './lag-transport.js';
 export type { LagOptions } from './lag-transport.js';
+export { UpgradingTransport } from './upgrading-transport.js';
+export type { UpgradableTransport } from './upgrading-transport.js';
+/*
+ * `webrtc-transport.js` is deliberately absent.
+ *
+ * It reaches simple-peer and the app logger, and the logger reads
+ * `import.meta.env.PROD`, which exists only under Vite. This barrel is imported
+ * by the node test suites, so anything browser-only in here takes two unrelated
+ * test files down with a `Cannot read properties of undefined (reading 'PROD')`
+ * that names neither of them. Import it by path from the component instead.
+ */
 
 export { CanvasRenderer, AudioSink, DEFAULT_DISPLAY } from './output.js';
 export type { DisplayOptions, Renderer } from './output.js';

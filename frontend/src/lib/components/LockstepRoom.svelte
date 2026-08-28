@@ -45,6 +45,7 @@
     PsnesCore,
     SocketTransport,
     LagTransport,
+    UpgradingTransport,
     parseLag,
     loadCore,
     normaliseRom,
@@ -59,6 +60,9 @@
     type SessionStats,
     type Transport
   } from '$lib/znet';
+  // By path, not through the barrel: it reaches simple-peer and `import.meta.env`,
+  // which the node test suites that import the barrel cannot resolve.
+  import { ZnetWebRtcTransport } from '$lib/znet/webrtc-transport';
   import {
     LOW_DELAY_FRAMES,
     readLatencyPreference,
@@ -555,6 +559,27 @@
        * for the number that matters.
        */
       const lag = parseLag(new URLSearchParams(window.location.search).get('lag'));
+
+      /*
+       * Carry the session onto a direct channel if one can be had.
+       *
+       * Never in front of the relay, only alongside it: the game starts on the
+       * relay and moves over if and when the negotiation succeeds, so a peer
+       * behind a symmetric NAT loses nothing but the latency it was never going
+       * to save. See `upgrading-transport.ts`.
+       *
+       * Skipped outright when a distance is being simulated. The whole point of
+       * `?lag=` is a link whose numbers are known, and a real peer-to-peer path
+       * underneath one is exactly the uncontrolled variable it exists to
+       * remove.
+       */
+      if (!lag) {
+        transport = new UpgradingTransport(
+          transport,
+          new ZnetWebRtcTransport($socket as never, roomId, isHost)
+        );
+      }
+
       if (lag) {
         // Warn, not debug. A session quietly running on a link other than the
         // real one invalidates every conclusion drawn from it, and nothing else
