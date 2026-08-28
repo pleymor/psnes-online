@@ -11,7 +11,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TouchPad, facesAt, shouldShowTouchPad, stickMask, touchPadWanted } from '../../frontend/src/lib/controls/touch.js';
+import {
+	TouchPad,
+	crossMask,
+	facesAt,
+	readDirectionMode,
+	shouldShowTouchPad,
+	stickMask,
+	touchPadWanted,
+	writeDirectionMode
+} from '../../frontend/src/lib/controls/touch.js';
 import { InputCollector } from '../../frontend/src/lib/znet/input.js';
 import type { FaceTarget } from '../../frontend/src/lib/controls/touch.js';
 import { PAD } from '../../frontend/src/lib/znet/protocol.js';
@@ -49,6 +58,96 @@ test('the dead zone is a radius, not a per-axis threshold', () => {
 	assert.equal(stickMask(0.28, -0.28), PAD.UP | PAD.RIGHT);
 });
 
+/* ------------------------------------------------------------- the cross */
+
+test('the middle of the cross holds nothing', () => {
+	assert.equal(crossMask(0, 0), 0);
+});
+
+test('each arm of the cross is its own direction, and only it', () => {
+	assert.equal(crossMask(1, 0), PAD.RIGHT);
+	assert.equal(crossMask(-1, 0), PAD.LEFT);
+	assert.equal(crossMask(0, -1), PAD.UP);
+	assert.equal(crossMask(0, 1), PAD.DOWN);
+});
+
+test('a corner of the cross is a diagonal, which games ask for', () => {
+	assert.equal(crossMask(1, -1), PAD.RIGHT | PAD.UP);
+});
+
+test('the cross rests on a square plateau where the stick would already lean', () => {
+	// The difference that makes a cross worth offering. A stick is measured by
+	// angle from its centre, so a thumb a third of the way out is already a
+	// firm diagonal; a cross has a flat middle you can rest a thumb on, and
+	// only the arms mean anything. A player who keeps a thumb parked wants the
+	// second behaviour, which is the whole reason the choice exists.
+	assert.equal(crossMask(0.3, 0.3), 0, 'the plateau of a cross');
+	assert.equal(stickMask(0.3, 0.3), PAD.RIGHT | PAD.DOWN, 'the same thumb on a stick');
+});
+
+test('a thumb that slides off the end of an arm is still holding it', () => {
+	// A cross is drawn at a fixed place and the thumb wanders; running past the
+	// end of the arm is a normal gesture, not a release.
+	assert.equal(crossMask(2, 0), PAD.RIGHT);
+	assert.equal(crossMask(0, -3.5), PAD.UP);
+});
+
+test('changing the shape lets go of the direction held on the old one', () => {
+	// Otherwise the direction the thumb was holding when the player reached for
+	// the toggle stays pressed for ever: the pointer that would have released it
+	// belongs to a control that no longer exists.
+	const pad = new TouchPad();
+	pad.setDirection(1, 0);
+	assert.equal(pad.mask, PAD.RIGHT);
+	pad.setMode('cross');
+	assert.equal(pad.mask, 0, 'the old direction must not survive the switch');
+});
+
+test('the pad maps a thumb through whichever shape is showing', () => {
+	const pad = new TouchPad();
+	pad.setDirection(0.3, 0.3);
+	assert.equal(pad.mask, PAD.RIGHT | PAD.DOWN, 'stick by default');
+	pad.setMode('cross');
+	pad.setDirection(0.3, 0.3);
+	assert.equal(pad.mask, 0, 'the same thumb, on a cross');
+});
+
+test('the chosen shape is remembered per device, and a fresh device gets the stick', () => {
+	// Per device on purpose: the same account plays on a phone and on a desktop,
+	// and a shape chosen for a thumb has no business following the player to a
+	// machine with a keyboard.
+	const store = new Map<string, string>();
+	const view = {
+		getItem: (k: string) => store.get(k) ?? null,
+		setItem: (k: string, v: string) => void store.set(k, v)
+	};
+	assert.equal(readDirectionMode(view), 'stick', 'the default the header argues for');
+	writeDirectionMode('cross', view);
+	assert.equal(readDirectionMode(view), 'cross');
+	writeDirectionMode('stick', view);
+	assert.equal(readDirectionMode(view), 'stick');
+});
+
+test('a device that refuses storage still gets a working pad', () => {
+	// Private browsing throws on both calls rather than returning null.
+	const hostile = {
+		getItem: () => {
+			throw new Error('denied');
+		},
+		setItem: () => {
+			throw new Error('denied');
+		}
+	};
+	assert.equal(readDirectionMode(hostile), 'stick');
+	assert.doesNotThrow(() => writeDirectionMode('cross', hostile));
+});
+
+test('a stored value that means nothing is not trusted', () => {
+	const store = new Map<string, string>([['psnes-touch-shape', 'trackball']]);
+	const view = { getItem: (k: string) => store.get(k) ?? null, setItem: () => {} };
+	assert.equal(readDirectionMode(view), 'stick');
+});
+
 test('a pressed button is in the mask until it is released', () => {
 	const pad = new TouchPad();
 	assert.equal(pad.mask, 0);
@@ -61,10 +160,10 @@ test('a pressed button is in the mask until it is released', () => {
 test('buttons and the stick are held apart', () => {
 	const pad = new TouchPad();
 	pad.press('a');
-	pad.setStick(0, -1);
+	pad.setDirection(0, -1);
 	assert.equal(pad.mask, PAD.A | PAD.UP);
 	// Centring the stick must not drop the button the other thumb is holding.
-	pad.setStick(0, 0);
+	pad.setDirection(0, 0);
 	assert.equal(pad.mask, PAD.A);
 });
 
@@ -80,7 +179,7 @@ test('two buttons at once, because a SNES has two thumbs', () => {
 test('releaseAll clears everything: the pad going away must not jam a button', () => {
 	const pad = new TouchPad();
 	pad.press('start');
-	pad.setStick(-1, 0);
+	pad.setDirection(-1, 0);
 	pad.releaseAll();
 	assert.equal(pad.mask, 0);
 });
@@ -113,7 +212,7 @@ test('what the thumbs hold reaches the emulator through the collector', () => {
 	collector.setTouchPad(pad);
 
 	pad.press('a');
-	pad.setStick(0, -1);
+	pad.setDirection(0, -1);
 	assert.equal(collector.read(), PAD.A | PAD.UP);
 });
 

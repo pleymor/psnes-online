@@ -48,6 +48,42 @@ const DEAD_ZONE = 0.25;
 const SECTOR = 0.38268343236508984;
 
 /**
+ * Half-width of the flat middle of a cross, as a fraction of its radius.
+ *
+ * A third puts the drawing on a three-by-three grid: the middle cell holds
+ * nothing, the four edge cells are the arms, the four corners are the
+ * diagonals. That is the geometry the shape already shows the player, so where
+ * the thumb *looks* like it is and what the machine reads never disagree.
+ */
+const CROSS_PLATEAU = 1 / 3;
+
+/** Which shape the left thumb is given. */
+export type DirectionMode = 'stick' | 'cross';
+
+/**
+ * The directions a cross pressed at (dx, dy) is holding.
+ *
+ * Same coordinates as the stick - relative to centre and radius, negative `dy`
+ * is up - so the component measures a thumb once and the shape decides what it
+ * means.
+ *
+ * Two things separate this from `stickMask`, and both are why the choice is
+ * worth offering. The neutral middle is a *square* rather than a circle, and a
+ * wide one: a thumb parked a third of the way out is resting, where on a stick
+ * the same thumb is already a firm diagonal. And nothing is clamped at the
+ * edge, because a cross is drawn at a fixed place and a thumb that slides past
+ * the end of an arm is still pressing it.
+ */
+export function crossMask(dx: number, dy: number): PadMask {
+	let mask = 0;
+	if (dx >= CROSS_PLATEAU) mask |= PAD.RIGHT;
+	if (dx <= -CROSS_PLATEAU) mask |= PAD.LEFT;
+	if (dy <= -CROSS_PLATEAU) mask |= PAD.UP;
+	if (dy >= CROSS_PLATEAU) mask |= PAD.DOWN;
+	return mask;
+}
+
+/**
  * The directions a stick pushed to (dx, dy) is holding.
  *
  * Screen coordinates, so a negative `dy` is up. Both components are relative to
@@ -77,9 +113,28 @@ export function stickMask(dx: number, dy: number): PadMask {
 export class TouchPad {
 	private buttons = 0;
 	private stick = 0;
+	private mode: DirectionMode = 'stick';
 
 	get mask(): PadMask {
 		return this.buttons | this.stick;
+	}
+
+	get directionMode(): DirectionMode {
+		return this.mode;
+	}
+
+	/**
+	 * Swaps the shape under the left thumb, letting go of what it was holding.
+	 *
+	 * Dropping the direction is not tidiness. The pointer that would have
+	 * released it belongs to the control that just disappeared, so its release
+	 * never arrives - and a direction held for the rest of the session is the
+	 * worst failure this file has, since a phone has no second device to press
+	 * the key again.
+	 */
+	setMode(mode: DirectionMode): void {
+		this.mode = mode;
+		this.stick = 0;
 	}
 
 	press(button: Button): void {
@@ -90,9 +145,14 @@ export class TouchPad {
 		this.buttons &= ~BUTTON_BITS[button];
 	}
 
-	/** Where the thumb is, relative to the stick's centre and radius. */
-	setStick(dx: number, dy: number): void {
-		this.stick = stickMask(dx, dy);
+	/**
+	 * Where the thumb is, relative to the control's centre and radius.
+	 *
+	 * The caller measures pixels and does not care which shape is showing; the
+	 * mode decides how those pixels read.
+	 */
+	setDirection(dx: number, dy: number): void {
+		this.stick = this.mode === 'cross' ? crossMask(dx, dy) : stickMask(dx, dy);
 	}
 
 	/**
@@ -197,4 +257,64 @@ export function facesAt(px: number, py: number, targets: FaceTarget[]): Button[]
 
 	const nearest = byDistance[0];
 	return nearest && nearest.gap <= THUMB * 2 ? [nearest.button] : [];
+}
+
+
+/* ------------------------------------------------------- remembered shape */
+
+/**
+ * Where the chosen shape is kept.
+ *
+ * Per device, deliberately. The same account plays on a phone and on a
+ * desktop, and a shape picked for a thumb has no business following the player
+ * to a machine with a keyboard - which is also why this is `localStorage` and
+ * not the profile on the server.
+ */
+const SHAPE_KEY = 'psnes-touch-shape';
+
+/** The sliver of `localStorage` this needs, so a test can stand in for it. */
+export interface ShapeStore {
+	getItem(key: string): string | null;
+	setItem(key: string, value: string): void;
+}
+
+function storage(view?: ShapeStore): ShapeStore | null {
+	if (view) return view;
+	try {
+		return globalThis.localStorage ?? null;
+	} catch {
+		// Reading the property itself throws where site data is blocked.
+		return null;
+	}
+}
+
+/**
+ * The shape this device last chose, or the stick.
+ *
+ * The stick is the default because a thumb on glass has no edges to feel - see
+ * the header of `TouchControls.svelte`. The cross is for the player who has
+ * decided otherwise, and only for them.
+ *
+ * Anything unreadable, absent or unrecognised answers `stick`: a stored value
+ * from a future version must not leave the pad with no directions at all.
+ */
+export function readDirectionMode(view?: ShapeStore): DirectionMode {
+	const store = storage(view);
+	if (!store) return 'stick';
+	try {
+		return store.getItem(SHAPE_KEY) === 'cross' ? 'cross' : 'stick';
+	} catch {
+		return 'stick';
+	}
+}
+
+/** Remembers the choice, and shrugs where storage is refused. */
+export function writeDirectionMode(mode: DirectionMode, view?: ShapeStore): void {
+	const store = storage(view);
+	if (!store) return;
+	try {
+		store.setItem(SHAPE_KEY, mode);
+	} catch {
+		// Private browsing. The pad still works; it just forgets.
+	}
 }

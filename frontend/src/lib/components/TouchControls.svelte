@@ -7,15 +7,22 @@
    * receives. That is what lets the arithmetic - dead zone, sectors, two thumbs
    * at once - be tested without a browser.
    *
-   * A stick rather than a d-pad: a thumb on glass has no edges to feel, so a
-   * cross asks the player to hit a quarter of a small square blind. A stick
-   * only asks for a direction, and it is the same twelve-bit mask either way -
-   * the emulated machine still sees a d-pad.
+   * A stick by default, a cross on request. A thumb on glass has no edges to
+   * feel, so a cross asks the player to hit a quarter of a small square blind,
+   * which is why the stick is what an unconfigured device gets. But a thumb
+   * that stays parked wants the opposite: a cross has a flat middle you can
+   * rest on, where a stick a third of the way out is already a firm diagonal.
+   * The shape is remembered per device, never on the profile - see
+   * `readDirectionMode`.
+   *
+   * It is the same twelve-bit mask either way; the emulated machine sees a
+   * d-pad regardless, and only the arithmetic between thumb and mask differs.
    */
-  import { onDestroy, createEventDispatcher } from 'svelte';
+  import { onDestroy, onMount, createEventDispatcher } from 'svelte';
   import type { Button } from '$lib/controls/binding';
-  import type { FaceTarget, TouchPad } from '$lib/controls/touch';
-  import { facesAt } from '$lib/controls/touch';
+  import type { DirectionMode, FaceTarget, TouchPad } from '$lib/controls/touch';
+  import { crossMask, facesAt, readDirectionMode, writeDirectionMode } from '$lib/controls/touch';
+  import { PAD } from '$lib/znet/protocol';
 
   export let pad: TouchPad;
 
@@ -36,6 +43,37 @@
    * this, so a bug here can make the pad look wrong but never play wrong.
    */
   let held: Partial<Record<Button, boolean>> = {};
+
+  /**
+   * Which shape is showing. Read once, on mount, so a device that refuses
+   * storage simply gets the default rather than an error at first touch.
+   */
+  let mode: DirectionMode = 'stick';
+  onMount(() => {
+    mode = readDirectionMode();
+    pad.setMode(mode);
+  });
+
+  /**
+   * Which arms of the cross are lit.
+   *
+   * The drawing only, exactly like `held` above: the emulator reads `pad` and
+   * never this. Computed through the same pure function the pad uses, so the
+   * picture cannot disagree with what the machine is being told.
+   */
+  let dirMask = 0;
+
+  function toggleShape() {
+    mode = mode === 'stick' ? 'cross' : 'stick';
+    // Order matters: the pad drops whatever direction the old shape was
+    // holding, and the drawing has to forget it too.
+    pad.setMode(mode);
+    dirMask = 0;
+    knobX = 0;
+    knobY = 0;
+    stickPointer = null;
+    writeDirectionMode(mode);
+  }
 
   let stickEl: HTMLElement | null = null;
   /** The pointer that owns the stick, so a second thumb cannot steal it. */
@@ -129,7 +167,8 @@
   function stickUp(event: PointerEvent) {
     if (event.pointerId !== stickPointer) return;
     stickPointer = null;
-    pad.setStick(0, 0);
+    pad.setDirection(0, 0);
+    dirMask = 0;
     knobX = 0;
     knobY = 0;
   }
@@ -138,7 +177,12 @@
   function aim(event: PointerEvent) {
     const dx = (event.clientX - centreX) / radius;
     const dy = (event.clientY - centreY) / radius;
-    pad.setStick(dx, dy);
+    pad.setDirection(dx, dy);
+
+    if (mode === 'cross') {
+      dirMask = crossMask(dx, dy);
+      return;
+    }
 
     // The knob follows the thumb but stays inside the ring: a thumb that
     // wanders far still shows which way it is pushing.
@@ -272,9 +316,24 @@
     >&gt;&gt;</button>
   {/if}
 
+  <button
+    type="button"
+    class="shape"
+    aria-label={mode === 'stick' ? 'Passer à la croix directionnelle' : 'Passer au stick'}
+    aria-pressed={mode === 'cross'}
+    on:pointerdown|stopPropagation={toggleShape}
+  >
+    {#if mode === 'stick'}
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" /></svg>
+    {:else}
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 1.8h4v4.2h4.2v4H10v4.2H6V10H1.8V6H6z" /></svg>
+    {/if}
+  </button>
+
   <div
     class="stick"
     class:active={stickPointer !== null}
+    class:cross={mode === 'cross'}
     bind:this={stickEl}
     role="presentation"
     on:pointerdown={stickDown}
@@ -282,7 +341,14 @@
     on:pointerup={stickUp}
     on:pointercancel={stickUp}
   >
-    <span class="knob" style="transform: translate({knobX}px, {knobY}px)"></span>
+    {#if mode === 'cross'}
+      <span class="arm up" class:on={(dirMask & PAD.UP) !== 0}></span>
+      <span class="arm down" class:on={(dirMask & PAD.DOWN) !== 0}></span>
+      <span class="arm left" class:on={(dirMask & PAD.LEFT) !== 0}></span>
+      <span class="arm right" class:on={(dirMask & PAD.RIGHT) !== 0}></span>
+    {:else}
+      <span class="knob" style="transform: translate({knobX}px, {knobY}px)"></span>
+    {/if}
   </div>
 
   <div class="middle">
@@ -437,6 +503,68 @@
 
   .stick.active {
     border-color: #a5b4fc;
+  }
+
+  /* Square, because the plateau the arithmetic uses is square: the shape has to
+     show the player the zones `crossMask` actually reads. */
+  .stick.cross {
+    border-radius: 0.7rem;
+  }
+
+  .arm {
+    position: absolute;
+    background: rgba(148, 163, 184, 0.55);
+    pointer-events: none;
+  }
+
+  /* The four arms overlap in the middle, which is what draws the plus. Each
+     runs from just past the centre to just short of the edge, so the lit arm
+     reads as a direction rather than as a lit square. */
+  .arm.up { left: 33%; width: 34%; top: 5%; height: 45%; border-radius: 0.3rem 0.3rem 0 0; }
+  .arm.down { left: 33%; width: 34%; bottom: 5%; height: 45%; border-radius: 0 0 0.3rem 0.3rem; }
+  .arm.left { top: 33%; height: 34%; left: 5%; width: 45%; border-radius: 0.3rem 0 0 0.3rem; }
+  .arm.right { top: 33%; height: 34%; right: 5%; width: 45%; border-radius: 0 0.3rem 0.3rem 0; }
+
+  .arm.on {
+    background: rgba(165, 180, 252, 0.95);
+  }
+
+  /*
+   * The shape toggle: above the directional control, and at the far end of the
+   * row from the L shoulder.
+   *
+   * Both separations are deliberate. It shares a grid cell with L, which is
+   * pinned to the start, so pushing this to the end puts the width of the
+   * column between them; and it sits a row above the stick, which is itself
+   * pinned to the start of the row below. A thumb reaching for a direction
+   * travels away from this, not toward it - which matters more here than
+   * anywhere else on the pad, since hitting it by accident changes the control
+   * under the thumb mid-game.
+   */
+  .shape {
+    grid-row: 1;
+    grid-column: 1;
+    justify-self: end;
+    /* Declared twice, like every size here: a browser without container
+       queries drops the second and still gets a usable target. */
+    height: 1.7rem;
+    height: min(15cqh, 7.5cqw);
+    min-height: 1.4rem;
+    aspect-ratio: 1;
+    padding: 0.3rem;
+    border-radius: 0.45rem;
+    /* Quieter than the playing controls: it is a setting, not a button the
+       game is waiting on. */
+    background: rgba(30, 30, 46, 0.55);
+    border-color: rgba(148, 163, 184, 0.3);
+    display: grid;
+    place-items: center;
+  }
+
+  .shape svg {
+    width: 100%;
+    height: 100%;
+    fill: rgba(203, 213, 225, 0.85);
   }
 
   .knob {
