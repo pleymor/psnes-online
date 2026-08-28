@@ -79,6 +79,17 @@ async function get<T>(store: string, key: string): Promise<T | undefined> {
 	return value;
 }
 
+async function del(store: string, key: string): Promise<void> {
+	const db = await openDb();
+	await new Promise<void>((resolve, reject) => {
+		const tx = db.transaction(store, 'readwrite');
+		tx.objectStore(store).delete(key);
+		tx.oncomplete = () => resolve();
+		tx.onerror = () => reject(tx.error);
+	});
+	db.close();
+}
+
 /* ------------------------------------------------------------- the folder */
 
 /**
@@ -168,6 +179,11 @@ export async function readRomByChecksum(
 		if (entry.checksum !== checksum) continue;
 		return tryRead(handle, entry.filename, checksum);
 	}
+
+	// Ni le nom mémorisé ni un scan complet n'ont trouvé ce jeu : l'entrée
+	// d'index est périmée. La retirer ici corrige la bibliothèque au seul moment
+	// où son erreur a coûté quelque chose au joueur.
+	await del(INDEX, checksum);
 	return null;
 }
 
