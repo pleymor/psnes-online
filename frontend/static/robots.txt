@@ -1,0 +1,13 @@
+# https://snes.pleymor.com/robots.txt
+#
+# Exists mainly so that /robots.txt stops falling through to the SPA fallback,
+# which answered it with index.html - 47 lines of HTML that a crawler reads as
+# 47 syntax errors.
+
+User-agent: *
+Allow: /
+
+# Signed-in only, and every URL under them is one player's: a room id names a
+# session that is over by the time anyone crawls it.
+Disallow: /room/
+Disallow: /profile

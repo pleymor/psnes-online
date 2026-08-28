@@ -16,6 +16,13 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="PSNES" />
 
+    <!-- The shell is all a crawler ever gets: `ssr = false`, so no route runs
+         for anyone who does not execute our JavaScript. Pages retitle the tab
+         from here via `setPageTitle`, which assigns `document.title` rather
+         than adding a second <title> - the first one in the head is the one
+         the document keeps, so a `<svelte:head>` title would lose to this. -->
+    <title>PSNES - Play classic SNES games with your friends</title>
+
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

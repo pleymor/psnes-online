@@ -7,6 +7,8 @@ export const translations = {
 
     // Navigation
     library: 'Library',
+    profile: 'Profile',
+    room: 'Room',
     logout: 'Logout',
     backToLibrary: 'Back to the library',
     language: 'Language',
@@ -373,6 +375,8 @@ export const translations = {
 
     // Navigation
     library: 'Bibliothèque',
+    profile: 'Profil',
+    room: 'Salon',
     logout: 'Déconnexion',
     backToLibrary: 'Retour à la bibliothèque',
     language: 'Langue',

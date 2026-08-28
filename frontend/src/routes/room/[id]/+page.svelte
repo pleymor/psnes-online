@@ -25,6 +25,7 @@
   import { deriveRoomView, subscribeToRoom } from '$lib/rooms/room-session';
   import { createLogger } from '$lib/utils/logger';
   import { notifications } from '$lib/services/notification';
+  import { setPageTitle } from '$lib/utils/page-title';
 
   const logger = createLogger('RoomPage');
 
@@ -32,6 +33,10 @@
 
   let room: Room | null = null;
   let gameStarted = false;
+
+  // The game is the useful half of "which tab is this": a room id is not
+  // something anybody recognises, so it only stands in until one is chosen.
+  $: setPageTitle($language, room?.gameTitle || t($language, 'room'));
 
   /**
    * Whether any room state has arrived yet for this component instance.

@@ -138,7 +138,7 @@
 </script>
 
 <section class="rom-source">
-  <h3>{t($language, 'romSource')}</h3>
+  <h2>{t($language, 'romSource')}</h2>
   {#if missingCount > 0}
     <p class="explain">{missingCount} {t($language, 'gamesNotOnThisDevice')}</p>
   {/if}
@@ -188,7 +188,7 @@
     padding: 1.25rem;
   }
 
-  .rom-source h3 {
+  .rom-source h2 {
     margin: 0 0 0.25rem;
     font-size: 0.8rem;
     font-weight: 700;
@@ -197,7 +197,7 @@
     color: #9aa0b4;
   }
 
-  h3 {
+  h2 {
     margin: 0;
   }
 

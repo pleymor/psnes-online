@@ -24,8 +24,12 @@
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import { createLogger } from '$lib/utils/logger';
+  import { setPageTitle } from '$lib/utils/page-title';
 
   const logger = createLogger('HomePage');
+
+  // Two screens live at this address, and only one of them is the library.
+  $: setPageTitle($language, $user ? t($language, 'library') : null);
 
   let selectedGame: Game | null = null;
   let gameToIdentify: Game | null = null;

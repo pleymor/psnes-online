@@ -43,6 +43,14 @@
    * being set for a future solo game. A room passes what it knows.
    */
   export let localPlayer2Playable = true;
+  /**
+   * The level the two player headings take, passed straight through.
+   *
+   * Same reason as the width the doc comment above mentions: this is mounted
+   * in two containers, and they do not sit at the same depth in their page's
+   * outline. See `headingLevel` in PlayerControls.
+   */
+  export let headingLevel: 3 | 4 = 4;
 
   const dispatch = createEventDispatcher<{ saved: { config: ControlsConfig } }>();
   const logger = createLogger('ControlsSettings');
@@ -251,6 +259,7 @@
   <div class="players">
     <div class="column" class:hidden-narrow={tab !== 1}>
       <PlayerControls
+        {headingLevel}
         player={1}
         controls={workingConfig.p1}
         assignment={assignments.p1}
@@ -266,6 +275,7 @@
     </div>
     <div class="column" class:hidden-narrow={tab !== 2}>
       <PlayerControls
+        {headingLevel}
         player={2}
         controls={workingConfig.p2}
         assignment={assignments.p2}

@@ -69,7 +69,7 @@
   </div>
 
   <div class="info">
-    <h3>{game.title}</h3>
+    <h2>{game.title}</h2>
     {#if game.genre}
       <p class="genre">{game.genre}</p>
     {/if}
@@ -198,7 +198,7 @@
     flex-grow: 1;
   }
 
-  h3 {
+  h2 {
     margin: 0 0 0.5rem 0;
     font-size: 1.125rem;
     font-weight: 600;
@@ -207,7 +207,11 @@
 
   .genre {
     margin: 0 0 0.25rem 0;
-    color: #667eea;
+    /* Not the #667eea of the brand gradient: at 14px on the card's #242424 it
+       reads 4.24:1, just under the 4.5:1 WCAG AA asks of body text. This is
+       the same hue lightened to 5.95:1, which still clears 4.5:1 on the
+       lightest background a card ever sits on. */
+    color: #8b9bf0;
     font-size: 0.875rem;
     font-weight: 500;
   }

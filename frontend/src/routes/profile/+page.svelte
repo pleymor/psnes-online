@@ -23,6 +23,7 @@
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import { romFileProblem, ACCEPT } from '$lib/roms/rom-file';
   import { registerGame } from '$lib/roms/local-library';
+  import { setPageTitle } from '$lib/utils/page-title';
   import { createLogger } from '$lib/utils/logger';
   import { formatHandle, isValidPseudo, PSEUDO_MIN, PSEUDO_MAX } from '$lib/pseudo';
   import { games, loadGames } from '$lib/stores/games';
@@ -30,6 +31,8 @@
   import { designateFile, resolvableHere } from '$lib/roms/provider';
 
   const logger = createLogger('ProfilePage');
+
+  $: setPageTitle($language, t($language, 'profile'));
 
   // The bar is the same one the library page shows, so the page keeps its
   // chrome instead of stranding the user with a lone back link. It needs the
@@ -326,9 +329,10 @@
        than leaving the other track empty. -->
   <div class="columns">
     <section class="card controls-card">
-      <h3>{t($language, 'controls')}</h3>
+      <h2>{t($language, 'controls')}</h2>
       {#if controlsConfig}
         <ControlsSettings
+          headingLevel={3}
           currentConfig={controlsConfig}
           on:saved={(e) => (controlsConfig = e.detail.config)}
         />
@@ -363,7 +367,7 @@
       </RomSourcePanel>
 
       <section class="card">
-        <h3>{t($language, 'display')}</h3>
+        <h2>{t($language, 'display')}</h2>
         <div class="shaders">
           {#each SHADERS as option}
             <button
@@ -383,12 +387,12 @@
       </section>
 
       <section class="card">
-        <h3>{t($language, 'language')}</h3>
+        <h2>{t($language, 'language')}</h2>
         <LanguageSelector />
       </section>
 
       <section class="card">
-        <h3>{t($language, 'library')}</h3>
+        <h2>{t($language, 'library')}</h2>
         <button on:click={refreshMetadata} disabled={refreshing}>
           {refreshing ? t($language, 'updating') : t($language, 'updateMetadata')}
         </button>
@@ -477,7 +481,7 @@
     font-size: 1.75rem;
   }
 
-  h3 {
+  h2 {
     margin: 0 0 0.75rem;
     font-size: 0.8rem;
     font-weight: 700;

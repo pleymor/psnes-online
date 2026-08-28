@@ -401,13 +401,25 @@
   // player check they are holding the right controller.
   $: if (editing === 'pad' && hasPad) startPolling();
   $: if (editing !== 'pad' && !capturing && !detecting) stopPolling();
+
+  /**
+   * Where this player's name sits in the page's outline.
+   *
+   * Not a constant, because the two containers nest it to different depths:
+   * the profile page puts it straight under a card's h2, while the pause
+   * panel already spends a level on "Contrôles" under its own h2. A single
+   * fixed level is a skipped heading in one of the two, whichever we pick.
+   */
+  export let headingLevel: 3 | 4 = 4;
 </script>
 
 <svelte:window on:keydown={handleKeydown} on:keyup={handleKeyup} on:blur={handleBlur} />
 
 <section class="player">
   <header>
-    <h4>{t($language, player === 1 ? 'player1' : 'player2')}</h4>
+    <svelte:element this={`h${headingLevel}`} class="player-name">
+      {t($language, player === 1 ? 'player1' : 'player2')}
+    </svelte:element>
 
     <div class="sources" role="group" aria-label={t($language, 'inputSources')}>
       <select value={choiceValue} disabled={busy} on:change={(e) => setChoice(e.currentTarget.value)}>
@@ -504,7 +516,7 @@
     gap: 0.5rem;
   }
 
-  h4 {
+  .player-name {
     margin: 0;
     font-size: 1rem;
     color: #eee;
