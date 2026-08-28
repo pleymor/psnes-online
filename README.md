@@ -1,6 +1,8 @@
 # PSNES Online
 
-Plateforme de jeu rétro SNES multijoueur en ligne avec émulation côté serveur.
+Plateforme de jeu rétro SNES multijoueur en ligne. **L'émulation tourne côté
+client, dans le navigateur de chaque joueur** — le serveur ne fait jamais tourner
+de core SNES : il relaie, signale et persiste.
 
 ## 🎮 Fonctionnalités
 
@@ -12,7 +14,9 @@ Plateforme de jeu rétro SNES multijoueur en ligne avec émulation côté serveu
 - **Sélection des ports** - Choix dynamique du port manette (1 ou 2)
 - **Sauvegardes individuelles** - Save states liés au joueur et au jeu
 - **Menu pause** - Réassignation touches, save/load, arrêt
-- **Streaming WebRTC** - Latence ultra-faible ~45ms via WebRTC peer-to-peer
+- **Netplay lockstep** - Mode par défaut : les deux joueurs émulent la même
+  machine déterministe, synchronisée à la frame (voir [TECHNICAL.md](TECHNICAL.md))
+- **Streaming WebRTC** - Mode alternatif : l'hôte émule et diffuse son image
 - **Contrôle vitesse émulation** - Ralenti, accéléré, vitesse illimitée (voir [docs/SPEED_CONTROLS.md](docs/SPEED_CONTROLS.md))
 
 ## 🏗️ Architecture
@@ -25,10 +29,6 @@ Plateforme de jeu rétro SNES multijoueur en ligne avec émulation côté serveu
 > Voir aussi [ARCHITECTURE.md](ARCHITECTURE.md) (vue par mode de room) et
 > [LOCKSTEP_NETPLAY.md](LOCKSTEP_NETPLAY.md) (pourquoi le mode lockstep existe).
 
-La liste ci-dessous décrit la pile technique. Attention, elle date d'avant le
-passage au lockstep : l'émulation tourne aujourd'hui **côté client dans tous les
-modes**, et le streaming vidéo n'est plus que l'un des quatre modes.
-
 ### Backend
 - **Node.js/TypeScript** avec Express
 - **Socket.io** pour WebSocket temps réel et signaling WebRTC
@@ -39,16 +39,17 @@ modes**, et le streaming vidéo n'est plus que l'un des quatre modes.
 
 ### Frontend
 - **SvelteKit** avec TypeScript
-- **WebRTC** pour streaming vidéo/audio basse latence (~45ms)
-- **Canvas API** pour rendu vidéo
+- **WebGL** pour le rendu vidéo, avec repli canvas 2D
 - **Web Audio API** pour le son
-- **Socket.io-client** pour WebSocket et signaling
+- **Socket.io-client** pour le WebSocket, le relais netplay et la signalisation
+- **WebRTC** pour le canal de données direct (netplay) et le streaming vidéo
 
 ### Émulation
-- **snes9x-next** (libretro core) - Émulation SNES réelle
-- Streaming vidéo (256x224 @ 60 FPS)
-- Audio PCM temps réel
-- Contrôle vitesse dynamique (0.5x à illimité)
+- **snes9x compilé en WebAssembly** (`core/`, via Emscripten) — exécuté **dans le
+  navigateur de chaque joueur**, jamais sur le serveur
+- 256x224, PAL 50 Hz ou NTSC 60,0988 Hz selon la ROM
+- Quatre modes de room : `lockstep` (défaut), `single`, `streaming`, `dual`
+- Contrôle vitesse dynamique en solo (0.5x à illimité)
 
 ## 📋 Prérequis
 
@@ -149,7 +150,7 @@ et les données Redis.
 4. **Inviter ami** - L'ami voit le jeu actif et peut rejoindre
 5. **Sélection ports** - Choisir manette 1 ou 2
 6. **Lancer jeu** - N'importe quel joueur peut démarrer
-7. **Jouer** - Le jeu tourne sur le serveur, streaming vers les clients
+7. **Jouer** - Chaque joueur émule la partie chez lui ; seules les manettes circulent
 8. **Contrôle vitesse** - Tab pour vitesse illimitée, +/- pour ajuster
 9. **Menu pause** - Appuyer sur Échap pour options
 
@@ -166,13 +167,11 @@ psnes/
 │   │   │   └── rooms.ts      # Gestion rooms
 │   │   ├── auth/
 │   │   │   └── passport.ts   # Config Passport
-│   │   ├── emulator/
-│   │   │   └── manager.ts    # Gestion émulateur
-│   │   ├── db/               # Repositories SQLite
-│   │   ├── websocket/
-│   │   │   └── index.ts      # Socket.io handlers
+│   │   ├── bootstrap/        # Racine de composition (ordres de démarrage)
+│   │   ├── db/               # Repositories SQLite + migrations
+│   │   ├── rooms/ saves/     # Domaine rooms et sauvegardes
+│   │   ├── websocket/        # znet, rooms, invitations, ROM, présence
 │   │   ├── types/
-│   │   │   └── index.ts      # Types TypeScript
 │   │   └── index.ts          # Point d'entrée
 │   ├── migrations/
 │   │   └── 0001_baseline.sql # Schéma DB (SQL brut)
@@ -192,9 +191,16 @@ psnes/
 │   │   │   └── room/[id]/    # Room de jeu
 │   │   └── app.html
 │   └── package.json
+├── core/                     # Core snes9x wasm + suites de tests netcode
+│   ├── src/  build.sh        # Compilation Emscripten
+│   └── test/                 # Harness sur horloge virtuelle, tests protocole
 ├── docker-compose.yml
+├── TECHNICAL.md              # Documentation technique détaillée
 └── README.md
 ```
+
+Le détail de `frontend/src/lib/znet/` — le moteur lockstep — est dans
+[TECHNICAL.md](TECHNICAL.md).
 
 ## 🔧 Développement
 
@@ -213,11 +219,48 @@ npm run dev          # Mode dev
 cd frontend
 npm install
 npm run dev
+npm run check        # svelte-check
+npm run build        # ⚠ à lancer avant de déclarer une branche frontend finie
 ```
+
+### Tests
+
+```bash
+npm run test:netplay   # protocole, ordonnanceur, resync, boucle de délai (core factice)
+npm run test:core      # déterminisme contre le vrai snes9x wasm
+npm run test:ui        # modules d'interface et d'état
+npm run test:backend   # API, rooms, sauvegardes, gardes
+npm run test:all       # les quatre
+npm run test:e2e       # Playwright
+
+npm run core:build     # recompiler le core wasm
+npm run measure:splits # mesurer les répartitions de délai d'entrée
+```
+
+⚠️ **Ni les tests ni `npm run check` n'invoquent le bundler**, alors que le
+déploiement est un `vite build`. Lancer `npm run build --workspace frontend`
+avant de considérer une branche frontend terminée.
+
+### Documentation
+
+| Fichier | Contenu |
+|---|---|
+| [TECHNICAL.md](TECHNICAL.md) | **Référence technique** : netcode, protocole, diagrammes de séquence |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Vue par mode de room |
+| [LOCKSTEP_NETPLAY.md](LOCKSTEP_NETPLAY.md) | Pourquoi le mode lockstep existe |
+| [BLOG.md](BLOG.md) | Journal de développement |
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | Démarrage rapide |
+| [docs/GOOGLE_OAUTH_SETUP.md](docs/GOOGLE_OAUTH_SETUP.md) | Configuration OAuth |
+| [docs/GITHUB_ACTIONS.md](docs/GITHUB_ACTIONS.md) | CI/CD |
+| [docs/SPEED_CONTROLS.md](docs/SPEED_CONTROLS.md) | Contrôles de vitesse |
+| [docs/ROM_SYNC_FEATURE.md](docs/ROM_SYNC_FEATURE.md) | Transfert de ROM |
+| [docs/P2P_ARCHITECTURE.md](docs/P2P_ARCHITECTURE.md) | Modes WebRTC |
 
 ## 🎮 Émulation SNES
 
-Le projet utilise **snes9x-next**, un core libretro compilé en WebAssembly pour une émulation SNES réelle côté serveur.
+Le projet utilise **snes9x compilé en WebAssembly** (`core/`), exécuté dans le
+navigateur de chaque joueur. Le serveur ne participe à aucune décision de jeu :
+en lockstep il relaie des octets qu'il ne lit pas.
 
 ### Contrôles vitesse
 
@@ -236,42 +279,16 @@ Le projet utilise **snes9x-next**, un core libretro compilé en WebAssembly pour
 
 📖 **Documentation complète**: [docs/SPEED_CONTROLS.md](docs/SPEED_CONTROLS.md)
 
-### Configuration avancée (Legacy)
+### Construire le core
 
-**⚠️ Note**: Les instructions ci-dessous sont pour référence historique. L'émulateur est déjà intégré.
-
-### Option 1: snes9x-emscripten (Recommandé)
+Le core snes9x est compilé en WebAssembly depuis `core/` :
 
 ```bash
-# Installer snes9x compilé en WebAssembly
-npm install snes9x-emscripten
+npm run core:build     # ./core/build.sh, via Emscripten
 ```
 
-Modifier `backend/src/emulator/manager.ts`:
-
-```typescript
-import Snes9x from 'snes9x-emscripten';
-
-async startEmulator(roomId: string, gameId: string) {
-  const emulator = await Snes9x.create();
-  await emulator.loadROM(romPath);
-
-  // Frame loop
-  emulator.onFrame((videoData, audioData) => {
-    this.emit(`frame:${roomId}`, videoData);
-    this.emit(`audio:${roomId}`, audioData);
-  });
-}
-```
-
-### Option 2: libretro native (Avancé)
-
-Utiliser `node-ffi` ou `napi` pour bindings vers libretro native:
-
-```bash
-# Installer libretro core
-apt-get install libretro-snes9x
-```
+Le binaire produit est chargé par le navigateur (`frontend/src/lib/znet/loader.ts`).
+`npm run test:core` se saute proprement tant qu'il n'a pas été construit.
 
 ## 🌐 Déploiement Production
 
@@ -332,6 +349,8 @@ services:
 - `GET /auth/google` - Initier OAuth
 - `GET /auth/google/callback` - Callback OAuth
 - `GET /auth/me` - User actuel
+- `GET /auth/mode` - Mode d'authentification du serveur
+- `POST /auth/dev/login` - Connexion de développement (`AUTH_MODE=dev`)
 - `POST /auth/logout` - Déconnexion
 
 #### Friends
@@ -343,9 +362,22 @@ services:
 
 #### Games
 - `GET /api/games` - Bibliothèque
-- `POST /api/games/upload` - Upload ROM
-- `DELETE /api/games/:id` - Supprimer jeu
-- `GET /api/games/:id/saves` - Sauvegardes
+- `POST /api/games` - Upload ROM
+- `PATCH /api/games/:gameId/checksum` - Mettre à jour le checksum
+- `POST /api/games/:gameId/identify` - Identifier le jeu
+- `DELETE /api/games/:gameId` - Supprimer jeu
+- `GET /api/games/:gameId/saves` - Sauvegardes
+- `DELETE /api/games/:gameId/saves/:saveId` - Supprimer une sauvegarde
+- `POST /api/games/refresh-metadata` - Rafraîchir les métadonnées
+
+#### Autres
+- `GET /api/rooms` - Rooms actives
+- `PUT /api/pseudo` - Choisir son pseudo
+- `GET /api/user/controls`, `PUT /api/user/controls`, `POST /api/user/controls/reset` - Config manettes
+- `GET /api/metadata/search` - Recherche de métadonnées
+- `GET /api/covers/:metadataId` - Jaquette
+- `GET /api/avatars/:filename` - Avatar
+- `POST /api/logs` - Télémétrie client (voir [TECHNICAL.md](TECHNICAL.md#18-télémétrie))
 
 ### WebSocket Events
 
@@ -364,19 +396,30 @@ services:
 - `game:save` - Sauvegarder
 - `game:load` - Charger
 - `game:setSpeed` - Changer vitesse émulation
+- `lobby:invite` / `lobby:accept` / `lobby:decline` / `lobby:cancel` - Invitations
+- `znet:join` / `znet:packet` / `znet:leave` - Session netplay lockstep
+- `rom:request` / `rom:chunk` / `rom:unavailable` - Transfert de ROM entre pairs
+- `webrtc:signal` - Signalisation WebRTC (vidéo et canal de données)
+- `sync:checksum` - Vérification de synchronisation
 
 #### Server → Client
 - `room:created` - Room créée
 - `room:updated` - Room mise à jour
 - `room:destroyed` - Room détruite
 - `game:started` - Jeu démarré
-- `game:frame` - Frame vidéo
-- `game:audio` - Frame audio
 - `game:paused` - Jeu en pause
 - `game:resumed` - Jeu repris
 - `game:stopped` - Jeu arrêté
 - `game:speedChanged` - Vitesse émulation changée
 - `friends:online` - Amis en ligne
+- `lobby:invitation` / `lobby:accepted` / `lobby:declined` / `lobby:cancelled` - Invitations
+- `znet:joined` / `znet:peer-joined` / `znet:error` - Sièges netplay
+- `rom:request` / `rom:chunk` / `rom:unavailable` - Transfert de ROM
+- `room:opened` / `room:update` / `rooms:list` - État des rooms
+- `host:left` / `player:left` - Départs
+
+> Il n'y a plus d'événement `game:frame` ni `game:audio` : l'image et le son ne
+> transitent pas par le serveur.
 
 ## 🐛 Troubleshooting
 
@@ -502,12 +545,14 @@ La violation des droits d'auteur peut entraîner des poursuites civiles et péna
 - [x] Rooms multijoueur
 - [x] Configuration manettes
 - [x] Architecture streaming
-- [x] Intégration émulateur réel (snes9x-next)
+- [x] Intégration émulateur réel (snes9x wasm)
 - [x] Contrôle vitesse émulation dynamique
+- [x] Netplay lockstep déterministe
+- [x] Filtres vidéo (CRT, scanlines)
+- [x] Support gamepad physique
+- [x] Manette virtuelle tactile (stick ou croix)
 
 ### v1.1 (Futur)
-- [ ] Filtres vidéo (CRT, scanlines)
-- [ ] Support gamepad physique
 - [ ] Chat vocal
 - [ ] Spectator mode (>2 joueurs)
 - [ ] Replay recording
