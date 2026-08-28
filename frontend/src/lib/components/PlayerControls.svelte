@@ -422,7 +422,19 @@
     </svelte:element>
 
     <div class="sources" role="group" aria-label={t($language, 'inputSources')}>
-      <select value={choiceValue} disabled={busy} on:change={(e) => setChoice(e.currentTarget.value)}>
+      <!--
+        Le groupe qui l'entoure porte déjà "Périphérique", mais un groupe ne
+        nomme pas ce qu'il contient : la liste arrivait sans nom du tout. Le
+        joueur y est répété parce que la page en montre deux, et deux listes
+        appelées "Périphérique" ne se distinguent pas dans l'énumération des
+        champs d'un lecteur d'écran.
+      -->
+      <select
+        aria-label={`${t($language, 'inputSources')} — ${t($language, player === 1 ? 'player1' : 'player2')}`}
+        value={choiceValue}
+        disabled={busy}
+        on:change={(e) => setChoice(e.currentTarget.value)}
+      >
         {#if allowAuto}
           <option value="auto">{t($language, 'deviceAuto')}</option>
         {/if}

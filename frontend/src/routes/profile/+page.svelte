@@ -272,7 +272,7 @@
 
 <TopBar />
 
-<div class="profile">
+<main class="profile">
   <header class="identity">
     <div class="avatar">
       {#if $user?.avatar}
@@ -410,7 +410,7 @@
     </div>
     {#if logoutMessage}<p class="note error">{logoutMessage}</p>{/if}
   </section>
-</div>
+</main>
 
 <style>
   .profile {

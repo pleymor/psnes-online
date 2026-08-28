@@ -217,7 +217,10 @@
   .legal {
     margin: 0;
     font-size: 0.75rem;
-    color: #6f6f88;
+    /* 3.3:1 en #6f6f88 sur le #212121 de ce panneau, à 12px : sous les 4.5
+       d'AA, et c'est l'avertissement légal - le paragraphe qu'il est le moins
+       acceptable de rendre illisible. Même teinte, éclaircie à 5.62:1. */
+    color: #9797aa;
     line-height: 1.4;
   }
 

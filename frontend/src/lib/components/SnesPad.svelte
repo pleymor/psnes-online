@@ -10,6 +10,14 @@
    * because the drawing should be the config, not its legend. The price is a
    * label of at most three characters, hence the short forms; the long form
    * lives in the aria-label, which is also what a screen reader reads.
+   *
+   * Which is also why no <text> sits inside the <g role="button"> any more,
+   * even though it is drawn in exactly the same place: SVG positions by
+   * coordinate, not by nesting. A control whose accessible name is prose but
+   * whose visible content reads "LQ" fails WCAG 2.5.3 - the name has to carry
+   * the visible label, and here it cannot without becoming unspeakable. The
+   * glyphs are the name drawn, so they are decoration: outside the button,
+   * aria-hidden, and pointer-events: none so a click still lands.
    */
   import { createEventDispatcher } from 'svelte';
   import { shortLabel, type Button } from '$lib/controls/binding';
@@ -122,14 +130,14 @@
       on:keydown={(e) => onKey(e, shoulder.b)}
     >
       <rect x={shoulder.x} y="6" width="108" height="30" rx="12" fill="url(#snes-shoulder)" stroke="#7b7b8a" stroke-width="1.6" />
-      <text x={shoulder.x + 22} y="27" class="glyph">{shoulder.letter}</text>
-      {#if parts.extra > 0}
-        <text x={shoulder.x + 66} y="27" class="binding dark">{parts.main}</text>
-        <text x={shoulder.x + 92} y="27" class="binding dark extra">+{parts.extra}</text>
-      {:else}
-        <text x={shoulder.x + 72} y="27" class="binding dark">{parts.main}</text>
-      {/if}
     </g>
+    <text aria-hidden="true" x={shoulder.x + 22} y="27" class="glyph">{shoulder.letter}</text>
+    {#if parts.extra > 0}
+      <text aria-hidden="true" x={shoulder.x + 66} y="27" class="binding dark">{parts.main}</text>
+      <text aria-hidden="true" x={shoulder.x + 92} y="27" class="binding dark extra">+{parts.extra}</text>
+    {:else}
+      <text aria-hidden="true" x={shoulder.x + 72} y="27" class="binding dark">{parts.main}</text>
+    {/if}
   {/each}
 
   <rect x="14" y="32" width="492" height="180" rx="88" fill="url(#snes-body)" stroke="#7b7b8a" stroke-width="2" />
@@ -153,13 +161,13 @@
       on:keydown={(e) => onKey(e, dir.b)}
     >
       <rect x={dir.hit.x} y={dir.hit.y} width={dir.hit.w} height={dir.hit.h} fill="transparent" />
-      {#if parts.extra > 0}
-        <text x={dir.x - 6} y={dir.y} class="binding light">{parts.main}</text>
-        <text x={dir.x + 15} y={dir.y} class="binding light extra">+{parts.extra}</text>
-      {:else}
-        <text x={dir.x} y={dir.y} class="binding light">{parts.main}</text>
-      {/if}
     </g>
+    {#if parts.extra > 0}
+      <text aria-hidden="true" x={dir.x - 6} y={dir.y} class="binding light">{parts.main}</text>
+      <text aria-hidden="true" x={dir.x + 15} y={dir.y} class="binding light extra">+{parts.extra}</text>
+    {:else}
+      <text aria-hidden="true" x={dir.x} y={dir.y} class="binding light">{parts.main}</text>
+    {/if}
   {/each}
 
   <!-- face buttons -->
@@ -177,14 +185,14 @@
       on:keydown={(e) => onKey(e, face.b)}
     >
       <circle cx={face.cx} cy={face.cy} r={FACE.r} fill={face.fill} stroke={face.stroke} stroke-width="1.6" />
-      <text x={face.cx} y={face.cy - 4} class="glyph on-colour">{face.letter}</text>
-      {#if parts.extra > 0}
-        <text x={face.cx - 6} y={face.cy + 13} class="binding light">{parts.main}</text>
-        <text x={face.cx + 15} y={face.cy + 13} class="binding light extra">+{parts.extra}</text>
-      {:else}
-        <text x={face.cx} y={face.cy + 13} class="binding light">{parts.main}</text>
-      {/if}
     </g>
+    <text aria-hidden="true" x={face.cx} y={face.cy - 4} class="glyph on-colour">{face.letter}</text>
+    {#if parts.extra > 0}
+      <text aria-hidden="true" x={face.cx - 6} y={face.cy + 13} class="binding light">{parts.main}</text>
+      <text aria-hidden="true" x={face.cx + 15} y={face.cy + 13} class="binding light extra">+{parts.extra}</text>
+    {:else}
+      <text aria-hidden="true" x={face.cx} y={face.cy + 13} class="binding light">{parts.main}</text>
+    {/if}
   {/each}
 
   <!-- select and start -->
@@ -203,15 +211,17 @@
     >
       <g transform="rotate(-18 252 160)">
         <rect x={pill.x} y="150" width="52" height="19" rx="9.5" fill="#6b6b78" stroke="#494954" stroke-width="1.3" />
-        {#if parts.extra > 0}
-          <text x={pill.tx - 6} y="164" class="binding light small">{parts.main}</text>
-          <text x={pill.tx + 10} y="164" class="binding light small extra">+{parts.extra}</text>
-        {:else}
-          <text x={pill.tx} y="164" class="binding light small">{parts.main}</text>
-        {/if}
       </g>
-      <text x={pill.lx} y="196" class="glyph faint">{pill.label}</text>
     </g>
+    <g transform="rotate(-18 252 160)">
+      {#if parts.extra > 0}
+        <text aria-hidden="true" x={pill.tx - 6} y="164" class="binding light small">{parts.main}</text>
+        <text aria-hidden="true" x={pill.tx + 10} y="164" class="binding light small extra">+{parts.extra}</text>
+      {:else}
+        <text aria-hidden="true" x={pill.tx} y="164" class="binding light small">{parts.main}</text>
+      {/if}
+    </g>
+    <text aria-hidden="true" x={pill.lx} y="196" class="glyph faint">{pill.label}</text>
   {/each}
 </svg>
 
@@ -232,6 +242,9 @@
   }
 
   text {
+    /* Le texte est désormais frère de la zone cliquable, plus son enfant : sans
+       ceci, un clic tombant pile sur un glyphe n'atteindrait plus le bouton. */
+    pointer-events: none;
     text-anchor: middle;
     pointer-events: none;
     user-select: none;
