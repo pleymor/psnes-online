@@ -104,6 +104,15 @@
    */
   const touchPad = new TouchPad();
   let showTouchPad = false;
+  /**
+   * Un doigt posé sur le bouton menu, qui le rend opaque le temps de l'appui.
+   *
+   * Un `:active` en CSS aurait suffi pour une souris, mais sur un appui
+   * tactile il ne se déclenche pas de façon fiable - selon le navigateur
+   * mobile il arrive, arrive en retard, ou n'arrive pas. Les pointer events
+   * couvrent le doigt, la souris et le stylet de la même manière.
+   */
+  let menuPressed = false;
   let assignments = loadAssignments(localStorage);
   let session: SoloSession | null = null;
   let governor: FrameGovernor | null = null;
@@ -810,7 +819,15 @@
     because it is the only way to reach the menu without a keyboard.
   -->
   <div class="toolbar">
-    <button class="action" on:click={() => openPauseMenu(isFullscreen)}>☰ Menu (Esc)</button>
+    <button
+      class="action"
+      class:pressed={menuPressed}
+      on:pointerdown={() => (menuPressed = true)}
+      on:pointerup={() => (menuPressed = false)}
+      on:pointercancel={() => (menuPressed = false)}
+      on:pointerleave={() => (menuPressed = false)}
+      on:click={() => openPauseMenu(isFullscreen)}
+    >☰ Menu (Esc)</button>
   </div>
   <!-- Not while the menu is up: a lockstep session keeps running behind it,
        so a thumb still resting on the pad would go on playing under a menu
@@ -1057,6 +1074,34 @@
     transform: translateX(-50%);
     z-index: 2;
   }
+
+  /*
+   * Sur un téléphone couché, ce bouton est posé en plein sur l'image.
+   *
+   * L'écran fait 390px de haut, la barre en occupe une bande au milieu du bas,
+   * et rien ne l'enlève : LockstepRoom estompe la sienne après 2,5s d'inaction
+   * (`createChromeAutohide`), ce solo n'a pas d'équivalent, donc elle est là du
+   * début à la fin de la partie.
+   *
+   * Estompé au repos, plein dès qu'un doigt s'y pose : c'est le seul chemin
+   * vers le menu sans clavier, et un bouton devenu illisible au moment précis
+   * où on le vise est pire que celui qu'on voulait effacer. `.pressed` vient
+   * des pointer events plutôt que de `:active`, qui ne se déclenche pas
+   * fiablement sur un appui tactile ; `:focus` couvre le clavier.
+   *
+   * Limité à `.touch` : ailleurs il y a une souris pour le survoler et un
+   * clavier pour l'ignorer.
+   */
+  .solo.touch:fullscreen .toolbar .action {
+    opacity: 0.4;
+    transition: opacity 0.15s ease;
+  }
+
+  .solo.touch:fullscreen .toolbar .action.pressed,
+  .solo.touch:fullscreen .toolbar .action:focus {
+    opacity: 1;
+  }
+
   /*
    * The pause panel is fixed to the left edge, so it pushes nothing by itself.
    * Reserving its width here is what makes the game shrink rather than be
