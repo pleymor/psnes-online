@@ -35,3 +35,31 @@ export interface Game {
 }
 
 export const games = writable<Game[]>([]);
+
+/**
+ * Récupère les identités du compte et remplit le store.
+ *
+ * Ici plutôt que dans la page d'accueil parce que deux pages en dépendent. Le
+ * profil dit « N jeux de votre compte ne sont pas sur cet appareil », et ce
+ * nombre reste nul tant que personne n'a rempli le store : y arriver par un
+ * rechargement, un favori ou un onglet neuf laissait donc la ligne muette
+ * exactement dans le cas où un joueur perplexe recharge pour comprendre.
+ *
+ * Le tri par titre appartient à cette fonction : c'est l'ordre dans lequel la
+ * grille affiche, et le refaire dans chaque page les ferait diverger.
+ *
+ * Ne lève pas. Les appelants sont des `onMount`, où un rejet ne produit qu'une
+ * promesse non gérée, et garder la liste précédente vaut mieux que la vider
+ * parce que le réseau a hoqueté.
+ */
+export async function loadGames(): Promise<void> {
+  try {
+    const res = await fetch('/api/games', { credentials: 'include' });
+    if (!res.ok) return;
+    const loaded: Game[] = await res.json();
+    loaded.sort((a, b) => a.title.localeCompare(b.title));
+    games.set(loaded);
+  } catch {
+    // Voir ci-dessus : l'écran garde ce qu'il affichait.
+  }
+}

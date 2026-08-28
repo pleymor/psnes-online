@@ -22,12 +22,12 @@
   import { SHADERS } from '$lib/shaders';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import { romFileProblem, ACCEPT } from '$lib/roms/rom-file';
-  import { checksumOf, registerGame } from '$lib/roms/local-library';
+  import { registerGame } from '$lib/roms/local-library';
   import { createLogger } from '$lib/utils/logger';
   import { formatHandle, isValidPseudo, PSEUDO_MIN, PSEUDO_MAX } from '$lib/pseudo';
-  import { games } from '$lib/stores/games';
+  import { games, loadGames } from '$lib/stores/games';
   import { deviceLibrary } from '$lib/roms/device-library';
-  import { resolvableHere } from '$lib/roms/provider';
+  import { designateFile, resolvableHere } from '$lib/roms/provider';
 
   const logger = createLogger('ProfilePage');
 
@@ -48,9 +48,17 @@
   let copied = false;
 
   let resolvable: string[] | null = null;
-  onMount(async () => {
+  async function refreshResolvable(): Promise<void> {
     resolvable = await resolvableHere();
-  });
+  }
+  onMount(refreshResolvable);
+
+  // Le store `games` n'est rempli que par l'accueil et par une room. Arriver
+  // ici par un rechargement, un favori ou un onglet neuf le laissait vide, donc
+  // `missingCount` à zéro, donc la ligne muette - dans le cas précis où un
+  // joueur perplexe recharge la page pour regarder à nouveau. C'est la seule
+  // compensation au masquage des jeux : elle doit tenir hors navigation client.
+  onMount(loadGames);
   // Zéro tant qu'on n'a pas regardé : annoncer « 200 jeux absents » pendant la
   // lecture d'IndexedDB serait alarmant et faux.
   $: missingCount =
@@ -135,8 +143,18 @@
     romAdded = false;
     try {
       romProgress = file.name;
-      await registerGame(await checksumOf(file), file.name);
+      // Désigner d'abord, enregistrer ensuite : c'est ici, et non dans
+      // `registerGame`, que cet appareil acquiert les octets. Sur un navigateur
+      // sans sélecteur de dossier ce bouton est le seul moyen d'ajouter un jeu,
+      // et n'enregistrer que l'identité laissait une bibliothèque définitivement
+      // vide - le jeu ajouté n'était résoluble nulle part.
+      const { checksum } = await designateFile(file);
+      await registerGame(checksum, file.name);
       romAdded = true;
+      // La grille et la ligne « N jeux ne sont pas sur cet appareil » lisent
+      // deux listes montées une fois ; sans ces deux relectures le jeu qu'on
+      // vient d'ajouter reste invisible jusqu'au prochain rechargement.
+      await Promise.all([loadGames(), refreshResolvable()]);
     } catch (err) {
       romError = err instanceof Error ? err.message : String(err);
       logger.error('Could not add the game', err);

@@ -56,6 +56,25 @@ export function useKeptFiles(store: KeptFiles | null): void {
 	keptStore = store ?? undefined;
 }
 
+/**
+ * Garder est un confort, jamais une condition.
+ *
+ * En navigation privée, sur un quota plein ou sur une base qu'un autre onglet
+ * bloque, écrire lève. Laisser ce rejet remonter ferait refuser un fichier que
+ * le joueur vient de désigner et qu'on a déjà validé : on lui dirait que son
+ * bon fichier est mauvais, à l'endroit exact où l'on dit « ce fichier est un
+ * autre dump ». Les octets restent dans le cache de session, donc la partie
+ * démarre ; seul le confort du prochain lancement est perdu.
+ */
+async function keepQuietly(checksum: string, bytes: Uint8Array): Promise<void> {
+	try {
+		await kept()?.keep(checksum, bytes);
+	} catch {
+		// Rien à dire ici : ce module n'a pas le contexte qui rendrait une ligne
+		// de log lisible, et l'appelant n'a aucune décision à prendre là-dessus.
+	}
+}
+
 /** Keeps bytes the player has just supplied, keyed by what they actually contain. */
 export function remember(bytes: Uint8Array): string {
 	const checksum = crc32(normaliseRom(bytes));
@@ -82,7 +101,11 @@ export async function resolveQuietly(checksum: string): Promise<Uint8Array | nul
 	// fichier, et un appareil sans dossier n'a que cette source.
 	const store = kept();
 	if (store) {
-		const bytes = await store.read(checksum);
+		// Un stockage qui refuse de répondre est indiscernable, ici, d'un
+		// stockage vide : dans les deux cas ces octets ne sont pas là et il
+		// reste le dossier à essayer. Laisser lever contredirait le contrat
+		// annoncé juste au-dessus et ferait échouer un démarrage.
+		const bytes = await store.read(checksum).catch(() => null);
 		if (bytes) {
 			cache.set(checksum, bytes);
 			return bytes;
@@ -91,16 +114,22 @@ export async function resolveQuietly(checksum: string): Promise<Uint8Array | nul
 
 	if (!supportsDirectoryPicker()) return null;
 
-	const handle = await storedDirectory();
-	if (!handle) return null;
+	try {
+		const handle = await storedDirectory();
+		if (!handle) return null;
 
-	// Permission on a stored folder lapses between sessions, and re-granting it
-	// needs a user gesture we do not have here. Silence is the correct answer.
-	if (!(await ensureAccess(handle))) return null;
+		// Permission on a stored folder lapses between sessions, and re-granting it
+		// needs a user gesture we do not have here. Silence is the correct answer.
+		if (!(await ensureAccess(handle))) return null;
 
-	const bytes = await readRomByChecksum(handle, checksum);
-	if (bytes) cache.set(checksum, bytes);
-	return bytes;
+		const bytes = await readRomByChecksum(handle, checksum);
+		if (bytes) cache.set(checksum, bytes);
+		return bytes;
+	} catch {
+		// Même raison : un dossier illisible n'est pas trouvé, et l'appelant sait
+		// déjà quoi faire d'un « non ».
+		return null;
+	}
 }
 
 /**
@@ -118,33 +147,63 @@ export async function resolvableHere(): Promise<string[]> {
 	// liste que ceci existe pour rendre honnête.
 	const here = new Set<string>();
 
+	// Chaque source est isolée : celle qui répond doit être affichée même quand
+	// l'autre lève. Un rejet ici laisserait `resolvable` à `null` pour toujours
+	// dans les deux pages qui appellent ceci depuis `onMount`, donc une
+	// bibliothèque non filtrée et une promesse non gérée.
 	const store = kept();
-	if (store) for (const checksum of await store.checksums()) here.add(checksum);
+	if (store) {
+		for (const checksum of await store.checksums().catch(() => [])) here.add(checksum);
+	}
 
 	if (supportsDirectoryPicker()) {
-		for (const checksum of await indexedChecksums()) here.add(checksum);
+		for (const checksum of await indexedChecksums().catch(() => [])) here.add(checksum);
 	}
 
 	return [...here];
 }
 
+/** Ce qu'un fichier désigné vaut : son identité réelle, et ses octets. */
+export interface DesignatedRom {
+	checksum: string;
+	bytes: Uint8Array;
+}
+
+/**
+ * Le seul endroit où un fichier désigné par le joueur devient une source.
+ *
+ * L'invariant est « un fichier que le joueur désigne est gardé », et il y a
+ * trois gestes qui désignent : la modale qui réclame la ROM d'une partie,
+ * l'ajout d'un fichier depuis le profil - seul moyen d'ajouter un jeu sur
+ * Firefox et Safari - et la réparation d'une entrée héritée sans checksum. Les
+ * trois passent par ici, sans quoi deux d'entre eux enregistreraient une
+ * identité côté serveur en jetant les octets, et le jeu n'apparaîtrait dans la
+ * bibliothèque d'aucun appareil.
+ *
+ * Le checksum est recalculé depuis le contenu ; un nom de fichier n'est jamais
+ * une preuve. Avec `expected`, un contenu qui ne correspond pas est refusé
+ * avant d'être ni mis en cache ni gardé : garder une ROM sous le checksum
+ * qu'elle n'a pas la rendrait résoluble et injouable. Refuser ici, le joueur
+ * encore devant son sélecteur, vaut mieux que trois secondes de partie
+ * désynchronisée.
+ */
+export async function designateFile(file: File, expected?: string): Promise<DesignatedRom> {
+	const bytes = await romBytes(file);
+	const checksum = crc32(normaliseRom(bytes));
+	if (expected !== undefined && checksum !== expected) {
+		throw new Error(`That file is a different dump (${checksum}, expected ${expected})`);
+	}
+	cache.set(checksum, bytes);
+	await keepQuietly(checksum, bytes);
+	return { checksum, bytes };
+}
+
 /**
  * Accepts a file the player picked, but only if it is the right game.
  *
- * The checksum is recomputed from the contents; a filename is never proof.
- * Rejecting here, with the player still in front of a picker, is far kinder
- * than letting a wrong ROM start and desynchronise a match.
+ * The room's own shape of designating a file: the checksum is known in advance
+ * and anything else is refused.
  */
 export async function offerFile(file: File, expected: string): Promise<Uint8Array> {
-	const bytes = await romBytes(file);
-	const actual = crc32(normaliseRom(bytes));
-	if (actual !== expected) {
-		throw new Error(`That file is a different dump (${actual}, expected ${expected})`);
-	}
-	cache.set(expected, bytes);
-	// Gardé seulement après validation : une ROM qui ne correspond pas au jeu
-	// demandé, une fois gardée, serait annoncée par la bibliothèque et
-	// échouerait au lancement.
-	await kept()?.keep(expected, bytes);
-	return bytes;
+	return (await designateFile(file, expected)).bytes;
 }

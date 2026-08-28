@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { user, userLoading } from '$lib/stores/user';
-  import { games } from '$lib/stores/games';
+  import { games, loadGames } from '$lib/stores/games';
   import type { Game } from '$lib/stores/games';
   import { goto } from '$app/navigation';
   import { language } from '$lib/stores/language';
@@ -43,9 +43,18 @@
    * page, ce qui est exactement le mensonge inverse de celui qu'on corrige.
    */
   let resolvable: string[] | null = null;
-  onMount(async () => {
+  /**
+   * Rejoué après chaque geste qui ajoute des octets à cet appareil.
+   *
+   * Réparer une entrée héritée garde son fichier, mais cette liste-ci a été
+   * lue au montage : sans la relire, le jeu qu'on vient de réparer acquiert un
+   * checksum qu'elle ignore et disparaît de la grille au moment précis où le
+   * joueur a fait ce qu'on lui demandait.
+   */
+  async function refreshResolvable(): Promise<void> {
     resolvable = await resolvableHere();
-  });
+  }
+  onMount(refreshResolvable);
 
   /**
    * Ce que cet appareil peut réellement lancer.
@@ -65,16 +74,6 @@
   /** Two members: a group, rather than the leftover of one. */
   $: inGroup = ($myRoom?.players.length ?? 0) >= 2;
   $: groupBusy = $myRoom?.status === 'playing';
-
-  async function loadGames() {
-    const res = await fetch('/api/games', { credentials: 'include' });
-    if (res.ok) {
-      const gamesData = await res.json();
-      // Sort games alphabetically by title
-      gamesData.sort((a: Game, b: Game) => a.title.localeCompare(b.title));
-      games.set(gamesData);
-    }
-  }
 
   function handleDeleteRequest(game: Game) {
     gameToDelete = game;
@@ -343,8 +342,18 @@
         {#if shownGames.length === 0}
           <div class="empty-state">
             <div class="empty-icon">🎮</div>
-            <h2>{t($language, 'emptyLibrary')}</h2>
-            <p>{t($language, 'startUploading')}</p>
+            <!-- Deux vides différents, et les confondre serait le mensonge que
+                 cet écran existe pour arrêter : « votre bibliothèque est vide »
+                 dit à quelqu'un qui a deux cents jeux qu'il n'en a aucun. Ici on
+                 nomme le compte, et le lien mène là où l'on désigne un
+                 fichier. -->
+            {#if $games.length > 0}
+              <h2>{t($language, 'noneOnThisDevice', { count: $games.length })}</h2>
+              <p>{t($language, 'noneOnThisDeviceHint')}</p>
+            {:else}
+              <h2>{t($language, 'emptyLibrary')}</h2>
+              <p>{t($language, 'startUploading')}</p>
+            {/if}
             <a class="empty-cta" href="/profile">{t($language, 'romSource')}</a>
           </div>
         {:else}
@@ -372,7 +381,7 @@
       gameId={gameToLink.id}
       title={gameToLink.title}
       on:close={() => (gameToLink = null)}
-      on:linked={() => { gameToLink = null; loadGames(); }}
+      on:linked={() => { gameToLink = null; loadGames(); refreshResolvable(); }}
     />
   {/if}
 

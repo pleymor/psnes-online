@@ -66,6 +66,13 @@ function openDb(): Promise<IDBDatabase> {
 		};
 		request.onsuccess = () => resolve(request.result);
 		request.onerror = () => reject(request.error);
+		// Une montée de version attend que toutes les autres connexions se
+		// ferment. Tant qu'un onglet en tient une, ni `success` ni `error` ne se
+		// déclenchent : sans ceci la promesse ne se règle jamais et un démarrage
+		// de jeu reste suspendu sans le moindre diagnostic. Le passage v1 -> v2
+		// rend ce chemin atteignable pour la première fois.
+		request.onblocked = () =>
+			reject(new Error('Another tab is holding the ROM database open'));
 	});
 }
 

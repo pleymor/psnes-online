@@ -127,6 +127,9 @@ export const translations = {
     saveStatesCount: '{count} save states',
     emptyLibrary: 'Your library is empty',
     startUploading: 'Start by adding your first SNES ROM from Google Drive',
+    noneOnThisDevice: 'None of your {count} games are on this device',
+    noneOnThisDeviceHint:
+      'Your account still holds them. Point this device at your ROM folder, or add a file, and they come back.',
     updateMetadata: 'Update Metadata',
     updating: 'Updating...',
     metadataUpdated: 'Metadata updated! {updated} game(s) matched, {skipped} skipped.',
@@ -488,6 +491,9 @@ export const translations = {
     saveStatesCount: '{count} sauvegardes',
     emptyLibrary: 'Votre bibliothèque est vide',
     startUploading: 'Commencez par ajouter votre première ROM SNES depuis Google Drive',
+    noneOnThisDevice: 'Aucun de vos {count} jeux n\'est sur cet appareil',
+    noneOnThisDeviceHint:
+      'Votre compte les garde. Désignez le dossier de vos ROMs, ou ajoutez un fichier, et ils réapparaissent.',
     updateMetadata: 'Mettre à jour les métadonnées',
     updating: 'Mise à jour...',
     metadataUpdated: 'Métadonnées mises à jour ! {updated} jeu(x) trouvé(s), {skipped} ignoré(s).',

@@ -20,9 +20,13 @@ function rom(seed: number, size = 4096): Uint8Array {
 }
 
 test('un jeu invisible dans la bibliothèque reste jouable en invité', async () => {
-	const { remember, isCached, resolveQuietly } = await import(
+	const { remember, isCached, resolveQuietly, resolvableHere, useKeptFiles } = await import(
 		'../../frontend/src/lib/roms/provider.js'
 	);
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+
+	const kept = memoryKeptFiles();
+	useKeptFiles(kept);
 
 	const bytes = rom(31);
 	const checksum = crc32(normaliseRom(bytes));
@@ -36,4 +40,17 @@ test('un jeu invisible dans la bibliothèque reste jouable en invité', async ()
 	remember(bytes);
 	assert.equal(isCached(checksum), true);
 	assert.deepEqual([...(await resolveQuietly(checksum))!], [...bytes], 'la partie peut démarrer');
+
+	// Et recevoir n'est toujours pas posséder : la partie finie, cet appareil ne
+	// prétend pas savoir ouvrir ce jeu, et rien n'a été écrit dans ce qu'il garde.
+	// C'est la moitié de la propriété qu'une régression silencieuse casserait,
+	// puisqu'un `keep()` de trop ne ferait échouer aucun autre test.
+	assert.equal(
+		(await resolvableHere()).includes(checksum),
+		false,
+		'un jeu reçu n entre pas dans la bibliothèque de cet appareil'
+	);
+	assert.deepEqual(await kept.checksums(), [], 'et rien n a été gardé sur le disque');
+
+	useKeptFiles(null);
 });

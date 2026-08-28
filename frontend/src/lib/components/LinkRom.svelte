@@ -10,7 +10,7 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
-  import { checksumOf } from '$lib/roms/local-library';
+  import { designateFile } from '$lib/roms/provider';
   import { createLogger } from '$lib/utils/logger';
 
   const logger = createLogger('LinkRom');
@@ -41,7 +41,12 @@
     busy = true;
     error = '';
     try {
-      const checksum = await checksumOf(file);
+      // Désigner, pas seulement hacher. Une entrée sans checksum reste visible
+      // dans la grille parce qu'elle est réparable ; dès que la réparation
+      // réussit elle en acquiert un, et si cet appareil n'a pas gardé les octets
+      // du fichier qu'on vient de lui montrer, le jeu disparaît. Le joueur ferait
+      // ce que l'interface lui demande et serait puni par une disparition.
+      const { checksum } = await designateFile(file);
       const res = await fetch(`/api/games/${gameId}/checksum`, {
         method: 'PATCH',
         credentials: 'include',
