@@ -171,6 +171,19 @@ export async function readRomByChecksum(
 	return null;
 }
 
+/** Tous les checksums que le dernier scan a laissés dans l'index. */
+export async function indexedChecksums(): Promise<string[]> {
+	const db = await openDb();
+	const keys = await new Promise<string[]>((resolve, reject) => {
+		const tx = db.transaction(INDEX, 'readonly');
+		const request = tx.objectStore(INDEX).getAllKeys();
+		request.onsuccess = () => resolve(request.result as string[]);
+		request.onerror = () => reject(request.error);
+	});
+	db.close();
+	return keys;
+}
+
 async function tryRead(
 	handle: FileSystemDirectoryHandle,
 	filename: string,

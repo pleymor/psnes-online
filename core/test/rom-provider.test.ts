@@ -83,3 +83,56 @@ test('a headered copy of the same cartridge is accepted', async () => {
 	assert.equal(normaliseRom(accepted).length, body.length);
 	assert.deepEqual([...normaliseRom(accepted)], [...body]);
 });
+
+/* --------------------------------------------- les fichiers gardés */
+
+test('un fichier accepté est gardé pour les prochaines fois', async () => {
+	const { offerFile, useKeptFiles } = await provider();
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+	const kept = memoryKeptFiles();
+	useKeptFiles(kept);
+
+	const bytes = rom(21);
+	const checksum = crc32(normaliseRom(bytes));
+	await offerFile(asFile(bytes), checksum);
+
+	assert.deepEqual(await kept.checksums(), [checksum]);
+	useKeptFiles(null);
+});
+
+test('un fichier refusé n est pas gardé', async () => {
+	// Garder une ROM qui ne correspond pas au jeu demandé la rendrait résoluble
+	// et injouable : la bibliothèque l'annoncerait et le lancement échouerait.
+	const { offerFile, useKeptFiles } = await provider();
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+	const kept = memoryKeptFiles();
+	useKeptFiles(kept);
+
+	await assert.rejects(() => offerFile(asFile(rom(22)), 'ffffffff'));
+	assert.deepEqual(await kept.checksums(), []);
+	useKeptFiles(null);
+});
+
+test('les octets gardés se retrouvent sans rien demander au joueur', async () => {
+	const { resolveQuietly, useKeptFiles } = await provider();
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+	const kept = memoryKeptFiles();
+	const bytes = rom(23);
+	const checksum = crc32(normaliseRom(bytes));
+	await kept.keep(checksum, bytes);
+	useKeptFiles(kept);
+
+	assert.deepEqual([...(await resolveQuietly(checksum))!], [...bytes]);
+	useKeptFiles(null);
+});
+
+test('ce que l appareil sait ouvrir inclut les fichiers gardés', async () => {
+	const { resolvableHere, useKeptFiles } = await provider();
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+	const kept = memoryKeptFiles();
+	await kept.keep('aaaa1111', rom(24));
+	useKeptFiles(kept);
+
+	assert.deepEqual(await resolvableHere(), ['aaaa1111']);
+	useKeptFiles(null);
+});
