@@ -63,7 +63,13 @@
   }
 
   .choice.on {
-    background: #667eea;
+    /* Pas le #667eea de la marque : sous du blanc à 14.4px il donne 3.66:1, là
+       où AA en demande 4.5. Même teinte (229°), assombrie jusqu'à 4.96:1 -
+       assez de marge pour que l'arrondi d'un moteur de rendu ne la repasse pas
+       sous le seuil. Le dégradé des boutons garde son #667eea : axe ne mesure
+       pas un fond dégradé, et le changer ici seul suffit à ce que le choix
+       actif se lise. */
+    background: #4764e6;
     color: #fff;
   }
 </style>

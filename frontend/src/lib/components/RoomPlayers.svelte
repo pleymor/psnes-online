@@ -204,7 +204,9 @@
   }
 
   .player.mine .port-label {
-    background: #667eea;
+    /* Pas le #667eea de la marque : 3.66:1 sous du blanc, sous les 4.5
+       qu'AA demande. Même teinte, assombrie jusqu'à 4.96:1. */
+    background: #4764e6;
     color: #fff;
   }
 
