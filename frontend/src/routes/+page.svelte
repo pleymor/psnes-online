@@ -8,6 +8,8 @@
   import { t } from '$lib/i18n/translations';
   import { myRoom } from '$lib/rooms/my-room';
   import { gameClick } from '$lib/rooms/game-click';
+  import { deviceLibrary } from '$lib/roms/device-library';
+  import { resolvableHere } from '$lib/roms/provider';
   import {
     inviteToGroup,
     leaveGroup,
@@ -32,6 +34,26 @@
   let toastType: 'success' | 'error' = 'success';
   let showDeleteConfirm = false;
   let gameToDelete: Game | null = null;
+
+  /**
+   * Les checksums que cet appareil sait ouvrir.
+   *
+   * `null` tant qu'on n'a pas regardé : afficher une bibliothèque vide pendant
+   * la lecture d'IndexedDB ferait clignoter « aucun jeu » à chaque ouverture de
+   * page, ce qui est exactement le mensonge inverse de celui qu'on corrige.
+   */
+  let resolvable: string[] | null = null;
+  onMount(async () => {
+    resolvable = await resolvableHere();
+  });
+
+  /**
+   * Ce que cet appareil peut réellement lancer.
+   *
+   * Le store `games` reste ce que le compte possède : le panneau ROM du profil
+   * s'en sert pour dire combien de jeux ne sont pas ici.
+   */
+  $: shownGames = resolvable === null ? $games : deviceLibrary($games, resolvable);
   /*
    * The other member of my group, if there is one.
    *
@@ -276,7 +298,7 @@
       <div class="page-header">
         <div>
           <h1>{t($language, 'library')}</h1>
-          <p class="subtitle">{$games.length} {$games.length === 1 ? t($language, 'game') : t($language, 'games')}</p>
+          <p class="subtitle">{shownGames.length} {shownGames.length === 1 ? t($language, 'game') : t($language, 'games')}</p>
         </div>
         <!-- The group's whole state in one strip: who is being waited on, who is
              here, and the way back into a game that is already running. It takes
@@ -318,7 +340,7 @@
       </div>
 
       <div class="content-wrapper">
-        {#if $games.length === 0}
+        {#if shownGames.length === 0}
           <div class="empty-state">
             <div class="empty-icon">🎮</div>
             <h2>{t($language, 'emptyLibrary')}</h2>
@@ -327,7 +349,7 @@
           </div>
         {:else}
           <div class="games-grid">
-            {#each $games as game}
+            {#each shownGames as game}
               <GameCard
                 {game}
                 playDisabled={groupBusy}

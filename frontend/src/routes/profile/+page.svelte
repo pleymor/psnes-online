@@ -25,6 +25,9 @@
   import { checksumOf, registerGame } from '$lib/roms/local-library';
   import { createLogger } from '$lib/utils/logger';
   import { formatHandle, isValidPseudo, PSEUDO_MIN, PSEUDO_MAX } from '$lib/pseudo';
+  import { games } from '$lib/stores/games';
+  import { deviceLibrary } from '$lib/roms/device-library';
+  import { resolvableHere } from '$lib/roms/provider';
 
   const logger = createLogger('ProfilePage');
 
@@ -43,6 +46,15 @@
   let renaming = false;
   let renameError = '';
   let copied = false;
+
+  let resolvable: string[] | null = null;
+  onMount(async () => {
+    resolvable = await resolvableHere();
+  });
+  // Zéro tant qu'on n'a pas regardé : annoncer « 200 jeux absents » pendant la
+  // lecture d'IndexedDB serait alarmant et faux.
+  $: missingCount =
+    resolvable === null ? 0 : $games.length - deviceLibrary($games, resolvable).length;
 
   // Seeded from the store, and re-seeded whenever the store changes - after a
   // successful rename, most of all, so the field agrees with the heading above
@@ -308,7 +320,7 @@
     </section>
 
     <div class="stack">
-      <RomSourcePanel>
+      <RomSourcePanel {missingCount}>
         <div slot="fallback" class="rom-fallback">
           <button on:click={() => fileInput.click()} disabled={romBusy}>
             {t($language, 'chooseOneRom')}

@@ -37,6 +37,15 @@
   let added = 0;
 
   /**
+   * Combien de jeux du compte cet appareil ne peut pas ouvrir.
+   *
+   * La bibliothèque les masque, ce qui est le comportement demandé ; les faire
+   * disparaître sans le dire nulle part serait un autre mensonge. Ici est
+   * l'endroit : on y vient déjà pour configurer ses ROMs.
+   */
+  export let missingCount = 0;
+
+  /**
    * Scans a folder and registers everything found in it.
    *
    * Called from pickFolder once a working handle exists - whether that
@@ -130,6 +139,9 @@
 
 <section class="rom-source">
   <h3>{t($language, 'romSource')}</h3>
+  {#if missingCount > 0}
+    <p class="explain">{missingCount} {t($language, 'gamesNotOnThisDevice')}</p>
+  {/if}
   <p class="legal">{t($language, 'legalUploadWarning')}</p>
 
   {#if state.kind === 'unsupported'}
