@@ -12,7 +12,7 @@
  */
 
 import { test, expect, type BrowserContext } from '@playwright/test';
-import { loginDev, apiFetch } from './helpers';
+import { loginDev, apiFetch, keepRomOnDevice } from './helpers';
 import { makePng } from './png-fixture';
 
 function freshCrc(): string {
@@ -46,6 +46,9 @@ test.describe('identifying a game in the browser', () => {
 		const cookie = await loginDev('1');
 		const game = await addUnidentifiedGame(cookie, 'zzz-unknown-dump.sfc');
 		await seatCookie(context, cookie);
+		// The checksum is freshly minted, so nothing on this device can resolve
+		// it and the grid would leave the card out. See keepRomOnDevice.
+		await keepRomOnDevice(page, game.crc32);
 
 		const problems: string[] = [];
 		page.on('pageerror', e => problems.push(`pageerror: ${e.message}`));
@@ -90,6 +93,9 @@ test.describe('identifying a game in the browser', () => {
 		const cookie = await loginDev('1');
 		const game = await addUnidentifiedGame(cookie, 'yyy-handwritten.sfc');
 		await seatCookie(context, cookie);
+		// The checksum is freshly minted, so nothing on this device can resolve
+		// it and the grid would leave the card out. See keepRomOnDevice.
+		await keepRomOnDevice(page, game.crc32);
 
 		const problems: string[] = [];
 		page.on('pageerror', e => problems.push(`pageerror: ${e.message}`));

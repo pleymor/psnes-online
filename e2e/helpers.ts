@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { io, Socket } from 'socket.io-client';
 
 export const API = process.env.E2E_API_URL || 'http://localhost:3000';
@@ -142,6 +143,56 @@ export async function seatGuestByInvitation(
   const seated = waitForEvent(guest, 'room:updated', 5000);
   guest.emit('lobby:accept', { invitationId: invitation.id });
   return seated;
+}
+
+/**
+ * Makes a game resolvable on this device, so the library will show its card.
+ *
+ * The grid lists what this browser can find the bytes for, not what the
+ * account owns: a game's identity lives on the server and its ROM never does.
+ * So a test that adds a game through `POST /api/games` has given the account
+ * an entry and this device nothing, and the card it then waits for is
+ * correctly never drawn - the page says "None of your N games are on this
+ * device" instead. This puts a stand-in in the same store a designated ROM
+ * lands in, which is all `resolvableHere()` reads to decide.
+ *
+ * The bytes are not a ROM and are not meant to be. Nothing that goes through
+ * here boots a core; anything that does has to designate a real file, and
+ * `local-roms.spec.ts` is where that contract is pinned.
+ *
+ * The database name, version and stores are `frontend/src/lib/roms/kept-files.ts`
+ * repeated by hand - a test that imported it would need IndexedDB in node.
+ * They are created here too, rather than assuming the app arrived first,
+ * because opening v2 without them leaves a database the app cannot use.
+ */
+export async function keepRomOnDevice(page: Page, checksum: string): Promise<void> {
+  // IndexedDB is per-origin, and a blank tab's origin is not the app's.
+  if (page.url() === 'about:blank') await page.goto('/');
+
+  await page.evaluate(async (crc: string) => {
+    const db: IDBDatabase = await new Promise((resolve, reject) => {
+      const request = indexedDB.open('psnes-roms', 2);
+      request.onupgradeneeded = () => {
+        const opening = request.result;
+        for (const store of ['handles', 'index', 'files']) {
+          if (!opening.objectStoreNames.contains(store)) opening.createObjectStore(store);
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('files', 'readwrite');
+        tx.objectStore('files').put(new Uint8Array(64), crc);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, checksum);
 }
 
 export const serverIsHealthy = async () =>

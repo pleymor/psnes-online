@@ -13,7 +13,7 @@
  */
 
 import { test, expect, type BrowserContext } from '@playwright/test';
-import { loginDev, apiFetch, connectSocket, waitForEvent } from './helpers';
+import { loginDev, apiFetch, connectSocket, waitForEvent, keepRomOnDevice } from './helpers';
 
 async function seatCookie(context: BrowserContext, cookie: string) {
 	await context.addCookies(
@@ -78,6 +78,9 @@ test.describe('resuming from a save', () => {
 		const checksum = 'BEEF0001';
 		const { game, saveId } = await gameWithASave(cookie, checksum, 'resume-wiring.sfc');
 		await seatCookie(context, cookie);
+		// The account owning the game is not enough for it to be on the grid:
+		// the library shows what this device can open. See keepRomOnDevice.
+		await keepRomOnDevice(page, checksum);
 
 		// A request here would mean the grid fetched the saves itself. That
 		// endpoint ships the savestates - about a megabyte each - and the library
