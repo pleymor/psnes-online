@@ -102,9 +102,33 @@ export const SIZING_BUDGET_MS = 700;
  * relay's route cache all waking up; it reads far above the link and never
  * repeats. Two slow samples, though, are a slow link, and those still count.
  */
-export function suggestInputDelay(samples: number[] | number, fps = DEFAULT_FPS): number {
+export interface SizingOptions {
+	/**
+	 * Lowest value the result may take. Defaults to MIN_INPUT_DELAY, which is
+	 * the cautious floor a handshake guess deserves; a caller sizing from a
+	 * link it has been measuring for a while may pass `autoFloor`.
+	 */
+	floor?: number;
+	/**
+	 * Frames of slack on top of the trip. Defaults to two.
+	 *
+	 * Two is what a TCP relay costs: pads arrive in clumps rather than one per
+	 * frame, and the margin is the buffer that absorbs a clump. An unordered
+	 * SCTP channel does not clump - that is why it was chosen - so a caller on
+	 * the direct path may ask for less and stop paying for a problem it does
+	 * not have.
+	 */
+	margin?: number;
+}
+
+export function suggestInputDelay(
+	samples: number[] | number,
+	fps = DEFAULT_FPS,
+	options: SizingOptions = {}
+): number {
+	const floor = options.floor ?? MIN_INPUT_DELAY;
 	const all = typeof samples === 'number' ? [samples] : samples;
-	if (all.length === 0) return MIN_INPUT_DELAY;
+	if (all.length === 0) return floor;
 	const sorted = [...all].sort((a, b) => a - b);
 	const considered = sorted.length >= 3 ? sorted.slice(0, -1) : sorted;
 	const best = considered[0];
@@ -123,9 +147,30 @@ export function suggestInputDelay(samples: number[] | number, fps = DEFAULT_FPS)
 	 * arrive one per frame down a TCP relay; they arrive in clumps, and the
 	 * margin is the buffer that absorbs a clump.
 	 */
-	const margin = Math.max(2, Math.ceil(spread / 2 / frameMs));
+	const margin = Math.max(options.margin ?? 2, Math.ceil(spread / 2 / frameMs));
 	const needed = Math.ceil(best / 2 / frameMs) + margin;
-	return Math.max(MIN_INPUT_DELAY, Math.min(MAX_INPUT_DELAY, needed));
+	return Math.max(floor, Math.min(MAX_INPUT_DELAY, needed));
+}
+
+/**
+ * The lowest delay the loop may walk to on a link this short.
+ *
+ * MIN_AUTO_DELAY was two because two was what a 52ms relay path measured. That
+ * is a fact about a link, not a constant of the engine, and writing it down as
+ * one put a floor under every session including the ones three times shorter -
+ * a direct channel at 19ms was held at two frames it did not need.
+ *
+ * The rule is the frame, not a millisecond: one way has to fit inside one
+ * frame. A PAL machine's frame is 20ms against NTSC's 16.6, so the same trip
+ * can be worth one frame there and two here, and nothing in this may assume
+ * 60Hz.
+ *
+ * Only ever one or two. Walking below one is not a trade, it is a session with
+ * no lead at all, where every frame waits a full one-way trip.
+ */
+export function autoFloor(rttMs: number, fps = DEFAULT_FPS): number {
+	const frameMs = 1000 / fps;
+	return rttMs / 2 < frameMs ? MIN_MANUAL_DELAY : MIN_AUTO_DELAY;
 }
 
 /** A frame to add or give back, with the wording the session reports. */
@@ -243,7 +288,17 @@ export class DelayController {
 	 * A hand-pinned delay is left alone, exactly as the handshake measurement
 	 * leaves it alone: an escape hatch that moves by itself is not one.
 	 */
-	observePeerStrain(strain: number, current: number, nowMs: number): DelayVerdict {
+	/**
+	 * @param floor Lowest the delay may be walked to. The caller supplies it
+	 * because only the session is measuring the link - see `autoFloor`. Left
+	 * out, it is the two frames a relay path earns.
+	 */
+	observePeerStrain(
+		strain: number,
+		current: number,
+		nowMs: number,
+		floor: number = MIN_AUTO_DELAY
+	): DelayVerdict {
 		if (!this._automatic || this.hungerSeconds <= 0) return null;
 
 		const second = Math.floor(nowMs / 1000);
@@ -291,13 +346,29 @@ export class DelayController {
 		if (
 			this.observedSeconds >= STRAIN_WINDOW_SECONDS &&
 			this.strainedCount === 0 &&
-			current - 1 >= MIN_AUTO_DELAY
+			current - 1 >= floor
 		) {
 			this.resetWindow();
 			return { delta: -1, reason: 'the link has been quiet' };
 		}
 
 		return null;
+	}
+
+	/**
+	 * Forgets what the previous link was doing.
+	 *
+	 * Called when the session moves onto a different path - the relay giving way
+	 * to a direct channel. Strain gathered over the old one describes a link
+	 * that is no longer carrying anything, and left in the ring it would spend
+	 * the next window pushing the delay back up over a channel that never
+	 * strained at all.
+	 *
+	 * The observed count goes with it: a fresh window of evidence is exactly
+	 * what the new path owes before it may be walked down again.
+	 */
+	pathChanged(): void {
+		this.resetWindow();
 	}
 
 	noteSizingPing(): void {

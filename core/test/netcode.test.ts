@@ -193,11 +193,15 @@ test('one rough patch costs nothing; a link that keeps misbehaving costs a frame
 });
 
 test('a quiet link is walked down to two frames, but never sized there', async () => {
-	// A real pair on a 52ms link ran at two frames each with strain at zero on
-	// both sides - so two is reachable, and the loop should find it. But the
-	// handshake must not *start* there: it estimates from five pings over 300ms
-	// and under-reads this relay, and being a frame too tight costs the other
-	// player stutter. Guessing low is not the same as measuring low.
+	// The loop should find the floor the link earns, and the handshake must not
+	// *start* there: it estimates from five pings over 300ms and under-reads,
+	// and being a frame too tight costs the other player stutter. Guessing low
+	// is not the same as measuring low.
+	//
+	// This link is 24ms round trip - one way fits inside a 16.6ms frame - so
+	// what it earns is one. The two this used to assert was `MIN_AUTO_DELAY`
+	// written down as a constant, measured on a 52ms relay path and applied to
+	// every link including the ones a quarter as long. See `autoFloor`.
 	const harness = await NetplayHarness.create(
 		harnessOptions(40000, { link: { latency: 12, jitter: 1, seed: 100 }, hungerSeconds: 10 })
 	);
@@ -208,8 +212,8 @@ test('a quiet link is walked down to two frames, but never sized there', async (
 	harness.run(200_000);
 	assert.equal(
 		harness.host.session.inputDelay,
-		2,
-		`a link this quiet must be walked to two: got ${harness.host.session.inputDelay}`
+		1,
+		`a link this quiet must be walked to one: got ${harness.host.session.inputDelay}`
 	);
 	assert.equal(harness.firstDivergence(), null);
 	harness.dispose();
@@ -238,9 +242,10 @@ test('a link that recovers gets its frames back', async () => {
 	harness.run(600_000);
 	const good = harness.host.session.inputDelay;
 	assert.ok(good < bad, `a recovered link must give frames back: ${bad} -> ${good}`);
-	// Two is where the walk stops: reachable on a good link, and proven so by a
-	// real pair, but never guessed at by the handshake.
-	assert.ok(good >= 2, `but never below the walking floor: got ${good}`);
+	// The walk stops at what the recovered link earns - 24ms round trip, so one
+	// - and never below it. Zero is not a trade: with no lead at all every frame
+	// waits a full one-way trip.
+	assert.equal(good, 1, `the recovered link earns one frame: got ${good}`);
 	assert.equal(harness.firstDivergence(), null, 'coming down must not desync');
 	harness.dispose();
 });
@@ -1696,4 +1701,49 @@ test('giving up on an unacknowledged state is reported as recoverable, and its r
 	);
 
 	harness.dispose();
+});
+
+test('a session that moves onto a shorter path gives back the frames it no longer needs', async () => {
+  /*
+   * The handshake always runs over the relay, because that is where every
+   * session starts - the direct channel opens a moment later, if at all. So a
+   * match that spends its life on a 19ms channel was sized on a 55ms one, and
+   * nothing revisited the number except the strain loop, at one frame per quiet
+   * thirty seconds.
+   */
+  const h = await NetplayHarness.create(
+    harnessOptions(8000, { link: { latency: 28, seed: 401 } }) // 56ms round trip: a relay
+  );
+  h.handshake();
+  h.run(6000);
+  const onRelay = h.host.session.inputDelay;
+  assert.ok(onRelay >= 3, `a relay earns three frames or more, got ${onRelay}`);
+
+  // The direct channel opens: same session, a third of the round trip.
+  h.link.setLatency(7);
+  h.run(6000);
+
+  h.host.session.onPathShortened();
+  const onDirect = h.host.session.inputDelay;
+
+  assert.ok(
+    onDirect < onRelay,
+    `the shorter path costs fewer frames (${onDirect} < ${onRelay})`
+  );
+  assert.ok(onDirect >= 1, 'and never below one, where every frame waits a full trip');
+});
+
+test('a pinned delay is not touched when the path shortens', async () => {
+  // An escape hatch that moves by itself is not one. The player asked for this
+  // number; a faster link is not a reason to overrule them.
+  const h = await NetplayHarness.create(
+    harnessOptions(8000, { link: { latency: 28, seed: 402 }, inputDelay: 5 })
+  );
+  h.handshake();
+  h.run(4000);
+  h.link.setLatency(7);
+  h.run(4000);
+
+  h.host.session.onPathShortened();
+  assert.equal(h.host.session.inputDelay, 5, 'still exactly what was asked for');
 });

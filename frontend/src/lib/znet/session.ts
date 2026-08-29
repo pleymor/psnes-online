@@ -50,7 +50,9 @@ import {
 	MIN_MANUAL_DELAY,
 	MAX_INPUT_DELAY,
 	SIZING_SAMPLES,
-	SIZING_PING_GAP_MS
+	SIZING_PING_GAP_MS,
+	autoFloor,
+	suggestInputDelay
 } from './delay-control.js';
 
 export { suggestInputDelay } from './delay-control.js';
@@ -479,6 +481,49 @@ export class NetplaySession implements TickSource {
 		this.delayControl.resumeAutomatic();
 	}
 
+	/**
+	 * Re-sizes for a link that has just become a shorter one.
+	 *
+	 * The session is sized once, during the handshake - and the handshake always
+	 * runs over the relay, because that is where every session starts. A match
+	 * that moves onto a direct channel a moment later therefore spends the rest
+	 * of its life carrying a delay measured on a path it is no longer using, and
+	 * the only thing that ever revisits it is the strain loop, which gives back
+	 * one frame per quiet thirty seconds.
+	 *
+	 * Only ever downwards. Raising here would need the pad timeline repaired -
+	 * see `setDelay` - and a shorter path is no reason to raise anything.
+	 *
+	 * A margin of one rather than two: the two exist to absorb the clumps a TCP
+	 * relay delivers pads in, and an unordered SCTP channel does not clump. That
+	 * is what it was chosen for.
+	 *
+	 * Does nothing to a delay the player pinned. An escape hatch that moves by
+	 * itself is not one.
+	 */
+	onPathShortened(): void {
+		if (!this.delayControl.automatic) return;
+
+		// `metrics`, not `stats`: the latter is a snapshot getStats() fills on
+		// demand and is null the rest of the time. Reading it here made this
+		// whole method a no-op, which only an end-to-end test could show.
+		const rtt = this.metrics.rtt;
+		this.delayControl.pathChanged();
+		if (!rtt) return;
+
+		const sized = suggestInputDelay(rtt, this.opts.fps, {
+			margin: 1,
+			floor: autoFloor(rtt, this.opts.fps)
+		});
+		if (sized >= this.opts.inputDelay) return;
+
+		this.setDelay(sized);
+		this.onEvent({
+			type: 'state',
+			message: `input delay ${sized} frames: the direct channel is ${Math.round(rtt)}ms`
+		});
+	}
+
 	private setDelay(frames: number): void {
 		const previous = this.opts.inputDelay;
 		this.opts.inputDelay = frames;
@@ -883,7 +928,15 @@ export class NetplaySession implements TickSource {
 		this.metrics.notePeerStrain(strain);
 		if (this._state !== 'running') return;
 
-		const verdict = this.delayControl.observePeerStrain(strain, this.opts.inputDelay, this.now());
+		const verdict = this.delayControl.observePeerStrain(
+			strain,
+			this.opts.inputDelay,
+			this.now(),
+			// What the link measures, not a constant: two frames was a fact about
+			// a 52ms relay, and a direct channel at a third of that was being held
+			// above what it needed. See `autoFloor`.
+			autoFloor(this.metrics.rtt ?? Infinity, this.opts.fps)
+		);
 		if (!verdict) return;
 
 		this.setDelay(this.opts.inputDelay + verdict.delta);

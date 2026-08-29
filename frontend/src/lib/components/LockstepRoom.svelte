@@ -636,7 +636,7 @@
         onSlice: (ran, stalled) => {
           setStalling(stalled && ran === 0);
           stats = session!.getStats();
-          onDirect = upgrading?.direct ?? false;
+          notePath(upgrading?.direct ?? false);
           checkRendererHealth();
         }
       });
@@ -1136,7 +1136,24 @@
         break;
     }
     stats = session?.getStats() ?? null;
-    onDirect = upgrading?.direct ?? false;
+    notePath(upgrading?.direct ?? false);
+  }
+
+  /**
+   * Watches the path the pads leave by, and tells the session when it shortens.
+   *
+   * The delay is sized once, during a handshake that always runs over the relay
+   * because that is where every session starts. Moving onto a direct channel
+   * cuts the round trip by two or three and nothing was revisiting the number,
+   * so a match spent its life carrying a delay measured on a path it had left.
+   *
+   * Only the rise is acted on. Losing the direct channel raises the round trip,
+   * and the strain loop is what answers that - raising a delay needs the pad
+   * timeline repaired, which is its job and not this one.
+   */
+  function notePath(direct: boolean): void {
+    if (direct && !onDirect) session?.onPathShortened();
+    onDirect = direct;
   }
 
   function setStalling(active: boolean) {
