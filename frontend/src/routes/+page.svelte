@@ -243,8 +243,13 @@
 </script>
 
 {#if !$user}
-  <!-- Landing page for non-authenticated users -->
-  <div class="landing-container">
+  <!-- Landing page for non-authenticated users.
+
+       <main> rather than a <div>: this branch carries no TopBar, so nothing
+       else on the screen is a landmark, and a screen reader had no "skip to
+       the content" target at all. The signed-in branch below already has one.
+       The class keeps the styling, so nothing moves. -->
+  <main class="landing-container">
     <div class="hero">
       <h1>🎮 PSNES Online</h1>
       <p>{t($language, 'playWithFriends')}</p>
@@ -290,7 +295,7 @@
         {/if}
       </div>
     </div>
-  </div>
+  </main>
 {:else}
   <!-- Library page for authenticated users -->
   <div class="app-layout">
