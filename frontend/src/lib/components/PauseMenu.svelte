@@ -10,6 +10,8 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import type { KeyConfig, LatencyMode } from '$lib/types';
+  import { MAX_INPUT_DELAY, MIN_MANUAL_DELAY } from '$lib/znet/delay-control';
+  import { LOW_DELAY_FRAMES } from '$lib/stores/latency-preference';
   import type { DisplayOptions } from '$lib/znet';
   import type { ControlsConfig } from '$lib/controls/binding';
   import { SHADERS, VALID_SHADER_IDS } from '$lib/shaders';
@@ -93,7 +95,66 @@
   let showLoadSaves = false;
   let showSaveGame = false;
   let showVideo = false;
+  let showLatency = false;
   let showResetConfirm = false;
+
+  /**
+   * A submenu is open, whichever it is.
+   *
+   * Three places ask the same question - the root list's guard, Escape, and the
+   * navigation keys - and each one used to spell out the whole list. Adding a
+   * fifth door meant editing all three and silently breaking Escape by missing
+   * one, so the list is written once.
+   */
+  $: inSubmenu = showKeyConfig || showLoadSaves || showSaveGame || showVideo || showLatency;
+
+  /**
+   * The frame count to go back to when manual is chosen again.
+   *
+   * Toggling to automatic and back should land where the player was, not on the
+   * default: the count is the thing they came to set. Seeded with the two
+   * frames `low` used to mean, which is where anyone arriving from an older
+   * build already is.
+   */
+  let lastFrames = LOW_DELAY_FRAMES;
+  $: if (typeof latencyMode === 'number') lastFrames = latencyMode;
+
+  /** Swaps the room between the automatic loop and a pinned count. */
+  function toggleLatencyMode(): void {
+    dispatch('latency', { mode: latencyMode === 'auto' ? lastFrames : 'auto' });
+  }
+
+  /**
+   * Asks for a count, refusing anything the engine would not run.
+   *
+   * Out of range is dropped rather than clamped: a clamp would leave the room
+   * announcing a delay neither peer is running.
+   *
+   * A refusal has to put the field back by hand. Svelte redraws `value` only
+   * when it changes, and a rejected entry leaves it unchanged - so the box went
+   * on reading 99 over a session still at 9, which is the same lie by the other
+   * road. Caught by driving the panel, not by a type.
+   */
+  function askForFrames(value: number, field?: HTMLInputElement): void {
+    const wanted =
+      Number.isInteger(value) && value >= MIN_MANUAL_DELAY && value <= MAX_INPUT_DELAY;
+    if (wanted) {
+      dispatch('latency', { mode: value });
+      return;
+    }
+    if (field) field.value = String(frames);
+  }
+
+  /** The current count, for the field and the two nudge buttons. */
+  $: frames = typeof latencyMode === 'number' ? latencyMode : lastFrames;
+
+  /** "automatic", or the count in words. */
+  function latencyLabel(mode: LatencyMode): string {
+    if (mode === 'auto') return t($language, 'latencyAuto');
+    return mode === 1
+      ? t($language, 'latencyFrame')
+      : t($language, 'latencyFrames', { count: mode });
+  }
   /**
    * -1 for "nothing chosen yet", which is how the menu now opens.
    *
@@ -165,11 +226,8 @@
       ? []
       : [
           {
-            label: `${t($language, 'latency')}: ${t(
-              $language,
-              latencyMode === 'low' ? 'latencyLow' : 'latencyAuto'
-            )}`,
-            action: canSetLatency ? () => dispatch('latency') : () => {}
+            label: `${t($language, 'latency')}: ${latencyLabel(latencyMode)}`,
+            action: canSetLatency ? () => (showLatency = true) : () => {}
           }
         ]),
   ];
@@ -225,7 +283,7 @@
       // steps back through the menu.
       if (document.fullscreenElement) return;
       e.preventDefault();
-      if (showKeyConfig || showLoadSaves || showSaveGame || showVideo) {
+      if (inSubmenu) {
         handleBackFromSubmenu();
       } else {
         handleResumeWithFullscreen();
@@ -233,7 +291,7 @@
       return;
     }
     // Skip navigation when in submenus
-    if (showKeyConfig || showLoadSaves || showSaveGame || showVideo) return;
+    if (inSubmenu) return;
 
     const button = keyCodeToButton[e.code];
 
@@ -290,6 +348,7 @@
     showLoadSaves = false;
     showSaveGame = false;
     showVideo = false;
+    showLatency = false;
     // Back to nothing chosen, and the focus is left where the player put it
     // rather than yanked onto the first entry.
     selectedIndex = -1;
@@ -315,7 +374,7 @@
 
 <div class="pause-overlay" transition:fly={{ x: -320, duration: 220, easing: cubicOut }}>
   <div class="pause-menu">
-    {#if !showKeyConfig && !showLoadSaves && !showSaveGame && !showVideo}
+    {#if !inSubmenu}
       <h2>{t($language, 'pauseMenu')}</h2>
       <p class="hint">{t($language, 'pauseMenuHint')}</p>
 
@@ -341,6 +400,60 @@
             <button on:click={item.action}>{item.label}</button>
           {/each}
         </div>
+        <button on:click={handleBackFromSubmenu} class="back-button">
+          {t($language, 'close')}
+        </button>
+      </div>
+    {/if}
+
+    {#if showLatency}
+      <div class="submenu">
+        <h3>{t($language, 'latency')}</h3>
+        <div class="menu-items">
+          <button on:click={toggleLatencyMode}>
+            {t($language, 'latencyModeLabel')}: {latencyMode === 'auto'
+              ? t($language, 'latencyAuto')
+              : t($language, 'latencyManual')}
+          </button>
+        </div>
+
+        <!--
+          Only under a pinned count: with the loop running there is no number to
+          set, and a field showing one it does not obey would be a lie.
+        -->
+        {#if latencyMode !== 'auto'}
+          <div class="frames-row">
+            <label for="latency-frames">{t($language, 'latencyFramesLabel')}</label>
+            <!--
+              A field and two buttons, not one or the other. This menu is
+              navigated with a pad as often as a keyboard, and a pad cannot type
+              a number; a keyboard should not have to press + eleven times.
+            -->
+            <button
+              class="nudge"
+              aria-label="-1"
+              disabled={frames <= MIN_MANUAL_DELAY}
+              on:click={() => askForFrames(frames - 1)}>−</button
+            >
+            <input
+              id="latency-frames"
+              type="number"
+              inputmode="numeric"
+              min={MIN_MANUAL_DELAY}
+              max={MAX_INPUT_DELAY}
+              step="1"
+              value={frames}
+              on:change={(e) => askForFrames(Number(e.currentTarget.value), e.currentTarget)}
+            />
+            <button
+              class="nudge"
+              aria-label="+1"
+              disabled={frames >= MAX_INPUT_DELAY}
+              on:click={() => askForFrames(frames + 1)}>+</button
+            >
+          </div>
+        {/if}
+
         <button on:click={handleBackFromSubmenu} class="back-button">
           {t($language, 'close')}
         </button>
@@ -510,6 +623,68 @@
 
   h3 {
     margin-top: 0;
+  }
+
+  /* One row: the label, then minus / field / plus, so a thumb and a keyboard
+     both have something to aim at. */
+  .frames-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+
+  .frames-row label {
+    flex: 1;
+  }
+
+  .frames-row input {
+    width: 4.5rem;
+    background: #333;
+    color: #fff;
+    border: 2px solid #555;
+    border-radius: 8px;
+    padding: 0.6rem 0.5rem;
+    font-size: 1rem;
+    text-align: center;
+    /* Chromium's spinners are 12px of hit area beside a field that already has
+       two buttons of its own, and they are unreachable with a pad anyway. */
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+
+  .frames-row input::-webkit-outer-spin-button,
+  .frames-row input::-webkit-inner-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+
+  .frames-row input:focus-visible {
+    outline: none;
+    border-color: #667eea;
+  }
+
+  .nudge {
+    background: #444;
+    color: #fff;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    width: 2.75rem;
+    padding: 0.6rem 0;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .nudge:hover:not(:disabled),
+  .nudge:focus-visible {
+    border-color: #667eea;
+    outline: none;
+  }
+
+  .nudge:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 
   .back-button {

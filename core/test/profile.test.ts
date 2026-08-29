@@ -17,6 +17,7 @@ import {
   writeShaderPreference
 } from '../../frontend/src/lib/stores/shader-preference.js';
 import {
+  LOW_DELAY_FRAMES,
   readLatencyPreference,
   writeLatencyPreference
 } from '../../frontend/src/lib/stores/latency-preference.js';
@@ -200,8 +201,8 @@ test('the latency choice is remembered per game, not per profile', () => {
   // drops a frame, and a fighting game cares about nothing else. One setting for
   // the whole profile would have to be flipped on every change of title.
   const storage = fakeStorage();
-  writeLatencyPreference(storage, 'mario', 'low');
-  assert.equal(readLatencyPreference(storage, 'mario'), 'low');
+  writeLatencyPreference(storage, 'mario', 2);
+  assert.equal(readLatencyPreference(storage, 'mario'), 2);
   assert.equal(readLatencyPreference(storage, 'dbz'), 'auto', 'another game is untouched');
 });
 
@@ -210,7 +211,7 @@ test('the automatic mode is the default and leaves nothing behind', () => {
   // the profile later, like a decision somebody made.
   const storage = fakeStorage();
   assert.equal(readLatencyPreference(storage, 'mario'), 'auto');
-  writeLatencyPreference(storage, 'mario', 'low');
+  writeLatencyPreference(storage, 'mario', 2);
   writeLatencyPreference(storage, 'mario', 'auto');
   assert.equal(storage.data.size, 0, 'going back to the default clears the entry');
   assert.equal(readLatencyPreference(storage, 'mario'), 'auto');
@@ -223,6 +224,32 @@ test('a latency value this build does not understand is purged', () => {
   const storage = fakeStorage({ 'psnes-latency:mario': 'rollback' });
   assert.equal(readLatencyPreference(storage, 'mario'), 'auto');
   assert.deepEqual(storage.removed, ['psnes-latency:mario']);
+});
+
+test('a chosen number of frames survives the round trip', () => {
+  // The whole point of the change: `low` was one hard-coded 2, and a player who
+  // wants 4 has no way to ask for it.
+  const storage = fakeStorage();
+  writeLatencyPreference(storage, 'mario', 4);
+  assert.equal(readLatencyPreference(storage, 'mario'), 4);
+});
+
+test("a profile written by an older build still means what it meant", () => {
+  // `low` was the name for two frames. Purging it as unreadable - which is what
+  // the reader does with anything it does not recognise - would silently undo a
+  // choice every player who touched this setting has already made.
+  const storage = fakeStorage({ 'psnes-latency:mario': 'low' });
+  assert.equal(readLatencyPreference(storage, 'mario'), LOW_DELAY_FRAMES);
+});
+
+test('a frame count outside what the engine will run is purged, not clamped', () => {
+  // Clamping would leave the profile disagreeing with the menu for ever. The
+  // engine refuses below 1 and above 16, so nothing else is a real setting.
+  for (const stored of ['0', '17', '2.5', '-3']) {
+    const storage = fakeStorage({ 'psnes-latency:mario': stored });
+    assert.equal(readLatencyPreference(storage, 'mario'), 'auto', `${stored} is not a setting`);
+    assert.deepEqual(storage.removed, ['psnes-latency:mario'], `${stored} is removed`);
+  }
 });
 
 test('a room with no game yet is not stored against an empty key', () => {

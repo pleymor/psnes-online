@@ -1,10 +1,11 @@
 import { Server, Socket } from 'socket.io';
-import { Room, RoomPlayer, User, EmulationMode, LatencyMode } from '../types/index.js';
+import { Room, RoomPlayer, User, EmulationMode } from '../types/index.js';
 import { randomUUID } from 'crypto';
 import { getUserKeyConfig } from '../services/user-config.js';
 import { notifyFriendsRoomStatusChanged, getFriendships } from '../services/friends.js';
 import { toPublicRoom, withoutInvitation } from './room-view.js';
 import { createLogger } from '../utils/logger.js';
+import { parseLatencyMode } from '../utils/latency-mode.js';
 import { cleanupRoomChecksums } from './sync-handlers.js';
 import { cleanupHostReady } from './p2p-handlers.js';
 import { cleanupZnetRoom } from './znet-handlers.js';
@@ -333,15 +334,19 @@ export function registerRoomHandlers(
    * twelve packet phases. The setting exists to be reached from the pause menu,
    * so refusing it there would leave it nowhere useful.
    */
-  socket.on('room:setLatencyMode', (data: { roomId: string; latencyMode: LatencyMode }) => {
+  socket.on('room:setLatencyMode', (data: { roomId: string; latencyMode: unknown }) => {
     const room = rooms.get(data.roomId);
     if (!room) return;
     if (room.createdBy !== user.id) return;
-    if (data.latencyMode !== 'auto' && data.latencyMode !== 'low') return;
 
-    room.latencyMode = data.latencyMode;
+    // Parsed rather than compared: the setting is a frame count now, and the
+    // value both players will live with cannot be whatever the socket sent.
+    const latencyMode = parseLatencyMode(data.latencyMode);
+    if (latencyMode === null) return;
+
+    room.latencyMode = latencyMode;
     io.to(data.roomId).emit('room:updated', room);
-    logger.info({ roomId: room.id, latencyMode: data.latencyMode }, 'Latency mode changed');
+    logger.info({ roomId: room.id, latencyMode }, 'Latency mode changed');
   });
 
   /*

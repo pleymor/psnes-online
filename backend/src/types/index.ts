@@ -60,7 +60,13 @@ export interface Room {
   abandonedAt?: Date;
 }
 
-export type LatencyMode = 'auto' | 'low';
+/**
+ * `auto` lets each peer's strain loop size its own delay; a number pins it at
+ * that many frames. Was `'auto' | 'low'`, where `low` meant two and nothing
+ * else could be asked for. Validated by utils/latency-mode.ts, never trusted
+ * off the wire.
+ */
+export type LatencyMode = 'auto' | number;
 
 export interface RoomPlayer {
   userId: string;

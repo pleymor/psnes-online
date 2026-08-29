@@ -805,9 +805,9 @@
    */
   function applyLatencyMode() {
     if (!session) return;
-    if (latencyMode === 'low') {
-      session.setInputDelay(LOW_DELAY_FRAMES);
-      logger.info('Latency mode: lowest', { frames: LOW_DELAY_FRAMES });
+    if (typeof latencyMode === 'number') {
+      session.setInputDelay(latencyMode);
+      logger.info('Latency mode: pinned', { frames: latencyMode });
     } else {
       // Genuinely hands control back, rather than only changing the label. The
       // loop takes over from wherever the delay sits and converges from there.
@@ -837,10 +837,13 @@
     $socket?.emit('room:setLatencyMode', { roomId, latencyMode: remembered });
   }
 
-  /** Cycles the room's setting. Creator only; the server checks that too. */
-  function cycleLatencyMode() {
+  /**
+   * Takes the room to the setting the pause menu asked for. Creator only; the
+   * server parses the value again, because this is not the only client there
+   * could ever be.
+   */
+  function setLatencyMode(next: LatencyMode) {
     if (!canSetLatency) return;
-    const next: LatencyMode = latencyMode === 'low' ? 'auto' : 'low';
     // Remembered against the game, because that is what the choice is about.
     if (typeof localStorage !== 'undefined') {
       writeLatencyPreference(localStorage, gameId, next);
@@ -1323,7 +1326,7 @@
       on:reset={resetGame}
       on:display={(e) => void onDisplayChange(e.detail)}
       on:stats={() => (showStats = !showStats)}
-      on:latency={cycleLatencyMode}
+      on:latency={(e) => setLatencyMode(e.detail.mode)}
       on:controlsSaved={handleControlsSaved}
     />
   {/if}

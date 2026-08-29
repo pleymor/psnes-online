@@ -43,7 +43,7 @@ export enum EmulationMode {
  * shape stays readable on its own. The two must agree; there is one test that
  * checks the store's own values.
  */
-export type LatencyMode = 'auto' | 'low';
+export type LatencyMode = 'auto' | number;
 
 export interface Room {
   id: string;
