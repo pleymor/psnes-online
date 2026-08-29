@@ -1,3 +1,22 @@
+<script context="module" lang="ts">
+  /**
+   * Distinguishes one pad's <defs> from another's on the same page.
+   *
+   * Two of these are mounted together, and a duplicated id is not a cosmetic
+   * problem: `url(#snes-body)` resolves to the *first* element in the document
+   * carrying that id, always player 1's. Below the container's 46rem threshold
+   * - which the 20rem pause panel is always under - the two players become
+   * tabs and the hidden one is `display: none`, so those gradients are never
+   * rendered. Player 2's pad then lost its plastic entirely, and its shoulder
+   * rects lost the paint that made them hit-testable: with the default
+   * `pointer-events: visiblePainted`, an unpainted shape answers no click, so
+   * L and R were simply dead. Only the shoulders, because they are the only
+   * hit area filled by a gradient - the d-pad's is `transparent`, which counts
+   * as painted, and the rest are solid colours.
+   */
+  let instances = 0;
+</script>
+
 <script lang="ts">
   /**
    * A SNES controller drawing you click on to rebind.
@@ -33,6 +52,9 @@
   export let interactive = true;
 
   const dispatch = createEventDispatcher<{ select: { button: Button } }>();
+
+  /** This instance's own namespace for the <defs> ids. See the module block. */
+  const uid = `snes-pad-${++instances}`;
 
   /**
    * Geometry, in a 520 x 244 viewBox.
@@ -105,11 +127,11 @@
 
 <svg viewBox="0 0 520 244" class="pad" role="group" aria-label="SNES controller">
   <defs>
-    <linearGradient id="snes-body" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="{uid}-body" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#e6e6ee" />
       <stop offset="1" stop-color="#a5a5b6" />
     </linearGradient>
-    <linearGradient id="snes-shoulder" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="{uid}-shoulder" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#d4d4de" />
       <stop offset="1" stop-color="#9a9aa9" />
     </linearGradient>
@@ -129,7 +151,7 @@
       on:click={() => choose(shoulder.b)}
       on:keydown={(e) => onKey(e, shoulder.b)}
     >
-      <rect x={shoulder.x} y="6" width="108" height="30" rx="12" fill="url(#snes-shoulder)" stroke="#7b7b8a" stroke-width="1.6" />
+      <rect x={shoulder.x} y="6" width="108" height="30" rx="12" fill="url(#{uid}-shoulder)" stroke="#7b7b8a" stroke-width="1.6" />
     </g>
     <text aria-hidden="true" x={shoulder.x + 22} y="27" class="glyph">{shoulder.letter}</text>
     {#if parts.extra > 0}
@@ -140,7 +162,7 @@
     {/if}
   {/each}
 
-  <rect x="14" y="32" width="492" height="180" rx="88" fill="url(#snes-body)" stroke="#7b7b8a" stroke-width="2" />
+  <rect x="14" y="32" width="492" height="180" rx="88" fill="url(#{uid}-body)" stroke="#7b7b8a" stroke-width="2" />
 
   <!-- d-pad -->
   <g fill="#41414c" stroke="#2a2a33" stroke-width="1.6">
