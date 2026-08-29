@@ -45,7 +45,13 @@ export class FrameGovernor {
 	private handle: number | null = null;
 	private accumulator = 0;
 	private lastTime = 0;
-	private turbo = false;
+	/**
+	 * How fast the machine runs against the wall clock. 1 is real time.
+	 *
+	 * Was a boolean and a hard-coded `elapsed * 4`, so four was the only speed
+	 * that existed and nobody could ask for another.
+	 */
+	private speed = 1;
 
 	/**
 	 * Timer that keeps running when the tab is not visible.
@@ -79,9 +85,19 @@ export class FrameGovernor {
 		return this.running;
 	}
 
-	/** Fast-forward. Only meaningful when every peer agrees, so it is off by default. */
-	setTurbo(on: boolean): void {
-		this.turbo = on;
+	/**
+	 * Runs the machine at `multiplier` times real time. 1 puts it back.
+	 *
+	 * Only meaningful when every peer agrees, so a lockstep room never calls it
+	 * - it is the solo clock this belongs to.
+	 *
+	 * Nothing is clamped here. `maxCatchUp` already bounds what one slice can
+	 * run and the accumulator is clipped to it, so a multiplier past that
+	 * quietly buys nothing; refusing it is the caller's job, where there is a
+	 * field to put the refusal in front of.
+	 */
+	setSpeed(multiplier: number): void {
+		this.speed = multiplier;
 	}
 
 	start(): void {
@@ -164,7 +180,7 @@ export class FrameGovernor {
 		if (elapsed > 250) elapsed = 250;
 
 		const frameTime = 1000 / this.fps;
-		this.accumulator += this.turbo ? elapsed * 4 : elapsed;
+		this.accumulator += elapsed * this.speed;
 
 		let ran = 0;
 		let stalled = false;

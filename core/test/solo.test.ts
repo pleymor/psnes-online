@@ -219,3 +219,55 @@ test('the input reader is called once per tick, not more', () => {
 
   assert.equal(reads, 2);
 });
+
+test('the speed multiplier decides how many frames a slice runs', () => {
+  // Fast-forward was one hard-coded `elapsed * 4`, so four was the only speed
+  // that existed. The multiplier is the setting now, and the arithmetic is
+  // worth pinning: it is what the player is actually choosing.
+  const g = globalThis as unknown as Record<string, unknown>;
+  const saved = {
+    document: g.document,
+    raf: g.requestAnimationFrame,
+    cancel: g.cancelAnimationFrame,
+    performance: g.performance
+  };
+
+  let slice: (() => void) | null = null;
+  let now = 0;
+  g.document = { hidden: false, addEventListener() {}, removeEventListener() {} };
+  g.requestAnimationFrame = (cb: () => void) => {
+    slice = cb;
+    return 1;
+  };
+  g.cancelAnimationFrame = () => {};
+  g.performance = { now: () => now };
+
+  /** Frames run by one 20ms slice at the given speed. */
+  const framesIn20ms = (speed: number): number => {
+    const source = new RecordingSource();
+    const governor = new FrameGovernor(source, { fps: 60 });
+    governor.setSpeed(speed);
+    governor.start();
+    now += 20;
+    slice!();
+    governor.stop();
+    return source.ticks;
+  };
+
+  try {
+    assert.equal(framesIn20ms(1), 1, '20ms of real time is one 16.67ms frame');
+    assert.equal(framesIn20ms(2), 2, 'twice the speed, twice the frames');
+    assert.equal(framesIn20ms(4), 4, 'what the hard-coded turbo used to do');
+
+    // maxCatchUp is 8 frames per slice, and the accumulator is clamped to it -
+    // so past eight the extra time is discarded rather than run. A speed above
+    // it would be a number on screen that the machine never reaches.
+    assert.equal(framesIn20ms(8), 8, 'the ceiling is reachable');
+    assert.equal(framesIn20ms(16), 8, 'and nothing beyond it is');
+  } finally {
+    g.document = saved.document;
+    g.requestAnimationFrame = saved.raf;
+    g.cancelAnimationFrame = saved.cancel;
+    g.performance = saved.performance;
+  }
+});

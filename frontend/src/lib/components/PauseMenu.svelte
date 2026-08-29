@@ -44,6 +44,15 @@
   export let display: DisplayOptions | null = null;
   /** null where fast-forward is not offered: in lockstep it would stall the peer. */
   export let turbo: boolean | null = null;
+  /**
+   * How many times real time the fast-forward runs at when it is on.
+   *
+   * A setting rather than the four it was hard-coded to. Bounded by the
+   * governor's own `maxCatchUp`: past that the accumulator is clipped and the
+   * extra time is discarded, so a larger number would be one the machine never
+   * reaches.
+   */
+  export let turboSpeed = 4;
   /** null where there are no network statistics to show: solo. */
   export let showStats: boolean | null = null;
   /**
@@ -96,6 +105,7 @@
   let showSaveGame = false;
   let showVideo = false;
   let showLatency = false;
+  let showSpeed = false;
   let showResetConfirm = false;
 
   /**
@@ -106,7 +116,27 @@
    * fifth door meant editing all three and silently breaking Escape by missing
    * one, so the list is written once.
    */
-  $: inSubmenu = showKeyConfig || showLoadSaves || showSaveGame || showVideo || showLatency;
+  $: inSubmenu =
+    showKeyConfig || showLoadSaves || showSaveGame || showVideo || showLatency || showSpeed;
+
+  /** The fastest the governor can actually run: past it, frames are discarded. */
+  const MAX_SPEED = 8;
+  const MIN_SPEED = 1;
+
+  /**
+   * Asks for a speed, refusing anything the governor would not reach.
+   *
+   * Same shape as the frame count next door, and for the same reason: a
+   * rejected entry leaves `value` unchanged, so Svelte does not redraw it and
+   * the box would go on showing a number nothing is running at.
+   */
+  function askForSpeed(value: number, field?: HTMLInputElement): void {
+    if (Number.isInteger(value) && value >= MIN_SPEED && value <= MAX_SPEED) {
+      dispatch('turboSpeed', { speed: value });
+      return;
+    }
+    if (field) field.value = String(turboSpeed);
+  }
 
   /**
    * The frame count to go back to when manual is chosen again.
@@ -205,8 +235,10 @@
       ? []
       : [
           {
-            label: `${t($language, 'fastForward')}: ${t($language, turbo ? 'on' : 'off')}`,
-            action: () => dispatch('turbo')
+            label: `${t($language, 'fastForward')}: ${
+              turbo ? t($language, 'speedTimes', { count: turboSpeed }) : t($language, 'off')
+            }`,
+            action: () => (showSpeed = true)
           }
         ]),
     ...(showStats === null
@@ -349,6 +381,7 @@
     showSaveGame = false;
     showVideo = false;
     showLatency = false;
+    showSpeed = false;
     // Back to nothing chosen, and the focus is left where the player put it
     // rather than yanked onto the first entry.
     selectedIndex = -1;
@@ -406,12 +439,59 @@
       </div>
     {/if}
 
+    {#if showSpeed}
+      <div class="submenu">
+        <h3>{t($language, 'fastForward')}</h3>
+        <div class="menu-items">
+          <button on:click={() => dispatch('turbo')}>
+            {t($language, 'modeLabel')}: {turbo
+              ? t($language, 'fastForward')
+              : t($language, 'speedNormal')}
+          </button>
+        </div>
+
+        <!-- Only while it is on: a speed the machine is not running at is a
+             number that means nothing. -->
+        {#if turbo}
+          <div class="frames-row">
+            <label for="turbo-speed">{t($language, 'speedLabel')}</label>
+            <button
+              class="nudge"
+              aria-label="-1"
+              disabled={turboSpeed <= MIN_SPEED}
+              on:click={() => askForSpeed(turboSpeed - 1)}>−</button
+            >
+            <input
+              id="turbo-speed"
+              type="number"
+              inputmode="numeric"
+              min={MIN_SPEED}
+              max={MAX_SPEED}
+              step="1"
+              value={turboSpeed}
+              on:change={(e) => askForSpeed(Number(e.currentTarget.value), e.currentTarget)}
+            />
+            <button
+              class="nudge"
+              aria-label="+1"
+              disabled={turboSpeed >= MAX_SPEED}
+              on:click={() => askForSpeed(turboSpeed + 1)}>+</button
+            >
+          </div>
+        {/if}
+
+        <button on:click={handleBackFromSubmenu} class="back-button">
+          {t($language, 'close')}
+        </button>
+      </div>
+    {/if}
+
     {#if showLatency}
       <div class="submenu">
         <h3>{t($language, 'latency')}</h3>
         <div class="menu-items">
           <button on:click={toggleLatencyMode}>
-            {t($language, 'latencyModeLabel')}: {latencyMode === 'auto'
+            {t($language, 'modeLabel')}: {latencyMode === 'auto'
               ? t($language, 'latencyAuto')
               : t($language, 'latencyManual')}
           </button>

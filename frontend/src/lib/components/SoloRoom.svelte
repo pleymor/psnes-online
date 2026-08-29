@@ -140,6 +140,15 @@
   let turbo = false;
   /** Fast-forward for as long as a thumb is on the touch pad's button. */
   let turboHeld = false;
+  /**
+   * How many times real time the fast-forward runs at.
+   *
+   * Four was hard-coded into the governor and was therefore the only speed
+   * anyone could have. Not remembered between sessions: a fast-forward is a
+   * gesture of the moment, not a property of the game the way the latency
+   * trade-off is.
+   */
+  let turboSpeed = 4;
   let showPauseMenu = false;
   let pauseRestoresFullscreen = false;
   let isFullscreen = false;
@@ -646,7 +655,7 @@
    */
   $: {
     const fast = turbo || turboHeld;
-    governor?.setTurbo(fast);
+    governor?.setSpeed(fast ? turboSpeed : 1);
     audio?.setMuted(fast);
   }
 
@@ -857,6 +866,7 @@
       localPlayer2Playable={allowLocalPlayer2}
       {display}
       {turbo}
+      {turboSpeed}
       canReset={true}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
@@ -864,6 +874,7 @@
       on:reset={resetGame}
       on:display={(e) => void onDisplayChange(e.detail)}
       on:turbo={toggleTurbo}
+      on:turboSpeed={(e) => (turboSpeed = e.detail.speed)}
       on:controlsSaved={handleControlsSaved}
     />
   {/if}
