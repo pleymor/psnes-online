@@ -241,6 +241,12 @@ npm run measure:splits # mesurer les répartitions de délai d'entrée
 déploiement est un `vite build`. Lancer `npm run build --workspace frontend`
 avant de considérer une branche frontend terminée.
 
+⚠️ **Un test e2e qui attend une `.game-card` doit d'abord rendre son jeu
+résoluble sur cet appareil.** `POST /api/games` n'enregistre qu'une identité, et
+la grille n'affiche que ce que *ce navigateur* sait ouvrir : sans
+`keepRomOnDevice(page, checksum)` (`e2e/helpers.ts`), la carte n'est jamais
+dessinée et le test expire sur « None of your N games are on this device ».
+
 ### Documentation
 
 | Fichier | Contenu |
