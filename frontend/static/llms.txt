@@ -1,0 +1,34 @@
+# PSNES Online
+
+> A multiplayer SNES emulator that runs in the browser. The emulation happens
+> on each player's own machine — the server relays, signals and stores, and
+> never runs a SNES core itself.
+
+Two players share one deterministic machine synchronised frame by frame
+(lockstep netplay), with WebRTC streaming as an alternative mode. Playing
+requires signing in with Google.
+
+ROMs are never uploaded. A game's identity — the CRC32 of its dump — is all
+the server keeps; the bytes stay in the player's own browser, which is why a
+library looks different from one device to the next. You must own an original
+copy of any game you play here.
+
+## Pages
+
+- [Home](https://snes.pleymor.com/): signing in, then the library of games this
+  device can actually open.
+
+A player's profile holds their controller bindings, display and language; a
+room lives under `/room/<id>` and is one session between two players. Both are
+private to the player and are disallowed in
+[robots.txt](https://snes.pleymor.com/robots.txt), so neither is worth
+crawling.
+
+## Source
+
+- [pleymor/psnes-online](https://github.com/pleymor/psnes-online): the whole
+  application, frontend and backend.
+- [README](https://github.com/pleymor/psnes-online/blob/main/README.md): what
+  it does and how the pieces fit.
+- [TECHNICAL.md](https://github.com/pleymor/psnes-online/blob/main/TECHNICAL.md):
+  how lockstep netplay stays in step.

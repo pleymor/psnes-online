@@ -18,6 +18,8 @@
   onMount(async () => {
     // Check authentication
     try {
+      // 200 with a null body when nobody is signed in - see the note on the
+      // route. `user.set(null)` is then the same no-one the store started as.
       const res = await fetch('/auth/me', { credentials: 'include' });
       if (res.ok) {
         const userData = await res.json();

@@ -141,11 +141,23 @@ export function toSelf(user: User) {
   };
 }
 
+/**
+ * Who the caller is, or a plain null when they are nobody.
+ *
+ * 200 rather than the 401 this used to answer. "Nobody is signed in" is a true
+ * answer to *this* question, not a refusal: the landing page asks it on every
+ * first visit, and a 401 made Chrome write "Failed to load resource: the
+ * server responded with a status of 401" into the console of an entirely
+ * ordinary visit. That line comes from the network stack, not from our code,
+ * so no amount of catching around the fetch can silence it - the endpoint is
+ * the only place it can be fixed. It also cost a point in Lighthouse's
+ * errors-in-console, which is what finally surfaced it.
+ *
+ * Nothing else relaxes: every route that guards a resource still answers 401.
+ * This one is the question, not the resource.
+ */
 authRouter.get('/me', (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  res.json(toSelf(req.user as User));
+  res.json(req.user ? toSelf(req.user as User) : null);
 });
 
 authRouter.post('/logout', (req, res) => {

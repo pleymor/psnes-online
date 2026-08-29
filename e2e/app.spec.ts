@@ -60,8 +60,11 @@ test.describe('app shell', () => {
     await page.getByRole('button', { name: 'Friends' }).click();
     await expect(page.getByText('Zelda (friend room)')).toBeVisible();
 
-    // A 401 on /auth/me before logging in is expected; nothing else should throw.
-    const unexpected = consoleErrors.filter(e => !e.includes('401'));
-    expect(unexpected, 'no unexpected console errors').toEqual([]);
+    // Nothing should throw at all. This used to filter out a 401 on /auth/me,
+    // which the browser logged on every signed-out visit; that route answers
+    // 200 with a null body now, so there is no expected error left to excuse -
+    // and the filter would have hidden any real error whose text happened to
+    // contain "401".
+    expect(consoleErrors, 'no console errors').toEqual([]);
   });
 });
