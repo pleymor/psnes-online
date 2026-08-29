@@ -62,3 +62,33 @@ test('a connected channel ends the budget for good', () => {
   budget.peerArrived();
   assert.equal(budget.mayAttempt(), false, 'not even when someone rejoins');
 });
+
+test('a channel that dies is worth negotiating again', () => {
+  // Losing the direct channel used to be the end of it: the transport logged
+  // the loss and nothing ever tried again, so a session went back to the relay
+  // for good. A backend restart mid-match is enough to cause it, which is how
+  // this was found - a round trip that doubled at a deployment and stayed.
+  const budget = createNegotiationBudget(3);
+  budget.started();
+  budget.connected();
+  assert.equal(budget.mayAttempt(), false, 'nothing to negotiate while it carries packets');
+
+  budget.lost();
+  assert.equal(budget.mayAttempt(), true, 'and something to negotiate once it stops');
+});
+
+test('a channel that dies gets a whole budget, not the leftovers', () => {
+  // The tries spent before it connected were spent on a negotiation that
+  // succeeded. Holding them against the next one would leave a session that
+  // lost its channel late with nothing to spend.
+  const budget = createNegotiationBudget(3);
+  for (let i = 0; i < 3; i++) budget.started();
+  budget.connected();
+  budget.lost();
+
+  for (let i = 0; i < 3; i++) {
+    assert.equal(budget.mayAttempt(), true, `try ${i + 1} of a fresh three`);
+    budget.started();
+  }
+  assert.equal(budget.mayAttempt(), false, 'and bounded again, so a flapping link cannot loop');
+});

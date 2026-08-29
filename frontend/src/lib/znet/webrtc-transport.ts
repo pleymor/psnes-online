@@ -210,6 +210,18 @@ export class ZnetWebRtcTransport implements UpgradableTransport {
 			if (this.disposed || !this.connected) return;
 			this.connected = false;
 			logger.info('direct channel gone; the session carries on over the relay');
+
+			/*
+			 * And try to get it back, which nothing used to do.
+			 *
+			 * A channel dies for reasons that pass - a relay restarting under the
+			 * signalling, a network changing underneath - and the session simply
+			 * stayed relayed for the rest of the match. Both ends run this: the
+			 * host to send a fresh offer, the guest to have something listening
+			 * when it arrives.
+			 */
+			this.budget.lost();
+			this.attempt();
 		};
 		peer.on('close', lost);
 		peer.on('error', (err) => {

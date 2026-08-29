@@ -27,6 +27,8 @@ export interface NegotiationBudget {
 	peerArrived(): void;
 	/** A channel is carrying packets; there is nothing left to negotiate. */
 	connected(): void;
+	/** It has stopped carrying them, so there is again. */
+	lost(): void;
 }
 
 export function createNegotiationBudget(maxAttempts: number): NegotiationBudget {
@@ -46,6 +48,19 @@ export function createNegotiationBudget(maxAttempts: number): NegotiationBudget 
 		},
 		connected: () => {
 			settled = true;
+		},
+		lost: () => {
+			// A whole budget, not the leftovers. The tries spent before it
+			// connected paid for a negotiation that worked; holding them against
+			// the next one would leave a session that loses its channel late with
+			// nothing to spend.
+			//
+			// Still bounded, so a link that connects and dies in a loop costs
+			// three negotiations per cycle rather than an endless stream of them.
+			// Worth paying: a channel that manages to connect at all is one worth
+			// having back, and the alternative was never having it again.
+			settled = false;
+			attempts = 0;
 		}
 	};
 }
