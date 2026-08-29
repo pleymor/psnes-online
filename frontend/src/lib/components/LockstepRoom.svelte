@@ -166,6 +166,15 @@
 
   let stats: SessionStats | null = null;
   /**
+   * The transport that can move onto a direct channel, when there is one.
+   *
+   * Null under `?lag=`, where the upgrade is deliberately skipped, and before
+   * the session is built. `direct` is read from it for the badge.
+   */
+  let upgrading: UpgradingTransport | null = null;
+  /** Whether the pads are leaving by the direct channel rather than the relay. */
+  let onDirect = false;
+  /**
    * Whether to *show* that we are waiting, which is not the same as waiting.
    *
    * Brief stalls are normal on a lockstep link and do not affect play; a badge
@@ -574,10 +583,13 @@
        * remove.
        */
       if (!lag) {
-        transport = new UpgradingTransport(
+        // Kept as well as wrapped: the badge asks it, every slice, which path
+        // the pads are actually leaving by.
+        upgrading = new UpgradingTransport(
           transport,
           new ZnetWebRtcTransport($socket as never, roomId, isHost)
         );
+        transport = upgrading;
       }
 
       if (lag) {
@@ -624,6 +636,7 @@
         onSlice: (ran, stalled) => {
           setStalling(stalled && ran === 0);
           stats = session!.getStats();
+          onDirect = upgrading?.direct ?? false;
           checkRendererHealth();
         }
       });
@@ -1123,6 +1136,7 @@
         break;
     }
     stats = session?.getStats() ?? null;
+    onDirect = upgrading?.direct ?? false;
   }
 
   function setStalling(active: boolean) {
@@ -1154,6 +1168,7 @@
   }
 
   function teardown() {
+    upgrading = null;
     destroyed = true;
     if (stallTimer) clearTimeout(stallTimer);
     stallTimer = null;
@@ -1287,7 +1302,13 @@
       <span class="summary">
         {stats.rtt ? `${Math.round(stats.rtt)} ms` : '— ms'}{stats.jitter === null
           ? ''
-          : ` ±${stats.jitter.toFixed(1)}`} · delay {stats.inputDelay}f
+          : ` ±${stats.jitter.toFixed(1)}`} · delay {stats.inputDelay}f ·
+        <!--
+          Which pipe the pads are on. A session relegated to the relay reads
+          exactly like a genuinely slow link without this, which is how a
+          direct channel that had stopped opening went unnoticed.
+        -->
+        <span class="path" class:direct={onDirect}>{onDirect ? 'p2p' : 'relay'}</span>
       </span>
     {/if}
   </div>
@@ -1579,6 +1600,17 @@
     color: #9a9ab0;
     font-size: 0.85rem;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Relay is the ordinary state, not an error - it is where every session
+     starts and where a symmetric NAT leaves it for good. Marked, not alarmed:
+     dimmer than the rest, and green only once the direct channel is carrying. */
+  .path {
+    color: #b58a5a;
+  }
+
+  .path.direct {
+    color: #6bbf7b;
   }
 
   .stats {

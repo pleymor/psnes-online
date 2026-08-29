@@ -89,6 +89,20 @@ test('packets are accepted from whichever path they arrive on', () => {
 	assert.deepEqual(seen, [1, 2, 3, 4], 'every path stays subscribed the whole time');
 });
 
+test('it says which path is carrying the traffic', () => {
+  // The badge shows this next to the delay. Without it, a match silently
+  // relegated to the relay looks exactly like one that was always going to be
+  // slow - which is how a direct channel that stopped opening went unnoticed
+  // until someone read a round trip of 50ms where they used to see 20.
+  const { fast, t } = pair();
+
+  assert.equal(t.direct, false, 'the session starts on the relay, always');
+  fast.open = true;
+  assert.equal(t.direct, true, 'and says so the moment it moves over');
+  fast.open = false;
+  assert.equal(t.direct, false, 'a channel that drops out is not hidden');
+});
+
 test('closing closes both paths', () => {
 	const { slow, fast, t } = pair();
 	t.close();

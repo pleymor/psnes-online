@@ -23,6 +23,7 @@
 import '$lib/polyfills';
 import SimplePeer from 'simple-peer';
 import { createLogger } from '$lib/utils/logger';
+import { createNegotiationBudget, type NegotiationBudget } from './negotiation-budget.js';
 import type { UpgradableTransport } from './upgrading-transport.js';
 
 const logger = createLogger('ZnetWebRTC');
@@ -44,15 +45,23 @@ export interface SignalSocket {
  */
 const ATTEMPT_MS = 5_000;
 
-/** Attempts before settling for the relay. */
+/**
+ * Attempts before settling for the relay.
+ *
+ * Counted from the moment the other player is actually in the room - see
+ * `negotiation-budget.ts`. Counting from our own arrival is what let a guest
+ * still fetching its ROM cost both players the direct channel for the whole
+ * match.
+ */
 const MAX_ATTEMPTS = 3;
 
 export class ZnetWebRtcTransport implements UpgradableTransport {
 	private peer: SimplePeer.Instance | null = null;
 	private handler: ((data: Uint8Array) => void) | null = null;
 	private listener: (event: { signal?: unknown }) => void;
+	private onPeerJoined: () => void;
 	private timer: ReturnType<typeof setTimeout> | null = null;
-	private attempts = 0;
+	private budget: NegotiationBudget = createNegotiationBudget(MAX_ATTEMPTS);
 	private connected = false;
 	private disposed = false;
 
@@ -75,6 +84,23 @@ export class ZnetWebRtcTransport implements UpgradableTransport {
 			}
 		};
 		this.socket.on('webrtc:signal', this.listener as never);
+
+		/*
+		 * The other player reaching the netplay room is the first moment an offer
+		 * can land anywhere. Before it, the server drops room events with no
+		 * recipient and simple-peer never learns that nobody heard.
+		 *
+		 * Only the host acts: it is the initiator, so it is the one whose offers
+		 * were going nowhere. A guest has nothing to resend.
+		 */
+		this.onPeerJoined = () => {
+			if (this.disposed || this.connected) return;
+			this.budget.peerArrived();
+			if (!this.isHost) return;
+			logger.info('the other player is here; trying for a direct channel again');
+			this.attempt();
+		};
+		this.socket.on('znet:peer-joined', this.onPeerJoined as never);
 
 		if (!SimplePeer.WEBRTC_SUPPORT) {
 			logger.info('no WebRTC here; the session stays on the relay');
@@ -114,6 +140,7 @@ export class ZnetWebRtcTransport implements UpgradableTransport {
 		this.connected = false;
 		if (this.timer) clearTimeout(this.timer);
 		this.socket.off('webrtc:signal', this.listener as never);
+		this.socket.off('znet:peer-joined', this.onPeerJoined as never);
 		this.teardown();
 	}
 
@@ -128,7 +155,9 @@ export class ZnetWebRtcTransport implements UpgradableTransport {
 
 	private attempt(): void {
 		if (this.disposed || this.connected) return;
-		this.attempts++;
+		if (!this.budget.mayAttempt()) return;
+		this.budget.started();
+		if (this.timer) clearTimeout(this.timer);
 		this.teardown();
 
 		const peer = new SimplePeer({
@@ -167,6 +196,7 @@ export class ZnetWebRtcTransport implements UpgradableTransport {
 		peer.on('connect', () => {
 			if (this.disposed) return;
 			this.connected = true;
+			this.budget.connected();
 			if (this.timer) clearTimeout(this.timer);
 			logger.info('direct channel open; the pads leave the relay');
 		});
@@ -190,7 +220,9 @@ export class ZnetWebRtcTransport implements UpgradableTransport {
 
 		this.timer = setTimeout(() => {
 			if (this.disposed || this.connected) return;
-			if (this.attempts >= MAX_ATTEMPTS) {
+			if (!this.budget.mayAttempt()) {
+				// Not the end of it any more: the budget starts over if the other
+				// player turns up later, which is what `znet:peer-joined` is for.
 				logger.info(`no direct channel after ${MAX_ATTEMPTS} tries; staying on the relay`);
 				this.teardown();
 				return;

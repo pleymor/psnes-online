@@ -36,6 +36,18 @@ export class UpgradingTransport implements Transport {
 	}
 
 	/**
+	 * Whether packets are leaving by the faster path right now.
+	 *
+	 * Read for the badge beside the round trip. A session relegated to the relay
+	 * otherwise looks exactly like one on a genuinely slow link, and that is how
+	 * a direct channel that had stopped opening went unnoticed until somebody
+	 * read 50ms where they used to read 20.
+	 */
+	get direct(): boolean {
+		return this.faster.open;
+	}
+
+	/**
 	 * The faster path when it is up, the relay otherwise, decided per packet.
 	 *
 	 * Per packet rather than once, because a data channel can die at any moment
