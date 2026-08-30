@@ -9,7 +9,21 @@
 
 export interface User {
   id: string;
-  googleId: string;
+  /**
+   * La clé de jointure OAuth, ou null pour un joueur anonyme -- qui n'a par
+   * définition aucun compte Google derrière lui. Nullable depuis
+   * 0005_anonymous_players.sql : lui fabriquer une valeur aurait mis un espace
+   * de noms inventé sous l'index unique `User_googleId_key`.
+   */
+  googleId: string | null;
+  /**
+   * Ce joueur est entré par un lien de salon, sans compte.
+   *
+   * Une colonne, pas `googleId === null` : le jour où un second fournisseur
+   * d'identité existe, la dérivation classerait ses comptes comme anonymes et
+   * leur retirerait leur bibliothèque en silence.
+   */
+  isAnonymous: boolean;
   /**
    * Chosen by the player, and unique only together with `discriminator` -- two
    * players may both be `Mario`. Never null: every row is filled in, either by

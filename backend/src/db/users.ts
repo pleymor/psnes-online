@@ -10,7 +10,8 @@ import {
 
 interface UserRow {
   id: string;
-  googleId: string;
+  googleId: string | null;
+  isAnonymous: number;
   pseudo: string;
   discriminator: string;
   pseudoChosenAt: number | null;
@@ -25,6 +26,10 @@ function toUser(row: UserRow): User {
   return {
     id: row.id,
     googleId: row.googleId,
+    // SQLite has no boolean, and `isAnonymous` decides authorization on every
+    // request: `=== 1` rather than a truthiness test, so a column that somehow
+    // held a string could never read as "an account".
+    isAnonymous: row.isAnonymous === 1,
     pseudo: row.pseudo,
     discriminator: row.discriminator,
     pseudoChosenAt: row.pseudoChosenAt === null ? null : new Date(row.pseudoChosenAt),
@@ -152,24 +157,121 @@ export function createUser(
   input: { googleId: string; avatar: string | null },
   random: () => number = Math.random
 ): User {
+  return insertWithFreeHandle(
+    db,
+    { googleId: input.googleId, avatar: input.avatar, isAnonymous: false },
+    random,
+    'account'
+  );
+}
+
+/**
+ * Un joueur qui a suivi un lien de salon et n'a pas de compte.
+ *
+ * Aucun `googleId` : la colonne est nullable depuis
+ * 0005_anonymous_players.sql, et c'est la moitié du sens du mot. `isAnonymous`
+ * est l'autre moitié, et cette fonction est le seul endroit qui l'écrit à 1.
+ *
+ * `pseudoChosenAt` reste null, et ce n'est pas un oubli : cette date dit « ce
+ * compte a répondu au portique d'embarquement », et un anonyme n'a pas de
+ * compte à embarquer. C'est `requirePseudo` qui apprend une troisième branche,
+ * plutôt que cette date d'apprendre un second sens - la deuxième option coûte
+ * plus de code une fois, la première coûte une ambiguïté pour toujours.
+ *
+ * Le pseudonyme tapé à la porte, s'il y en a un, passe par `isValidPseudo`
+ * comme celui de n'importe qui, et se voit attribuer un discriminateur libre
+ * par le même chemin : un anonyme entre dans l'espace des handles aux mêmes
+ * conditions que tout le monde, il n'y reste simplement pas.
+ */
+export function createAnonymousUser(
+  db: Database,
+  input: { pseudo?: string; avatar?: string | null },
+  random: () => number = Math.random
+): User {
+  if (input.pseudo !== undefined && !isValidPseudo(input.pseudo)) {
+    throw new TypeError(`Invalid pseudonym: ${input.pseudo}`);
+  }
+
+  return insertWithFreeHandle(
+    db,
+    {
+      googleId: null,
+      avatar: input.avatar ?? null,
+      isAnonymous: true,
+      pseudo: input.pseudo
+    },
+    random,
+    'anonymous player'
+  );
+}
+
+/**
+ * Pose une ligne User avec un handle que personne ne tient.
+ *
+ * La lecture d'`allocateDiscriminator` et l'écriture ici ne forment pas un pas
+ * atomique, donc deux arrivées dans la même milliseconde peuvent recevoir le
+ * même créneau. L'index unique est l'arbitre ; ceci réessaie autour de lui
+ * plutôt que de remonter une erreur de contrainte à quelqu'un qui n'y peut
+ * rien - exactement la discipline de `claimPseudo`.
+ */
+function insertWithFreeHandle(
+  db: Database,
+  input: { googleId: string | null; avatar: string | null; isAnonymous: boolean; pseudo?: string },
+  random: () => number,
+  what: string
+): User {
   const id = randomUUID();
   const now = Date.now();
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    const pseudo = AUTO_PSEUDO_WORDS[Math.floor(random() * AUTO_PSEUDO_WORDS.length)];
+    const pseudo = input.pseudo ?? AUTO_PSEUDO_WORDS[Math.floor(random() * AUTO_PSEUDO_WORDS.length)];
     const discriminator = allocateDiscriminator(db, pseudo, random);
     try {
       db.prepare(`
-        INSERT INTO "User" (id, googleId, pseudo, discriminator, pseudoChosenAt, avatar, controlsConfig, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, NULL, ?, NULL, ?, ?)
-      `).run(id, input.googleId, pseudo, discriminator, input.avatar, now, now);
+        INSERT INTO "User" (id, googleId, isAnonymous, pseudo, discriminator, pseudoChosenAt, avatar, controlsConfig, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)
+      `).run(id, input.googleId, input.isAnonymous ? 1 : 0, pseudo, discriminator, input.avatar, now, now);
       return findUserById(db, id)!;
     } catch (err) {
       if ((err as { code?: string }).code !== 'SQLITE_CONSTRAINT_UNIQUE') throw err;
     }
   }
 
-  throw new Error('Could not allocate a handle for a new account after three attempts');
+  throw new Error(`Could not allocate a handle for a new ${what} after three attempts`);
+}
+
+/**
+ * Efface une session anonyme, et refuse tout le reste.
+ *
+ * Le `AND isAnonymous = 1` n'est pas une ceinture de sécurité décorative :
+ * cette fonction est appelée depuis le chemin de déconnexion avec un
+ * identifiant venu d'une session, et `User` porte des ON DELETE CASCADE vers
+ * `Game`, `Friendship` et - par `Game` - `Save`. Supprimer la mauvaise ligne
+ * ici ne raterait pas bruyamment, cela viderait la bibliothèque de quelqu'un.
+ *
+ * Renvoie s'il y avait bien une session anonyme à effacer.
+ */
+export function deleteAnonymousUser(db: Database, id: string): boolean {
+  const info = db.prepare(`DELETE FROM "User" WHERE id = ? AND isAnonymous = 1`).run(id);
+  return info.changes > 0;
+}
+
+/**
+ * Le ménage des sessions que personne ne reprendra.
+ *
+ * Sans lui la table des joueurs enfle sans fin : un anonyme ne peut pas se
+ * reconnecter pour y revenir, donc chaque ligne restée est une ligne morte. Le
+ * critère est `createdAt` et non la dernière activité, parce qu'une session
+ * anonyme est bornée par construction - elle n'existe que pour la durée d'une
+ * partie - et qu'une deuxième colonne à tenir à jour à chaque paquet serait
+ * une écriture par socket pour du ménage.
+ *
+ * Ne touche jamais un compte, si vieux et si inactif soit-il : un compte n'est
+ * pas une session.
+ */
+export function sweepAnonymousUsers(db: Database, olderThan: Date): number {
+  return db.prepare(`DELETE FROM "User" WHERE isAnonymous = 1 AND createdAt < ?`)
+    .run(olderThan.getTime()).changes;
 }
 
 /**

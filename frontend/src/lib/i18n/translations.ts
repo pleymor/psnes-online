@@ -372,7 +372,23 @@ export const translations = {
     copyHandle: 'Copy',
     handleCopied: 'Copied',
     changePseudo: 'Nickname',
-    renameChangesCode: 'Changing it draws a new code, so a code you shared before stops working.'
+    renameChangesCode: 'Changing it draws a new code, so a code you shared before stops working.',
+
+    // La porte sans compte. `anonymous` et pas `guest` : un guest ici est le
+    // pair non-hote d'un salon, ceci est une identite.
+    anonymousJoinTitle: 'Join this room',
+    anonymousJoinLead: 'You can play right away, without an account. Nothing is kept once you leave.',
+    anonymousJoinCta: 'Play without an account',
+    anonymousNamePlaceholder: 'Name (optional)',
+    anonymousJoining: 'Joining…',
+    anonymousOrSignIn: 'or sign in to keep your library and your friends',
+    anonymousNotice: 'You are playing without an account. Your games, saves and friends need one.',
+    anonymousRoomGone: 'This room is not available. It may have ended, or be full already.',
+    anonymousAlreadySignedIn: 'You are already signed in.',
+    anonymousTooManyAttempts: 'Too many attempts. Try again later.',
+    anonymousDisabled: 'This server asks everyone to sign in.',
+    anonymousJoinFailed: 'Could not join this room.',
+    pseudoInvalid: 'A name is {min} to {max} characters: letters, digits, - and _'
   },
   fr: {
     // Legal disclaimer
@@ -744,7 +760,21 @@ export const translations = {
     copyHandle: 'Copier',
     handleCopied: 'Copié',
     changePseudo: 'Pseudo',
-    renameChangesCode: 'Le changer tire un nouveau code : celui que vous avez déjà partagé cessera de fonctionner.'
+    renameChangesCode: 'Le changer tire un nouveau code : celui que vous avez déjà partagé cessera de fonctionner.',
+
+    anonymousJoinTitle: 'Rejoindre ce salon',
+    anonymousJoinLead: 'Vous pouvez jouer tout de suite, sans compte. Rien n\'est conservé quand vous partez.',
+    anonymousJoinCta: 'Jouer sans compte',
+    anonymousNamePlaceholder: 'Nom (facultatif)',
+    anonymousJoining: 'Connexion…',
+    anonymousOrSignIn: 'ou connectez-vous pour garder votre bibliothèque et vos amis',
+    anonymousNotice: 'Vous jouez sans compte. Vos jeux, vos sauvegardes et vos amis en demandent un.',
+    anonymousRoomGone: 'Ce salon n\'est pas disponible. Il est peut-être terminé, ou déjà complet.',
+    anonymousAlreadySignedIn: 'Vous êtes déjà connecté.',
+    anonymousTooManyAttempts: 'Trop de tentatives. Réessayez plus tard.',
+    anonymousDisabled: 'Ce serveur demande à tout le monde de se connecter.',
+    anonymousJoinFailed: 'Impossible de rejoindre ce salon.',
+    pseudoInvalid: 'Un nom fait de {min} à {max} caractères : lettres, chiffres, - et _'
   }
 };
 

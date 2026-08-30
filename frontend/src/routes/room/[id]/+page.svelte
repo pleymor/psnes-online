@@ -5,6 +5,8 @@
   import { goto, replaceState } from '$app/navigation';
   import { page } from '$app/stores';
   import { user } from '$lib/stores/user';
+  import AnonymousJoin from '$lib/components/AnonymousJoin.svelte';
+  import { accountFeaturesAllowed } from '$lib/rooms/anonymous-join';
   import { games } from '$lib/stores/games';
   import type { Game } from '$lib/stores/games';
   import { language } from '$lib/stores/language';
@@ -116,6 +118,17 @@
    * mount.
    */
   $: view = deriveRoomView(room, $user?.id);
+
+  /**
+   * Ce que cet écran a le droit de proposer à celui qui le regarde.
+   *
+   * Le serveur reste l'autorité - `requirePseudo` refuse les routes de compte
+   * à une session anonyme, `websocket/anonymous-gate.ts` les événements qui
+   * configurent le salon ou touchent aux sauvegardes. Ceci évite d'afficher
+   * les boutons correspondants : un bouton qui reçoit 403 se lit comme une
+   * panne, pas comme une règle.
+   */
+  $: features = accountFeaturesAllowed($user);
 
   /**
    * The mode the running game was started in, frozen at `game:started`.
@@ -739,10 +752,23 @@
   }
 </script>
 
-{#if !gameStarted}
+<!--
+  La porte sans compte, au-dessus de tout le reste.
+
+  Le composant ne rend rien dès qu'une session existe - compte ou anonyme -
+  donc il ne coûte rien aux joueurs connectés et il ne clignote pas pendant que
+  `/auth/me` répond. Un lien de salon ouvert sans session tombe dessus au lieu
+  de tomber sur un écran de connexion Google.
+-->
+<AnonymousJoin {roomId} />
+
+{#if !gameStarted && features.friends}
   <!-- The bar comes with the friends list, which is the only place an invitation
        is sent from now - so a room keeps a way to invite without carrying a
-       panel of its own. Never over a running game. -->
+       panel of its own. Never over a running game.
+
+       Retirée pour une session anonyme : elle porte la bibliothèque, les amis
+       et le profil, dont aucune route ne lui répondra. -->
   <TopBar />
 {/if}
 
@@ -776,7 +802,7 @@
                   type="button"
                   class="mode-segment"
                   class:active={room.emulationMode === option.mode}
-                  disabled={!view.isCreator}
+                  disabled={!view.isCreator || !features.roomSetup}
                   aria-pressed={room.emulationMode === option.mode}
                   on:click={() => setEmulationMode(option.mode)}
                 >
@@ -796,7 +822,7 @@
              happen in the library now, and choosing a game there is what sends
              both players to this page. What is left is the starting save, which
              belongs to the room rather than to the library. -->
-        {#if room.status === 'waiting' && view.isCreator && room.gameId && myRoomSaves.length > 0}
+        {#if room.status === 'waiting' && view.isCreator && features.roomSetup && room.gameId && myRoomSaves.length > 0}
           <div class="lobby-setup">
             <div class="setup-buttons">
               <!-- Creator-only, like the latency mode: where the game starts is

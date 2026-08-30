@@ -35,6 +35,7 @@ export function insertUser(
     discriminator: string;
     pseudoChosenAt: number | null;
     avatar: string | null;
+    isAnonymous: number;
   }> = {}
 ) {
   const now = Date.now();
@@ -45,11 +46,12 @@ export function insertUser(
     pseudo: over.pseudo ?? 'Tester',
     discriminator: over.discriminator ?? String(n % 10000).padStart(4, '0'),
     pseudoChosenAt: over.pseudoChosenAt === undefined ? now : over.pseudoChosenAt,
-    avatar: over.avatar ?? null
+    avatar: over.avatar ?? null,
+    isAnonymous: over.isAnonymous ?? 0
   };
   db.prepare(`
-    INSERT INTO "User" (id, googleId, pseudo, discriminator, pseudoChosenAt, avatar, controlsConfig, createdAt, updatedAt)
-    VALUES (@id, @googleId, @pseudo, @discriminator, @pseudoChosenAt, @avatar, NULL, @now, @now)
+    INSERT INTO "User" (id, googleId, isAnonymous, pseudo, discriminator, pseudoChosenAt, avatar, controlsConfig, createdAt, updatedAt)
+    VALUES (@id, @googleId, @isAnonymous, @pseudo, @discriminator, @pseudoChosenAt, @avatar, NULL, @now, @now)
   `).run({ ...row, now });
   return row;
 }

@@ -5,6 +5,8 @@
   import ControlsSettings from './ControlsSettings.svelte';
   import LoadSavesMenu from './LoadSavesMenu.svelte';
   import SaveGameMenu from './SaveGameMenu.svelte';
+  import { user } from '$lib/stores/user';
+  import { accountFeaturesAllowed } from '$lib/rooms/anonymous-join';
   import ConfirmModal from './ConfirmModal.svelte';
   import { socket } from '$lib/api/socket';
   import { language } from '$lib/stores/language';
@@ -103,6 +105,9 @@
   let showKeyConfig = false;
   let showLoadSaves = false;
   let showSaveGame = false;
+
+  /** Lu ici plutôt que passé en propriété à travers trois composants de salon. */
+  $: saveFeatures = accountFeaturesAllowed($user);
   let showVideo = false;
   let showLatency = false;
   let showSpeed = false;
@@ -269,8 +274,23 @@
   $: menuItems = [
     { label: t($language, 'resume'), action: () => handleResumeWithFullscreen() },
     { label: t($language, 'controls'), action: () => showKeyConfig = true },
-    { label: t($language, 'loadGame'), action: () => showLoadSaves = true },
-    { label: t($language, 'saveGame'), action: () => showSaveGame = true },
+    /*
+     * Charger et sauvegarder n'apparaissent qu'avec un compte.
+     *
+     * Une sauvegarde appartient au propriétaire du jeu : `game:save` et
+     * `game:load` sont refusés à une session sans compte
+     * (`websocket/anonymous-gate.ts`), et l'étaient déjà de fait à qui ne
+     * possède pas la cartouche. Laisser les deux lignes ici donnerait à un
+     * joueur anonyme deux entrées de menu qui échouent en silence au milieu
+     * d'une partie - #12 avait déjà tranché que recevoir une ROM n'est pas la
+     * posséder, et c'est la même règle vue depuis le menu pause.
+     */
+    ...(saveFeatures.saves
+      ? [
+          { label: t($language, 'loadGame'), action: () => (showLoadSaves = true) },
+          { label: t($language, 'saveGame'), action: () => (showSaveGame = true) }
+        ]
+      : []),
     ...(display ? [{ label: t($language, 'video'), action: () => (showVideo = true) }] : []),
     ...extraItems,
     ...(canReset

@@ -22,6 +22,26 @@ export async function loginDev(userId: '1' | '2' | '3'): Promise<string> {
     .join('; ');
 }
 
+/**
+ * Franchit la porte sans compte et rend le cookie de la session obtenue.
+ *
+ * Aucun `loginDev` ici, et c'est tout l'intérêt : cette session n'a jamais vu
+ * Google ni le mode dev, elle n'existe que parce qu'un lien de salon a été
+ * suivi. Elle ne peut entrer que dans ce salon-là.
+ */
+export async function joinAnonymously(roomId: string, pseudo?: string): Promise<string> {
+  const res = await fetch(`${API}/auth/anonymous`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(pseudo ? { roomId, pseudo } : { roomId })
+  });
+  if (!res.ok) throw new Error(`anonymous join failed: ${res.status} ${await res.text()}`);
+  return res.headers
+    .getSetCookie()
+    .map(c => c.split(';')[0])
+    .join('; ');
+}
+
 export function apiFetch(cookie: string, path: string, init: RequestInit = {}) {
   return fetch(`${API}${path}`, {
     ...init,

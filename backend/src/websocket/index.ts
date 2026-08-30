@@ -15,6 +15,8 @@ import { registerSyncHandlers } from './sync-handlers.js';
 import { registerZnetHandlers } from './znet-handlers.js';
 import { registerRomTransferHandlers } from './rom-transfer.js';
 import { toPublicRoomFor, visibleRoomsFor } from './room-view.js';
+import { gateAnonymousSocket } from './anonymous-gate.js';
+import { anonymousRoomOf } from '../auth/anonymous.js';
 import { createLogger } from '../utils/logger.js';
 import { Presence } from './presence.js';
 
@@ -79,7 +81,8 @@ async function handleConnection(io: Server, socket: Socket) {
 
   protectHandlers(socket);
 
-  const userId = (socket.request as any).session?.passport?.user;
+  const session = (socket.request as any).session;
+  const userId = session?.passport?.user;
   if (!userId) {
     socket.disconnect();
     return;
@@ -100,12 +103,49 @@ async function handleConnection(io: Server, socket: Socket) {
   //
   // The emit before the disconnect is not decoration: socket.io reconnects in
   // a loop otherwise, and the client never learns why.
-  if (!user.pseudoChosenAt) {
+  /*
+   * La porte du joueur sans compte, et son unique salon.
+   *
+   * Un anonyme a `pseudoChosenAt` null comme un compte neuf, donc sans cette
+   * branche placée *avant* le portique d'embarquement il serait renvoyé vers
+   * une modale qu'il ne peut pas franchir. Il ne passe pas pour autant sans
+   * contrôle : son socket n'existe que tant que le salon nommé par sa session
+   * existe.
+   *
+   * Le salon est relu à chaque connexion et pas seulement à l'entrée : un
+   * salon meurt quand son dernier joueur le quitte, et une session anonyme
+   * survivrait au sien. Un socket sans salon n'aurait plus rien à faire ici -
+   * il ne peut ni en créer un, ni en rejoindre un autre - mais il tiendrait
+   * une présence et écouterait.
+   *
+   * L'`emit` avant la déconnexion pour la raison écrite plus bas : sans lui
+   * socket.io reboucle et le client n'apprend jamais pourquoi.
+   */
+  if (user.isAnonymous) {
+    const roomId = anonymousRoomOf(session);
+    if (!roomId || !rooms.has(roomId)) {
+      logger.info({ userId: user.id, roomId }, 'Refusing an anonymous socket whose room is gone');
+      socket.emit('auth:anonymousRoomGone');
+      socket.disconnect();
+      return;
+    }
+  } else if (!user.pseudoChosenAt) {
     logger.info({ userId: user.id }, 'Refusing a socket from an account with no chosen pseudonym');
     socket.emit('auth:pseudoRequired');
     socket.disconnect();
     return;
   }
+
+  /*
+   * Le grillage, posé une fois et avant tout enregistrement.
+   *
+   * Après `protectHandlers`, donc à l'intérieur de sa protection, et avant les
+   * `registerXHandlers` ci-dessous : un événement réservé aux comptes est
+   * refusé au moment où son gestionnaire s'enregistre, ce qui couvre du même
+   * coup les sept fichiers de gestionnaires et ceux qu'on ajoutera. Ne fait
+   * rien pour un compte.
+   */
+  gateAnonymousSocket(socket, user);
 
   // The email is gone from this line along with the column. The pseudonym
   // stays: it is a pseudonym by construction, so it is loggable without

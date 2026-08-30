@@ -16,7 +16,7 @@ import { saveSuitsRoom } from '../rooms/save-suits-room.js';
 import { deleteInvitationsForRoom } from '../db/invitations.js';
 import { requireGame } from '../rooms/require-game.js';
 import { endsWithItsPlayer, markOffline, markOnline } from '../rooms/presence.js';
-import { getMemberRoom } from './guards.js';
+import { getJoinableRoom, getMemberRoom } from './guards.js';
 
 const logger = createLogger('Room');
 
@@ -138,7 +138,24 @@ export function registerRoomHandlers(
   // gives them, rather than a different answer that would confirm the room
   // exists.
   socket.on('room:join', async (data: { roomId: string }) => {
-    const room = getMemberRoom(rooms, data?.roomId, user.id, 'room:join');
+    /*
+     * La seule porte d'entrée, et donc la seule qui ne peut pas se contenter
+     * de `getMemberRoom`.
+     *
+     * Pour un compte le comportement est inchangé, mot pour mot : il est déjà
+     * assis quand cet événement arrive, et un non-membre reçoit le même
+     * refus qu'avant. `getJoinableRoom` ajoute une seule branche, celle d'une
+     * session sans compte dont la session nomme ce salon-ci - le salon vient
+     * de la session, pas de la charge utile, donc tenir un identifiant de
+     * salon n'a jamais suffi et ne suffit toujours pas.
+     */
+    const room = getJoinableRoom(
+      rooms,
+      data?.roomId,
+      user,
+      (socket.request as any).session,
+      'room:join'
+    );
 
     if (!room) {
       /*
