@@ -795,26 +795,42 @@
     }
 
     /*
-     * Held where it was, because the placement the other shapes now use does
-     * not survive here.
+     * Into the right margin, beside R - the mirror of what fast-forward does
+     * beside L on the other side.
      *
-     * Upright, the middle of the playing row is empty space between the two
-     * thumbs. Here it is the picture - that is the whole premise of this
-     * layout, and what `pointer-events: none` on the pad exists to protect.
-     * Centring the toggle would park it in the middle of the game.
+     * The centred placement the other shapes use cannot come here: upright,
+     * the middle of the playing row is empty space between the two thumbs,
+     * where here it is the picture. That is the whole premise of this layout,
+     * and what `pointer-events: none` on the pad exists to protect. So did the
+     * placement this replaces, for that matter - the end of a `1fr` column is
+     * close to the centre, and the toggle sat on the game.
      *
-     * Select and Start are not in the top row here either, so nothing is
-     * covering this the way SELECT was; the reason for moving it does not
-     * apply. It is worth saying plainly that where this lands in landscape -
-     * the end of a `1fr` column, which is close to the centre - is over the
-     * picture too, and was before this change. Left alone rather than quietly
-     * redesigned: it is its own question, not this one.
+     * The right margin rather than the left because the left is now full: L
+     * takes 112 of its 187px and fast-forward another 62, leaving 13. The
+     * right has only R in this row, so 75px are free between the picture's
+     * edge and where R begins - room enough for a control this size and about
+     * 30px of daylight past the picture.
+     *
+     * Sized down to fast-forward's landscape height for the same reason that
+     * one is: the row is `auto` and sized by the shoulders, and anything
+     * taller than them grows it and takes the height straight off the diamond
+     * below. At this size the row does not move.
+     *
+     * Like every control here, it is pinned relative to `--shoulder-w`, whose
+     * floor is the margin itself. On a screen too narrow to deserve this
+     * layout the margin collapses and this will overlap the picture's edge
+     * rather than vanish - the same trade the stick and the diamond already
+     * make above.
      */
     .shape {
       grid-row: 1;
-      grid-column: 1;
+      grid-column: 3;
       justify-self: end;
       align-self: center;
+      margin: 0 calc(var(--shoulder-w) + 0.4rem) 0 0;
+      height: 1.6rem;
+      height: min(11cqh, 5.5cqw);
+      min-height: 1.4rem;
     }
   }
 
