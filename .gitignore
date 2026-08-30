@@ -66,3 +66,12 @@ core/build/
 
 # Superpowers scratch (brainstorm mockups, SDD ledger)
 .superpowers/
+
+# Claude Code
+#
+# Only the local, per-developer half is ignored -- NOT `.claude/` wholesale.
+# Shared project config lives in the same directory (settings.json, commands/,
+# agents/, skills/, hooks/) and is meant to be committed like any other config;
+# ignoring the parent would hide it from review without anyone noticing.
+.claude/settings.local.json
+.claude/worktrees/
