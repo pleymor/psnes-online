@@ -39,6 +39,54 @@ test.describe('znet relay', () => {
     if (!seated) throw new Error('guest was never seated');
   }
 
+  test('a guest that reconnects keeps its slot and its channel', async () => {
+    /*
+     * The contract the client leans on when the socket comes back.
+     *
+     * The slot is reclaimed by account rather than by socket, so a player who
+     * reconnects keeps its player index - coming back as index 2 would drive
+     * nothing. And re-joining puts the new socket back in the room's channel,
+     * without which every packet it sends is dropped for not being in it. That
+     * looks like a freeze from the inside, and it is what a backend restart
+     * under a running match used to leave behind.
+     */
+    const room = await createRoom(host, 'Znet Rejoin');
+    await joinAsGuest(room.id);
+
+    const first = waitForEvent<any>(guest, 'znet:joined', 5000);
+    guest.emit('znet:join', { roomId: room.id });
+    const before = await first;
+    expect(before).toMatchObject({ playerIndex: 1 });
+
+    // A new socket for the same account is what socket.io hands the page back
+    // after a reconnect.
+    guest.close();
+    guest = await connectSocket(guestCookie);
+
+    const again = waitForEvent<any>(guest, 'znet:joined', 5000);
+    guest.emit('znet:join', { roomId: room.id });
+    const after = await again;
+    expect(after).toMatchObject({ playerIndex: 1, isHost: false });
+
+    // In the channel again, which is the half a slot number cannot show.
+    const hostJoined = waitForEvent<any>(host, 'znet:joined', 5000);
+    host.emit('znet:join', { roomId: room.id });
+    await hostJoined;
+
+    const pad = new Uint8Array([3, 0, 0, 1, 0xe8, 0x03, 0, 0, 0x01, 0x00]);
+    const arrived = waitForEvent<any>(guest, 'znet:packet', 5000);
+    host.emit('znet:packet', { roomId: room.id, payload: pad.buffer });
+
+    const packet = await arrived;
+    expect(packet, 'a reconnected socket must receive again').not.toBeNull();
+    expect([...new Uint8Array(packet.payload)]).toEqual([...pad]);
+
+    host.emit('znet:leave', { roomId: room.id });
+    guest.emit('znet:leave', { roomId: room.id });
+    host.emit('room:leave', { roomId: room.id });
+    guest.emit('room:leave', { roomId: room.id });
+  });
+
   test('the room host takes player slot 1 and a member takes slot 2', async () => {
     const room = await createRoom(host, 'Znet Slots');
 

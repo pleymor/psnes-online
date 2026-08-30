@@ -349,6 +349,7 @@
     // at once and the guest asks for the ROM straight away; a listener attached
     // at the end of boot would miss the first requests.
     if (isHost) $socket?.on('rom:request', onRomRequested);
+    $socket?.on('connect', onSocketReconnected);
     $socket?.on('znet:error', onRelayError);
     $socket?.on('player:left', onPlayerLeft);
 
@@ -1070,6 +1071,30 @@
    * the slot, so a reconnecting player cannot end up driving the wrong
    * controller port.
    */
+  /**
+   * Re-joins the netplay room after the socket comes back.
+   *
+   * `znet:join` was emitted once, from `joinRelay()` at boot. socket.io
+   * reconnects on its own, but a reconnected socket is *not* in the room's
+   * channel any more - so every packet it sent afterwards was dropped, which
+   * looks from the inside exactly like a freeze.
+   *
+   * The server was written expecting this. Its handler reclaims the slot by
+   * account rather than by socket precisely so a reconnect keeps its player
+   * index, and the comment above it says "the client re-joins on every
+   * reconnect". It did not. This is the client keeping that promise.
+   *
+   * Re-joining also raises `znet:peer-joined` on the other side, which is what
+   * sends the host back for a direct channel.
+   *
+   * Idempotent by design, so firing on the very first `connect` costs nothing.
+   */
+  function onSocketReconnected(): void {
+    if (destroyed) return;
+    logger.info('the socket came back; re-joining the netplay session');
+    $socket?.emit('znet:join', { roomId });
+  }
+
   function joinRelay(): Promise<void> {
     return new Promise((resolve, reject) => {
       const sock = $socket;
@@ -1196,6 +1221,7 @@
     sramTimer = null;
     $socket?.off('game:loaded', onSaveLoaded);
     $socket?.off('rom:request', onRomRequested);
+    $socket?.off('connect', onSocketReconnected);
     $socket?.off('znet:error', onRelayError);
     $socket?.off('player:left', onPlayerLeft);
     if (diagnosticsTimer) clearInterval(diagnosticsTimer);
