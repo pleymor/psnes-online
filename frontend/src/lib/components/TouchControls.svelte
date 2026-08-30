@@ -530,21 +530,32 @@
   }
 
   /*
-   * The shape toggle: above the directional control, and at the far end of the
-   * row from the L shoulder.
+   * The shape toggle: directly under Select and Start, centred on the pad.
    *
-   * Both separations are deliberate. It shares a grid cell with L, which is
-   * pinned to the start, so pushing this to the end puts the width of the
-   * column between them; and it sits a row above the stick, which is itself
-   * pinned to the start of the row below. A thumb reaching for a direction
-   * travels away from this, not toward it - which matters more here than
-   * anywhere else on the pad, since hitting it by accident changes the control
-   * under the thumb mid-game.
+   * It used to sit at the end of the first column, on the reasoning that this
+   * put the width of that column between it and L. What that missed is that
+   * `.middle` spans the whole of the same row and is centred on the pad, and
+   * the end of column one is very nearly where the pills begin - so on a phone
+   * the toggle was rendered *behind* SELECT, a sliver of it showing past the
+   * pill's left edge. Not a cramped target: an occluded one.
+   *
+   * The row below is where the space actually is. It is `1fr`, and everything
+   * in it - the stick, the diamond, fast-forward - is centred vertically, so
+   * its top edge is empty in every shape the pad takes. Pinning this there
+   * with `align-self: start` costs no height at all, which the comment on
+   * `.middle` explains is the thing worth protecting.
+   *
+   * The separation that mattered is kept. The stick is pinned to the start of
+   * this row and the diamond to its end; the centre of the row is the one
+   * place a thumb reaching for either travels away from - which matters more
+   * here than anywhere else on the pad, since hitting it by accident changes
+   * the control under the thumb mid-game.
    */
   .shape {
-    grid-row: 1;
-    grid-column: 1;
-    justify-self: end;
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-self: center;
+    align-self: start;
     /* Declared twice, like every size here: a browser without container
        queries drops the second and still gets a usable target. */
     height: 1.7rem;
@@ -781,6 +792,29 @@
       min-height: 1.4rem;
       width: 3rem;
       width: min(20cqw, 3.5rem);
+    }
+
+    /*
+     * Held where it was, because the placement the other shapes now use does
+     * not survive here.
+     *
+     * Upright, the middle of the playing row is empty space between the two
+     * thumbs. Here it is the picture - that is the whole premise of this
+     * layout, and what `pointer-events: none` on the pad exists to protect.
+     * Centring the toggle would park it in the middle of the game.
+     *
+     * Select and Start are not in the top row here either, so nothing is
+     * covering this the way SELECT was; the reason for moving it does not
+     * apply. It is worth saying plainly that where this lands in landscape -
+     * the end of a `1fr` column, which is close to the centre - is over the
+     * picture too, and was before this change. Left alone rather than quietly
+     * redesigned: it is its own question, not this one.
+     */
+    .shape {
+      grid-row: 1;
+      grid-column: 1;
+      justify-self: end;
+      align-self: center;
     }
   }
 
