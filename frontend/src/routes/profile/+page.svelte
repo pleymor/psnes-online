@@ -19,6 +19,7 @@
   import { watchPads } from '$lib/controls/pad-watch';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import RomSourcePanel from '$lib/components/RomSourcePanel.svelte';
+  import SavesPortabilityPanel from '$lib/components/SavesPortabilityPanel.svelte';
   import { SHADERS } from '$lib/shaders';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import { romFileProblem, ACCEPT } from '$lib/roms/rom-file';
@@ -398,6 +399,11 @@
         </button>
         {#if refreshMessage}<p class="note">{refreshMessage}</p>{/if}
       </section>
+
+      <!-- Next to the ROM folder panel on purpose: both answer "what of mine
+           lives where", and someone who has just learnt their ROMs are local
+           is the likeliest person to wonder about their saves. -->
+      <SavesPortabilityPanel />
     </div>
   </div>
 

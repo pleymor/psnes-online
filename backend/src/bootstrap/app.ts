@@ -10,6 +10,7 @@ import type { RedisClientType } from 'redis';
 import { initializeAuth } from '../auth/passport.js';
 import { authRouter } from '../api/auth.js';
 import { gamesRouter } from '../api/games.js';
+import { savesRouter } from '../api/saves.js';
 import { friendsRouter } from '../api/friends.js';
 import { roomsRouter } from '../api/rooms.js';
 import { userRouter } from '../api/user.js';
@@ -20,6 +21,7 @@ import { logsRouter } from '../api/logs.js';
 import { pseudoRouter } from '../api/pseudo.js';
 import { requirePseudo } from '../middleware/auth.js';
 import { requestLogger } from '../middleware/logger.js';
+import { MAX_ARCHIVE_BYTES } from '../saves/archive.js';
 import { errorHandler } from '../middleware/error.js';
 
 /**
@@ -99,6 +101,19 @@ export function buildApp(redisClient: RedisClientType): { app: Express; sessionM
     credentials: true
   }));
 
+  /*
+   * The save archive is the one body that is legitimately enormous: a
+   * savestate is over 800KB and a library can hold a hundred games, each with
+   * a PNG thumbnail per save. The default 100KB would reject every real
+   * import with a 413 that says nothing useful.
+   *
+   * Mounted BEFORE the general parser and scoped to the one path, so the
+   * ceiling is raised exactly where it has to be and nowhere else - body-parser
+   * marks the request as read, which makes the general parser below a no-op
+   * for it rather than a second, smaller limit.
+   */
+  app.use('/api/saves/import', express.json({ limit: MAX_ARCHIVE_BYTES }));
+
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
@@ -161,6 +176,7 @@ export function buildApp(redisClient: RedisClientType): { app: Express; sessionM
   app.use('/api/pseudo', pseudoRouter);
   app.use('/api/avatars', avatarsRouter);
   app.use('/api/games', requirePseudo, gamesRouter);
+  app.use('/api/saves', requirePseudo, savesRouter);
   app.use('/api/friends', requirePseudo, friendsRouter);
   app.use('/api/rooms', requirePseudo, roomsRouter);
   app.use('/api/user', requirePseudo, userRouter);

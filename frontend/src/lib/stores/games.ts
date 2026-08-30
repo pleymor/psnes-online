@@ -24,6 +24,15 @@ export interface Game {
   metadataId?: string | null;
   /** Whether nothing at all is known about this game, so the player can say. */
   needsIdentification?: boolean;
+  /**
+   * When the cartridge's battery save was last written, if it ever was.
+   *
+   * Already in `/api/games`' answer; declared here because the save export
+   * needs to know whether there is anything to carry. A game with no
+   * savestates can still hold an in-game save, and that is the one that
+   * actually holds progress.
+   */
+  sramUpdatedAt?: string | null;
   // Metadata fields
   genre?: string;
   publisher?: string;

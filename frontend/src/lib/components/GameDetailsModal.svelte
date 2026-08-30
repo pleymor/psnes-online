@@ -5,6 +5,8 @@
   import type { Game } from '$lib/stores/games';
   import SaveGrid from './SaveGrid.svelte';
   import type { SaveSummary } from '$lib/saves/api';
+  import { downloadArchive } from '$lib/saves/portability';
+  import type { TranslationKey } from '$lib/i18n/translations';
 
   export let game: Game;
 
@@ -20,6 +22,22 @@
 
   function close() {
     dispatch('close');
+  }
+
+  /**
+   * The other unit a player wants: one game, to hand to a friend who has the
+   * same cartridge. Same endpoint and same file format as the whole-library
+   * export on the profile page - a single game is a list of one - so there is
+   * one thing to import, not two.
+   */
+  let exporting = false;
+  let exportError = '';
+  async function exportSaves() {
+    exporting = true;
+    exportError = '';
+    const result = await downloadArchive({ gameId: game.id });
+    if (!result.ok) exportError = t($language, result.reason as TranslationKey);
+    exporting = false;
   }
 
   function formatDate(dateString?: string): string {
@@ -149,12 +167,33 @@
               : t($language, 'completeEntry')}
           </button>
         {/if}
+
+        {#if game.crc32 && (saves.length > 0 || game.sramUpdatedAt)}
+          <!-- Only once there is something to carry. An empty file offered
+               beside a game with no progress is an invitation to think
+               something was lost. -->
+          <button class="export-saves" on:click={exportSaves} disabled={exporting}>
+            {exporting ? t($language, 'exporting') : t($language, 'exportThisGame')}
+          </button>
+          {#if exportError}<p class="export-error">{exportError}</p>{/if}
+        {/if}
       </div>
     </div>
   </div>
 </div>
 
 <style>
+  .export-saves {
+    margin-top: 0.5rem;
+    width: 100%;
+  }
+
+  .export-error {
+    margin: 0.4rem 0 0;
+    font-size: 0.8rem;
+    color: #ff8a80;
+  }
+
   .resume {
     margin-top: 1.25rem;
   }

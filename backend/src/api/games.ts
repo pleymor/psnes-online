@@ -5,7 +5,7 @@ import { getDb } from '../db/sqlite.js';
 import {
   listGamesWithSaveSummaries, listGamesFor, findGameById, findGameWithSaves,
   findGameByChecksum, findOtherGameWithChecksum, countGamesFor, createGame,
-  updateGameChecksum, updateGameMetadata, deleteGame
+  updateGameChecksum, updateGameMetadata, deleteGame, MAX_GAMES_PER_USER
 } from '../db/games.js';
 import { findGameMetadataById, insertCommunityMetadata } from '../db/game-metadata.js';
 import { deleteSave, findSaveOwnership } from '../db/saves.js';
@@ -20,8 +20,6 @@ import { asyncHandler } from '../middleware/async-handler.js';
 const logger = createLogger('Games');
 
 export const gamesRouter = Router();
-
-const MAX_GAMES_PER_USER = 100;
 
 /**
  * Games, without ever holding a ROM.

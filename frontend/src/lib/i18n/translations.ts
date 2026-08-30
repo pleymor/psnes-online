@@ -314,6 +314,43 @@ export const translations = {
     quickSave: 'Quick Save',
     autoSave: 'Auto Save',
 
+    // Carrying saves off this server, and handing one back.
+    //
+    // Portability, not backup: the server's own safety net runs whether
+    // anyone clicks or not. This is for the player who changes machine.
+    savesPortability: 'My saves',
+    savesPortabilityHint: 'Your ROMs are on this machine, but your progress is only on the server. A file you can keep, and hand back.',
+    exportSaves: 'Download my saves',
+    exportThisGame: 'Download this game\'s saves',
+    exporting: 'Preparing the file…',
+    exportFailed: 'Could not build the file. Your saves are untouched.',
+    includeScreenshots: 'Include save thumbnails',
+    includeScreenshotsHint: 'They make saves recognisable, and they are most of the file\'s size.',
+    importSaves: 'Restore from a file',
+    importSavesHint: 'Saves are matched to your games by checksum, so a file from another account works. Nothing is ever overwritten: savestates land in free slots.',
+    chooseArchive: 'Choose a file…',
+    importing: 'Reading the file…',
+    replaceSram: 'Replace battery saves I already have',
+    replaceSramHint: 'There is only one battery save per cartridge, so this one cannot be moved aside. Off, yours are kept.',
+
+    // Why an import did not happen. Four reasons, four different remedies.
+    importNotAnArchive: 'That is not a psnes save file.',
+    importNewerVersion: 'That file was written by a newer version of psnes. Reload the page and try again.',
+    importDamaged: 'That file is damaged, so nothing was imported.',
+    importTooLarge: 'That file is too large to import.',
+    importFailed: 'The import did not happen. Nothing was changed.',
+
+    // What an import did. The quiet outcomes matter most: they are the cases
+    // where the file held something and the account did not gain it.
+    importedGames: '{count} game(s) added to your library',
+    importedStates: '{count} savestate(s) imported',
+    importedSram: '{count} battery save(s) imported',
+    importSkippedDuplicates: '{count} savestate(s) were already here, and were skipped',
+    importKeptSram: '{count} battery save(s) in the file were not used: you already had one',
+    importRefusedGames: '{count} game(s) were not added: your library is full',
+    importCoreMismatch: 'That file was written by a different emulator build, so its savestates were left out — they would load into garbage. Battery saves are unaffected.',
+    importedNothing: 'Nothing to import: everything in that file was already here.',
+
     // Game details
     unknown: 'Unknown',
     genre: 'Genre',
@@ -686,6 +723,36 @@ export const translations = {
     failedToDelete: 'Échec de la suppression',
     quickSave: 'Sauvegarde rapide',
     autoSave: 'Sauvegarde auto',
+
+    savesPortability: 'Mes sauvegardes',
+    savesPortabilityHint: 'Vos ROMs sont sur cette machine, mais votre progression n\'existe que sur le serveur. Un fichier que vous gardez, et que vous pouvez rendre.',
+    exportSaves: 'Télécharger mes sauvegardes',
+    exportThisGame: 'Télécharger les sauvegardes de ce jeu',
+    exporting: 'Préparation du fichier…',
+    exportFailed: 'Impossible de construire le fichier. Vos sauvegardes sont intactes.',
+    includeScreenshots: 'Inclure les vignettes',
+    includeScreenshotsHint: 'Elles rendent les sauvegardes reconnaissables, et représentent l\'essentiel du poids du fichier.',
+    importSaves: 'Restaurer depuis un fichier',
+    importSavesHint: 'Les sauvegardes sont rattachées à vos jeux par leur somme de contrôle : un fichier venu d\'un autre compte fonctionne. Rien n\'est jamais écrasé : les sauvegardes d\'état prennent des emplacements libres.',
+    chooseArchive: 'Choisir un fichier…',
+    importing: 'Lecture du fichier…',
+    replaceSram: 'Remplacer les sauvegardes de pile que j\'ai déjà',
+    replaceSramHint: 'Il n\'y a qu\'une sauvegarde de pile par cartouche : elle ne peut pas être décalée. Décoché, les vôtres sont conservées.',
+
+    importNotAnArchive: 'Ce n\'est pas un fichier de sauvegardes psnes.',
+    importNewerVersion: 'Ce fichier vient d\'une version plus récente de psnes. Rechargez la page et réessayez.',
+    importDamaged: 'Ce fichier est abîmé : rien n\'a été importé.',
+    importTooLarge: 'Ce fichier est trop volumineux pour être importé.',
+    importFailed: 'L\'import n\'a pas eu lieu. Rien n\'a été modifié.',
+
+    importedGames: '{count} jeu(x) ajouté(s) à votre bibliothèque',
+    importedStates: '{count} sauvegarde(s) d\'état importée(s)',
+    importedSram: '{count} sauvegarde(s) de pile importée(s)',
+    importSkippedDuplicates: '{count} sauvegarde(s) d\'état étaient déjà là et ont été ignorées',
+    importKeptSram: '{count} sauvegarde(s) de pile du fichier n\'ont pas été utilisées : vous en aviez déjà une',
+    importRefusedGames: '{count} jeu(x) n\'ont pas été ajoutés : votre bibliothèque est pleine',
+    importCoreMismatch: 'Ce fichier vient d\'une autre version de l\'émulateur : ses sauvegardes d\'état ont été écartées — elles se chargeraient en données corrompues. Les sauvegardes de pile ne sont pas concernées.',
+    importedNothing: 'Rien à importer : tout ce que contient ce fichier était déjà là.',
 
     // Game details
     unknown: 'Inconnu',

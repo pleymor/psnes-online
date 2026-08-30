@@ -3,6 +3,17 @@ import type { Database } from './sqlite.js';
 import type { Game, Save, SaveSummary } from './types.js';
 import { mergeIdentity, needsIdentification, type IdentityFields } from './game-identity.js';
 
+/**
+ * How many games one account may hold.
+ *
+ * Here rather than in the route that first enforced it, because it is now
+ * enforced in two places: adding a game one at a time, and importing an archive
+ * that arrives with up to two hundred of them in a single request. Two copies
+ * of this number would drift, and the import would silently become the way
+ * round the ceiling.
+ */
+export const MAX_GAMES_PER_USER = 100;
+
 export interface GameWithSaveSummaries extends Game {
   saves: SaveSummary[];
   /** The catalogue entry this game's dump is linked to, if anyone has said. */
