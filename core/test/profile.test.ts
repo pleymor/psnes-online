@@ -17,6 +17,10 @@ import {
   writeShaderPreference
 } from '../../frontend/src/lib/stores/shader-preference.js';
 import {
+  readAspectPreference,
+  writeAspectPreference
+} from '../../frontend/src/lib/stores/aspect-preference.js';
+import {
   LOW_DELAY_FRAMES,
   readLatencyPreference,
   writeLatencyPreference
@@ -259,4 +263,35 @@ test('a room with no game yet is not stored against an empty key', () => {
   writeLatencyPreference(storage, '', 'low');
   assert.equal(storage.data.size, 0);
   assert.equal(readLatencyPreference(storage, ''), 'auto');
+});
+
+/* ---------------------------------------------------------- picture shape */
+
+test('the picture shape survives a reload, which is new', () => {
+  // `aspect` used to be per-session state with no storage at all: the pause
+  // menu toggled it and a reload put it back. Nothing noticed while nothing
+  // else read it; the configuration export does.
+  const storage = fakeStorage({ 'psnes-aspect': 'crt' });
+  assert.equal(readAspectPreference(storage), 'crt');
+});
+
+test('an unset shape is square pixels', () => {
+  assert.equal(readAspectPreference(fakeStorage()), 'square');
+});
+
+test('a shape nobody recognises is purged rather than left to look like a choice', () => {
+  const storage = fakeStorage({ 'psnes-aspect': 'widescreen' });
+  assert.equal(readAspectPreference(storage), 'square');
+  assert.deepEqual(storage.removed, ['psnes-aspect']);
+});
+
+test('writing the default clears the entry instead of storing it', () => {
+  // The same rule the shader preference follows: no reader should have to
+  // treat "absent" and "the default" as two different things.
+  const storage = fakeStorage({ 'psnes-aspect': 'crt' });
+  writeAspectPreference(storage, 'square');
+  assert.equal(storage.data.size, 0);
+
+  writeAspectPreference(storage, 'crt');
+  assert.equal(storage.getItem('psnes-aspect'), 'crt');
 });

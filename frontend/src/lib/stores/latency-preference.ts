@@ -98,3 +98,51 @@ export function writeLatencyPreference(
 	if (mode === 'auto') storage.removeItem(keyFor(gameId));
 	else storage.setItem(keyFor(gameId), String(mode));
 }
+
+/**
+ * `PreferenceStorage`, plus the enumeration `localStorage` also offers.
+ *
+ * Needed because the latency choices are the one preference stored under many
+ * keys - one per game - so there is no way to read them all back without
+ * walking the storage. Kept separate from `PreferenceStorage` so the three
+ * single-key readers stay testable against the smaller shape.
+ */
+export interface EnumerableStorage extends PreferenceStorage {
+	readonly length: number;
+	key(index: number): string | null;
+}
+
+/** Every remembered latency choice, by game id. Unreadable entries are skipped. */
+export function listLatencyPreferences(storage: EnumerableStorage): Record<string, LatencyMode> {
+	const table: Record<string, LatencyMode> = {};
+	for (let index = 0; index < storage.length; index++) {
+		const key = storage.key(index);
+		if (!key || !key.startsWith(PREFIX)) continue;
+		const gameId = key.slice(PREFIX.length);
+		if (!gameId) continue;
+		const mode = parseLatencyMode(storage.getItem(key));
+		if (mode !== null) table[gameId] = mode;
+	}
+	return table;
+}
+
+/**
+ * Replaces the whole remembered table with `table`.
+ *
+ * Replaces rather than merges: an imported configuration is what the player
+ * chose to carry across, and a leftover local entry for a game they also have
+ * here would mean the imported file silently did not take effect for that one
+ * game - the hardest kind of half-import to notice.
+ */
+export function replaceLatencyPreferences(
+	storage: EnumerableStorage,
+	table: Record<string, LatencyMode>
+): void {
+	const stale: string[] = [];
+	for (let index = 0; index < storage.length; index++) {
+		const key = storage.key(index);
+		if (key && key.startsWith(PREFIX)) stale.push(key);
+	}
+	for (const key of stale) storage.removeItem(key);
+	for (const [gameId, mode] of Object.entries(table)) writeLatencyPreference(storage, gameId, mode);
+}
