@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { Socket } from 'socket.io-client';
 import {
   loginDev, apiFetch, connectSocket, createRoom, waitForEvent,
-  clearFriendships, befriendDevUsers, seatGuestByInvitation
+  clearFriendships, befriendDevUsers, seatGuestByInvitation, joinAnonymously, API
 } from './helpers';
 
 // Events a non-member must never be able to trigger on someone else's room.
@@ -119,6 +119,142 @@ test.describe('room authorization', () => {
     expect(list, 'rooms:list must still be emitted at connect').toBeDefined();
     expect(list.map((r: any) => r.id)).not.toContain(room.id);
     expect(JSON.stringify(list)).not.toContain('keyConfig');
+  });
+
+  /*
+   * Le joueur sans compte.
+   *
+   * Ces tests sont écrits d'abord pour ce qu'un anonyme *ne peut pas* faire.
+   * La porte est nouvelle et non authentifiée, et la seule façon de vérifier
+   * qu'elle n'ouvre rien d'autre est de frapper à chacune des autres.
+   */
+  test('un anonyme entre dans le salon dont il tient le lien, et y prend un siège', async () => {
+    await clearFriendships(c1);
+    const room = await createRoom(host, 'Anonymous Join Test');
+
+    const cookie = await joinAnonymously(room.id, 'Passant');
+    const anon = await connectSocket(cookie);
+
+    const updated = waitForEvent<any>(host, 'room:updated', 5000);
+    anon.emit('room:join', { roomId: room.id });
+    const seen = await updated;
+
+    expect(seen, 'l hôte doit voir le salon changer').not.toBeNull();
+    expect(seen.players.map((p: any) => p.pseudo)).toContain('Passant');
+
+    anon.emit('room:leave', { roomId: room.id });
+    anon.close();
+  });
+
+  test('un anonyme n entre dans aucun autre salon que le sien', async () => {
+    await clearFriendships(c1);
+    const mine = await createRoom(host, 'Anonymous Own Room');
+    // Un second salon, tenu par quelqu'un d'autre. Son identifiant circule
+    // (liste des salons, notifications d amis) : en tenir un ne doit pas
+    // suffire à y entrer.
+    const other = await createRoom(outsider, 'Someone Elses Room');
+
+    const cookie = await joinAnonymously(mine.id);
+    const anon = await connectSocket(cookie);
+
+    const observed: string[] = [];
+    outsider.on('room:updated', () => observed.push('room:updated'));
+    anon.emit('room:join', { roomId: other.id });
+    await new Promise(r => setTimeout(r, 2000));
+
+    expect(observed, 'le lien ouvre une porte, pas le bâtiment').toEqual([]);
+    outsider.removeAllListeners('room:updated');
+    anon.close();
+  });
+
+  test('un anonyme reçoit 403 sur toutes les routes de compte', async () => {
+    const room = await createRoom(host, 'Anonymous Routes Test');
+    const cookie = await joinAnonymously(room.id);
+
+    for (const path of ['/api/games', '/api/friends', '/api/user/controls', '/api/rooms', '/api/logs']) {
+      const res = await apiFetch(cookie, path);
+      expect(res.status, `${path} doit être fermée à une session sans compte`).toBe(403);
+      expect((await res.json()).error).toBe('ANONYMOUS_FORBIDDEN');
+    }
+
+    // Celle-ci comptait le plus : c est la sortie du portique du pseudonyme,
+    // ouverte à tout compte connecté. Un anonyme y réserverait un handle
+    // définitif dans un espace de noms unique, au nom d une session qui
+    // disparaît le soir même.
+    const claimed = await apiFetch(cookie, '/api/pseudo', {
+      method: 'PUT',
+      body: JSON.stringify({ pseudo: 'Squatteur' })
+    });
+    expect(claimed.status).toBe(403);
+    expect((await claimed.json()).error).toBe('ANONYMOUS_FORBIDDEN');
+  });
+
+  test('un anonyme assis dans un salon n en change pas la configuration', async () => {
+    await clearFriendships(c1);
+    const room = await createRoom(host, 'Anonymous Setup Test');
+    const cookie = await joinAnonymously(room.id);
+    const anon = await connectSocket(cookie);
+
+    const seated = waitForEvent<any>(host, 'room:updated', 5000);
+    anon.emit('room:join', { roomId: room.id });
+    expect(await seated, 'l anonyme doit d abord être assis').not.toBeNull();
+
+    // Membre du salon, donc `getMemberRoom` le laisserait passer : ce qui
+    // l arrête ici est la grille, pas la qualité de membre.
+    const observed: string[] = [];
+    for (const ev of ['room:updated', 'game:stopped', 'room:gameReleased', 'game:saved']) {
+      host.on(ev, () => observed.push(ev));
+    }
+
+    for (const [event, payload] of [
+      ['room:choose-game', { roomId: room.id, gameId: 'x', gameTitle: 'x' }],
+      ['room:release-game', { roomId: room.id }],
+      ['room:choose-save', { roomId: room.id, saveId: 'x' }],
+      ['room:setEmulationMode', { roomId: room.id, emulationMode: 'dual' }],
+      ['room:setLatencyMode', { roomId: room.id, latencyMode: 8 }],
+      ['game:save', { roomId: room.id, name: 'pwned', saveData: 'AAAA' }],
+      ['lobby:invite', { roomId: room.id, friendId: 'dev-user-2' }]
+    ] as Array<[string, unknown]>) {
+      anon.emit(event, payload);
+    }
+    await new Promise(r => setTimeout(r, 2500));
+
+    expect(observed, 'rejoindre un salon n est pas pouvoir le reconfigurer').toEqual([]);
+    for (const ev of ['room:updated', 'game:stopped', 'room:gameReleased', 'game:saved']) {
+      host.removeAllListeners(ev);
+    }
+
+    anon.emit('room:leave', { roomId: room.id });
+    anon.close();
+  });
+
+  test('la porte refuse un salon qui n existe pas, sans dire lequel', async () => {
+    const res = await fetch(`${API}/auth/anonymous`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId: '00000000-0000-4000-8000-000000000000' })
+    });
+
+    expect(res.status).toBe(404);
+    // La même réponse qu un salon plein : confirmer l existence d un salon à
+    // qui en tient l identifiant lui apprendrait quelque chose, et cette route
+    // est ouverte à n importe qui.
+    expect((await res.json()).error).toBe('ROOM_NOT_FOUND');
+  });
+
+  test('la porte refuse quelqu un qui a déjà une session', async () => {
+    const room = await createRoom(host, 'Anonymous Signed In Test');
+
+    const res = await apiFetch(c2, '/auth/anonymous', {
+      method: 'POST',
+      body: JSON.stringify({ roomId: room.id })
+    });
+
+    // Refusé plutôt que remplacé : effacer la session d un joueur connecté
+    // parce qu il a cliqué sur un lien lui coûterait son compte le temps d une
+    // partie.
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('ALREADY_SIGNED_IN');
   });
 
   test('friends:online for an accepted friend carries only the allowed fields', async () => {

@@ -80,7 +80,11 @@
       socketInitialized = true;
       // Only once signed in: the ingest endpoint requires a session, and
       // there is nothing worth collecting from a logged-out visitor.
-      startLogShipping({ app: 'psnes-frontend' });
+      //
+      // Et seulement avec un compte : /api/logs est derrière requirePseudo,
+      // qui répond 403 à une session anonyme. L'expédition tournerait en
+      // refus, ce qui remplit la console d'erreurs au lieu du journal.
+      if (!$user.isAnonymous) startLogShipping({ app: 'psnes-frontend' });
     } else if (!$user && socketInitialized) {
       // User logged out, clean up socket
       if ($socket) {

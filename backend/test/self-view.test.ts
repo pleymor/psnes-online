@@ -17,6 +17,7 @@ function user(over: Partial<User> = {}): User {
   return {
     id: 'u1',
     googleId: 'g-secret',
+    isAnonymous: false,
     pseudo: 'Sprite',
     discriminator: '0417',
     pseudoChosenAt: new Date(),
@@ -28,10 +29,15 @@ function user(over: Partial<User> = {}): User {
   };
 }
 
-test('a player is told five things about themselves and no more', () => {
+test('a player is told six things about themselves and no more', () => {
+  // Six depuis qu'on peut jouer sans compte. `isAnonymous` a été ajouté ici
+  // délibérément : le client doit savoir qu'il n'a pas de bibliothèque à
+  // afficher ni de modale d'embarquement à lever, et il ne peut le déduire
+  // d'aucune autre clé - `needsPseudo` vaut faux pour un anonyme comme pour un
+  // compte installé.
   assert.deepEqual(
     Object.keys(toSelf(user())).sort(),
-    ['avatar', 'discriminator', 'id', 'needsPseudo', 'pseudo']
+    ['avatar', 'discriminator', 'id', 'isAnonymous', 'needsPseudo', 'pseudo']
   );
 });
 
@@ -41,6 +47,17 @@ test('the Google account id and the key bindings stay on the server', () => {
   assert.equal(self.googleId, undefined);
   assert.equal(self.controlsConfig, undefined,
     'the controls have their own route; they have no business on every page load');
+});
+
+test('un anonyme ne se voit jamais demander de pseudonyme', () => {
+  // Sa date de choix est null comme celle d'un compte neuf. Sans cette
+  // distinction, la modale bloquante s'ouvrirait devant quelqu'un qui n'a pas
+  // de compte à embarquer, et la seule route pour en sortir - /api/pseudo -
+  // lui est fermée par requireAccount.
+  const anon = toSelf(user({ isAnonymous: true, pseudoChosenAt: null }));
+
+  assert.equal(anon.isAnonymous, true);
+  assert.equal(anon.needsPseudo, false);
 });
 
 test('needsPseudo is the verdict, not the date', () => {

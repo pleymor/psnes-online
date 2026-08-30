@@ -18,7 +18,7 @@ import { metadataRouter } from '../api/metadata.js';
 import { coversRouter } from '../api/covers.js';
 import { logsRouter } from '../api/logs.js';
 import { pseudoRouter } from '../api/pseudo.js';
-import { requirePseudo } from '../middleware/auth.js';
+import { requireAccount, requirePseudo } from '../middleware/auth.js';
 import { requestLogger } from '../middleware/logger.js';
 import { errorHandler } from '../middleware/error.js';
 
@@ -157,8 +157,22 @@ export function buildApp(redisClient: RedisClientType): { app: Express; sessionM
   //
   // Two are deliberately open: /api/pseudo is the way out of the gate, and
   // /api/avatars is what the blocking modal renders the player's own face with.
+  //
+  // Depuis qu'on peut jouer sans compte, requirePseudo a une troisième
+  // branche : une session anonyme reçoit 403 sur tout ce bloc. Elle n'a ni
+  // bibliothèque, ni amis, ni profil, ni journaux à envoyer - elle a un siège
+  // dans un salon, et c'est le socket qui le lui donne.
+  //
+  // /api/pseudo est la seule exception qui a dû changer de garde : ouverte à
+  // requirePseudo par construction (c'est la sortie du portique), elle aurait
+  // laissé un anonyme réserver un handle définitif dans un espace de noms
+  // unique au nom d'une session qui disparaît le soir même. requireAccount dit
+  // exactement cela : il faut un compte, le pseudonyme n'y change rien.
+  //
+  // /api/avatars reste ouverte : un anonyme est assis dans un salon dont
+  // l'autre joueur a un visage à afficher.
   app.use('/auth', authRouter);
-  app.use('/api/pseudo', pseudoRouter);
+  app.use('/api/pseudo', requireAccount, pseudoRouter);
   app.use('/api/avatars', avatarsRouter);
   app.use('/api/games', requirePseudo, gamesRouter);
   app.use('/api/friends', requirePseudo, friendsRouter);

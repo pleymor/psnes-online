@@ -53,10 +53,24 @@ export class AttemptLimit {
     return this.live(key).length >= this.max;
   }
 
-  recordFailure(key: string): void {
+  /**
+   * Compte une tentative.
+   *
+   * `recordFailure` en est l'ancien nom, gardé parce que la limite du lookup
+   * d'amis ne compte effectivement que les échecs. La porte anonyme, elle,
+   * compte *toutes* les tentatives : elle crée une ligne quand elle réussit,
+   * donc ne compter que les refus laisserait la création de lignes sans
+   * plafond - exactement le vecteur de spam qu'une route non authentifiée
+   * ouvre.
+   */
+  record(key: string): void {
     const kept = this.live(key);
     kept.push(this.now());
     this.failures.set(key, kept);
+  }
+
+  recordFailure(key: string): void {
+    this.record(key);
   }
 
   /** Exposed for tests and for a future admin surface; nothing else calls it. */
@@ -76,3 +90,20 @@ export class AttemptLimit {
  * module alive forever.
  */
 export const friendLookupLimit = new AttemptLimit({ max: 20, windowMs: 3_600_000 });
+
+/**
+ * L'instance de la porte anonyme, comptée par adresse IP.
+ *
+ * Par IP et non par compte, contrairement à sa voisine : il n'y a par
+ * définition aucun compte de l'autre côté de cette porte, donc rien d'autre à
+ * compter. Une IP se change gratuitement, ce plafond n'est donc pas une
+ * défense contre quelqu'un de déterminé - c'est ce qui empêche un lien partagé
+ * un peu trop largement, ou un client en boucle de reconnexion, de remplir la
+ * table des joueurs. Le vrai verrou est ailleurs : un anonyme n'entre que dans
+ * un salon existant qui a de la place, et sa ligne est balayée au bout d'un
+ * jour.
+ *
+ * Dix par heure : de quoi se tromper de pseudonyme, recharger la page et
+ * revenir après une déconnexion, sans laisser tourner une boucle.
+ */
+export const anonymousDoorLimit = new AttemptLimit({ max: 10, windowMs: 3_600_000 });

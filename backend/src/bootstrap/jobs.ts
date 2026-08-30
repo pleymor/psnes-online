@@ -3,6 +3,7 @@ import { restoreRooms, startRoomSnapshots } from '../websocket/room-snapshot.js'
 import { markOffline } from '../rooms/presence.js';
 import { getDb } from '../db/sqlite.js';
 import { deleteExpiredInvitations, deleteInvitationsForRoom } from '../db/invitations.js';
+import { sweepAnonymousUsers } from '../db/users.js';
 import { abandonedRoomIds } from '../rooms/abandonment.js';
 import { refreshGameMetadata } from '../services/metadata-loader.js';
 import { ensureAvatarsDir } from '../utils/avatar.js';
@@ -20,6 +21,31 @@ function sweepAbandonedRooms(rooms: Map<string, Room>, now: Date) {
     rooms.delete(roomId);
     deleteInvitationsForRoom(getDb(), roomId);
     logger.info({ roomId }, 'Swept a room nobody came back to');
+  }
+}
+
+/**
+ * Combien de temps une session sans compte laisse sa ligne derrière elle.
+ *
+ * Personne ne peut se reconnecter dessus : sans ce balayage, chaque lien de
+ * salon suivi par un curieux serait une ligne `User` de plus, pour toujours.
+ * Vingt-quatre heures et pas une heure : la ligne porte le pseudonyme affiché
+ * dans le salon, et un joueur qui ferme son onglet dix minutes doit retrouver
+ * sa place - c'est le même raisonnement que les douze heures de l'abandon d'un
+ * salon, avec plus de marge parce qu'ici rien ne coûte rien à personne.
+ */
+const ANONYMOUS_SESSION_TTL_MS = 24 * 3_600_000;
+
+/** Les lignes des sessions sans compte que personne ne reprendra. */
+function sweepAnonymousSessions(now: Date): void {
+  try {
+    const swept = sweepAnonymousUsers(getDb(), new Date(now.getTime() - ANONYMOUS_SESSION_TTL_MS));
+    if (swept > 0) logger.info({ swept }, 'Swept anonymous sessions nobody came back to');
+  } catch (err) {
+    // Comme le balayage des invitations juste à côté : ne pas réussir à faire
+    // le ménage ne doit jamais être la raison pour laquelle le serveur ne
+    // démarre pas.
+    logger.warn({ err }, 'Could not sweep anonymous sessions; carrying on');
   }
 }
 
@@ -57,6 +83,7 @@ export async function restoreAndSweep(rooms: Map<string, Room>): Promise<void> {
 
   // Once at restore, before the hourly timer is armed - see sweepAbandonedRooms.
   sweepAbandonedRooms(rooms, bootedAt);
+  sweepAnonymousSessions(bootedAt);
 }
 
 /**
@@ -68,7 +95,11 @@ export function startBackgroundJobs(rooms: Map<string, Room>): void {
   // Hourly: twelve hours is the deadline, so an hour of slack costs nothing and
   // keeps this off the hot path. `unref` for the usual reason - a sweep must
   // never be what holds the process open.
-  const abandonmentSweep = setInterval(() => sweepAbandonedRooms(rooms, new Date()), 60 * 60_000);
+  const abandonmentSweep = setInterval(() => {
+    const now = new Date();
+    sweepAbandonedRooms(rooms, now);
+    sweepAnonymousSessions(now);
+  }, 60 * 60_000);
   abandonmentSweep.unref();
 
   startRoomSnapshots(rooms);

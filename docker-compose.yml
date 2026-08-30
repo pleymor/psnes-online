@@ -41,6 +41,11 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - AUTH_MODE=google
+      # La porte sans compte : un lien de salon suffit pour s'asseoir et jouer.
+      # Ouverte par défaut - c'est la fonctionnalité - et `off` la referme sans
+      # toucher à AUTH_MODE, dont env-guard.ts teste l'égalité stricte pour
+      # refuser `dev` en production.
+      - ANONYMOUS_JOIN=${ANONYMOUS_JOIN:-on}
     env_file:
       - ./backend/.env
     volumes:
