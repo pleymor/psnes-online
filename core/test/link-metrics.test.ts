@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { LinkMetrics } from '../../frontend/src/lib/znet/link-metrics.js';
 

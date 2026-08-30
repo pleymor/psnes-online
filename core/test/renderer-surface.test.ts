@@ -17,7 +17,7 @@
  * `fetch` it calls through, via the same globalThis-swap pattern.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createRendererSurface, type SurfaceState } from '../../frontend/src/lib/rooms/renderer-surface.js';
 import type { DisplayOptions } from '../../frontend/src/lib/znet/output.js';

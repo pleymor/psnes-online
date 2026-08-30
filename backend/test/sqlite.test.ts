@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -45,7 +45,9 @@ test('openDatabase enforces foreign keys, so cascades actually cascade', () => {
 test('openDatabase uses WAL, so a reader never blocks the writer', () => {
   const file = tempFile('wal.db');
   const db = openDatabase(file);
-  const mode = db.pragma('journal_mode', { simple: true });
+  // better-sqlite3's `pragma(..., { simple: true })` has no bun:sqlite
+  // equivalent; a PRAGMA is a query like any other there.
+  const { journal_mode: mode } = db.query('PRAGMA journal_mode').get() as { journal_mode: string };
   assert.equal(mode, 'wal');
   db.close();
   rmSync(file, { force: true });

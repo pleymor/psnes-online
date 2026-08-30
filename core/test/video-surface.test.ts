@@ -10,7 +10,7 @@
  * straight out of wasm memory. This checks the view describes the right bytes.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { PsnesCore } from '../../frontend/src/lib/znet/core.js';
 import type { PsnesCoreModule } from '../../frontend/src/lib/znet/core.js';

@@ -7,7 +7,7 @@
  * which is exactly what a desync test would call a success.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { InputCollector } from '../../frontend/src/lib/znet/input.js';

@@ -12,7 +12,7 @@
  * callback receives.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createChromeAutohide } from '../../frontend/src/lib/rooms/chrome-autohide.js';
 import { createFullscreen } from '../../frontend/src/lib/rooms/fullscreen.js';

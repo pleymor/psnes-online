@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Database } from './sqlite.js';
+import { asBuffer, type Database } from './sqlite.js';
 import type { GameMetadata, MetadataSource } from './types.js';
 
 export interface GameMetadataInput {
@@ -69,7 +69,13 @@ const INSERT = `
           @crc32, @md5, @now, @now)
 `;
 
-/** `undefined` binds as an error in better-sqlite3; the JSON catalogue is full of holes. */
+/**
+ * Explicit nulls, not absent keys: the JSON catalogue is full of holes, and a
+ * bound parameter has to have a value. better-sqlite3 threw on `undefined`;
+ * bun:sqlite in strict mode throws on a *missing* key and silently writes NULL
+ * for a present-but-undefined one - so normalising here is what keeps the
+ * difference between "absent" and "null" from depending on the driver.
+ */
 function normalise(entry: GameMetadataInput): GameMetadataInput {
   return {
     title: entry.title,
@@ -141,7 +147,8 @@ export function deleteCatalogueMetadata(db: Database): void {
  * Every field is optional except the title, and even that falls back upstream
  * to the game's current name -- so "all optional" holds without leaving a row
  * with a NULL title, which the column forbids. Nulls rather than optional keys
- * because better-sqlite3 throws on a bound `undefined`.
+ * because a bound parameter has to have a value: bun:sqlite (strict mode)
+ * throws `Missing parameter` for a key that is not there at all.
  */
 export interface CommunityEntryInput {
   title: string;
@@ -204,7 +211,7 @@ export function setCover(db: Database, metadataId: string, bytes: Buffer, mime: 
 /** The only path the cover bytes take out of the database. */
 export function findCover(db: Database, metadataId: string): { bytes: Buffer; mime: string } | null {
   const row = db.prepare(`SELECT cover, coverMime FROM "GameMetadata" WHERE id = ?`)
-    .get(metadataId) as { cover: Buffer | null; coverMime: string | null } | undefined;
+    .get(metadataId) as { cover: Uint8Array | null; coverMime: string | null } | undefined;
   if (!row || !row.cover || !row.coverMime) return null;
-  return { bytes: row.cover, mime: row.coverMime };
+  return { bytes: asBuffer(row.cover), mime: row.coverMime };
 }

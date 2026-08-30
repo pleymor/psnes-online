@@ -1,4 +1,4 @@
-import 'dotenv/config';
+// No dotenv import: Bun reads .env itself, before the first module runs.
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import passport from 'passport';

@@ -13,7 +13,7 @@
  * rest of the match. Measured as 20ms becoming 50ms and never coming back.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { createNegotiationBudget } from '../../frontend/src/lib/znet/negotiation-budget.js';

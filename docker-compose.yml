@@ -25,7 +25,7 @@ services:
       # up without a rebuild. Read-only: the runner reads these and only writes to
       # the database.
       - ./backend/migrations:/app/migrations:ro
-    command: node dist/db/migrate-cli.js
+    command: bun dist/db/migrate-cli.js
     restart: "no"
 
   backend:
@@ -60,7 +60,7 @@ services:
     #   docker compose rm -sf backend
     #   docker volume rm psnes_backend-node-modules
     #   docker compose up -d backend
-    command: sh -c "npm run dev"
+    command: sh -c "bun run dev"
     depends_on:
       db-migration:
         condition: service_completed_successfully

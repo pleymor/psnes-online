@@ -8,7 +8,7 @@
  * are hashed and compared, every time.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { crc32, normaliseRom } from '../../frontend/src/lib/roms/checksum.js';

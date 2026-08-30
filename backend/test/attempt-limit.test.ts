@@ -10,7 +10,7 @@
  * be a test.
  */
 
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { AttemptLimit } from '../src/utils/attempt-limit.js';
 

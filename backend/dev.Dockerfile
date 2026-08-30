@@ -1,6 +1,11 @@
-FROM node:20
-
-COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
+##
+## Development image.
+##
+## Bun is the base, not a binary copied into a Node one: the dev server is
+## `bun --watch src/index.ts`, and nothing here runs under Node. Note that this
+## image therefore has no `npm` -- docker-compose.yml drives it with `bun run`.
+##
+FROM oven/bun:1-debian
 
 WORKDIR /app
 
@@ -18,15 +23,9 @@ COPY package.json ./
 COPY backend/package.json ./backend/package.json
 COPY frontend/package.json ./frontend/package.json
 COPY bun.lock ./
-COPY scripts ./scripts
 
-# Bun does not run a workspace member's own lifecycle scripts, and does not
-# run the root project's postinstall once --filter narrows the install to
-# one workspace -- so better-sqlite3's native binding (see
-# scripts/fetch-better-sqlite3-prebuild.sh) has to be built explicitly here.
-RUN bun install --frozen-lockfile --filter=./backend \
-    && sh scripts/fetch-better-sqlite3-prebuild.sh
+RUN bun install --frozen-lockfile --filter=./backend
 
 # Source code will be mounted as a volume, so we don't copy it here
 
-CMD ["npm", "run", "dev"]
+CMD ["bun", "run", "dev"]

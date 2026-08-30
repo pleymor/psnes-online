@@ -1,4 +1,4 @@
-import { test, after } from 'node:test';
+import { test, afterAll } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -32,7 +32,7 @@ const dir = mkdtempSync(join(tmpdir(), 'psnes-lobby-'));
 // Set before the first getDb() call, which only ever happens inside a handler.
 process.env.DATABASE_URL = `file:${join(dir, 'lobby.db')}`;
 
-const { getDb } = await import('../src/db/sqlite.js');
+const { getDb, forgetDbForTest } = await import('../src/db/sqlite.js');
 const { migrate } = await import('../src/db/migrate.js');
 const { insertUser } = await import('./helpers.js');
 const { findUserById } = await import('../src/db/users.js');
@@ -51,10 +51,13 @@ const { registerGameHandlers } = await import('../src/websocket/game-handlers.js
 type Room = import('../src/types/index.js').Room;
 type User = import('../src/db/types.js').User;
 
+// `bun test` runs every file in one process, so the getDb() singleton may
+// already be holding another file's (closed) handle. See forgetDbForTest.
+forgetDbForTest();
 const db = getDb();
 migrate(db, resolve(import.meta.dirname, '../migrations'));
 
-after(() => {
+afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -204,7 +207,17 @@ async function withLobby(run: (lobby: Lobby) => Promise<void>): Promise<void> {
     });
   } finally {
     for (const socket of clients) socket.close();
-    await new Promise<void>(done => io.close(() => done()));
+    /*
+     * `io.close(cb)` waits for the HTTP server underneath to finish closing,
+     * and `httpServer.close(cb)` waits for the live connections to end on
+     * their own. Under Bun the websockets socket.io upgraded are never counted
+     * as ending, so neither callback ever fires and every test in this file
+     * times out in teardown rather than in its own body. Dropping the
+     * remaining connections explicitly reaches the same end state both
+     * runtimes reach on their own once a client is really gone.
+     */
+    io.close();
+    httpServer.closeAllConnections();
     if (httpServer.listening) await new Promise<void>(done => httpServer.close(() => done()));
   }
 }
@@ -515,9 +528,13 @@ test('choosing the game reaches both players with the server\'s own checksum, an
     }
 
     // Changing one's mind before the launch is ordinary use, not an error.
+    // The host's copy is awaited too, or it is still in flight when the next
+    // `once(host, ...)` below goes up and that one resolves with this room.
     const rechosen = once<Room>(guest, 'room:updated');
+    const rechosenByHost = once<Room>(host, 'room:updated');
     host.emit('room:choose-game', { roomId: room.id, gameId: otherGameId, gameTitle: 'Super Metroid' });
     const after = await rechosen;
+    await rechosenByHost;
     assert.equal(after.gameTitle, 'Super Metroid');
     assert.equal(after.gameCrc32, 'CAFEBABE');
     // Overwritten, not merged: the previous game's cover would be visibly wrong.
@@ -1474,9 +1491,18 @@ async function roomOfTwo(lobby: Lobby) {
   guest.emit('lobby:accept', { invitationId: (await delivered).id });
   await acked;
 
+  /*
+   * Both copies, not just the guest's. `room:updated` goes to every member, and
+   * waiting for only one of the two leaves the other still in flight: the next
+   * `once(host, 'room:updated')` a test registers then catches *this* event
+   * instead of the one it is about to provoke, and reads a room from one step
+   * ago. Under `node --test` the host's copy happened to land first and the bug
+   * never showed; it is a race either way.
+   */
   const chosen = once<Room>(guest, 'room:updated');
+  const chosenByHost = once<Room>(host, 'room:updated');
   host.emit('room:choose-game', { roomId: room.id, gameId: lobby.gameId, gameTitle: 'Chrono Trigger' });
-  await chosen;
+  await Promise.all([chosen, chosenByHost]);
 
   return { host, guest, room };
 }

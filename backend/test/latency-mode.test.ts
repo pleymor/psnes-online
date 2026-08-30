@@ -12,7 +12,7 @@
  * tree. `parity` below is what notices if the two ever drift.
  */
 
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { parseLatencyMode } from '../src/utils/latency-mode.js';
 

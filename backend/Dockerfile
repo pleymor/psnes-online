@@ -1,26 +1,25 @@
 ##
 ## Production dependencies installation stage
 ##
-FROM node:20 AS prod-deps
-
-COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
+## Bun is the base image now, not a binary copied into a Node one: nothing in
+## this image runs under Node any more. The last thing that needed a real Node
+## process was better-sqlite3's prebuild fetch, and better-sqlite3 is gone (the
+## backend uses bun:sqlite -- see backend/src/db/sqlite.ts).
+##
+FROM oven/bun:1-debian AS prod-deps
 
 WORKDIR /app
 ENV NODE_ENV=build
 
+# The full workspace shape (root + both member manifests) is required: bun.lock
+# describes a 3-workspace root, and Bun discards/re-resolves against any context
+# that doesn't match that shape, silently floating every version.
 COPY package.json ./
 COPY backend/package.json ./backend/package.json
 COPY frontend/package.json ./frontend/package.json
 COPY bun.lock ./
-COPY scripts ./scripts
 
-# Bun does not run a workspace member's own lifecycle scripts, and does not
-# run the root project's postinstall once --filter narrows the install to
-# one workspace -- so better-sqlite3's native binding (see
-# scripts/fetch-better-sqlite3-prebuild.sh) has to be built explicitly here,
-# it will not happen on its own.
-RUN bun install --production --frozen-lockfile --filter=./backend \
-    && sh scripts/fetch-better-sqlite3-prebuild.sh
+RUN bun install --production --frozen-lockfile --filter=./backend
 
 
 ##
@@ -39,9 +38,10 @@ RUN apt-get update && apt-get install -y \
     libgif-dev \
     librsvg2-dev
 
-# Copy package files and install ALL dependencies (needed for build)
-RUN bun install --frozen-lockfile --filter=./backend \
-    && sh scripts/fetch-better-sqlite3-prebuild.sh
+# The full install, not --production: the build needs typescript and the
+# @types/* packages, @types/bun among them (bun:sqlite has no types without it,
+# and tsc refuses the import).
+RUN bun install --frozen-lockfile --filter=./backend
 
 COPY backend/src ./backend/src
 COPY backend/tsconfig.json ./backend/tsconfig.json
@@ -53,7 +53,7 @@ RUN bun run --filter=./backend build
 ##
 ## Runtime stage
 ##
-FROM node:20-trixie-slim AS production
+FROM oven/bun:1-slim AS production
 
 ENV NODE_ENV=production
 WORKDIR /app
@@ -80,9 +80,12 @@ COPY backend/migrations ./migrations
 # Copy built application from builder
 COPY --from=builder /app/backend/dist ./dist
 
-# Create directories for runtime data (will be mounted as volumes)
+# Create directories for runtime data (will be mounted as volumes).
+# The unprivileged user is `bun` here, where the Node base image called it
+# `node`. Both are uid/gid 1000, so an existing data volume keeps working
+# untouched -- but the *name* changed, and docker-entrypoint.sh names it.
 RUN mkdir -p roms saves data avatars metadata && \
-    chown -R node:node /app
+    chown -R bun:bun /app
 
 # Copy metadata file into image (not in /data to avoid volume shadowing)
 COPY backend/data/snes-metadata.json ./metadata/
@@ -94,4 +97,4 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 EXPOSE 3000
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["node", "dist/index.js"]
+CMD ["bun", "dist/index.js"]

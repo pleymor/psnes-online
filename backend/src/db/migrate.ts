@@ -59,7 +59,7 @@ function hasExistingSchema(db: Database): boolean {
 /**
  * What the baseline alone would produce, built in memory so nothing on disk is
  * touched by the check. This goes through `openDatabase`, not a bare
- * `better-sqlite3` handle: the point of the probe is to compare like with
+ * `bun:sqlite` handle: the point of the probe is to compare like with
  * like, and `openDatabase` is what every real database - the one being
  * compared against - was built with. `foreign_keys = ON` cannot change what
  * `sqlite_master.sql` records for a CREATE TABLE, but `journal_mode = WAL`

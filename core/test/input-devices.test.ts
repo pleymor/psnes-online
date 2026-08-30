@@ -7,7 +7,7 @@
  * a silent player with no error message.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import {

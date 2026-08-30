@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Database } from './sqlite.js';
+import { asBuffer, type Database } from './sqlite.js';
 import type { Game, Save } from './types.js';
 
 export interface SaveWithGame extends Save {
@@ -10,7 +10,8 @@ interface SaveRow {
   id: string;
   name: string;
   slotNumber: number;
-  data: Buffer;
+  /** As bun:sqlite hands a BLOB back; `asBuffer` turns it into the Buffer callers expect. */
+  data: Uint8Array;
   screenshot: string | null;
   createdAt: number;
   updatedAt: number;
@@ -22,7 +23,7 @@ function toSave(row: SaveRow): Save {
     id: row.id,
     name: row.name,
     slotNumber: row.slotNumber,
-    data: row.data,
+    data: asBuffer(row.data),
     screenshot: row.screenshot,
     createdAt: new Date(row.createdAt),
     updatedAt: new Date(row.updatedAt),
@@ -58,7 +59,7 @@ export function findSaveWithGame(db: Database, id: string): SaveWithGame | null 
     region: (row.g_region as string | null) ?? null,
     description: (row.g_description as string | null) ?? null,
     crc32: (row.g_crc32 as string | null) ?? null,
-    sram: (row.g_sram as Buffer | null) ?? null,
+    sram: asBuffer(row.g_sram as Uint8Array | null),
     sramUpdatedAt: row.g_sramUpdatedAt === null ? null : new Date(row.g_sramUpdatedAt as number),
     userId: row.g_userId as string
   };
@@ -68,7 +69,7 @@ export function findSaveWithGame(db: Database, id: string): SaveWithGame | null 
       id: row.id as string,
       name: row.name as string,
       slotNumber: row.slotNumber as number,
-      data: row.data as Buffer,
+      data: asBuffer(row.data as Uint8Array),
       screenshot: (row.screenshot as string | null) ?? null,
       createdAt: row.createdAt as number,
       updatedAt: row.updatedAt as number,

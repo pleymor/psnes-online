@@ -8,7 +8,7 @@
  * field-by-field check would not notice.
  */
 
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { toSelf } from '../src/api/auth.js';
 import type { User } from '../src/db/types.js';

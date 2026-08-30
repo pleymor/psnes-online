@@ -7,7 +7,7 @@
  * which four call sites depend on and none of them can express in a type.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { onlinePlayers } from '../src/rooms/online-players.js';

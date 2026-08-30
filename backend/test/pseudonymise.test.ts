@@ -9,7 +9,7 @@
  * names, and only then the actual 0004.
  */
 
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { copyFileSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -106,7 +106,9 @@ test('the personal columns are gone from the table, not merely blanked', () => {
   const { db, dir } = populatedAt0003(3);
   applySubject(db, dir);
 
-  const columns = db.prepare(`SELECT * FROM "User" LIMIT 0`).columns().map(c => c.name);
+  // bun:sqlite exposes the column names as a property, where
+  // better-sqlite3 had `.columns()` returning descriptor objects.
+  const columns = db.prepare(`SELECT * FROM "User" LIMIT 0`).columnNames;
 
   assert.ok(!columns.includes('email'), 'email should no longer be a column');
   assert.ok(!columns.includes('displayName'), 'displayName should no longer be a column');

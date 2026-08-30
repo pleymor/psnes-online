@@ -7,7 +7,7 @@
  * wins field by field -- and only where it actually has something to say.
  */
 
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mergeIdentity, needsIdentification } from '../src/db/game-identity.js';
 import type { Game } from '../src/db/types.js';

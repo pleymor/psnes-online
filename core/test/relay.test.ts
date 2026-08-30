@@ -7,7 +7,7 @@
  * socket.io intact. A full netplay session then runs over that link.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { once } from 'node:events';
@@ -82,6 +82,14 @@ async function startRig(): Promise<Rig> {
 		url: `http://localhost:${port}`,
 		async close() {
 			io.close();
+			// `http.close()` only stops accepting new connections; it waits for
+			// the live ones to end on their own. Under Bun the websockets
+			// socket.io upgraded are never counted as ending, so 'close' never
+			// fires and every test in this file hangs on teardown. Dropping the
+			// remaining connections explicitly is what Node does when a client
+			// disconnects, so this is the same end state on both runtimes --
+			// just asked for rather than waited for.
+			http.closeAllConnections();
 			http.close();
 			await once(http, 'close').catch(() => {});
 		}
@@ -206,6 +214,13 @@ test('oversized packets are dropped rather than relayed', async () => {
 	await rig.close();
 });
 
+// 4000 frames of a real session through a real socket.io server takes about
+// six seconds, which is past bun:test's 5s default. `node --test` had no
+// default timeout at all, so this number is the one new constraint the runtime
+// move introduces here -- generous enough not to be flaky, tight enough that a
+// hang is still a failure rather than a wait.
+const FULL_SESSION_TIMEOUT_MS = 60_000;
+
 test('a full netplay session runs over the real relay', async () => {
 	const rig = await startRig();
 	const hostSocket = await connect(rig, HOST_ID);
@@ -278,7 +293,7 @@ test('a full netplay session runs over the real relay', async () => {
 	hostSocket.close();
 	guestSocket.close();
 	await rig.close();
-});
+}, FULL_SESSION_TIMEOUT_MS);
 
 test('joining a room the server no longer has answers with an error', async () => {
 	const rig = await startRig();

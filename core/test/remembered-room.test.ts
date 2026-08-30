@@ -8,7 +8,7 @@
  * they are what stop a convenience becoming a room appearing out of nowhere.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import {

@@ -7,7 +7,7 @@
  * one that fails to read back at all, because the lobby then looks fine.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -227,6 +227,13 @@ test('an unchanging world keeps its key alive instead of letting it expire', asy
 	assert.equal(sets.length, 1, 'without rewriting a body that did not change');
 });
 
+// REFRESH_EVERY_TICKS is 3600, so this walks 7200 writes over a map that grows
+// to 7200 rooms, re-serialising the whole thing every tick: half a minute of
+// real work (43s under `node --test`, ~28s here). `node --test` imposed no
+// timeout at all and so never had to say so; bun:test's default is 5s, hence
+// the explicit budget -- wide enough for a slow machine, not unbounded.
+const IDLE_COUNT_TIMEOUT_MS = 180_000;
+
 test('a real write resets the idle count, so an active room never pays for a touch', async () => {
 	resetSnapshotStateForTest();
 
@@ -248,4 +255,4 @@ test('a real write resets the idle count, so an active room never pays for a tou
 	}
 
 	assert.deepEqual(expires, [], 'a world that keeps changing keeps its own key alive');
-});
+}, IDLE_COUNT_TIMEOUT_MS);

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Database } from './sqlite.js';
+import { asBuffer, type Database } from './sqlite.js';
 import type { Game, Save, SaveSummary } from './types.js';
 import { mergeIdentity, needsIdentification, type IdentityFields } from './game-identity.js';
 
@@ -46,7 +46,8 @@ interface GameRow {
   region: string | null;
   description: string | null;
   crc32: string | null;
-  sram: Buffer | null;
+  /** As bun:sqlite hands a BLOB back; `asBuffer` turns it into the Buffer callers expect. */
+  sram: Uint8Array | null;
   sramUpdatedAt: number | null;
   userId: string;
 }
@@ -66,7 +67,7 @@ function toGame(row: GameRow): Game {
     region: row.region,
     description: row.description,
     crc32: row.crc32,
-    sram: row.sram,
+    sram: asBuffer(row.sram),
     sramUpdatedAt: row.sramUpdatedAt === null ? null : new Date(row.sramUpdatedAt),
     userId: row.userId
   };
@@ -158,7 +159,7 @@ export function findGameWithSaves(db: Database, id: string): GameWithSaves | nul
   const game = findGameById(db, id);
   if (!game) return null;
   const rows = db.prepare(`SELECT * FROM "Save" WHERE gameId = ?`).all(id) as {
-    id: string; name: string; slotNumber: number; data: Buffer; screenshot: string | null;
+    id: string; name: string; slotNumber: number; data: Uint8Array; screenshot: string | null;
     createdAt: number; updatedAt: number; gameId: string;
   }[];
   return {
@@ -167,7 +168,7 @@ export function findGameWithSaves(db: Database, id: string): GameWithSaves | nul
       id: r.id,
       name: r.name,
       slotNumber: r.slotNumber,
-      data: r.data,
+      data: asBuffer(r.data),
       screenshot: r.screenshot,
       createdAt: new Date(r.createdAt),
       updatedAt: new Date(r.updatedAt),
@@ -307,10 +308,10 @@ export function findSram(
   db: Database, gameId: string, userId: string
 ): { sram: Buffer; sramUpdatedAt: Date | null } | null {
   const row = db.prepare(`SELECT sram, sramUpdatedAt FROM "Game" WHERE id = ? AND userId = ?`)
-    .get(gameId, userId) as { sram: Buffer | null; sramUpdatedAt: number | null } | undefined;
+    .get(gameId, userId) as { sram: Uint8Array | null; sramUpdatedAt: number | null } | undefined;
   if (!row?.sram) return null;
   return {
-    sram: row.sram,
+    sram: asBuffer(row.sram),
     sramUpdatedAt: row.sramUpdatedAt === null ? null : new Date(row.sramUpdatedAt)
   };
 }

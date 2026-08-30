@@ -30,9 +30,9 @@ de core SNES : il relaie, signale et persiste.
 > [LOCKSTEP_NETPLAY.md](LOCKSTEP_NETPLAY.md) (pourquoi le mode lockstep existe).
 
 ### Backend
-- **Node.js/TypeScript** avec Express
+- **Bun/TypeScript** avec Express
 - **Socket.io** pour WebSocket temps réel et signaling WebRTC
-- **better-sqlite3** pour la base de données
+- **bun:sqlite** pour la base de données
 - **Redis** pour sessions et rooms actives
 - **Passport.js** pour OAuth Google
 - **Multer** pour upload de fichiers
@@ -53,7 +53,7 @@ de core SNES : il relaie, signale et persiste.
 
 ## 📋 Prérequis
 
-- Node.js 20+
+- Bun 1.2+
 - Docker & Docker Compose
 - Compte Google Cloud (pour OAuth)
 
@@ -63,7 +63,7 @@ de core SNES : il relaie, signale et persiste.
 
 ```bash
 cd psnes
-npm install
+bun install
 ```
 
 ### 2. Configuration Google OAuth
@@ -208,7 +208,7 @@ Le détail de `frontend/src/lib/znet/` — le moteur lockstep — est dans
 
 ```bash
 cd backend
-npm install
+bun install
 npm run db:migrate   # Migrations DB
 npm run dev          # Mode dev
 ```
@@ -217,7 +217,7 @@ npm run dev          # Mode dev
 
 ```bash
 cd frontend
-npm install
+bun install
 npm run dev
 npm run check        # svelte-check
 npm run build        # ⚠ à lancer avant de déclarer une branche frontend finie

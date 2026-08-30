@@ -14,7 +14,7 @@
  * handler could trigger would only be testable through one.
  */
 
-import { test, after } from 'node:test';
+import { test, afterAll } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,17 +24,20 @@ const dir = mkdtempSync(join(tmpdir(), 'psnes-user-config-'));
 // Set before the first getDb() call, which only ever happens inside a handler.
 process.env.DATABASE_URL = `file:${join(dir, 'test.db')}`;
 
-const { getDb } = await import('../src/db/sqlite.js');
+const { getDb, forgetDbForTest } = await import('../src/db/sqlite.js');
 const { migrate } = await import('../src/db/migrate.js');
 const { insertUser } = await import('./helpers.js');
 const { updateControlsConfig } = await import('../src/db/users.js');
 const { getUserKeyConfig, writeUserControls } = await import('../src/services/user-config.js');
 const { getDefaultControlsConfig } = await import('../src/utils/key-config.js');
 
+// `bun test` runs every file in one process, so the getDb() singleton may
+// already be holding another file's (closed) handle. See forgetDbForTest.
+forgetDbForTest();
 const db = getDb();
 migrate(db, resolve(import.meta.dirname, '../migrations'));
 
-after(() => {
+afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
 });

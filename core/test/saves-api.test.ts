@@ -7,7 +7,7 @@
  * showed, silently, right before overwriting one.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
   loadFailureReason,

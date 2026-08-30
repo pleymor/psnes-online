@@ -8,7 +8,7 @@
  * and have it overwritten.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { migratedDb, insertUser } from './helpers.js';
 import { createGame } from '../src/db/games.js';

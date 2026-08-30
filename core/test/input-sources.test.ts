@@ -8,7 +8,7 @@
  * `document`) and an in-memory `Storage`.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { applyInputSources, type SourceTarget } from '../../frontend/src/lib/rooms/input-sources.js';
 import type { InputSources } from '../../frontend/src/lib/controls/binding.js';

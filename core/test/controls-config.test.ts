@@ -7,7 +7,7 @@
  * button that does not respond, and nothing upstream catches it.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import {

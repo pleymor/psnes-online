@@ -8,8 +8,10 @@
  * difference that does not exist.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+
+import { optional } from './skip.js';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { deflateRawSync } from 'node:zlib';
 import path from 'node:path';
@@ -77,11 +79,11 @@ test('leaves a plain ROM untouched', async () => {
 	assert.deepEqual([...(await unzipFirstEntry(rom))], [...rom]);
 });
 
-test('a real zipped ROM identifies the same as its extracted form', {
-	skip: existsSync(romsDir) && readdirSync(romsDir).some((f) => f.endsWith('.zip'))
+optional(
+	existsSync(romsDir) && readdirSync(romsDir).some((f) => f.endsWith('.zip'))
 		? false
 		: 'no zipped ROM available locally'
-}, async () => {
+)('a real zipped ROM identifies the same as its extracted form', async () => {
 	const zipped = readdirSync(romsDir).find((f) => f.endsWith('.zip'))!;
 	const data = new Uint8Array(readFileSync(path.join(romsDir, zipped)));
 

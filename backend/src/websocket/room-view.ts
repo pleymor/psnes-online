@@ -60,7 +60,7 @@ function pendingInvitationOf(db: Database, roomId: string): PendingInvitationVie
  * uses this (`websocket/index.ts`, `room-handlers.ts`, `api/rooms.ts`) - making
  * it `async` would turn that into an array of promises, which `socket.emit`
  * and `res.json` serialise as a list of `{}` with no error anywhere. Nothing
- * here needs to be async: better-sqlite3 is synchronous, so `getDb()` plus a
+ * here needs to be async: bun:sqlite is synchronous, so `getDb()` plus a
  * plain call is enough.
  */
 export function toPublicRoom(room: Room) {

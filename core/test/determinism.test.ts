@@ -6,24 +6,25 @@
  * is checked directly rather than inferred from "the game looked fine".
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
+import { optional } from './skip.js';
 import { coreIsBuilt, findTestRom, makeCore, InputTape } from './helpers.js';
 
 const built = coreIsBuilt();
 const rom = built ? findTestRom() : null;
 
-const needsCore = { skip: built ? false : 'core not built - run ./core/build.sh' };
-const needsRom = {
-	skip: !built
+const needsCore = optional(built ? false : 'core not built - run ./core/build.sh');
+const needsRom = optional(
+	!built
 		? 'core not built - run ./core/build.sh'
 		: !rom
 			? 'no test ROM found - set PSNES_TEST_ROM'
 			: false
-};
+);
 
-test('the entropy shims replace host randomness', needsCore, async () => {
+needsCore('the entropy shims replace host randomness', async () => {
 	// The shims are the fix for snes9x seeding 128KB of work RAM from
 	// srand(time(NULL)). If they ever stop being linked in, this fails long
 	// before anyone notices a desync in a real game.
@@ -45,7 +46,7 @@ test('the entropy shims replace host randomness', needsCore, async () => {
 	b.dispose();
 });
 
-test('loading the same ROM twice yields identical machines', needsRom, async () => {
+needsRom('loading the same ROM twice yields identical machines', async () => {
 	const a = await makeCore();
 	const b = await makeCore();
 
@@ -59,7 +60,7 @@ test('loading the same ROM twice yields identical machines', needsRom, async () 
 	b.dispose();
 });
 
-test('two instances fed the same pads stay bit-identical', needsRom, async () => {
+needsRom('two instances fed the same pads stay bit-identical', async () => {
 	const FRAMES = 1800; // ~30 emulated seconds
 
 	const a = await makeCore();
@@ -88,7 +89,7 @@ test('two instances fed the same pads stay bit-identical', needsRom, async () =>
 	b.dispose();
 });
 
-test('a savestate round-trip reproduces the same future', needsRom, async () => {
+needsRom('a savestate round-trip reproduces the same future', async () => {
 	// This is what a resync does: load a state mid-session and keep going. If
 	// the restored machine drifts from the original, resync would turn a
 	// recoverable hiccup into a permanent desync.
@@ -128,7 +129,7 @@ test('a savestate round-trip reproduces the same future', needsRom, async () => 
 	core.dispose();
 });
 
-test('a state transferred between instances continues identically', needsRom, async () => {
+needsRom('a state transferred between instances continues identically', async () => {
 	// The initial handshake in one test: host runs ahead, ships its state, and
 	// from then on both machines must agree frame for frame.
 	const host = await makeCore();
@@ -156,7 +157,7 @@ test('a state transferred between instances continues identically', needsRom, as
 	guest.dispose();
 });
 
-test('different pads actually change the state', needsRom, async () => {
+needsRom('different pads actually change the state', async () => {
 	// A determinism suite passes trivially if input is being ignored. This
 	// pins down that the pads are really reaching the emulated controllers.
 	const a = await makeCore();
@@ -178,7 +179,7 @@ test('different pads actually change the state', needsRom, async () => {
 	b.dispose();
 });
 
-test('the core produces a real picture and real audio', needsRom, async () => {
+needsRom('the core produces a real picture and real audio', async () => {
 	// Guards the output path before anything opens a browser: a core that
 	// emulates perfectly but hands back an empty framebuffer looks identical
 	// to a broken canvas, and the netplay tests would not notice either.
@@ -210,7 +211,7 @@ test('the core produces a real picture and real audio', needsRom, async () => {
 	core.dispose();
 });
 
-test('SRAM survives a savestate round-trip', needsRom, async () => {
+needsRom('SRAM survives a savestate round-trip', async () => {
 	// In-game saves live in SRAM, and a resync replaces the whole machine.
 	// If SRAM were not part of the serialised state, a resync would silently
 	// roll back the other player's save file.

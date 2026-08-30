@@ -7,8 +7,10 @@
  * desync, pointing the blame at the netcode.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+
+import { optional } from './skip.js';
 
 import { compress, decompress } from '../../frontend/src/lib/znet/compress.js';
 import { coreIsBuilt, findTestRom, makeCore, InputTape } from './helpers.js';
@@ -69,9 +71,8 @@ test('rejects corrupt input instead of returning a short state', () => {
 const built = coreIsBuilt();
 const rom = built ? findTestRom() : null;
 
-test(
+optional(!built ? 'core not built' : !rom ? 'no test ROM' : false)(
 	'a real savestate survives, and shrinks by about ten times',
-	{ skip: !built ? 'core not built' : !rom ? 'no test ROM' : false },
 	async () => {
 		const core = await makeCore();
 		core.loadRom(rom!.data);

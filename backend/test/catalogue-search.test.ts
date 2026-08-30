@@ -7,7 +7,7 @@
  * answer and puts it ninth has failed.
  */
 
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { rankCatalogue, SEARCH_LIMIT } from '../src/services/catalogue-search.js';
 import type { GameMetadata } from '../src/db/types.js';

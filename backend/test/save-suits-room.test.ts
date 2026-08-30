@@ -8,7 +8,7 @@
  * whole content of this module, and these tests are what pin that down.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { saveSuitsRoom } from '../src/rooms/save-suits-room.js';
 
