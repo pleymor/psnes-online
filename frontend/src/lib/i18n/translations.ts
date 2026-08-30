@@ -372,7 +372,14 @@ export const translations = {
     copyHandle: 'Copy',
     handleCopied: 'Copied',
     changePseudo: 'Nickname',
-    renameChangesCode: 'Changing it draws a new code, so a code you shared before stops working.'
+    renameChangesCode: 'Changing it draws a new code, so a code you shared before stops working.',
+
+    // The end of a versus match, for the handful of games whose memory layout
+    // has been measured. Players, not nicknames: what the game knows is which
+    // controller port was left standing.
+    matchWonBy: 'Player {player} wins',
+    matchDrawn: 'Double knockout',
+    matchScore: 'Score {p1} - {p2}'
   },
   fr: {
     // Legal disclaimer
@@ -744,7 +751,11 @@ export const translations = {
     copyHandle: 'Copier',
     handleCopied: 'Copié',
     changePseudo: 'Pseudo',
-    renameChangesCode: 'Le changer tire un nouveau code : celui que vous avez déjà partagé cessera de fonctionner.'
+    renameChangesCode: 'Le changer tire un nouveau code : celui que vous avez déjà partagé cessera de fonctionner.',
+
+    matchWonBy: 'Le joueur {player} gagne',
+    matchDrawn: 'Double K.O.',
+    matchScore: 'Score {p1} - {p2}'
   }
 };
 

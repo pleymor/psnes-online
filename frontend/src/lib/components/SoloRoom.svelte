@@ -29,6 +29,9 @@
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import PauseMenu from './PauseMenu.svelte';
   import { language } from '$lib/stores/language';
+  import { notifications } from '$lib/services/notification';
+  import { MatchObserver, watcherFor } from '$lib/games/match-watch';
+  import { verdictMessage } from '$lib/rooms/match-report';
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
@@ -115,6 +118,12 @@
   let menuPressed = false;
   let assignments = loadAssignments(localStorage);
   let session: SoloSession | null = null;
+  /**
+   * Set only for a cartridge whose memory layout has been measured; null for
+   * every other game, which is the honest answer rather than a guess at
+   * addresses that would read as a plausible number in the wrong ROM.
+   */
+  let matchWatch: MatchObserver | null = null;
   let governor: FrameGovernor | null = null;
 
   /** Set once the component is gone, so a suspended boot() cannot build on a corpse. */
@@ -514,15 +523,20 @@
       window.addEventListener('gamepadconnected', applySources);
       window.addEventListener('gamepaddisconnected', applySources);
 
+      matchWatch = createMatchWatch();
+
       session = new SoloSession({
         core,
         readLocalInput: () => ({
           pad1: collector1!.read(),
           pad2: allowLocalPlayer2 && isPlayerActive(assignments.p2) ? collector2!.read() : 0
         }),
-        onFrame: () => {
+        onFrame: (frame) => {
           renderer!.draw(core!);
           audio!.push(core!.audio());
+          // Read-only and on a schedule of its own: observe() costs a modulo on
+          // the frames it skips, which is what makes it safe here.
+          matchWatch?.observe(frame);
         }
       });
 
@@ -732,8 +746,35 @@
     dispatch('quit');
   }
 
+  /**
+   * A watcher for this cartridge, or null.
+   *
+   * Solo counts because the second controller port is a second player on the
+   * same couch: a versus match here is as real as one over the network, and it
+   * is where a new row in the table gets tried out first.
+   */
+  function createMatchWatch(): MatchObserver | null {
+    const watcher = gameCrc32 ? watcherFor(gameCrc32) : null;
+    if (!watcher || !core) return null;
+    logger.info('Watching for a match result', { rom: watcher.rom });
+    // Named rather than returned straight, so the toast reads the score off
+    // the observer that produced the verdict rather than off whatever the
+    // component's field happens to hold by the time it fires.
+    const observer: MatchObserver = new MatchObserver({
+      watcher,
+      // The core's own memory, not a copy. The view is only valid until the
+      // next core call, which is why it is taken per sample rather than kept.
+      readWram: () => core!.wram(),
+      onVerdict: (verdict) => {
+        notifications.show(verdictMessage($language, verdict, observer.score), 'info', 5000);
+      }
+    });
+    return observer;
+  }
+
   function teardown() {
     destroyed = true;
+    matchWatch = null;
     if (sramTimer) clearInterval(sramTimer);
     sramTimer = null;
     // Best-effort, and refused on the one path that matters: quitting a room
