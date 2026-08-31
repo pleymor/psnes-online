@@ -697,9 +697,18 @@ test('a battery save still lands after game:stop, and is refused once the seat i
      * The refusal is silence, not a message: `getMemberRoom` returns null and
      * the handler bails. So a second event that does answer is what proves the
      * save had its turn - the same ordering trick as the quit test below.
+     *
+     * That probe used to be `room:join` answering with an error. It no longer
+     * errors: a room link is now a door for accounts too, and `room:leave`
+     * removes the player synchronously while deleting the empty room waits on
+     * an await - so in that window the room is still there, still waiting, and
+     * the leaver is admitted straight back. The probe therefore waits for the
+     * success answer instead. What is being tested is the SRAM refusal above,
+     * not `room:join`, and that assertion is untouched.
      */
+    const back = once<Room>(player, 'room:updated');
     player.emit('room:join', { roomId: room.id });
-    await refused;
+    await Promise.race([refused, back]);
 
     assert.deepEqual(
       [...findGameById(db, gameId)!.sram!], [0x11, 0x22],
@@ -906,7 +915,7 @@ test('a member can still rejoin, and a room that is gone answers instead of thro
   });
 });
 
-test('room:join is a return trip, not a door: a non-member is refused while a seated player still gets back in', async () => {
+test('room:join ouvre un salon en attente à qui tient le lien, jamais une partie en cours', async () => {
   await withLobby(async ({ alice, bob, client, rooms }) => {
     const host = await client(alice);
     const stranger = await client(bob);
@@ -915,9 +924,21 @@ test('room:join is a return trip, not a door: a non-member is refused while a se
     host.emit('room:create', {});
     const room = await created;
 
-    // Bob was never invited - the invitation is the only door now, and
-    // `room:join` gives him the same answer any other room-scoped event gives
-    // a non-member, rather than letting him in.
+    /*
+     * L'invitation n'est plus la seule porte : partager l'URL d'un salon est
+     * devenu une façon de s'y retrouver, et refuser un ami connecté là où un
+     * inconnu sans compte entrait était l'asymétrie à lever.
+     *
+     * Ce qui reste fermé, et que ce test garde, c'est une partie en cours.
+     */
+    const joined = once<Room>(stranger, 'room:updated');
+    stranger.emit('room:join', { roomId: room.id });
+    await joined;
+    assert.deepEqual(rooms.get(room.id)!.players.map(p => p.userId), [alice.id, bob.id]);
+
+    // Et maintenant la limite : une fois la partie lancée, le lien ne vaut plus.
+    rooms.get(room.id)!.status = 'playing';
+    rooms.get(room.id)!.players = rooms.get(room.id)!.players.filter(p => p.userId === alice.id);
     const refused = once<{ message: string }>(stranger, 'error');
     stranger.emit('room:join', { roomId: room.id });
     assert.equal((await refused).message, 'Room not found');

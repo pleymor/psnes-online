@@ -52,6 +52,32 @@ export function getMemberRoom(
  * que rien ne produit, mais qu'une session recyclée pourrait - ne lui ouvre
  * aucune porte de plus.
  */
+/**
+ * Le lien de salon comme clé, pour un compte.
+ *
+ * La porte sans compte admet le porteur du lien ; `mayEnterRoom` répond
+ * `false` pour un compte. Sans cette fonction un ami connecté se ferait
+ * refuser là où un inconnu sans compte entrerait, et devrait se déconnecter
+ * pour rejoindre - l'asymétrie que « partager l'URL du salon » rend absurde.
+ *
+ * Deux limites, et ce sont elles qui font la règle :
+ *
+ * Une partie en cours reste fermée. Le lien est un point de rendez-vous avant
+ * de jouer ; s'y inviter une fois lancé dérangerait deux joueurs. `joinRoom`
+ * refuse déjà un salon plein, donc la capacité n'est pas retestée ici.
+ *
+ * Un anonyme n'y gagne rien. Sa règle reste celle de sa session, écrite dans
+ * `mayEnterRoom` : cette porte-ci ne lui en ouvre pas une seconde.
+ */
+export function mayEnterByLink(
+  user: { isAnonymous: boolean },
+  room: Room | undefined
+): boolean {
+  if (user.isAnonymous) return false;
+  if (!room) return false;
+  return room.status === 'waiting';
+}
+
 export function getJoinableRoom(
   rooms: Map<string, Room>,
   roomId: string | undefined,
@@ -62,11 +88,18 @@ export function getJoinableRoom(
   const asMember = getMemberRoom(rooms, roomId, user.id, event);
   if (asMember) return asMember;
 
-  if (!mayEnterRoom(user, session, roomId)) return null;
+  const room = roomId ? rooms.get(roomId) : undefined;
 
-  const room = rooms.get(roomId!);
-  if (!room) return null;
+  if (mayEnterRoom(user, session, roomId)) {
+    if (!room) return null;
+    logger.info({ roomId, userId: user.id, event }, 'Anonymous session entering the room its link named');
+    return room;
+  }
 
-  logger.info({ roomId, userId: user.id, event }, 'Anonymous session entering the room its link named');
-  return room;
+  if (mayEnterByLink(user, room)) {
+    logger.info({ roomId, userId: user.id, event }, 'Account entering a waiting room by its link');
+    return room!;
+  }
+
+  return null;
 }

@@ -106,6 +106,25 @@ export function chooseGameForGroup(
  * `room:join` - the same path a reconnection takes. It also gives up whatever
  * room I was in, which is what makes a leftover one-player room a non-case.
  */
+/**
+ * Ouvre un salon sans lancer la partie, et y navigue.
+ *
+ * Le jumeau de `launchSolo`, à un drapeau près : `autoStart: false` fait naître
+ * le salon en attente au lieu de le faire démarrer, ce qui laisse le temps de
+ * partager son lien et de choisir sièges et mode. C'est ce que le serveur fait
+ * déjà quand `autoStart` manque - il n'y avait simplement rien dans l'interface
+ * pour le demander.
+ */
+export async function openRoom(game: { id: string; title: string }): Promise<void> {
+	const roomId = await createRoom({ gameId: game.id, gameTitle: game.title, autoStart: false });
+	if (!roomId) {
+		logger.error('The room was never created, so there was nowhere to go');
+		return;
+	}
+
+	await goto(`/room/${roomId}`);
+}
+
 export async function launchSolo(
 	game: { id: string; title: string },
 	saveId?: string

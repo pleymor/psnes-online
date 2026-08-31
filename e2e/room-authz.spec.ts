@@ -128,6 +128,44 @@ test.describe('room authorization', () => {
    * La porte est nouvelle et non authentifiée, et la seule façon de vérifier
    * qu'elle n'ouvre rien d'autre est de frapper à chacune des autres.
    */
+  test('un compte non ami entre dans un salon en attente dont il tient le lien', async () => {
+    /*
+     * La moitié qui manquait : la porte sans compte admettait le porteur du
+     * lien, mais un ami connecté se faisait refuser au même endroit. Partager
+     * l'URL d'un salon ne pouvait donc pas marcher pour le cas le plus
+     * courant.
+     */
+    await clearFriendships(c1);
+    const room = await createRoom(host, 'Link Join Test');
+
+    const updated = waitForEvent<any>(host, 'room:updated', 5000);
+    outsider.emit('room:join', { roomId: room.id });
+    const seen = await updated;
+
+    expect(seen, 'l hôte doit voir le salon changer').not.toBeNull();
+    expect(seen.players.length, 'deux joueurs assis').toBe(2);
+
+    outsider.emit('room:leave', { roomId: room.id });
+  });
+
+  test('une partie en cours reste fermée au lien', async () => {
+    // Le lien est un point de rendez-vous avant de jouer. S'y inviter une fois
+    // lancé dérangerait deux joueurs, et le serveur refuse de toute façon de
+    // changer le jeu d'un salon qui joue.
+    await clearFriendships(c1);
+    const room = await createRoom(host, 'Playing Room Test');
+
+    host.emit('game:start', { roomId: room.id });
+    await waitForEvent<any>(host, 'game:started', 5000);
+
+    const refused = waitForEvent<any>(outsider, 'error', 5000);
+    outsider.emit('room:join', { roomId: room.id });
+    const err = await refused;
+
+    expect(err, 'le lien ne doit pas ouvrir une partie en cours').not.toBeNull();
+    expect(err.code).toBe('roomGone');
+  });
+
   test('un anonyme entre dans le salon dont il tient le lien, et y prend un siège', async () => {
     await clearFriendships(c1);
     const room = await createRoom(host, 'Anonymous Join Test');

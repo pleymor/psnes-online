@@ -58,7 +58,22 @@ export function anonymousJoinState(input: {
  * Un code inconnu tombe sur un message plutôt que sur rien : un écran muet
  * après un clic est indiscernable d'une page cassée.
  */
-export function anonymousDoorMessage(status: number, error: string): string {
+/**
+ * Les clés que ce refus peut nommer, énumérées plutôt que `string`.
+ *
+ * Avec `string`, `t()` acceptait n'importe quoi et une clé renommée dans les
+ * traductions n'aurait été découverte qu'à l'écran, sous la forme d'une clé
+ * brute affichée au joueur. Le compilateur le voit maintenant.
+ */
+export type DoorMessageKey =
+  | 'anonymousRoomGone'
+  | 'anonymousAlreadySignedIn'
+  | 'pseudoInvalid'
+  | 'anonymousTooManyAttempts'
+  | 'anonymousDisabled'
+  | 'anonymousJoinFailed';
+
+export function anonymousDoorMessage(status: number, error: string): DoorMessageKey {
   switch (error) {
     case 'ROOM_NOT_FOUND':
       return 'anonymousRoomGone';
