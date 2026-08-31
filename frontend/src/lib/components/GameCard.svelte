@@ -7,6 +7,7 @@
   export let game: Game;
   /** No click while a game of mine is already running: the server would refuse it. */
   export let playDisabled = false;
+  export let roomDisabled = false;
   /** « Jouer », or « Jouer avec Bob »: the button says which of the two it is. */
   export let playLabel = '';
 
@@ -19,6 +20,17 @@
 
   function handleCardClick() {
     dispatch('details');
+  }
+
+  /*
+   * Le pendant de « Jouer » : ouvrir un salon plutôt que lancer la partie, pour
+   * pouvoir en partager le lien et choisir sièges et mode avant de démarrer.
+   * Le clic sur la carte lance toujours en solo, cette carte a donc deux
+   * chemins explicites au lieu d'un clic qui devine.
+   */
+  function openRoomClick(event: MouseEvent) {
+    event.stopPropagation();
+    dispatch('room');
   }
 
   function handlePlayClick(event: Event) {
@@ -79,6 +91,14 @@
   <div class="actions">
     <button on:click={handlePlayClick} class="btn-play" disabled={playDisabled}>
       {playLabel || t($language, 'play')}
+    </button>
+    <button
+      on:click={openRoomClick}
+      class="btn-room"
+      disabled={roomDisabled}
+      title={t($language, 'roomButtonHint')}
+    >
+      {t($language, 'roomButton')}
     </button>
     <button on:click={deleteGame} class="btn-delete">
       {t($language, 'delete')}
@@ -239,6 +259,21 @@
     font-size: 0.9375rem;
     font-weight: 500;
     transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .btn-room {
+    flex: 1;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 0.875rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    transition: transform 0.2s, box-shadow 0.2s;
+    background: transparent;
+    border: 1px solid currentColor;
   }
 
   .btn-play:hover:not(:disabled) {

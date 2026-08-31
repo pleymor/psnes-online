@@ -746,6 +746,23 @@
     return 'streamingModeDesc' as const;
   }
 
+  let copiedLink = false;
+
+  /*
+   * Même forme que `copyHandle` sur la page profil, refus silencieux compris :
+   * un presse-papiers refusé ne vaut pas une bannière d'erreur, le lien est
+   * dans la barre d'adresse et peut être copié à la main.
+   */
+  async function copyRoomLink(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      copiedLink = true;
+      setTimeout(() => (copiedLink = false), 2000);
+    } catch (err) {
+      logger.error('Could not copy the room link', err);
+    }
+  }
+
   function setEmulationMode(mode: EmulationMode) {
     if (!view.isCreator) return;
     $socket?.emit('room:setEmulationMode', { roomId, emulationMode: mode });
@@ -790,6 +807,20 @@
 
       {#if room}
         <RoomPlayers {room} {roomId} />
+
+        <!-- Le lien du salon, en clair et copiable.
+             C'est la moitié manquante de la porte sans compte : elle admet le
+             porteur du lien, mais rien ici ne permettait de fabriquer ce lien
+             autrement qu'en copiant la barre d'adresse. Réservé à l'attente :
+             une partie lancée n'accepte plus personne. -->
+        {#if room.status === 'waiting'}
+          <div class="share-room">
+            <button class="btn-share" on:click={copyRoomLink}>
+              {copiedLink ? t($language, 'roomLinkCopied') : t($language, 'copyRoomLink')}
+            </button>
+            <p class="share-hint">{t($language, 'roomLinkHint')}</p>
+          </div>
+        {/if}
 
         <!-- Emulation Mode selector (only shown when 2+ players).
              Three modes now rather than two, so a segmented control replaces
@@ -978,6 +1009,21 @@
     height: auto;
     flex: 1;
     padding: 2rem;
+  }
+
+  .share-room {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.75rem 0;
+  }
+
+  .share-hint {
+    margin: 0;
+    font-size: 0.85rem;
+    opacity: 0.75;
+    text-align: center;
   }
 
   .lobby {

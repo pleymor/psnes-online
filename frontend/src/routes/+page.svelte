@@ -8,6 +8,7 @@
   import { t } from '$lib/i18n/translations';
   import { myRoom } from '$lib/rooms/my-room';
   import { gameClick } from '$lib/rooms/game-click';
+  import { roomIntent } from '$lib/rooms/room-intent';
   import { deviceLibrary } from '$lib/roms/device-library';
   import { resolvableHere } from '$lib/roms/provider';
   import {
@@ -15,6 +16,7 @@
     leaveGroup,
     chooseGameForGroup,
     launchSolo,
+    openRoom,
     cancelGroupInvitation
   } from '$lib/rooms/actions';
   import GameCard from '$lib/components/GameCard.svelte';
@@ -172,6 +174,30 @@
     }
 
     void launchSolo({ id: game.id, title: game.title }, saveId);
+  }
+
+  /*
+   * Le bouton « Salon » : ouvrir un point de rendez-vous plutôt que lancer.
+   *
+   * `roomIntent` porte la décision, pour la même raison que `gameClick` porte
+   * la sienne - trois branches, dont une que personne ne relit si elle vit
+   * dans un template.
+   */
+  async function openRoomFor(game: Game) {
+    const intent = roomIntent($myRoom);
+
+    // Le bouton est désactivé dans cet état ; ceci est la bretelle à cette ceinture.
+    if (intent.kind === 'blocked') return;
+
+    if (intent.kind === 'reuse') {
+      // Un salon existe déjà, et son lien est peut-être déjà parti : on y pose
+      // ce jeu au lieu d'en abandonner un derrière soi.
+      chooseGameForGroup(intent.roomId, { id: game.id, title: game.title });
+      await goto(`/room/${intent.roomId}`);
+      return;
+    }
+
+    await openRoom({ id: game.id, title: game.title });
   }
 
   // 'unknown' is both the starting point and the failure state. This used to
@@ -374,7 +400,9 @@
                 playLabel={inGroup && myPartner && !groupBusy
                   ? t($language, 'playWith', { name: myPartner.pseudo })
                   : t($language, 'play')}
+                roomDisabled={groupBusy || roomIntent($myRoom).kind === 'blocked'}
                 on:play={() => playGame(game)}
+                on:room={() => openRoomFor(game)}
                 on:details={() => selectedGame = game}
                 on:delete={() => handleDeleteRequest(game)}
               />
