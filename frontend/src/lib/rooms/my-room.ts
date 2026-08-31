@@ -121,6 +121,9 @@ function attach(sock: Socket) {
 	);
 	sock.on('room:update', (room: RoomView) => upsert(room));
 	sock.on('room:destroyed', ({ roomId }: { roomId: string }) => forget(roomId));
+	// Le pendant de `room:destroyed` pour un salon qui, lui, survit : il existe
+	// toujours pour ceux qui restent, mais il n'est plus le mien.
+	sock.on('room:left', ({ roomId }: { roomId: string }) => forget(roomId));
 	sock.on('friend:roomCreated', ({ room }: { room: RoomView }) => upsert(room));
 
 	void seed();

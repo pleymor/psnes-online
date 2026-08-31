@@ -605,6 +605,21 @@ export async function handleLeaveRoom(
   // socket: after a restart there is no socket to take out of the channel.
   socket?.leave(roomId);
 
+  /*
+   * Le partant, à qui plus rien ne parvient autrement.
+   *
+   * Tout ce qui suit passe par `io.to(roomId)`, et il vient d'être retiré de ce
+   * canal : il ne recevait donc ni `player:left` ni `room:updated`, gardait le
+   * salon dans son magasin, et voyait le bouton « quitter le groupe » jusqu'à
+   * un rechargement. Quand il était le dernier, `room:destroyed` partait en
+   * `io.emit` global et l'atteignait - le symptôme dépendait donc du nombre de
+   * joueurs restants, ce qui est exactement ce qui le rendait déroutant.
+   *
+   * Émis avant la branche pour que le cas « dernier joueur » le reçoive aussi :
+   * un seul chemin plutôt que deux qui se ressemblent.
+   */
+  socket?.emit('room:left', { roomId });
+
   if (room.players.length === 0) {
     await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'destroyed', getUserSocket);
     // Clean up per-room state so nothing outlives the room itself

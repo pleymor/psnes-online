@@ -915,6 +915,40 @@ test('a member can still rejoin, and a room that is gone answers instead of thro
   });
 });
 
+test('quitter un salon où il reste quelqu un prévient aussi le partant', async () => {
+  /*
+   * Le partant n'apprenait rien.
+   *
+   * `handleLeaveRoom` fait `socket.leave(roomId)` puis émet `player:left` et
+   * `room:updated` avec `io.to(roomId)` : le partant vient d'être retiré de ce
+   * canal, donc il ne reçoit ni l'un ni l'autre. Son magasin gardait le salon,
+   * et le bouton « quitter le groupe » restait affiché jusqu'à un F5.
+   *
+   * Quand il est le dernier, `room:destroyed` part en `io.emit` global et il
+   * l'attrape - d'où un comportement qui dépendait du nombre de joueurs.
+   */
+  await withLobby(async ({ alice, bob, client, rooms }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const joined = once<Room>(host, 'room:updated');
+    guest.emit('room:join', { roomId: room.id });
+    await joined;
+    assert.equal(rooms.get(room.id)!.players.length, 2);
+
+    // Le partant doit être prévenu, alors qu'il reste un joueur derrière lui.
+    const told = once<{ roomId: string }>(guest, 'room:left');
+    guest.emit('room:leave', { roomId: room.id });
+    assert.equal((await told).roomId, room.id);
+
+    assert.deepEqual(rooms.get(room.id)!.players.map(p => p.userId), [alice.id]);
+  });
+});
+
 test('room:join ouvre un salon en attente à qui tient le lien, jamais une partie en cours', async () => {
   await withLobby(async ({ alice, bob, client, rooms }) => {
     const host = await client(alice);
