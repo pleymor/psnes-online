@@ -140,9 +140,15 @@
 <NotificationToast />
 
 <!--
-  Mounted here rather than in the top bar, which only two pages carry: an
-  invitation that arrived while the player was in a lobby, on their profile or
-  on a room screen used to appear nowhere at all.
+  Mounted here rather than in the top bar: an invitation that arrived while the
+  player was in a lobby, on their profile or on a room screen used to appear
+  nowhere at all.
+
+  The bar reaches all three signed-in pages now - it said "only two" here for
+  long enough that the drift was itself worth noticing - but it is still absent
+  from the signed-out landing and from a running game, and it disappears the
+  moment a room goes fullscreen. The layout is the only place that is on screen
+  whatever the player is doing.
 -->
 <InvitationCard />
 

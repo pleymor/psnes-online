@@ -21,12 +21,21 @@
    * this bar. They are now a card mounted in the layout (`InvitationCard`), which
    * appears by itself wherever the player happens to be.
    */
+  import { page } from '$app/stores';
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import FriendsList from './FriendsList.svelte';
   import FriendDetailsModal from './FriendDetailsModal.svelte';
   import { activeRooms } from '$lib/rooms/my-room';
+  import { wayBack } from '$lib/nav/way-back';
+
+  /**
+   * The labelled way back, on the screens where plain navigation is the right
+   * way out - see `way-back.ts` for why that is an allowlist and why the room
+   * screen is not on it.
+   */
+  $: back = wayBack($page.url.pathname);
 
   let showFriends = false;
   let friendsListRef: FriendsList;
@@ -51,7 +60,25 @@
 </script>
 
 <header class="top-bar">
-  <a class="brand" href="/">🎮 PSNES</a>
+  <div class="left">
+    <!--
+      The brand still goes home, because it always has and people who know that
+      convention keep using it. It is no longer the only thing that does.
+    -->
+    <a class="brand" class:redundant={!!back} href="/">🎮 PSNES</a>
+
+    {#if back}
+      <!--
+        Said in words, and wearing the bar's own button shape: the whole finding
+        behind this is that a way back which has to be guessed at is not one.
+        The arrow is decoration next to the label, not a substitute for it.
+      -->
+      <a class="bar-button back" href={back.href}>
+        <span aria-hidden="true">←</span>
+        {t($language, back.label)}
+      </a>
+    {/if}
+  </div>
 
   <div class="right">
     <button class="bar-button" class:on={showFriends} on:click={toggleFriends}>
@@ -107,6 +134,13 @@
     border-bottom: 1px solid #2e2e2e;
   }
 
+  .left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
   .brand {
     color: #fff;
     text-decoration: none;
@@ -131,6 +165,16 @@
   .bar-button.on {
     background: #3a4a5a;
     border-color: #667eea;
+  }
+
+  /* A link that has to read as a control, so it borrows the shape of the one
+     control the bar already had rather than introducing a second one. */
+  .back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    text-decoration: none;
+    white-space: nowrap;
   }
 
   .avatar {
@@ -166,6 +210,16 @@
     border: 1px solid #2e2e2e;
     border-radius: 8px;
     z-index: 100;
+  }
+
+  /* No room for both, and they lead to the same place. The one that survives is
+     the one that says where it goes: dropping the labelled link and keeping the
+     logo would be exactly the bug this change exists to fix, on the screen size
+     where it bites hardest. */
+  @media (max-width: 480px) {
+    .brand.redundant {
+      display: none;
+    }
   }
 
   /* Too narrow for a column: take the screen, same reason as the pause panel. */
