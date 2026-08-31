@@ -27,6 +27,7 @@
   import { TouchPad, touchPadWanted } from '$lib/controls/touch';
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
+  import { readAspectPreference, writeAspectPreference } from '$lib/stores/aspect-preference';
   import PauseMenu from './PauseMenu.svelte';
   import { language } from '$lib/stores/language';
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
@@ -256,7 +257,13 @@
    */
   async function onDisplayChange(next: DisplayOptions): Promise<void> {
     const shaderChanged = next.shader !== display.shader;
+    const aspectChanged = next.aspect !== display.aspect;
     display = next;
+
+    // Remembered like the shader beside it. It used to be session state, which
+    // meant a reload put the picture back to square pixels every time - and
+    // meant the configuration export had nothing to export.
+    if (aspectChanged) writeAspectPreference(localStorage, next.aspect);
     if (!shaderChanged) return;
 
     // Remembered the same way the profile page remembers it.
@@ -478,9 +485,11 @@
       }
 
       const storedShader = readShaderPreference(localStorage);
-      if (storedShader) {
-        display = { ...display, shader: storedShader };
-      }
+      display = {
+        ...display,
+        aspect: readAspectPreference(localStorage),
+        ...(storedShader ? { shader: storedShader } : {})
+      };
 
       renderer = new CanvasRenderer(canvas2d);
       renderer.draw(core);

@@ -35,6 +35,7 @@
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
+  import { readAspectPreference, writeAspectPreference } from '$lib/stores/aspect-preference';
   import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
   import {
     AudioSink,
@@ -298,7 +299,12 @@
    */
   async function onDisplayChange(next: DisplayOptions): Promise<void> {
     const shaderChanged = next.shader !== display.shader;
+    const aspectChanged = next.aspect !== display.aspect;
     display = next;
+
+    // Remembered like the shader beside it: it is a display choice, and a
+    // display choice that dies on reload is not part of anyone's profile.
+    if (aspectChanged) writeAspectPreference(localStorage, next.aspect);
     if (!shaderChanged) return;
 
     writeShaderPreference(localStorage, next.shader);
@@ -513,7 +519,7 @@
       // The shader preference is global and already set from the profile
       // page; the lockstep path simply never honoured it until now.
       const storedShader = readShaderPreference(localStorage);
-      display = { ...display, shader: storedShader };
+      display = { ...display, shader: storedShader, aspect: readAspectPreference(localStorage) };
 
       renderer = new CanvasRenderer(canvas2d);
       renderer.draw(core);

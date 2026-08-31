@@ -12,7 +12,7 @@
   import { goto } from '$app/navigation';
   import { user, userLoading } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
-  import { t } from '$lib/i18n/translations';
+  import { t, type TranslationKey } from '$lib/i18n/translations';
   import { normaliseControlsConfig, type ControlsConfig } from '$lib/controls/binding';
   import TopBar from '$lib/components/TopBar.svelte';
   import ControlsSettings from '$lib/components/ControlsSettings.svelte';
@@ -21,6 +21,16 @@
   import RomSourcePanel from '$lib/components/RomSourcePanel.svelte';
   import { SHADERS } from '$lib/shaders';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
+  import {
+    MAX_CONFIG_BYTES,
+    applyConfig,
+    configFileName,
+    gatherConfig,
+    readConfigFile,
+    serialiseConfig,
+    type ImportNotice,
+    type ImportRefusal
+  } from '$lib/config/portable-config';
   import { romFileProblem, ACCEPT } from '$lib/roms/rom-file';
   import { registerGame } from '$lib/roms/local-library';
   import { setPageTitle } from '$lib/utils/page-title';
@@ -42,6 +52,10 @@
   let shader = '';
   let refreshing = false;
   let refreshMessage = '';
+  let configBusy = false;
+  let configMessage = '';
+  let configError = '';
+  let configNotices: ImportNotice[] = [];
   let loggingOut = false;
   let logoutMessage = '';
 
@@ -223,6 +237,114 @@
     writeShaderPreference(localStorage, id);
   }
 
+  /*
+   * Carrying a configuration to another machine.
+   *
+   * Deliberately not a backup: a backup server already stands between anyone
+   * and losing data, and calling this one would invite a player to treat a file
+   * in their downloads folder as a safety net. What it is for is the second
+   * machine, and the second account - rebinding twelve buttons by hand twice is
+   * the thing worth removing.
+   *
+   * The file is its own, not the same envelope as the saves export: it is small
+   * enough that a player can open it and check for themselves that it holds no
+   * account of theirs, which an archive of opaque save blobs never will be.
+   */
+  const REFUSALS: Record<ImportRefusal, TranslationKey> = {
+    notJson: 'configNotJson',
+    notAConfigFile: 'configNotAConfigFile',
+    fromANewerBuild: 'configFromANewerBuild',
+    tooLarge: 'configTooLarge'
+  };
+
+  const NOTICES: Record<ImportNotice, TranslationKey> = {
+    controlsDropped: 'configControlsDropped',
+    controlsKeyboardRestored: 'configControlsKeyboardRestored',
+    controlsPadOnly: 'configControlsPadOnly',
+    languageDropped: 'configLanguageDropped',
+    aspectDropped: 'configAspectDropped',
+    shaderDropped: 'configShaderDropped',
+    latencyDropped: 'configLatencyDropped'
+  };
+
+  function exportConfig(): void {
+    // Guarded by `disabled` on the button too: exporting while the controls are
+    // still in flight would hand the player a file holding defaults they never
+    // chose, under a name that says it is theirs.
+    if (!controlsConfig) return;
+
+    const now = new Date();
+    const blob = new Blob([serialiseConfig(gatherConfig(localStorage, controlsConfig, now))], {
+      type: 'application/json'
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = configFileName(now);
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importConfig(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    // Cleared straight away, so choosing the same file twice fires again -
+    // which is exactly what someone does after fixing it by hand.
+    input.value = '';
+    if (!file) return;
+
+    configBusy = true;
+    configMessage = '';
+    configError = '';
+    configNotices = [];
+    try {
+      if (file.size > MAX_CONFIG_BYTES) {
+        configError = t($language, 'configTooLarge');
+        return;
+      }
+
+      const result = readConfigFile(await file.text());
+      if (!result.ok) {
+        configError = t($language, REFUSALS[result.reason]);
+        return;
+      }
+
+      // The server first, because it is the half that can refuse. The controls
+      // go back out through PUT /api/user/controls rather than into the column:
+      // that route validates a second time and writes through
+      // `writeUserControls`, which invalidates the five-minute cache the room
+      // reads player 1's keys from. A write that skipped it would leave a room
+      // on the old bindings, and the symptom would appear minutes later on a
+      // different screen.
+      if (result.config.controls) {
+        const res = await fetch('/api/user/controls', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(result.config.controls)
+        });
+        if (!res.ok) {
+          configError = t($language, 'configControlsRefused');
+          return;
+        }
+        controlsConfig = normaliseControlsConfig((await res.json()).config);
+      }
+
+      applyConfig(localStorage, result.config);
+      shader = readShaderPreference(localStorage);
+      // The store caches the language it read at boot; the import wrote past it.
+      language.refresh();
+
+      configNotices = result.notices;
+      configMessage = t($language, 'configImported');
+    } catch (error) {
+      logger.error('Configuration import failed', error);
+      configError = t($language, 'configImportFailed');
+    } finally {
+      configBusy = false;
+    }
+  }
+
   async function refreshMetadata(): Promise<void> {
     refreshing = true;
     refreshMessage = '';
@@ -389,6 +511,30 @@
       <section class="card">
         <h2>{t($language, 'language')}</h2>
         <LanguageSelector />
+      </section>
+
+      <section class="card">
+        <h2>{t($language, 'myConfiguration')}</h2>
+        <p class="note">{t($language, 'configExplain')}</p>
+        <div class="config-actions">
+          <button on:click={exportConfig} disabled={!controlsConfig || configBusy}>
+            {t($language, 'exportConfiguration')}
+          </button>
+          <label class="import">
+            <span>{t($language, 'importConfiguration')}</span>
+            <input
+              type="file"
+              accept="application/json,.json"
+              disabled={configBusy}
+              on:change={importConfig}
+            />
+          </label>
+        </div>
+        {#if configMessage}<p class="note">{configMessage}</p>{/if}
+        {#if configError}<p class="note error">{configError}</p>{/if}
+        {#each configNotices as notice}
+          <p class="note">{t($language, NOTICES[notice])}</p>
+        {/each}
       </section>
 
       <section class="card">
@@ -682,6 +828,51 @@
     margin: 0.5rem 0 0;
     color: #aaa;
     font-size: 0.9rem;
+  }
+
+  .config-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  /* The file input itself is unstyleable across browsers, so the label is the
+     control and the input is hidden inside it - clicking the label opens the
+     picker, and keyboard focus still lands on the input. */
+  .import {
+    position: relative;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    background: #333;
+    border: 2px solid transparent;
+    color: #fff;
+    padding: 0.45rem 0.8rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .import:hover {
+    background: #444;
+  }
+
+  .import:focus-within {
+    border-color: #666;
+  }
+
+  .import:has(input:disabled) {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .import input {
+    position: absolute;
+    inset: 0;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
   }
 
   .note.error {

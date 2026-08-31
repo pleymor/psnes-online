@@ -330,6 +330,28 @@ export const translations = {
     saveStates: 'Save States',
     uploaded: 'Uploaded',
 
+    // Carrying a configuration to another machine. Not a backup - the backup
+    // server is what stands between a player and losing anything - but the
+    // twelve bindings, the language and the display settings in one file.
+    myConfiguration: 'My configuration',
+    configExplain: 'Your controls, language and display settings in one file, to carry to another machine or another account. It holds nothing that identifies you, and no saves.',
+    exportConfiguration: 'Export',
+    importConfiguration: 'Import a file',
+    configImported: 'Configuration imported.',
+    configNotJson: 'That file is not readable. A configuration file is JSON text.',
+    configNotAConfigFile: 'That is not a psnes configuration file.',
+    configFromANewerBuild: 'That file was written by a newer version of psnes. Reload the page and try again.',
+    configTooLarge: 'That file is far too big to be a configuration.',
+    configImportFailed: 'The file could not be read.',
+    configControlsRefused: 'The server refused those controls. Nothing was changed.',
+    configControlsDropped: 'The controls in that file were unreadable and were left as they are.',
+    configControlsKeyboardRestored: 'Some buttons were bound to a controller only. They have their default keys back, so they work here too.',
+    configControlsPadOnly: 'Some buttons are still bound to a controller only: their default keys were already in use.',
+    configLanguageDropped: 'The language in that file is not one we speak; yours was kept.',
+    configAspectDropped: 'The picture shape in that file is not one we know; yours was kept.',
+    configShaderDropped: 'The shader in that file is no longer offered; yours was kept.',
+    configLatencyDropped: 'Some latency settings in that file were unreadable and were skipped.',
+
     // Shaders
     display: 'Display',
     shader: 'Shader',
@@ -723,6 +745,28 @@ export const translations = {
     region: 'Région',
     saveStates: 'États de sauvegarde',
     uploaded: 'Uploadé',
+
+    // Emporter sa configuration sur une autre machine. Pas une sauvegarde de
+    // sécurité - c'est le serveur de sauvegarde qui joue ce rôle - mais les
+    // douze touches, la langue et l'affichage dans un seul fichier.
+    myConfiguration: 'Ma configuration',
+    configExplain: "Vos contrôles, votre langue et vos réglages d'affichage dans un fichier, à emporter sur une autre machine ou un autre compte. Il ne contient rien qui vous identifie, ni aucune sauvegarde.",
+    exportConfiguration: 'Exporter',
+    importConfiguration: 'Importer un fichier',
+    configImported: 'Configuration importée.',
+    configNotJson: "Ce fichier est illisible. Un fichier de configuration est du texte JSON.",
+    configNotAConfigFile: "Ce n'est pas un fichier de configuration psnes.",
+    configFromANewerBuild: 'Ce fichier a été écrit par une version plus récente de psnes. Rechargez la page et réessayez.',
+    configTooLarge: 'Ce fichier est bien trop gros pour être une configuration.',
+    configImportFailed: "Le fichier n'a pas pu être lu.",
+    configControlsRefused: "Le serveur a refusé ces contrôles. Rien n'a été modifié.",
+    configControlsDropped: 'Les contrôles de ce fichier étaient illisibles ; les vôtres sont inchangés.',
+    configControlsKeyboardRestored: 'Certains boutons étaient associés à une manette seulement. Leurs touches par défaut sont rétablies, pour qu\'ils répondent aussi ici.',
+    configControlsPadOnly: 'Certains boutons restent associés à une manette seulement : leurs touches par défaut étaient déjà prises.',
+    configLanguageDropped: 'La langue de ce fichier ne fait pas partie des nôtres ; la vôtre est conservée.',
+    configAspectDropped: "Le format d'image de ce fichier est inconnu ; le vôtre est conservé.",
+    configShaderDropped: "Le shader de ce fichier n'est plus proposé ; le vôtre est conservé.",
+    configLatencyDropped: 'Certains réglages de latence de ce fichier étaient illisibles et ont été ignorés.',
 
     // Shaders
     display: 'Affichage',
