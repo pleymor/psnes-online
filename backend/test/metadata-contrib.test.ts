@@ -7,7 +7,7 @@
  * deleting an account destroys the work it left behind.
  */
 
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { migratedDb, insertUser } from './helpers.js';
 import {

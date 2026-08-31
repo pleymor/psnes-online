@@ -7,7 +7,7 @@
  * here checks that the narrower contract is real rather than merely declared.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

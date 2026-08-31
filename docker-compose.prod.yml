@@ -16,7 +16,7 @@ services:
       - DATABASE_URL=file:/app/data/prod.db
     volumes:
       - backend-data:/app/data
-    command: node dist/db/migrate-cli.js
+    command: bun dist/db/migrate-cli.js
     restart: "no"
 
   backend:

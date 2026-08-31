@@ -8,7 +8,7 @@
  * côte dans le même fichier.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { memoryKeptFiles, keptFilesAvailable } from '../../frontend/src/lib/roms/kept-files.js';

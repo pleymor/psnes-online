@@ -7,7 +7,7 @@
  * hand-rolled copies, one of which had forgotten to purge a stale value.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { romSourceState } from '../../frontend/src/lib/roms/source-state.js';
 import { pickerError } from '../../frontend/src/lib/roms/picker-error.js';

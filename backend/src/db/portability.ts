@@ -15,6 +15,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { Database } from './sqlite.js';
+import { asBuffer } from './sqlite.js';
 import { MAX_GAMES_PER_USER } from './games.js';
 import type { ExportableGame, SaveArchive } from '../saves/archive.js';
 import { planGameImport, type ExistingGameState } from '../saves/import-plan.js';
@@ -66,7 +67,11 @@ export function exportableLibrary(
     crc32: row.crc32,
     title: row.title,
     filename: row.filename,
-    sram: row.sram,
+    // bun:sqlite rend un Uint8Array, pas un Buffer. Sans cette conversion, le
+    // `.toString('base64')` de buildArchive produit une liste de nombres
+    // separes par des virgules, que parseArchive rejette : un export de
+    // sauvegardes silencieusement illisible, plutot qu'une erreur.
+    sram: asBuffer(row.sram),
     sramUpdatedAt: row.sramUpdatedAt === null ? null : new Date(row.sramUpdatedAt),
     saves: (saves.all(row.id) as {
       name: string; slotNumber: number; data: Buffer;
@@ -74,7 +79,7 @@ export function exportableLibrary(
     }[]).map(save => ({
       name: save.name,
       slotNumber: save.slotNumber,
-      data: save.data,
+      data: asBuffer(save.data),
       screenshot: save.screenshot,
       createdAt: new Date(save.createdAt),
       updatedAt: new Date(save.updatedAt)

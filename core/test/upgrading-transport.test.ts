@@ -6,7 +6,7 @@
  * *when* to switch, and none of it needs a real data channel.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { UpgradingTransport } from '../../frontend/src/lib/znet/upgrading-transport.js';

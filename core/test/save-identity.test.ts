@@ -9,7 +9,7 @@
  * gives the tile its width back; the CSS only stops the bleeding.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { autoSaveName } from '../../frontend/src/lib/saves/api.js';

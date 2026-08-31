@@ -12,7 +12,7 @@
  * never touches the network.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { parsePreset, resolveShaderUrl, presetUrl } from '../../frontend/src/lib/znet/preset.js';
 

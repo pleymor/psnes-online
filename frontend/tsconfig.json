@@ -1,6 +1,11 @@
 {
+  "//paths": "Duplicates what .svelte-kit/tsconfig.json generates, because the test runner cannot rely on that file existing. Bun picks the tsconfig closest to the file being imported, not the one next to the cwd -- so for frontend/src/lib/**, this file is the one that answers, and the root tsconfig's $lib mapping never gets a look in. Without this, every core/test that reaches a frontend module importing $lib fails to resolve when `svelte-kit sync` has not run (a fresh clone, CI, a Docker build).",
   "extends": "./.svelte-kit/tsconfig.json",
   "compilerOptions": {
+    "paths": {
+      "$lib": ["./src/lib"],
+      "$lib/*": ["./src/lib/*"]
+    },
     "allowJs": true,
     "checkJs": true,
     "esModuleInterop": true,

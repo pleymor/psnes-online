@@ -14,7 +14,7 @@
  * behaviours below can be observed at all.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { createPadWatcher } from '../../frontend/src/lib/controls/pad-watch.js';

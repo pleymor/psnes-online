@@ -8,10 +8,14 @@ import { logger } from '../utils/logger.js';
  * websocket/ which index.ts already imports - so keeping the client in
  * index.ts would mean an import cycle.
  *
- * The client is built inside connectRedis() rather than at module scope
- * because index.ts calls dotenv.config() *after* its imports run: reading
- * REDIS_HOST at import time would quietly fall back to localhost in
- * development, where the host comes from .env.
+ * The client is built inside connectRedis() rather than at module scope. That
+ * was originally because index.ts loaded dotenv *after* its imports ran, so
+ * reading REDIS_HOST at import time would quietly fall back to localhost in
+ * development; Bun loads .env before any module runs, so that particular trap
+ * is gone. The lazy construction stays regardless: connectRedis() is the only
+ * thing that decides when a socket is opened, and a module-scope client would
+ * dial Redis merely because something imported this file - in a test, in a
+ * migration, in a script that never needs it.
  */
 let client: RedisClientType | null = null;
 

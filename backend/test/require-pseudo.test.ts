@@ -6,7 +6,7 @@
  * req.user, so it needs neither an HTTP server nor a database to pin down.
  */
 
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { requirePseudo } from '../src/middleware/auth.js';
 

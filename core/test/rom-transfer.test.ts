@@ -10,7 +10,7 @@
  * that cannot complete has to fail rather than resolve to something plausible.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { crc32 } from '../../frontend/src/lib/roms/checksum.js';

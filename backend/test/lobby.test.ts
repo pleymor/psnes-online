@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { requireGame } from '../src/rooms/require-game.js';
 import { invitationState } from '../src/rooms/invitation-state.js';

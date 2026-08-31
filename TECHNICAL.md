@@ -783,7 +783,7 @@ flowchart LR
   P["push sur main"] --> T["trigger-deploy.yml"]
   T -->|repository_dispatch| I["dépôt infra privé<br/>deploy.yml"]
   I --> B["build des images<br/>→ GHCR"]
-  B --> M["service migrations<br/>node dist/db/migrate-cli.js"]
+  B --> M["service migrations<br/>bun dist/db/migrate-cli.js"]
   M -->|service_completed_successfully| S["backend + frontend<br/>recréés sur le VPS"]
   S --> L["les logs du conteneur<br/>sont détruits"]
 ```

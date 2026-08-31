@@ -8,7 +8,7 @@
  * than on a keyboard, since there is no second device to press the key again.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import {

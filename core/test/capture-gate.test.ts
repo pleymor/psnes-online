@@ -9,7 +9,7 @@
  * lives in one place and is tested here rather than eyeballed in the browser.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { CaptureGate } from '../../frontend/src/lib/controls/capture-gate.js';

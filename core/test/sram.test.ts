@@ -5,7 +5,7 @@
  * tested); this only decides when there is nothing to encode.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { encodeSram, decodeSram, type SramCore } from '../../frontend/src/lib/rooms/sram.js';
 

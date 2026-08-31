@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { migratedDb } from './helpers.js';
 import {
@@ -37,7 +37,8 @@ test('a created entry is counted, listed and found by checksum', () => {
 test('optional fields survive as null rather than undefined', () => {
   const db = migratedDb();
   // The shipped JSON catalogue has holes: a missing key parses as `undefined`,
-  // not `null`, and better-sqlite3 throws if that reaches a bound parameter.
+  // not `null`, and an absent key is what bun:sqlite refuses when it reaches a
+  // bound parameter.
   const holey = { ...ENTRY } as Partial<typeof ENTRY>;
   delete holey.altTitle;
   delete holey.coverUrl;

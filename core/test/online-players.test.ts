@@ -9,7 +9,7 @@
  * somebody who is not there.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { onlinePlayers } from '../../frontend/src/lib/rooms/online-players.js';

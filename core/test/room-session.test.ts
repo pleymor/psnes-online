@@ -9,7 +9,7 @@
  * navigations later.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { deriveRoomView, subscribeToRoom } from '../../frontend/src/lib/rooms/room-session.js';
 import { EmulationMode, type KeyConfig, type Room, type RoomPlayer } from '../../frontend/src/lib/types.js';

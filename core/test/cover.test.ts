@@ -8,7 +8,7 @@
  * format back out of the result is the only way to notice.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
   COVER_MAX_WIDTH,

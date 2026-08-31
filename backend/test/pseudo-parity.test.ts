@@ -13,7 +13,7 @@
  * run - core/test/profile.test.ts has been importing across for a while.
  */
 
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import * as server from '../src/utils/pseudo.js';
 import * as browser from '../../frontend/src/lib/pseudo.js';

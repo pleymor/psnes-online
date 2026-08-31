@@ -8,21 +8,22 @@
  * when either is missing.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
+import { optional } from './skip.js';
 import { coreIsBuilt, crc32, findTestRom, makeCore, InputTape } from './helpers.js';
 import { NetplayHarness } from './harness.js';
 
 const built = coreIsBuilt();
 const rom = built ? findTestRom() : null;
-const needsRom = {
-	skip: !built
+const needsRom = optional(
+	!built
 		? 'core not built - run ./core/build.sh'
 		: !rom
 			? 'no test ROM found - set PSNES_TEST_ROM'
 			: false
-};
+);
 
 function options(frames: number, extra: Record<string, unknown> = {}) {
 	return {
@@ -38,7 +39,7 @@ function options(frames: number, extra: Record<string, unknown> = {}) {
 	};
 }
 
-test('a real session on a clean link stays bit-identical', needsRom, async () => {
+needsRom('a real session on a clean link stays bit-identical', async () => {
 	const harness = await NetplayHarness.create(
 		options(6000, { link: { latency: 25, jitter: 5, seed: 1 }, inputDelay: 3 })
 	);
@@ -53,7 +54,7 @@ test('a real session on a clean link stays bit-identical', needsRom, async () =>
 	harness.dispose();
 });
 
-test('a real session survives a hostile link', needsRom, async () => {
+needsRom('a real session survives a hostile link', async () => {
 	const harness = await NetplayHarness.create(
 		options(6000, {
 			link: { latency: 150, jitter: 60, loss: 0.05, seed: 0xbadbad },
@@ -71,7 +72,7 @@ test('a real session survives a hostile link', needsRom, async () => {
 	harness.dispose();
 });
 
-test('a real session recovers from a corrupted peer', needsRom, async () => {
+needsRom('a real session recovers from a corrupted peer', async () => {
 	const harness = await NetplayHarness.create(
 		options(6000, { link: { latency: 30, jitter: 5, seed: 7 }, crcInterval: 30, inputDelay: 3 })
 	);

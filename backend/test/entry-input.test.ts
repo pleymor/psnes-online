@@ -3,11 +3,11 @@
  *
  * Everything is optional by design, which means this function's job is to turn
  * an arbitrary JSON body into a row that cannot be malformed: no undefined
- * (better-sqlite3 throws on binding one), no empty strings pretending to be
+ * (a bound parameter has to have a value), no empty strings pretending to be
  * values, and a title, because the column is NOT NULL.
  */
 
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { sanitiseEntry, MAX_FIELD, MAX_DESCRIPTION } from '../src/api/entry-input.js';
 

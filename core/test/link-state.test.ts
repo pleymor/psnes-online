@@ -13,7 +13,7 @@
  * "connection lost" is a lie to someone who never had one.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { get } from 'svelte/store';
 

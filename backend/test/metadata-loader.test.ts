@@ -1,9 +1,9 @@
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { openDatabase, getDb } from '../src/db/sqlite.js';
+import { openDatabase, getDb, forgetDbForTest } from '../src/db/sqlite.js';
 import { migrate } from '../src/db/migrate.js';
 import { countGameMetadata, listGameMetadata } from '../src/db/game-metadata.js';
 import { refreshGameMetadata } from '../src/services/metadata-loader.js';
@@ -24,6 +24,9 @@ migrate(setupDb, resolve(import.meta.dirname, '../migrations'));
 setupDb.close();
 
 process.env.DATABASE_URL = `file:${dbFile}`;
+// `bun test` runs every file in one process, so the getDb() singleton may
+// already be holding another file's (closed) handle. See forgetDbForTest.
+forgetDbForTest();
 const db = getDb();
 
 const GOOD_ENTRY = { title: 'Super Metroid', crc32: 'D63ED5F8', md5: 'abc123' };

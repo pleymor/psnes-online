@@ -12,7 +12,7 @@
  * So the guest must not ask. That is one condition, and this is where it lives.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { resumeSaveToRequest } from '../../frontend/src/lib/rooms/resume-save.js';

@@ -6,7 +6,7 @@
  * got wrong is pulled out to where it can be pinned down.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { toBase64, fromBase64 } from '../../frontend/src/lib/saves/base64.js';

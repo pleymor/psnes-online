@@ -10,7 +10,7 @@
  * `online-players.test.ts` already does.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { gameClick } from '../../frontend/src/lib/rooms/game-click.js';

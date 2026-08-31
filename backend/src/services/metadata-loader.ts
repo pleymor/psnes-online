@@ -211,8 +211,8 @@ export async function findGameMetadataByChecksum(checksum: string): Promise<any 
 /**
  * Refreshes/reloads metadata (useful for updates).
  *
- * The read and parse happen first, entirely before any write: better-sqlite3
- * transactions cannot span an `await`, so the file has to be off the disk and
+ * The read and parse happen first, entirely before any write: SQLite
+ * transactions here cannot span an `await`, so the file has to be off the disk and
  * in memory before the transaction opens, not merely reordered inside it.
  * Delete and insert then run as one transaction, so a bad JSON file or a
  * malformed entry leaves the previous catalogue exactly as it was, instead of

@@ -9,7 +9,7 @@
  * appeared until they reloaded the page.
  */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import { Presence } from '../../backend/src/websocket/presence.js';
