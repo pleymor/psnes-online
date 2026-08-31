@@ -452,7 +452,13 @@ export const translations = {
     anonymousTooManyAttempts: 'Too many attempts. Try again later.',
     anonymousDisabled: 'This server asks everyone to sign in.',
     anonymousJoinFailed: 'Could not join this room.',
-    pseudoInvalid: 'A name is {min} to {max} characters: letters, digits, - and _'
+    pseudoInvalid: 'A name is {min} to {max} characters: letters, digits, - and _',
+    // The end of a versus match, for the handful of games whose memory layout
+    // has been measured. Players, not nicknames: what the game knows is which
+    // controller port was left standing.
+    matchWonBy: 'Player {player} wins',
+    matchDrawn: 'Double knockout',
+    matchScore: 'Score {p1} - {p2}'
   },
   fr: {
     // Legal disclaimer
@@ -895,7 +901,10 @@ export const translations = {
     anonymousTooManyAttempts: 'Trop de tentatives. Réessayez plus tard.',
     anonymousDisabled: 'Ce serveur demande à tout le monde de se connecter.',
     anonymousJoinFailed: 'Impossible de rejoindre ce salon.',
-    pseudoInvalid: 'Un nom fait de {min} à {max} caractères : lettres, chiffres, - et _'
+    pseudoInvalid: 'Un nom fait de {min} à {max} caractères : lettres, chiffres, - et _',
+    matchWonBy: 'Le joueur {player} gagne',
+    matchDrawn: 'Double K.O.',
+    matchScore: 'Score {p1} - {p2}'
   }
 };
 

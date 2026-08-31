@@ -238,6 +238,24 @@ export class PsnesCore {
 		return this.module._pn_wram_crc() >>> 0;
 	}
 
+	/**
+	 * A live view of work RAM, with no copy.
+	 *
+	 * Like `videoSurface`, it points into wasm memory and is only valid until
+	 * the next core call - anything that can grow the heap invalidates it. Read
+	 * what is needed and forget it.
+	 *
+	 * Read-only by convention, and the convention is load-bearing: in lockstep
+	 * both peers run the same emulation, so a write here would fork the two
+	 * machines from a place the netcode has no way to see.
+	 */
+	wram(): Uint8Array {
+		const size = this.module._pn_wram_size();
+		if (size <= 0) return new Uint8Array(0);
+		const ptr = this.module._pn_wram();
+		return this.module.HEAPU8.subarray(ptr, ptr + size);
+	}
+
 	sram(): Uint8Array {
 		const size = this.module._pn_sram_size();
 		if (size <= 0) return new Uint8Array(0);

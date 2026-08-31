@@ -95,6 +95,29 @@ export interface TestRom {
  * uploads directory. Tests skip cleanly when nothing is available.
  */
 export function findTestRom(): TestRom | null {
+	for (const rom of eachTestRom()) return rom;
+	return null;
+}
+
+/**
+ * Finds one particular dump, by the checksum the app identifies it with.
+ *
+ * A test about *what a game keeps at address X* is a test about one cartridge,
+ * not about "a ROM": the same title dumped in another region holds something
+ * else there, and reading it gives a plausible number rather than an error. So
+ * those tests ask for a dump by checksum and skip when it is not on this
+ * machine, the way the rest of the suite skips when there is no ROM at all.
+ */
+export function findTestRomByCrc(wanted: string): TestRom | null {
+	const key = wanted.toUpperCase();
+	for (const rom of eachTestRom()) {
+		const hex = crc32(rom.data).toString(16).padStart(8, '0').toUpperCase();
+		if (hex === key) return rom;
+	}
+	return null;
+}
+
+function* eachTestRom(): Generator<TestRom> {
 	const explicit = process.env.PSNES_TEST_ROM;
 	const candidates: string[] = [];
 
@@ -114,13 +137,12 @@ export function findTestRom(): TestRom | null {
 		try {
 			const raw = readFileSync(candidate);
 			const rom = candidate.toLowerCase().endsWith('.zip') ? unzipFirstEntry(raw) : raw;
-			return { name: path.basename(candidate), data: new Uint8Array(stripCopierHeader(rom)) };
+			yield { name: path.basename(candidate), data: new Uint8Array(stripCopierHeader(rom)) };
 		} catch {
 			// Try the next candidate rather than failing the whole suite on one
 			// unreadable file.
 		}
 	}
-	return null;
 }
 
 let crcTable: Uint32Array | null = null;
