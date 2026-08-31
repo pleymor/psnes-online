@@ -75,3 +75,4 @@ core/build/
 # ignoring the parent would hide it from review without anyone noticing.
 .claude/settings.local.json
 .claude/worktrees/
+.shot.mjs

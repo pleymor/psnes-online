@@ -100,8 +100,25 @@
     >
       {t($language, 'roomButton')}
     </button>
-    <button on:click={deleteGame} class="btn-delete">
-      {t($language, 'delete')}
+    <!-- Une icône, plus un libellé : trois boutons de texte alignés
+         écrasaient la carte. Le nom accessible passe donc par aria-label,
+         sans quoi remplacer le mot par un glyphe l'aurait fait disparaître
+         pour un lecteur d'écran. Le title le rend aussi au survol. -->
+    <button
+      on:click={deleteGame}
+      class="btn-delete"
+      aria-label={t($language, 'delete')}
+      title={t($language, 'delete')}
+    >
+      <!-- SVG et non emoji : le glyphe dépendrait de la police du système, et
+           un contrôle fonctionnel ne doit pas pouvoir s'afficher en carré
+           vide. `currentColor` le fait suivre l'état de survol. -->
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"
+           stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+        <path d="M2.5 4.5h11M6.5 4.5V3a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 .5.5v1.5" />
+        <path d="M4 4.5l.7 8.2a.8.8 0 0 0 .8.8h5a.8.8 0 0 0 .8-.8l.7-8.2" />
+        <path d="M6.8 7v4M9.2 7v4" />
+      </svg>
     </button>
   </div>
 </div>
@@ -261,19 +278,30 @@
     transition: transform 0.2s, box-shadow 0.2s;
   }
 
+  /* Le second rôle de la paire : même forme et même hauteur que « Jouer »,
+     mais en contour plutôt qu'en dégradé, pour que le lancement direct reste
+     l'action mise en avant. */
   .btn-room {
     flex: 1;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
+    background: transparent;
+    color: #d6d6e6;
+    border: 1px solid #3d3d52;
     padding: 0.875rem;
     border-radius: 8px;
     cursor: pointer;
     font-size: 0.9375rem;
     font-weight: 500;
-    transition: transform 0.2s, box-shadow 0.2s;
-    background: transparent;
-    border: 1px solid currentColor;
+    transition: border-color 0.2s, color 0.2s;
+  }
+
+  .btn-room:hover:not(:disabled) {
+    border-color: #667eea;
+    color: #fff;
+  }
+
+  .btn-room:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .btn-play:hover:not(:disabled) {
@@ -287,14 +315,21 @@
   }
 
   .btn-delete {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: rgba(68, 68, 68, 0.8);
     color: white;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    padding: 0.875rem 1rem;
+    /* Carré plutôt qu'étiré : le padding vertical reste celui des deux autres
+       boutons pour que les trois gardent la même hauteur. */
+    padding: 0.875rem;
+    line-height: 1;
     border-radius: 8px;
     cursor: pointer;
     font-size: 0.9375rem;
     transition: all 0.2s;
+    flex: 0 0 auto;
   }
 
   .btn-delete:hover {
