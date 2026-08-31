@@ -6,7 +6,19 @@
 ## process was better-sqlite3's prebuild fetch, and better-sqlite3 is gone (the
 ## backend uses bun:sqlite -- see backend/src/db/sqlite.ts).
 ##
-FROM oven/bun:1-debian AS prod-deps
+# Version épinglée, et non `oven/bun:1` flottant.
+#
+# En 1.4.0, la montée en websocket échoue : engine.io appelle
+# `ws.handleUpgrade`, qui abandonne la poignée de main, et `abortHandshake`
+# plante alors dans l'implémentation de Bun sur
+# `TypeError: undefined is not an object (evaluating 'message')`. Le client
+# reçoit un 400 et toute connexion socket échoue - soit, sur cette
+# application, le multijoueur entier.
+#
+# Mesuré : même code, même base, même Redis, même configuration. Connecté sous
+# 1.3.14, échec sous 1.4.0. Une étiquette majeure flottante faisait diverger en
+# silence ce qui est testé de ce qui est déployé.
+FROM oven/bun:1.3.14-debian AS prod-deps
 
 WORKDIR /app
 ENV NODE_ENV=build
@@ -28,15 +40,14 @@ RUN bun install --production --frozen-lockfile --filter=./backend
 ##
 FROM prod-deps AS builder
 
-# Install build dependencies for native modules
-RUN apt-get update && apt-get install -y \
-    python3 make g++ pkg-config \
-    libcairo2-dev \
-    libpango1.0-dev \
-    libpixman-1-dev \
-    libjpeg62-turbo-dev \
-    libgif-dev \
-    librsvg2-dev
+# Aucune dependance native a compiler.
+#
+# python3/make/g++ existaient pour better-sqlite3, remplace par bun:sqlite ;
+# les bibliotheques cairo/pango/pixman/gif/rsvg pour `canvas`, qui n'a jamais
+# ete une dependance de ce depot. Verifie : bun.lock ne tire ni node-gyp ni
+# prebuild-install, et les 13 dependances du backend sont toutes en JavaScript.
+# Ce bloc coutait une quinzaine de minutes par construction, telechargeait
+# ~200 Mo, et a fait echouer un build sur un incident reseau.
 
 # The full install, not --production: the build needs typescript and the
 # @types/* packages, @types/bun among them (bun:sqlite has no types without it,
@@ -53,20 +64,15 @@ RUN bun run --filter=./backend build
 ##
 ## Runtime stage
 ##
-FROM oven/bun:1-slim AS production
+FROM oven/bun:1.3.14-slim AS production
 
 ENV NODE_ENV=production
 WORKDIR /app
 
-# Install only runtime dependencies for canvas and gosu for privilege dropping
+# gosu seul : docker-entrypoint.sh fait `exec gosu bun "$@"` pour abandonner
+# les privileges. Les bibliotheques d'execution de cairo/pango qui
+# l'accompagnaient servaient `canvas`, absent de ce depot.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libcairo2 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libpixman-1-0 \
-    libjpeg62-turbo \
-    libgif7 \
-    librsvg2-2 \
     gosu \
     && rm -rf /var/lib/apt/lists/*
 

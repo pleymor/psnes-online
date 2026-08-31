@@ -5,15 +5,12 @@
 ## `bun --watch src/index.ts`, and nothing here runs under Node. Note that this
 ## image therefore has no `npm` -- docker-compose.yml drives it with `bun run`.
 ##
-FROM oven/bun:1-debian
+FROM oven/bun:1.3.14-debian
 
 WORKDIR /app
 
-# Install native dependencies for canvas (cached as a layer)
-RUN apt-get update && apt-get install -y \
-    python3 make g++ pkg-config \
-    libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Aucune dependance native ici non plus, et ce dev.Dockerfile n'utilise pas
+# gosu : il lance `bun run dev` directement. Rien a installer.
 
 # Copy package files and install dependencies (cached until package.json changes).
 # The full workspace shape (root + both member manifests) is required: bun.lock
