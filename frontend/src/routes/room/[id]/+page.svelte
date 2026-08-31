@@ -815,7 +815,11 @@
              une partie lancée n'accepte plus personne. -->
         {#if room.status === 'waiting'}
           <div class="share-room">
-            <button class="btn-share" on:click={copyRoomLink}>
+            <!-- `btn-setup` est la forme de bouton du lobby, réutilisée telle
+                 quelle : ce bouton n'avait aucun style et prenait donc
+                 l'apparence par défaut du navigateur, au milieu d'un écran qui
+                 a la sienne. -->
+            <button class="btn-setup" class:on={copiedLink} on:click={copyRoomLink}>
               {copiedLink ? t($language, 'roomLinkCopied') : t($language, 'copyRoomLink')}
             </button>
             <p class="share-hint">{t($language, 'roomLinkHint')}</p>
@@ -1011,18 +1015,22 @@
     padding: 2rem;
   }
 
+  /* Mêmes espacements que .lobby-setup, juste au-dessus, pour que les deux
+     blocs de l'écran d'attente se ressemblent. */
   .share-room {
+    margin: 1.5rem 0 0;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.4rem;
-    margin: 0.75rem 0;
+    gap: 0.5rem;
   }
 
+  /* La couleur secondaire du lobby, celle de .mode-segment au repos, plutôt
+     qu'une opacité qui délave aussi le fond. */
   .share-hint {
     margin: 0;
+    color: #8b8ba3;
     font-size: 0.85rem;
-    opacity: 0.75;
     text-align: center;
   }
 
