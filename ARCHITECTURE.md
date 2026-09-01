@@ -396,7 +396,6 @@ psnes/
 │       ├── emulator/                  # wrapper WasmEmulator, input-manager
 │       └── api/, stores/, services/, config/, controls/, saves/, lobby/, games/, roms/, i18n/, utils/
 ├── e2e/                       # tests Playwright (dont probe-lockstep.mjs)
-├── sync-test/                 # harnais de test de synchro autonome
 └── scripts/                   # svelte-frozen-props.mjs, net-probe.sh, …
 ```
 

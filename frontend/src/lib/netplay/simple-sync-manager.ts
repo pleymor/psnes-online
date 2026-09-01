@@ -361,7 +361,9 @@ export class SimpleSyncManager {
       this.getEmulator().pause();
       await new Promise(r => setTimeout(r, 100));
 
-      // frameAdvance to process any pending commands (like sync-test does)
+      // frameAdvance to process any pending commands before the capture:
+      // a paused emulator can still hold input queued on the current frame, and
+      // a state captured over it restores into a different one on the peer.
       this.getEmulator().frameAdvance();
       await new Promise(r => setTimeout(r, 50));
 
