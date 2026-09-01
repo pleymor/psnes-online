@@ -11,8 +11,7 @@
   "scripts": {
     "dev": "docker-compose up --build",
     "prod": "docker-compose -f docker-compose.prod.yml up --build",
-    "build": "npm run build --workspaces",
-    "clean": "npm run clean --workspaces",
+    "build": "bun run --workspaces build",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:ui": "playwright test --config e2e/playwright.config.ts --ui",
     "core:build": "./core/build.sh",
@@ -21,7 +20,7 @@
     "test:core": "bun test --timeout=120000 core/test/determinism.test.ts core/test/lockstep.test.ts core/test/match-watch-rom.test.ts",
     "test:ui": "bun test --timeout=120000 core/test/remembered-room.test.ts core/test/capture-gate.test.ts core/test/input.test.ts core/test/rom-provider.test.ts core/test/room-snapshot.test.ts core/test/thumbnail.test.ts core/test/saves-api.test.ts core/test/preset.test.ts core/test/video-surface.test.ts core/test/solo.test.ts core/test/profile.test.ts core/test/online-players.test.ts core/test/presence.test.ts core/test/link-state.test.ts core/test/cover.test.ts core/test/save-identity.test.ts core/test/quick-save.test.ts core/test/controls-config.test.ts core/test/input-devices.test.ts core/test/game-click.test.ts core/test/room-intent.test.ts core/test/resume-save.test.ts core/test/pad-watch.test.ts core/test/touch-pad.test.ts core/test/room-chrome.test.ts core/test/renderer-surface.test.ts core/test/room-session.test.ts core/test/sram.test.ts core/test/input-sources.test.ts core/test/device-library.test.ts core/test/kept-files.test.ts core/test/device-library-guest.test.ts core/test/anonymous-join.test.ts core/test/portable-config.test.ts core/test/saves-portability.test.ts core/test/match-watch.test.ts core/test/way-back.test.ts",
     "test:backend": "bun test --timeout=120000 backend/test/*.test.ts",
-    "test:all": "npm run test:netplay && npm run test:core && npm run test:ui && npm run test:backend"
+    "test:all": "bun run test:netplay && bun run test:core && bun run test:ui && bun run test:backend"
   },
   "devDependencies": {
     "@types/simple-peer": "^9.11.9",
