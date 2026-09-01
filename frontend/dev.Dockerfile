@@ -1,6 +1,7 @@
 FROM node:20
 
-COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
+# Épinglé pour la même raison que frontend/Dockerfile : `oven/bun:1` flotte.
+COPY --from=oven/bun:1.3.14 /usr/local/bin/bun /usr/local/bin/bun
 
 WORKDIR /app
 
