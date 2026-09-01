@@ -37,7 +37,6 @@ services:
       - ./backend/.env
     volumes:
       - backend-data:/app/data
-      - backend-saves:/app/saves
       - backend-avatars:/app/avatars
     depends_on:
       db-migration:
@@ -59,5 +58,4 @@ services:
 volumes:
   redis-data:
   backend-data:
-  backend-saves:
   backend-avatars:

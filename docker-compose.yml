@@ -52,7 +52,6 @@ services:
       - ./backend:/app
       - backend-node-modules:/app/node_modules
       - backend-data:/app/data
-      - backend-saves:/app/saves
       - backend-avatars:/app/avatars
       - ./backend/data/snes-metadata.json:/app/metadata/snes-metadata.json:ro
     # Dependencies are installed once at image build time (backend/dev.Dockerfile),
@@ -102,5 +101,4 @@ volumes:
   redis-data:
   backend-data:
   backend-node-modules:
-  backend-saves:
   backend-avatars:
