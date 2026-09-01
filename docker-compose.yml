@@ -93,7 +93,7 @@ services:
     # verified, it silently keeps the stale packages. Force it to reseed from the
     # freshly built image instead:
     #   docker compose up --build -d --renew-anon-volumes
-    command: sh -c "npm run dev -- --host"
+    command: sh -c "bun run dev -- --host"
     depends_on:
       - backend
 

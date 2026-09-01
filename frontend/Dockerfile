@@ -1,17 +1,12 @@
 # Build stage
-FROM node:20-alpine AS builder
+FROM oven/bun:1.3.14-alpine AS builder
 
-# Version épinglée, et non l'étiquette majeure flottante `oven/bun:1-alpine`.
+# Base Bun, et non plus une image Node dans laquelle on copiait bun.
 #
-# C'est ce genre d'étiquette qui a cassé les websockets : le backend avait été
-# validé contre Bun 1.3.14 en local, et le déploiement tirait ce que `1`
-# désignait — 1.4.0, où la montée en websocket échoue. Voir #10.
-#
-# Ce bun-ci ne sert qu'à construire le frontend, donc une régression s'y verrait
-# à la construction plutôt qu'en production. La divergence entre ce qui est
-# testé et ce qui tourne reste la même, et la corriger coûte une ligne.
-COPY --from=oven/bun:1.3.14-alpine /usr/local/bin/bun /usr/local/bin/bun
-COPY --from=oven/bun:1.3.14-alpine /usr/local/bin/bunx /usr/local/bin/bunx
+# Toutes les commandes de cet étage passaient déjà par bun et bunx : la base
+# Node ne servait qu'à les héberger. Version épinglée, jamais `oven/bun:1` —
+# c'est une étiquette majeure flottante qui a cassé les websockets, la branche
+# ayant été validée en 1.3.14 pendant que le déploiement tirait 1.4.0 (#10).
 
 WORKDIR /app
 

@@ -1,7 +1,6 @@
-FROM node:20
+FROM oven/bun:1.3.14
 
-# Épinglé pour la même raison que frontend/Dockerfile : `oven/bun:1` flotte.
-COPY --from=oven/bun:1.3.14 /usr/local/bin/bun /usr/local/bin/bun
+# Plus de copie de binaire : l'image EST Bun.
 
 WORKDIR /app
 
@@ -17,4 +16,4 @@ RUN bun install --frozen-lockfile --filter=./frontend
 
 # Source code will be mounted as a volume, so we don't copy it here
 
-CMD ["npm", "run", "dev", "--", "--host"]
+CMD ["bun", "run", "dev", "--", "--host"]
