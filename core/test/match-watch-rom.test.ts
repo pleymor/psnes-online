@@ -13,9 +13,9 @@
  * the table would copy and re-run.
  */
 
-import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { optional } from './skip.js';
 import { coreIsBuilt, findTestRomByCrc, makeCore } from './helpers.js';
 import type { PsnesCore } from '../../frontend/src/lib/znet/core.js';
 import { MatchObserver, watcherFor } from '../../frontend/src/lib/games/match-watch.js';
@@ -28,13 +28,13 @@ const DBZ2 = '8F24F886';
 const built = coreIsBuilt();
 const rom = built ? findTestRomByCrc(DBZ2) : null;
 
-const needsDbz2 = {
-	skip: !built
+const needsDbz2 = optional(
+	!built
 		? 'core not built - run ./core/build.sh'
 		: !rom
 			? `no ROM with checksum ${DBZ2} found - set PSNES_TEST_ROM`
 			: false
-};
+);
 
 /** Holds a button for a few frames on one port, then lets the game settle. */
 function tap(core: PsnesCore, mask: number, port: 1 | 2, hold = 6, after = 40): void {
@@ -103,7 +103,7 @@ const ATTACKS = [
 	PAD.X
 ];
 
-test('a fresh match reads as both players on full health', needsDbz2, async () => {
+needsDbz2('a fresh match reads as both players on full health', async () => {
 	const { core, atMatchStart } = await versusMatch();
 	core.loadState(atMatchStart);
 
@@ -117,7 +117,7 @@ test('a fresh match reads as both players on full health', needsDbz2, async () =
 	});
 });
 
-test('hitting player 2 moves player 2 health and nothing else', needsDbz2, async () => {
+needsDbz2('hitting player 2 moves player 2 health and nothing else', async () => {
 	const { core, atMatchStart } = await versusMatch();
 	core.loadState(atMatchStart);
 
@@ -132,7 +132,7 @@ test('hitting player 2 moves player 2 health and nothing else', needsDbz2, async
 	assert.equal(sample.p2.max, 400);
 });
 
-test('hitting player 1 moves player 1 health, so the ports are not swapped', needsDbz2, async () => {
+needsDbz2('hitting player 1 moves player 1 health, so the ports are not swapped', async () => {
 	const { core, atMatchStart } = await versusMatch();
 	core.loadState(atMatchStart);
 
@@ -145,7 +145,7 @@ test('hitting player 1 moves player 1 health, so the ports are not swapped', nee
 	assert.equal(sample.p2.current, 400);
 });
 
-test('a knockout is reported once, to the player left standing', needsDbz2, async () => {
+needsDbz2('a knockout is reported once, to the player left standing', async () => {
 	const { core, atMatchStart } = await versusMatch();
 	core.loadState(atMatchStart);
 
@@ -179,7 +179,7 @@ test('a knockout is reported once, to the player left standing', needsDbz2, asyn
 	assert.deepEqual([...observer.score], [1, 0]);
 });
 
-test('a versus match has no clock to run out', needsDbz2, async () => {
+needsDbz2('a versus match has no clock to run out', async () => {
 	// Worth pinning because the observer depends on it: with no time limit the
 	// only way a match ends is a knockout, which is why there is no third
 	// outcome to watch for. Two hundred emulated seconds of nobody moving.
