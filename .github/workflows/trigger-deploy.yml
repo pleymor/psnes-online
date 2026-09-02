@@ -30,16 +30,18 @@ jobs:
           set -o pipefail
           bun run test:all 2>&1 | tee test-output.log
 
-      # Without a built wasm core and a real ROM, determinism/lockstep/
-      # match-watch-rom skip themselves (see core/test/skip.ts). That is
-      # expected here -- but the count is pinned, so a NEW silent skip fails
-      # the build instead of hiding inside a green run, which is what #8 was.
+      # Without a built wasm core and a real ROM, some tests skip themselves
+      # (see core/test/skip.ts): 16 in determinism/lockstep/match-watch-rom,
+      # 1 in compress, 1 in checksum (which wants a zipped ROM on disk). That
+      # is expected here -- but the count is pinned, so a NEW silent skip
+      # fails the build instead of hiding inside a green run, which is what
+      # #8 was. Raise this only alongside the test that explains the rise.
       - name: Check skips against the expected baseline
         run: |
           skipped=$(grep -oE '^ *[0-9]+ skip' test-output.log | awk '{s+=$1} END {print s+0}')
-          echo "Skipped: $skipped (expected 16: no wasm core, no test ROM in CI)"
-          if [ "$skipped" -gt 16 ]; then
-            echo "::error::$skipped tests skipped, expected at most 16."
+          echo "Skipped: $skipped (expected 18: no wasm core, no test ROM in CI)"
+          if [ "$skipped" -gt 18 ]; then
+            echo "::error::$skipped tests skipped, expected at most 18."
             exit 1
           fi
 
