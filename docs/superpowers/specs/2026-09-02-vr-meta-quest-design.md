@@ -200,9 +200,10 @@ est inconditionnel.
 
 **`xr-standard` n'est pas `standard`.** Le stick d'une Touch est sur
 `axes[2]`/`axes[3]` ; les deux premiers axes sont réservés à un pavé tactile
-absent. Or `STANDARD_PAD` (`controls/binding.ts:73`) code `PadAxis0Minus` pour le
-haut. Réutiliser cette table donnerait une croix directionnelle morte, sans
-erreur ni avertissement. C'est pourquoi `vr/pad.ts` est un module à part avec sa
+absent. Or `STANDARD_PAD` (`controls/binding.ts:71-75`) dirige sur les axes 0 et
+1 — `PadAxis1Minus` pour le haut, `PadAxis0Minus` pour la gauche. Réutiliser
+cette table donnerait une croix directionnelle morte, sans erreur ni
+avertissement. C'est pourquoi `vr/pad.ts` est un module à part avec sa
 propre table : il produit le même masque 12 bits que `InputCollector`, mais il ne
 partage pas ses codes.
 

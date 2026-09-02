@@ -5,10 +5,11 @@
  *
  * The first is `xr-standard` versus `standard`. A Touch thumbstick reports on
  * `axes[2]`/`axes[3]`; the first two axes belong to a touchpad these
- * controllers do not have. `controls/binding.ts:73` codes `PadAxis0Minus` for
- * up, so reusing that table would yield a dead d-pad with no error and no
- * warning - which is exactly why this module has its own table and shares no
- * codes with `InputCollector`.
+ * controllers do not have. `controls/binding.ts:71-75`'s `STANDARD_PAD` steers
+ * on axes 0 and 1 (`PadAxis1Minus` for up, `PadAxis0Minus` for left), so
+ * reusing that table would yield a dead d-pad with no error and no warning -
+ * which is exactly why this module has its own table and shares no codes with
+ * `InputCollector`.
  *
  * The second is `visible-blurred`. When the Quest system menu opens, the XR
  * animation loop keeps firing but input stops being delivered. A button held at
