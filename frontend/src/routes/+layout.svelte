@@ -10,6 +10,7 @@
   import NotificationToast from '$lib/components/NotificationToast.svelte';
   import InvitationCard from '$lib/components/InvitationCard.svelte';
   import PseudoGate from '$lib/components/PseudoGate.svelte';
+  import VrShell from '$lib/components/VrShell.svelte';
 
   const logger = createLogger('AppLayout');
 
@@ -151,6 +152,10 @@
   whatever the player is doing.
 -->
 <InvitationCard />
+
+<!-- Above the <slot />, so a navigation underneath cannot unmount a running
+     session. See the component's own header. -->
+<VrShell />
 
 {#if needsPseudo}
   <PseudoGate />

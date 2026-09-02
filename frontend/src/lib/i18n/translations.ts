@@ -462,7 +462,12 @@ export const translations = {
     // controller port was left standing.
     matchWonBy: 'Player {player} wins',
     matchDrawn: 'Double knockout',
-    matchScore: 'Score {p1} - {p2}'
+    matchScore: 'Score {p1} - {p2}',
+
+    // VR
+    enterVr: 'Enter VR',
+    vrUnavailable: 'VR could not start. Another app may be using the headset.',
+    vrContextLost: 'VR stopped: the graphics context was lost.'
   },
   fr: {
     // Legal disclaimer
@@ -912,7 +917,12 @@ export const translations = {
     pseudoInvalid: 'Un nom fait de {min} à {max} caractères : lettres, chiffres, - et _',
     matchWonBy: 'Le joueur {player} gagne',
     matchDrawn: 'Double K.O.',
-    matchScore: 'Score {p1} - {p2}'
+    matchScore: 'Score {p1} - {p2}',
+
+    // VR
+    enterVr: 'Passer en VR',
+    vrUnavailable: 'La VR n\'a pas pu démarrer. Une autre application utilise peut-être le casque.',
+    vrContextLost: 'La VR s\'est arrêtée : le contexte graphique a été perdu.'
   }
 };
 
