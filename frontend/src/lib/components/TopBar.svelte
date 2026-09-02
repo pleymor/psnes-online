@@ -21,6 +21,7 @@
    * this bar. They are now a card mounted in the layout (`InvitationCard`), which
    * appears by itself wherever the player happens to be.
    */
+  import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
@@ -29,6 +30,12 @@
   import FriendDetailsModal from './FriendDetailsModal.svelte';
   import { activeRooms } from '$lib/rooms/my-room';
   import { wayBack } from '$lib/nav/way-back';
+  import { vrAvailable } from '$lib/vr/support';
+  import { requestVr } from '$lib/vr/entry';
+
+  /** Undefined until asked, so the button does not flash in and out on load. */
+  let headsetHere: boolean | undefined;
+  onMount(async () => { headsetHere = await vrAvailable(); });
 
   /**
    * The labelled way back, on the screens where plain navigation is the right
@@ -81,6 +88,15 @@
   </div>
 
   <div class="right">
+    {#if headsetHere}
+      <!-- Capability, never a user agent: this button appears on a Quest and
+           on a PC with a headset plugged in, and the "two controllers and
+           nothing else" assumption only has to hold inside the session. -->
+      <button class="bar-button" on:click={requestVr}>
+        {t($language, 'enterVr')}
+      </button>
+    {/if}
+
     <button class="bar-button" class:on={showFriends} on:click={toggleFriends}>
       {t($language, 'friends')}
     </button>
