@@ -40,7 +40,15 @@ services:
       - DATABASE_URL=file:/app/data/dev.db
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - AUTH_MODE=google
+      # Passé depuis l'hôte, `google` par défaut, pour que le mode dev serve à
+      # tester dans un casque : Google refuse les adresses IP privées comme URI
+      # de redirection autorisée, et depuis un Quest `localhost` désigne le
+      # casque lui-même — donc le retour d'authentification tombe dans le vide.
+      # `AUTH_MODE=dev docker compose up -d backend` ouvre la porte à trois
+      # utilisateurs de test par un simple POST, sans aucune redirection.
+      # env-guard.ts teste l'égalité stricte pour refuser `dev` en production,
+      # ce qui reste vrai quelle que soit la valeur passée ici.
+      - AUTH_MODE=${AUTH_MODE:-google}
       # La porte sans compte : un lien de salon suffit pour s'asseoir et jouer.
       # Ouverte par défaut - c'est la fonctionnalité - et `off` la referme sans
       # toucher à AUTH_MODE, dont env-guard.ts teste l'égalité stricte pour
