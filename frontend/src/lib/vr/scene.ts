@@ -17,9 +17,12 @@
 import * as THREE from 'three';
 import { createFramePump } from './frame-pump';
 import { createVrScreen, type VrScreen } from './screen';
-import { sceneLayout, type SceneLayout } from './layout';
+import { sceneLayout, type SceneLayout, type Placement } from './layout';
 import type { SpaceType } from './xr-session';
 import type { PixelAspect } from '$lib/znet/fit';
+import { createPanelMesh, type PanelMesh } from './panel-mesh';
+import { hit, type PanelSize } from './panel';
+import type { PointerTarget } from './pointer';
 
 export interface VrScene {
   screen: VrScreen;
@@ -30,6 +33,12 @@ export interface VrScene {
   /** Runs every XR frame, before the render. */
   onFrame: (fn: () => void) => void;
   attach(session: XRSession, spaceType: SpaceType): Promise<void>;
+  addPanel(id: string, placement: Placement, size: PanelSize): PanelMesh;
+  panelsVisible(visible: boolean): void;
+  arePanelsVisible(): boolean;
+  aimedAt(): PointerTarget | null;
+  triggerDown(): boolean;
+  inputSources(): Iterable<XRInputSource>;
   dispose(): void;
 }
 
@@ -67,6 +76,75 @@ export function createVrScene(opts: {
   const pump = createFramePump();
   const perFrame: Array<() => void> = [];
 
+  const panels: PanelMesh[] = [];
+  const panelGroup = new THREE.Group();
+  scene.add(panelGroup);
+
+  /**
+   * The two controllers as scene objects, with a ray drawn down each.
+   *
+   * The ray is not decoration. Without it a player has no idea where they are
+   * pointing until something highlights, and nothing highlights until they are
+   * already on it - so aiming becomes a search.
+   */
+  const rayGeometry = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, -2)
+  ]);
+  const rayMaterial = new THREE.LineBasicMaterial({ color: 0x7aa2ff, transparent: true, opacity: 0.6 });
+  const controllers = [0, 1].map((index) => {
+    const controller = renderer.xr.getController(index);
+    controller.add(new THREE.Line(rayGeometry, rayMaterial));
+    scene.add(controller);
+    return controller;
+  });
+
+  // Reused every frame rather than allocated: this runs at the headset's
+  // refresh rate, and a GC pause is audible as an audio glitch.
+  const raycaster = new THREE.Raycaster();
+  const origin = new THREE.Vector3();
+  const direction = new THREE.Vector3();
+  const worldQuaternion = new THREE.Quaternion();
+
+  /** Whichever hand is aiming at a panel, right first. */
+  function aimedAt(): PointerTarget | null {
+    if (!panelGroup.visible) return null;
+
+    for (const controller of controllers) {
+      origin.setFromMatrixPosition(controller.matrixWorld);
+      /*
+       * A controller points down its own -Z, the same convention the camera
+       * uses. The WORLD quaternion, not the local one: they are identical
+       * today because these are direct children of the scene, which is exactly
+       * why the local one would keep working right up until somebody puts the
+       * controllers in a group and the rays start pointing somewhere else.
+       */
+      controller.getWorldQuaternion(worldQuaternion);
+      direction.set(0, 0, -1).applyQuaternion(worldQuaternion).normalize();
+      raycaster.set(origin, direction);
+
+      const meshes = panels.map((panel) => panel.mesh);
+      const [first] = raycaster.intersectObjects(meshes, false);
+      if (!first?.uv) continue;
+
+      const panel = panels.find((candidate) => candidate.mesh === first.object);
+      if (!panel) continue;
+
+      const region = hit(panel.regions, { x: first.uv.x, y: first.uv.y }, panel.size);
+      if (region) return { panel: panel.id, region };
+    }
+    return null;
+  }
+
+  function triggerDown(): boolean {
+    const session = renderer.xr.getSession();
+    if (!session) return false;
+    for (const source of session.inputSources) {
+      if (source.gamepad?.buttons[0]?.pressed) return true;
+    }
+    return false;
+  }
+
   return {
     screen,
     layout,
@@ -86,9 +164,24 @@ export function createVrScene(opts: {
       });
     },
 
+    addPanel(id: string, placement: Placement, size: PanelSize): PanelMesh {
+      const panel = createPanelMesh(id, placement, size);
+      panels.push(panel);
+      panelGroup.add(panel.mesh);
+      return panel;
+    },
+    panelsVisible: (visible: boolean) => void (panelGroup.visible = visible),
+    arePanelsVisible: () => panelGroup.visible,
+    aimedAt,
+    triggerDown,
+    inputSources: () => renderer.xr.getSession()?.inputSources ?? [],
+
     dispose(): void {
       renderer.setAnimationLoop(null);
       screen.dispose();
+      for (const panel of panels) panel.dispose();
+      rayGeometry.dispose();
+      rayMaterial.dispose();
       renderer.dispose();
     }
   };

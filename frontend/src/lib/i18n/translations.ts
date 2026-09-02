@@ -467,7 +467,8 @@ export const translations = {
     // VR
     enterVr: 'Enter VR',
     vrUnavailable: 'VR could not start. Another app may be using the headset.',
-    vrContextLost: 'VR stopped: the graphics context was lost.'
+    vrContextLost: 'VR stopped: the graphics context was lost.',
+    vrAddGamesFlat: 'Leave VR, add your games in the browser, then come back.'
   },
   fr: {
     // Legal disclaimer
@@ -922,7 +923,8 @@ export const translations = {
     // VR
     enterVr: 'Passer en VR',
     vrUnavailable: 'La VR n\'a pas pu démarrer. Une autre application utilise peut-être le casque.',
-    vrContextLost: 'La VR s\'est arrêtée : le contexte graphique a été perdu.'
+    vrContextLost: 'La VR s\'est arrêtée : le contexte graphique a été perdu.',
+    vrAddGamesFlat: 'Quitte la VR, ajoute tes jeux depuis le navigateur, puis reviens.'
   }
 };
 

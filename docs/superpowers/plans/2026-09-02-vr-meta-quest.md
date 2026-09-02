@@ -3746,7 +3746,8 @@ Add these imports and, inside `createVrScene`, this block before the `return`:
 import { createPanelMesh, type PanelMesh } from './panel-mesh';
 import { hit } from './panel';
 import type { PointerTarget } from './pointer';
-import type { Placement, PanelSize } from './layout';
+import type { Placement } from './layout';
+import type { PanelSize, Region } from './panel';
 ```
 
 ```ts

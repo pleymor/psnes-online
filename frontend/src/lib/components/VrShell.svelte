@@ -38,6 +38,16 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { createLogger } from '$lib/utils/logger';
+  import { createPointer, sameTarget, type PointerTarget } from '$lib/vr/pointer';
+  import {
+    LIBRARY_PANEL_SIZE, layoutLibraryPanel, drawLibraryPanel,
+    libraryRows, clampScroll, type LibraryState
+  } from '$lib/vr/panels/library';
+  import { menuPressed } from '$lib/vr/pad';
+  import { games } from '$lib/stores/games';
+  import { deviceLibrary } from '$lib/roms/device-library';
+  import { resolvableHere } from '$lib/roms/provider';
+  import type { PanelMesh } from '$lib/vr/panel-mesh';
 
   const logger = createLogger('VrShell');
 
@@ -45,6 +55,83 @@
   let scene: VrScene | null = null;
   /** Guards `leave()` against re-entrant calls - see the header. */
   let leaving = false;
+
+  const pointer = createPointer();
+  let library: PanelMesh | null = null;
+  let libraryState: LibraryState = { games: [], ownedTotal: 0, scroll: 0 };
+  let hovered: PointerTarget | null = null;
+  /** Read once on entry: the picker that would change it does not exist in
+   *  here, so it cannot change during a session. */
+  let resolvable: string[] = [];
+
+  /** Covers are same-origin behind the session cookie (`api/covers.ts:9`), so
+   *  they load with no crossOrigin attribute - setting one would break the
+   *  cookie AND taint the canvas, and a tainted canvas cannot become a WebGL
+   *  texture at all. */
+  const covers = new Map<string, CanvasImageSource>();
+
+  function repaintLibrary(): void {
+    if (!library) return;
+    library.regions = layoutLibraryPanel(libraryState);
+    const regions = library.regions;
+    library.paint((ctx) =>
+      drawLibraryPanel(ctx, libraryState, regions, {
+        labels: {
+          heading: t($language, 'library'),
+          emptyLibrary: t($language, 'emptyLibrary'),
+          emptyLibraryHint: t($language, 'vrAddGamesFlat'),
+          noneHere: t($language, 'noneOnThisDevice', { count: libraryState.ownedTotal }),
+          noneHereHint: t($language, 'vrAddGamesFlat')
+        },
+        hoverId: hovered?.panel === 'library' ? hovered.region.id : null,
+        covers
+      })
+    );
+  }
+
+  function loadCovers(list: typeof $games): void {
+    for (const game of list) {
+      if (!game.coverUrl || covers.has(game.id)) continue;
+      const image = new Image();
+      image.onload = () => { covers.set(game.id, image); repaintLibrary(); };
+      image.src = game.coverUrl;
+    }
+  }
+
+  function activate(target: PointerTarget): void {
+    if (target.panel !== 'library') return;
+    if (target.region.id === 'scroll:up' || target.region.id === 'scroll:down') {
+      const step = target.region.id === 'scroll:down' ? 1 : -1;
+      libraryState = {
+        ...libraryState,
+        scroll: clampScroll(libraryState.scroll + step, libraryRows(libraryState))
+      };
+      repaintLibrary();
+      return;
+    }
+    // Launching arrives in the next task.
+  }
+
+  function frame(): void {
+    if (!scene) return;
+
+    if (menuPressed(scene.inputSources())) scene.panelsVisible(true);
+
+    /*
+     * The panels and the game never read the controllers at the same time.
+     * The trigger is the pointer while the panels are up and SNES R while they
+     * are down, and letting both read it would make a scroll press jump in
+     * Super Mario World.
+     */
+    if (!scene.arePanelsVisible()) return;
+
+    const tick = pointer.update(scene.aimedAt(), scene.triggerDown());
+    if (!sameTarget(tick.hover, hovered)) {
+      hovered = tick.hover;
+      repaintLibrary();
+    }
+    if (tick.activated) activate(tick.activated);
+  }
 
   async function enter(): Promise<void> {
     if (session) return;
@@ -71,6 +158,18 @@
       // Until a game is launched, this is what the screen carries - and what
       // makes a wrong distance or height obvious.
       scene.screen.showTestPattern();
+
+      library = scene.addPanel('library', scene.layout.library, LIBRARY_PANEL_SIZE);
+      resolvable = await resolvableHere();
+      libraryState = {
+        games: deviceLibrary($games, resolvable),
+        ownedTotal: $games.length,
+        scroll: 0
+      };
+      loadCovers(libraryState.games);
+      repaintLibrary();
+      scene.onFrame(frame);
+
       vrActive.set(true);
     } catch (err) {
       logger.error('entering VR failed', err);
@@ -120,6 +219,9 @@
     scene?.dispose();
     scene = null;
     session = null;
+    library = null;
+    covers.clear();
+    hovered = null;
     vrActive.set(false);
     vrRequested.set(false);
   }
