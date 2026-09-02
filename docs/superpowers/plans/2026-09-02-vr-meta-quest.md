@@ -2687,6 +2687,9 @@ export function createVrScene(opts: {
 
   let session: VrSession | null = null;
   let scene: VrScene | null = null;
+  /** Guards `leave()` against a second caller arriving before the first
+   * settles. See its own note below. */
+  let leaving = false;
 
   async function enter(): Promise<void> {
     if (session) return;
@@ -2717,41 +2720,55 @@ export function createVrScene(opts: {
     } catch (err) {
       logger.error('entering VR failed', err);
       notifications.show(t($language, 'vrUnavailable'), 'error', 6000);
-      /*
-       * `leave()`, not `teardown()`, and the difference is a player trapped in
-       * the dark.
-       *
-       * If `openVrSession` resolved and `scene.attach` then threw - and it can,
-       * because three's `setSession` awaits `gl.makeXRCompatible()` on a
-       * renderer this code does not construct with `xrCompatible: true` - the
-       * XRSession is still open in the browser. `teardown()` alone would null
-       * our references and forget it, leaving somebody inside a black immersive
-       * session with a disposed renderer, no code path left that would ever end
-       * it, and a flat-page button they cannot reach because the headset is on
-       * their face. Recovery costs an app restart and there is no console in
-       * there to explain why.
-       */
-      void leave();
+      // Not `teardown()`: `openVrSession` may already have resolved before
+      // `scene.attach` (or anything after it) threw, in which case the
+      // browser's `XRSession` is still open and `teardown()` would only make
+      // the app forget it exists. `closeAnySession()` is safe either way.
+      closeAnySession();
     }
   }
 
+  /**
+   * Ends the session, once.
+   *
+   * The guard is not paranoia: `xr-session.ts`'s own `end()` only raises its
+   * `finished` flag when the `end` event fires, so two callers reaching here
+   * before the first settles would both call `session.end()`. This component
+   * has exactly that shape - a quit path and a context-lost path.
+   */
   async function leave(): Promise<void> {
-    await session?.end();
-    // `end()` raises `sessionend`, which runs `teardown`. Nothing more here -
-    // and if no session was ever opened, this is a safe no-op that still
-    // reaches `teardown` through the caller.
+    if (leaving) return;
+    leaving = true;
+    try {
+      await session?.end();
+      // `end()` raises `sessionend`, which runs `teardown`. Nothing more here.
+    } finally {
+      leaving = false;
+    }
   }
 
   /**
-   * Drops every reference. Assumes the session is ALREADY OVER.
+   * Safe from either precondition: ends a session if one is open, which
+   * raises `sessionend` and drives `teardown()` through the `onEnd` callback
+   * above; tears down directly, with nothing to end, if not.
    *
-   * That precondition is the whole subtlety: this is safe from
-   * `openVrSession`'s `onEnd` (the session ended, which is why we were
-   * called) and from `onDestroy` on an ordinary Svelte teardown, but calling
-   * it while a session is still live abandons that session rather than ending
-   * it. Anything that might still hold an open session must go through
-   * `leave()` instead.
+   * Used at the two sites that cannot promise the session is already closed -
+   * a failure partway through `enter()`, and an ordinary Svelte unmount. The
+   * component's own invariant is never to be unmounted by navigation, but
+   * `onDestroy` still fires on the paths that ignore that invariant, dev-mode
+   * HMR chief among them, so it has to go through here rather than straight to
+   * `teardown()`.
    */
+  function closeAnySession(): void {
+    if (session) {
+      void leave();
+    } else {
+      teardown();
+    }
+  }
+
+  /** Assumes the browser's `XRSession` is already gone. Only `onEnd` above may
+   * call this directly - every other exit goes through `closeAnySession()`. */
   function teardown(): void {
     scene?.dispose();
     scene = null;
@@ -2763,7 +2780,7 @@ export function createVrScene(opts: {
   // The button sets the store; this is the one place that acts on it.
   $: if ($vrRequested && !session) void enter();
 
-  onDestroy(teardown);
+  onDestroy(closeAnySession);
 </script>
 
 <!-- Nothing is rendered: the whole surface of this component is the headset.
