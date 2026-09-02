@@ -207,6 +207,18 @@ export async function indexedChecksums(): Promise<string[]> {
 	return keys;
 }
 
+/**
+ * Retire un checksum de l'index du dossier.
+ *
+ * Ne touche que le store `index`. Les fichiers que le joueur a désignés un par
+ * un vivent dans `files` (`kept-files.ts`) et restent résolubles : c'est ce qui
+ * permet à une synchronisation de dossier d'être sûre, puisque `resolvableHere`
+ * réunit les deux sources.
+ */
+export async function forgetIndexed(checksum: string): Promise<void> {
+	await del(INDEX, checksum);
+}
+
 async function tryRead(
 	handle: FileSystemDirectoryHandle,
 	filename: string,

@@ -16,6 +16,7 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { createLogger } from '$lib/utils/logger';
+  import { games } from '$lib/stores/games';
   import { romSourceState, type RomSourceState } from '$lib/roms/source-state';
   import { pickerError } from '$lib/roms/picker-error';
   import {
@@ -25,8 +26,10 @@
     ensureAccess,
     scanDirectory,
     registerGame,
-    type LibraryEntry
+    forgetIndexed,
+    indexedChecksums
   } from '$lib/roms/local-library';
+  import { syncFolder } from '$lib/roms/folder-sync';
 
   const logger = createLogger('RomSourcePanel');
 
@@ -35,6 +38,8 @@
   let error = '';
   let progress = '';
   let added = 0;
+  let removed = 0;
+  let upToDate = false;
 
   /**
    * Combien de jeux du compte cet appareil ne peut pas ouvrir.
@@ -46,39 +51,49 @@
   export let missingCount = 0;
 
   /**
-   * Scans a folder and registers everything found in it.
+   * Aligne le compte et l'index sur ce que le dossier contient.
    *
-   * Called from pickFolder once a working handle exists - whether that
-   * handle came from picking a new folder or re-granting access to a
-   * remembered one - because either can leave the library with games it
-   * does not know about yet.
+   * Appelée depuis pickFolder dès qu'un handle utilisable existe - qu'il vienne
+   * d'un nouveau dossier ou d'un accès re-accordé - parce que l'un comme
+   * l'autre peut laisser la bibliothèque ignorante de ce qui a changé.
+   *
+   * La décision vit dans `folder-sync`, testée sans navigateur ; ici il ne
+   * reste que le branchement des API et la phrase montrée au joueur.
    */
   async function scanAndRegister(handle: FileSystemDirectoryHandle): Promise<void> {
     progress = t($language, 'scanningFolder');
-    const entries: LibraryEntry[] = await scanDirectory(handle);
-    if (entries.length === 0) {
+    const known = new Set(
+      $games.map((g) => g.crc32).filter((c): c is string => !!c)
+    );
+    const result = await syncFolder({
+      scan: () => scanDirectory(handle),
+      register: registerGame,
+      indexed: indexedChecksums,
+      forget: forgetIndexed,
+      // Le compte sait ce qu'il possède, donc un dossier inchangé ne se
+      // prétend pas ajouté - et quarante POST inutiles ne partent pas.
+      isKnown: (checksum) => known.has(checksum),
+      onProgress: (done, total, filename) => {
+        progress = `${done}/${total} · ${filename}`;
+      }
+    });
+
+    added = result.added;
+    removed = result.removed;
+
+    if (result.empty) {
       error = t($language, 'noRomsFound');
       return;
     }
 
-    for (const [index, entry] of entries.entries()) {
-      progress = `${index + 1}/${entries.length} · ${entry.filename}`;
-      try {
-        await registerGame(entry.checksum, entry.filename);
-        added++;
-      } catch (err) {
-        // One unreadable ROM must not abandon the rest of a forty-cartridge
-        // folder. A game already in the library does NOT arrive here: the
-        // server looks the checksum up and answers 200 with the existing
-        // game, so re-scanning a folder is a safe no-op.
-        logger.warn(`Could not add ${entry.filename}`, err);
-      }
+    // Tout échouer ressemble exactement à un scan terminé si on ne le dit pas
+    // - le joueur vient de regarder quarante cartouches défiler pour rien. Un
+    // dossier déjà à jour, lui, n'est pas une erreur.
+    if (result.added === 0 && result.removed === 0) {
+      if (result.failed > 0) error = t($language, 'romsNoneAdded');
+      else upToDate = true;
     }
-
-    // Every entry failing looks exactly like a completed scan unless said
-    // out loud - the player just watched forty cartridges scroll by for
-    // nothing.
-    if (added === 0) error = t($language, 'romsNoneAdded');
+    if (result.failed > 0) logger.warn(`${result.failed} ROM(s) refusée(s) sur ${result.total}`);
   }
 
   /**
@@ -119,6 +134,8 @@
     error = '';
     progress = '';
     added = 0;
+    removed = 0;
+    upToDate = false;
     try {
       if (await chooseDirectory()) {
         const handle = await storedDirectory();
@@ -167,6 +184,12 @@
   {/if}
   {#if added > 0 && !busy}
     <p class="explain">{added} {t($language, 'gamesAdded')}</p>
+  {/if}
+  {#if removed > 0 && !busy}
+    <p class="explain">{removed} {t($language, 'gamesRemoved')}</p>
+  {/if}
+  {#if upToDate && !busy}
+    <p class="explain">{t($language, 'libraryUpToDate')}</p>
   {/if}
   {#if error}
     <p class="error">{error}</p>

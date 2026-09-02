@@ -11,6 +11,16 @@
   import { roomIntent } from '$lib/rooms/room-intent';
   import { deviceLibrary } from '$lib/roms/device-library';
   import { resolvableHere } from '$lib/roms/provider';
+  import { syncFolder } from '$lib/roms/folder-sync';
+  import {
+    storedDirectory,
+    ensureAccess,
+    scanDirectory,
+    registerGame,
+    forgetIndexed,
+    indexedChecksums
+  } from '$lib/roms/local-library';
+  import { pickerError } from '$lib/roms/picker-error';
   import {
     inviteToGroup,
     leaveGroup,
@@ -61,6 +71,90 @@
     resolvable = await resolvableHere();
   }
   onMount(refreshResolvable);
+
+  /**
+   * Le dossier de ROMs fait foi pour ce que cet appareil affiche.
+   *
+   * Le bouton n'existe que si un dossier est déjà mémorisé : sans dossier -
+   * appareil neuf, ou Firefox et Safari qui n'ont pas `showDirectoryPicker` -
+   * il n'aurait rien à rescanner, et le chemin pour en désigner un est le
+   * panneau du profil, déjà atteignable depuis l'avatar et depuis l'appel à
+   * l'action de la bibliothèque vide.
+   */
+  let folderKnown = false;
+  let syncing = false;
+  let syncProgress = '';
+  let syncNote = '';
+
+  onMount(async () => {
+    // Une base indisponible (navigation privée, quota) ne doit pas casser le
+    // montage de la page : pas de dossier connu, pas de bouton, c'est tout.
+    folderKnown = !!(await storedDirectory().catch(() => undefined));
+  });
+
+  async function rescanFolder(): Promise<void> {
+    syncing = true;
+    syncNote = '';
+    syncProgress = t($language, 'refreshingLibrary');
+    try {
+      const known = new Set(
+        $games.map((g) => g.crc32).filter((c): c is string => !!c)
+      );
+      const handle = await storedDirectory();
+      if (!handle || !(await ensureAccess(handle))) {
+        // L'accès révoqué se re-demande depuis le profil, avec l'explication
+        // qui va avec ; ici on ne peut que cesser de prétendre.
+        folderKnown = !!handle;
+        syncNote = t($language, 'romSource');
+        return;
+      }
+
+      const result = await syncFolder({
+        scan: () => scanDirectory(handle),
+        register: registerGame,
+        indexed: indexedChecksums,
+        forget: forgetIndexed,
+        // Le compte sait ce qu'il possède : sans ça, chaque clic renverrait
+        // toute la logithèque au serveur et annoncerait des ajouts imaginaires.
+        isKnown: (checksum) => known.has(checksum),
+        onProgress: (done, total, filename) => {
+          syncProgress = `${done}/${total} · ${filename}`;
+        }
+      });
+
+      if (result.empty) {
+        syncNote = t($language, 'noRomsFound');
+        return;
+      }
+
+      // Les deux listes que la grille croise : ce que le compte possède, et ce
+      // que cet appareil sait résoudre. Rafraîchir l'une sans l'autre laisse un
+      // jeu ajouté invisible, ou un jeu retiré encore affiché.
+      await loadGames();
+      await refreshResolvable();
+
+      const parts: string[] = [];
+      if (result.added > 0) parts.push(`${result.added} ${t($language, 'gamesAdded')}`);
+      if (result.removed > 0) parts.push(`${result.removed} ${t($language, 'gamesRemoved')}`);
+      if (parts.length > 0) {
+        syncNote = parts.join(' · ');
+      } else if (result.failed > 0) {
+        // Rien ajouté, rien retiré, mais des refus : cela ressemble trait pour
+        // trait à un dossier déjà à jour, et c'est le contraire. Le seuil est
+        // « au moins un refus », pas « tous » : huit fichiers déjà connus et
+        // deux refusés ne font pas une bibliothèque à jour.
+        syncNote = t($language, 'romsNoneAdded');
+      } else {
+        syncNote = t($language, 'libraryUpToDate');
+      }
+    } catch (err) {
+      const message = pickerError(err);
+      if (message) syncNote = message;
+    } finally {
+      syncing = false;
+      syncProgress = '';
+    }
+  }
 
   /**
    * Ce que cet appareil peut réellement lancer.
@@ -333,7 +427,23 @@
         <div>
           <h1>{t($language, 'library')}</h1>
           <p class="subtitle">{shownGames.length} {shownGames.length === 1 ? t($language, 'game') : t($language, 'games')}</p>
+          {#if syncing && syncProgress}
+            <p class="sync-note">{syncProgress}</p>
+          {:else if syncNote}
+            <p class="sync-note">{syncNote}</p>
+          {/if}
         </div>
+        {#if folderKnown}
+          <button
+            class="rescan"
+            on:click={rescanFolder}
+            disabled={syncing}
+            title={t($language, 'refreshLibrary')}
+          >
+            <span class="rescan-icon" class:spinning={syncing} aria-hidden="true">⟳</span>
+            <span class="rescan-label">{t($language, 'refreshLibrary')}</span>
+          </button>
+        {/if}
         <!-- The group's whole state in one strip: who is being waited on, who is
              here, and the way back into a game that is already running. It takes
              the place of the "create a room" button, which had nothing left to do
@@ -657,6 +767,64 @@
 
   .group-action:hover {
     background: rgba(255, 255, 255, 0.16);
+  }
+
+  /* Repris de .group-action, qui occupe le même bord du même en-tête : deux
+     boutons voisins dessinés différemment se lisent comme deux natures. */
+  .rescan {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 0.375rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+  }
+
+  .rescan:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .rescan:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+
+  .rescan-icon {
+    display: inline-block;
+    font-size: 1rem;
+    line-height: 1;
+  }
+
+  .rescan-icon.spinning {
+    animation: rescan-spin 1s linear infinite;
+  }
+
+  /* Un scan de quarante cartouches prend plusieurs secondes : sans ce signe,
+     le joueur reclique. La requête de mouvement réduit coupe l'animation, pas
+     le retour - le libellé et le compteur restent. */
+  @keyframes rescan-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rescan-icon.spinning { animation: none; }
+  }
+
+  .sync-note {
+    margin: 0.25rem 0 0 0;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  /* Sous 480px l'en-tête passe en colonne : le libellé mangerait la largeur du
+     titre, l'icône seule suffit puisque le title reste. */
+  @media (max-width: 480px) {
+    .rescan-label { display: none; }
   }
 
   h1 {
