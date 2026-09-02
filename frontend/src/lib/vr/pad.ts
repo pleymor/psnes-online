@@ -32,7 +32,7 @@ export const XR_AXIS_THRESHOLD = 0.5;
 /* `xr-standard` button indices. Named because `buttons[5]` at a call site is
  * how the two face buttons end up swapped by someone counting from the wrong
  * end. */
-const TRIGGER = 0;
+export const TRIGGER = 0;
 const SQUEEZE = 1;
 const STICK_CLICK = 3;
 const FACE_LOWER = 4;

@@ -23,6 +23,7 @@ import type { PixelAspect } from '$lib/znet/fit';
 import { createPanelMesh, type PanelMesh } from './panel-mesh';
 import { hit, type PanelSize } from './panel';
 import type { PointerTarget } from './pointer';
+import { TRIGGER } from './pad';
 
 export interface VrScene {
   screen: VrScreen;
@@ -77,6 +78,10 @@ export function createVrScene(opts: {
   const perFrame: Array<() => void> = [];
 
   const panels: PanelMesh[] = [];
+  // Rebuilt only in `addPanel`, never inside `aimedAt`: that loop runs twice
+  // a frame while panels are visible, and a GC pause there is audible as an
+  // audio glitch, same as the raycaster scratch objects below.
+  const panelMeshes: THREE.Mesh[] = [];
   const panelGroup = new THREE.Group();
   scene.add(panelGroup);
 
@@ -123,8 +128,7 @@ export function createVrScene(opts: {
       direction.set(0, 0, -1).applyQuaternion(worldQuaternion).normalize();
       raycaster.set(origin, direction);
 
-      const meshes = panels.map((panel) => panel.mesh);
-      const [first] = raycaster.intersectObjects(meshes, false);
+      const [first] = raycaster.intersectObjects(panelMeshes, false);
       if (!first?.uv) continue;
 
       const panel = panels.find((candidate) => candidate.mesh === first.object);
@@ -140,7 +144,7 @@ export function createVrScene(opts: {
     const session = renderer.xr.getSession();
     if (!session) return false;
     for (const source of session.inputSources) {
-      if (source.gamepad?.buttons[0]?.pressed) return true;
+      if (source.gamepad?.buttons[TRIGGER]?.pressed) return true;
     }
     return false;
   }
@@ -167,6 +171,7 @@ export function createVrScene(opts: {
     addPanel(id: string, placement: Placement, size: PanelSize): PanelMesh {
       const panel = createPanelMesh(id, placement, size);
       panels.push(panel);
+      panelMeshes.push(panel.mesh);
       panelGroup.add(panel.mesh);
       return panel;
     },

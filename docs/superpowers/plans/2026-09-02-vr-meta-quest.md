@@ -3673,8 +3673,12 @@ Milestone: the library lectern hangs below and to the left, the controller casts
  */
 
 import * as THREE from 'three';
-import type { Placement } from './layout';
-import type { PanelSize, Region } from './panel';
+// Merged into the imports `scene.ts` already has, rather than added as new
+// lines: it imports `sceneLayout` from `./layout` and `hit` from `./panel`
+// already, so `Placement` joins the first and `PanelSize` the second.
+//   import { sceneLayout, type SceneLayout, type Placement } from './layout';
+//   import { hit, type PanelSize } from './panel';
+// `Region` is NOT among them - only `panel-mesh.ts` needs that one.
 
 export interface PanelMesh {
   id: string;
