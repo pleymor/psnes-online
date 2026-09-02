@@ -56,7 +56,10 @@
   /** Guards `leave()` against re-entrant calls - see the header. */
   let leaving = false;
 
-  const pointer = createPointer();
+  /** Reassigned in `teardown()`, not just used, so a trigger physically
+   *  held across a session boundary can't be read as a stale non-edge and
+   *  swallow the next session's first press. */
+  let pointer = createPointer();
   let library: PanelMesh | null = null;
   let libraryState: LibraryState = { games: [], ownedTotal: 0, scroll: 0 };
   let hovered: PointerTarget | null = null;
@@ -222,6 +225,7 @@
     library = null;
     covers.clear();
     hovered = null;
+    pointer = createPointer();
     vrActive.set(false);
     vrRequested.set(false);
   }
