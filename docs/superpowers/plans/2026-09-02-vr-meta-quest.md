@@ -2168,12 +2168,27 @@ test('the arc is centred on straight ahead', () => {
   assert.ok(positions[last] > 0, 'and ends on their right');
 });
 
+/**
+ * A tolerance, because `positions` is a Float32Array and the expectations are
+ * float64 literals.
+ *
+ * `SPEC.height / 2` is 0.6, which binary32 cannot hold exactly - it comes back
+ * as -0.6000000238418579, 2.4e-8 away. `assert.equal` there can never pass, for
+ * any correct implementation, and an earlier version of this test spent two
+ * agent runs proving that. 1e-6 is thousands of times larger than the storage
+ * error and still tens of thousands of times smaller than any geometry bug,
+ * which would be centimetres.
+ */
+const NEAR = 1e-6;
+const near = (actual: number, expected: number, what: string) =>
+  assert.ok(Math.abs(actual - expected) < NEAR, `${what}: ${actual} vs ${expected}`);
+
 test('the screen is centred vertically on its own origin', () => {
   const { positions } = curvedScreenGeometry(SPEC);
   const ys: number[] = [];
   for (let i = 1; i < positions.length; i += 3) ys.push(positions[i]);
-  assert.equal(Math.min(...ys), -SPEC.height / 2);
-  assert.equal(Math.max(...ys), SPEC.height / 2, 'layout.ts places it; the mesh does not');
+  near(Math.min(...ys), -SPEC.height / 2, 'bottom row');
+  near(Math.max(...ys), SPEC.height / 2, 'top row - layout.ts places it, the mesh does not');
 });
 
 test('u stops at uMax, so the padding is never sampled', () => {
@@ -2191,9 +2206,9 @@ test('u stops at uMax, so the padding is never sampled', () => {
 test('the bottom row carries v = 0 and the top row v = 1', () => {
   const { positions, uvs } = curvedScreenGeometry(SPEC);
   // Vertex 0 is the first column's bottom, vertex 1 its top.
-  assert.equal(positions[1], -SPEC.height / 2);
+  near(positions[1], -SPEC.height / 2, "vertex 0 is column 0's bottom");
   assert.equal(uvs[1], 0);
-  assert.equal(positions[4], SPEC.height / 2);
+  near(positions[4], SPEC.height / 2, "vertex 1 is column 0's top");
   assert.equal(uvs[3], 1);
 });
 
