@@ -95,7 +95,7 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
        * assignment and the upload both happen inside this frame, before the
        * core runs again.
        */
-      texture!.image.data = surface.data as unknown as Uint8Array;
+      texture!.image.data = surface.data;
       texture!.needsUpdate = true;
     },
 

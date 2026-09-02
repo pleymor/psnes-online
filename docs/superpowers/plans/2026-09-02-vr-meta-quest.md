@@ -2717,15 +2717,41 @@ export function createVrScene(opts: {
     } catch (err) {
       logger.error('entering VR failed', err);
       notifications.show(t($language, 'vrUnavailable'), 'error', 6000);
-      teardown();
+      /*
+       * `leave()`, not `teardown()`, and the difference is a player trapped in
+       * the dark.
+       *
+       * If `openVrSession` resolved and `scene.attach` then threw - and it can,
+       * because three's `setSession` awaits `gl.makeXRCompatible()` on a
+       * renderer this code does not construct with `xrCompatible: true` - the
+       * XRSession is still open in the browser. `teardown()` alone would null
+       * our references and forget it, leaving somebody inside a black immersive
+       * session with a disposed renderer, no code path left that would ever end
+       * it, and a flat-page button they cannot reach because the headset is on
+       * their face. Recovery costs an app restart and there is no console in
+       * there to explain why.
+       */
+      void leave();
     }
   }
 
   async function leave(): Promise<void> {
     await session?.end();
-    // `end()` raises `sessionend`, which runs `teardown`. Nothing more here.
+    // `end()` raises `sessionend`, which runs `teardown`. Nothing more here -
+    // and if no session was ever opened, this is a safe no-op that still
+    // reaches `teardown` through the caller.
   }
 
+  /**
+   * Drops every reference. Assumes the session is ALREADY OVER.
+   *
+   * That precondition is the whole subtlety: this is safe from
+   * `openVrSession`'s `onEnd` (the session ended, which is why we were
+   * called) and from `onDestroy` on an ordinary Svelte teardown, but calling
+   * it while a session is still live abandons that session rather than ending
+   * it. Anything that might still hold an open session must go through
+   * `leave()` instead.
+   */
   function teardown(): void {
     scene?.dispose();
     scene = null;

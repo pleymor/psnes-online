@@ -18,6 +18,16 @@
    * `session.end()` before either settles. `leaving` below is the guard against
    * that: it makes `leave()` itself re-entrancy-safe regardless of how many
    * places end up calling it.
+   *
+   * `teardown()` and `closeAnySession()` carry different preconditions, and the
+   * three call sites are picked to match them rather than sharing one blindly:
+   * `teardown()` assumes the browser's `XRSession` is already gone, which is
+   * true only from `openVrSession`'s `onEnd` callback below. Anywhere this
+   * component can stop existing without that having happened yet - a failure
+   * partway through `enter()`, or an ordinary Svelte unmount - has to check
+   * first, because a `session` that is still open with nothing left to call
+   * `end()` on it is a player stuck in a black room with no way out but a
+   * restart.
    */
   import { onDestroy } from 'svelte';
   import { vrRequested, vrActive } from '$lib/vr/entry';
@@ -65,7 +75,11 @@
     } catch (err) {
       logger.error('entering VR failed', err);
       notifications.show(t($language, 'vrUnavailable'), 'error', 6000);
-      teardown();
+      // Not `teardown()`: `openVrSession` may already have resolved before
+      // `scene.attach` (or anything after it) threw, in which case the
+      // browser's `XRSession` is still open and `teardown()` would only make
+      // the app forget it exists. `closeAnySession()` is safe either way.
+      closeAnySession();
     }
   }
 
@@ -80,6 +94,28 @@
     }
   }
 
+  /**
+   * Safe from either precondition: ends a session if one is open, which
+   * raises `sessionend` and drives `teardown()` through the `onEnd` callback
+   * above; tears down directly, with nothing to end, if not.
+   *
+   * Used at the two sites that cannot promise the session is already closed -
+   * a failure partway through `enter()`, and an ordinary Svelte unmount. The
+   * component's own invariant is never to be unmounted by navigation, but
+   * `onDestroy` still fires on the paths that ignore that invariant, dev-mode
+   * HMR chief among them, so it has to go through here rather than straight to
+   * `teardown()`.
+   */
+  function closeAnySession(): void {
+    if (session) {
+      void leave();
+    } else {
+      teardown();
+    }
+  }
+
+  /** Assumes the browser's `XRSession` is already gone. Only `onEnd` above may
+   * call this directly - every other exit goes through `closeAnySession()`. */
   function teardown(): void {
     scene?.dispose();
     scene = null;
@@ -91,7 +127,7 @@
   // The button sets the store; this is the one place that acts on it.
   $: if ($vrRequested && !session) void enter();
 
-  onDestroy(teardown);
+  onDestroy(closeAnySession);
 </script>
 
 <!-- Nothing is rendered: the whole surface of this component is the headset.
