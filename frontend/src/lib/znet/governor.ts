@@ -105,13 +105,22 @@ export class FrameGovernor {
 		this.running = true;
 		this.lastTime = performance.now();
 		this.accumulator = 0;
-		document.addEventListener('visibilitychange', this.onVisibilityChange);
+		// Guarded like `schedule()` below. `stop()` needs the matching guard even
+		// though `start()` is the one that adds the listener: `solo-engine.ts`'s
+		// tests construct a governor and call only `stop()`, with no document at
+		// all, so an unconditional `removeEventListener` there would throw on a
+		// listener that (rightly) was never added.
+		if (typeof document !== 'undefined') {
+			document.addEventListener('visibilitychange', this.onVisibilityChange);
+		}
 		this.schedule();
 	}
 
 	stop(): void {
 		this.running = false;
-		document.removeEventListener('visibilitychange', this.onVisibilityChange);
+		if (typeof document !== 'undefined') {
+			document.removeEventListener('visibilitychange', this.onVisibilityChange);
+		}
 		if (this.handle !== null) {
 			cancelAnimationFrame(this.handle);
 			this.handle = null;
