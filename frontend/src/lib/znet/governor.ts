@@ -33,6 +33,19 @@ export interface GovernorOptions {
 	 * genuinely pause the way requestAnimationFrame already would on its own.
 	 */
 	keepRunningWhenHidden?: boolean;
+	/**
+	 * Where the next slice is scheduled while the tab is visible.
+	 *
+	 * Defaults to `requestAnimationFrame`, which is what every caller wanted
+	 * until an immersive XR session turned up: window rAF is not the display's
+	 * clock once a headset is presenting, and the WebXR spec lets a user agent
+	 * throttle it freely. `vr/frame-pump.ts` is what goes here.
+	 *
+	 * It returns nothing, because cancellation does not go through it:
+	 * `stop()` sets `running` false and `slice()` returns immediately when it
+	 * is. A scheduler therefore never needs a handle to cancel.
+	 */
+	schedule?: (run: () => void) => void;
 }
 
 export class FrameGovernor {
@@ -72,6 +85,8 @@ export class FrameGovernor {
 	private worker: Worker | null = null;
 	private keepRunningWhenHidden: boolean;
 	private onVisibilityChange = () => this.reschedule();
+	/** Overrides `requestAnimationFrame` as where the next slice comes from. See `GovernorOptions.schedule`. */
+	private scheduler: ((run: () => void) => void) | null;
 
 	constructor(session: TickSource, options: GovernorOptions = {}) {
 		this.session = session;
@@ -79,6 +94,7 @@ export class FrameGovernor {
 		this.maxCatchUp = options.maxCatchUp ?? 8;
 		this.onSlice = options.onSlice ?? (() => {});
 		this.keepRunningWhenHidden = options.keepRunningWhenHidden ?? true;
+		this.scheduler = options.schedule ?? null;
 	}
 
 	get isRunning(): boolean {
@@ -145,6 +161,10 @@ export class FrameGovernor {
 	private schedule(): void {
 		if (typeof document !== 'undefined' && document.hidden && this.keepRunningWhenHidden) {
 			this.startWorker();
+			return;
+		}
+		if (this.scheduler) {
+			this.scheduler(() => this.slice());
 			return;
 		}
 		this.handle = requestAnimationFrame(() => this.slice());
