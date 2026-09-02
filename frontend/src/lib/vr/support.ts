@@ -10,7 +10,7 @@
  * Quest player gets, because the inputs arrive through `XRInputSource` whatever
  * the hardware. Their flat-screen settings sit untouched behind it.
  *
- * Takes its navigator, for the reason `znet/devices.ts:73` takes its own.
+ * Takes its navigator, for the reason `znet/devices.ts:76` takes its own.
  */
 
 export interface XrCapableNavigator {
