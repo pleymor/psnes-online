@@ -76,3 +76,9 @@ core/build/
 .claude/settings.local.json
 .claude/worktrees/
 .shot.mjs
+
+# Dev TLS for the Quest. WebXR needs a secure context, and the headset reaches
+# this machine by LAN IP rather than localhost, so `bun run dev` can serve
+# self-signed HTTPS when VITE_HTTPS=1. Regenerate with the openssl.cnf in there;
+# never commit the key.
+frontend/.certs/
