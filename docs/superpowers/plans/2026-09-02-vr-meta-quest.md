@@ -4125,7 +4125,19 @@ Add to the script:
         pad2: 0
       }),
       onFrame: (c) => scene?.screen.upload(c.videoSurface()),
-      onError: (err) => logger.error('vr engine', err)
+      onError: (err) => logger.error('vr engine', err),
+      /*
+       * The whole reason `GovernorOptions.schedule` exists, and the one line
+       * that makes the chain behind it real.
+       *
+       * Without this the governor falls back to `window.requestAnimationFrame`,
+       * which is NOT the display's clock once a headset is presenting - the
+       * WebXR spec lets a user agent throttle it freely. The game would still
+       * run, which is exactly what makes the omission dangerous: nothing looks
+       * broken, and `frame-pump.ts`, the governor's new option and the XR
+       * animation loop would all be dead weight.
+       */
+      schedule: scene.schedule
     });
 
     // `needsGesture` is a question, not an assumption - `output.ts:199` records
