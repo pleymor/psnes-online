@@ -15,12 +15,13 @@
   import { goto } from '$app/navigation';
   import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
-  import { fromBase64 } from '$lib/saves/base64';
+  import { fromBase64, toBase64 } from '$lib/saves/base64';
   import { setLogLabels } from '$lib/utils/log-shipper';
-  import { encodeSram, decodeSram } from '$lib/rooms/sram';
+  import { decodeSram } from '$lib/rooms/sram';
   import { applyInputSources } from '$lib/rooms/input-sources';
   import { createRendererSurface, type SurfaceState } from '$lib/rooms/renderer-surface';
   import { createFullscreen } from '$lib/rooms/fullscreen';
+  import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
   import { socket } from '$lib/api/socket';
   import LocateRom from './LocateRom.svelte';
   import TouchControls from './TouchControls.svelte';
@@ -44,7 +45,6 @@
     SoloSession,
     PsnesCore,
     loadCore,
-    normaliseRom,
     aspectRatioOf,
     fitToBox,
     loadAssignments,
@@ -126,6 +126,11 @@
    */
   let matchWatch: MatchObserver | null = null;
   let governor: FrameGovernor | null = null;
+  /** Owns the boot sequence, the SRAM timer and the frame loop's teardown -
+   * see `rooms/solo-engine.ts`. `session` and `governor` are pulled out of it
+   * once it exists, because the pause menu and the turbo toggle already
+   * reach those two directly. */
+  let engine: SoloEngine | null = null;
 
   /** Set once the component is gone, so a suspended boot() cannot build on a corpse. */
   let destroyed = false;
@@ -162,7 +167,6 @@
   let showPauseMenu = false;
   let pauseRestoresFullscreen = false;
   let isFullscreen = false;
-  let sramTimer: ReturnType<typeof setInterval> | null = null;
   let container: HTMLDivElement;
 
   // Solo has no toolbar to hide and never opens its menu on a fullscreen
@@ -186,11 +190,11 @@
   /**
    * Whether the battery save was actually read back from the server.
    *
-   * persistSram() refuses to write until this is true. Writing before it
+   * sendSram() refuses to write until this is true. Writing before it
    * would overwrite the player's in-game save with the blank SRAM a
    * freshly-loaded ROM starts with - which is what closing the room during
-   * loadSram()'s round trip used to do. A timeout does NOT set this: if we
-   * could not read, we must not write, for the whole session.
+   * readStoredSram()'s round trip used to do. A timeout does NOT set this: if
+   * we could not read, we must not write, for the whole session.
    */
   let sramLoaded = false;
   let sramNotice: string | null = null;
@@ -327,22 +331,24 @@
   }
 
   /**
-   * Loads the battery save before the first frame runs.
+   * Reads the battery save from the server, before the first frame runs.
    *
    * This is the in-game save - what the player writes from the cartridge's own
    * menu - so it is part of the emulated machine and has to be in place before
-   * emulation starts.
+   * emulation starts. It is `createSoloEngine` that applies the bytes to the
+   * core now, in the one order that does not discard the save; this only does
+   * the round trip and hands back what it got.
    *
    * Invariant `sramLoaded` depends on: it means the server's copy was read
    * and applied - or, for a new game, that the server confirmed there was
    * none to apply. Every path that sets it true must be a path where that is
    * actually true; a caught decode error and an unanswered request are both
-   * "did not read" and must leave it false. `persistSram()` trusts this flag
+   * "did not read" and must leave it false. `sendSram()` trusts this flag
    * completely to decide whether writing back is safe, so setting it on a
    * failure path is a silent, permanent way to overwrite a real save with a
    * blank one - it has happened twice already.
    */
-  function loadSram(): Promise<void> {
+  function readStoredSram(): Promise<Uint8Array | null> {
     return new Promise((resolve) => {
       const sock = $socket;
       if (!sock || !core) {
@@ -350,16 +356,16 @@
         // much a "did not read" as a server timeout - the player deserves the
         // same warning, not silence.
         sramNotice = SRAM_UNAVAILABLE_NOTICE;
-        return resolve();
+        return resolve(null);
       }
 
       const done = (data: { sramData: string | null }) => {
         sock.off('game:sramLoaded', done);
         clearTimeout(timeoutHandle);
+        let bytes: Uint8Array | null = null;
         try {
           if (data.sramData) {
-            const bytes = decodeSram(data.sramData);
-            core!.loadSram(bytes);
+            bytes = decodeSram(data.sramData);
             logger.info('Battery save restored', { bytes: bytes.length });
             sramLoaded = true;
           } else {
@@ -369,13 +375,13 @@
           }
         } catch (err) {
           // A payload we could not decode is a read that did not succeed.
-          // sramLoaded stays false, so persistSram() will not overwrite
+          // sramLoaded stays false, so sendSram() will not overwrite
           // whatever real save the server holds with the blank SRAM the ROM
           // just started with.
           logger.error('Could not restore the battery save', err);
           sramNotice = SRAM_DECODE_ERROR_NOTICE;
         }
-        resolve();
+        resolve(bytes);
       };
 
       sock.on('game:sramLoaded', done);
@@ -390,7 +396,7 @@
         if (!sramLoaded) {
           sramNotice = SRAM_UNAVAILABLE_NOTICE;
         }
-        resolve();
+        resolve(null);
       }, 5000);
     });
   }
@@ -421,7 +427,7 @@
    * A power cycle: the CPU restarts, the cartridge keeps its battery.
    *
    * `core.reset()` leaves SRAM alone, which is what a real console does and
-   * why this deliberately does not call `persistSram()` or clear anything -
+   * why this deliberately does not call `persistNow()` or clear anything -
    * the player's in-game save file survives a restart, exactly as it should.
    *
    * The flush is for the same reason as in `onGameLoaded`: audio queued for
@@ -452,12 +458,31 @@
     dispatch('controlsSaved', event.detail);
   }
 
-  function persistSram(): void {
+  /** The `sram.save` half of the engine's port - see `rooms/solo-engine.ts`.
+   * The engine has already read `core.sram()` and refused an empty one, so
+   * this only guards the two things it cannot know: whether the initial read
+   * actually succeeded, and whether there is still a socket to write through. */
+  function sendSram(bytes: Uint8Array): void {
     if (!sramLoaded) return;
-    if (!core || !$socket) return;
-    const sramData = encodeSram(core);
-    if (!sramData) return;
+    if (!$socket) return;
+    const sramData = toBase64(bytes);
     $socket.emit('game:saveSram', { roomId, sramData });
+  }
+
+  /**
+   * Writes the battery save right now, ahead of the engine's own 30-second
+   * timer.
+   *
+   * The engine owns the periodic schedule, but exposes no "do it now" verb -
+   * and calling `engine.stop()` here would end the session instead of merely
+   * pausing or leaving it. `core` is still this component's own, so reading
+   * `core.sram()` on demand and routing it through `sendSram()` is all a
+   * manual write needs.
+   */
+  function persistNow(): void {
+    if (!core) return;
+    const bytes = core.sram();
+    if (bytes.length > 0) sendSram(bytes);
   }
 
   async function boot() {
@@ -475,24 +500,16 @@
       statusText = 'Loading emulator core…';
       core = await loadCore();
       if (destroyed) {
-        teardown();
+        void teardown();
         return;
       }
 
       statusText = 'Locating the ROM…';
       loadedRom = await obtainRom();
       if (destroyed) {
-        teardown();
+        void teardown();
         return;
       }
-      core.loadRom(normaliseRom(loadedRom));
-
-      await loadSram();
-      if (destroyed) {
-        teardown();
-        return;
-      }
-
       const storedShader = readShaderPreference(localStorage);
       display = {
         ...display,
@@ -504,15 +521,8 @@
       renderer.draw(core);
 
       audio = new AudioSink();
-      await audio.start(Math.round(core.sampleRate));
-      if (destroyed) {
-        teardown();
-        return;
-      }
-      // Ask, do not assume: a room is reached by clicking, so the context
-      // is usually already running and no gesture is needed.
-      needsAudioGesture = audio.needsGesture;
-
+      // Constructed here, not in the engine: `needsAudioGesture` is a piece of
+      // this screen's state and the engine has no screen.
       assignments = loadAssignments(localStorage);
       const pads = connectedPads();
       const sources = resolveSources(assignments, pads);
@@ -534,31 +544,42 @@
 
       matchWatch = createMatchWatch();
 
-      session = new SoloSession({
+      engine = await createSoloEngine({
         core,
-        readLocalInput: () => ({
+        rom: loadedRom,
+        sram: {
+          load: () => readStoredSram(), // the body loadSram() had
+          save: (bytes) => sendSram(bytes) // the body persistSram() had
+        },
+        audio,
+        readPads: () => ({
           pad1: collector1!.read(),
           pad2: allowLocalPlayer2 && isPlayerActive(assignments.p2) ? collector2!.read() : 0
         }),
-        onFrame: (frame) => {
-          renderer!.draw(core!);
-          audio!.push(core!.audio());
+        onFrame: (c, frame) => {
+          renderer!.draw(c);
+          // FrameGovernor used to call this through `onSlice`, once per slice
+          // rather than once per frame; the engine exposes no such hook, and
+          // a GL context that died is at least as quickly noticed this way.
+          checkRendererHealth();
           // Read-only and on a schedule of its own: observe() costs a modulo on
           // the frames it skips, which is what makes it safe here.
           matchWatch?.observe(frame);
-        }
+        },
+        onError: (err) => logger.error('solo engine', err)
       });
-
-      governor = new FrameGovernor(session, {
-        fps: core.fps || 60.0988,
-        onSlice: () => checkRendererHealth(),
-        // Solo has no peer to freeze by pausing: let a hidden tab actually
-        // stop instead of burning a CPU core in the background, the way the
-        // rAF-only path this replaced always did.
-        keepRunningWhenHidden: false
-      });
+      // The awaits inside createSoloEngine (the SRAM round trip, the audio
+      // context) are exactly the kind that outlive a closed room; without this
+      // check a late resolution would restart a session teardown() already
+      // tore down.
+      if (destroyed) {
+        void teardown();
+        return;
+      }
+      session = engine.session;
+      governor = engine.governor;
+      needsAudioGesture = audio.needsGesture;
       governor.start();
-      sramTimer = setInterval(persistSram, 30000);
       $socket?.on('game:loaded', onGameLoaded);
 
       phase = 'playing';
@@ -578,7 +599,7 @@
       logger.error('Solo boot failed', err);
       errorText = err instanceof Error ? err.message : String(err);
       phase = 'error';
-      teardown();
+      void teardown();
     }
   }
 
@@ -613,7 +634,7 @@
     collector2?.detach();
     // Matches P2PRoom's auto-save on pause: a player who opens the menu is
     // often about to save or leave, and membership is still live here.
-    persistSram();
+    persistNow();
   }
 
   function closePauseMenu(): void {
@@ -739,7 +760,7 @@
     // (It used to be the page's `onDestroy` that emitted `room:leave`, which is
     // what the comment here described until dbed6c9 took it out. The ordering
     // conclusion survived the mechanism that produced it.)
-    persistSram();
+    persistNow();
     // Reset first, not read back from document.fullscreenElement inside
     // closePauseMenu() after exitFullscreen() - that promise resolves
     // asynchronously, so relying on its timing would be fragile.
@@ -781,22 +802,21 @@
     return observer;
   }
 
-  function teardown() {
+  async function teardown() {
     destroyed = true;
     matchWatch = null;
-    if (sramTimer) clearInterval(sramTimer);
-    sramTimer = null;
     // Best-effort, and refused on the one path that matters: quitting a room
     // of one has already emitted `room:leave` by now, so the server no longer
     // counts us as a member. The saves that carry are the ones in
     // quitToLobby() and openPauseMenu(), which run while the seat is live.
     // This one covers leaving by any other route - closing the tab, navigating
-    // away - where membership is untouched and it lands.
-    persistSram();
+    // away - where membership is untouched and it lands. `engine.stop()` is
+    // also where the SRAM timer it owns gets cleared.
+    await engine?.stop();
+    engine = null;
     $socket?.off('game:loaded', onGameLoaded);
     window.removeEventListener('gamepadconnected', applySources);
     window.removeEventListener('gamepaddisconnected', applySources);
-    governor?.stop();
     governor = null;
     session = null;
     collector1?.detach();
@@ -821,7 +841,7 @@
   });
 
   onDestroy(() => {
-    teardown();
+    void teardown();
   });
 </script>
 
