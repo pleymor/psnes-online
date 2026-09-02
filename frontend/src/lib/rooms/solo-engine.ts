@@ -101,9 +101,9 @@ export async function createSoloEngine(options: SoloEngineOptions): Promise<Solo
     // `SoloRoom.svelte:552` gives for the same value.
     keepRunningWhenHidden: false,
     // Undefined on the flat path, which leaves the governor on rAF exactly as
-    // before. Spread rather than assigned so `exactOptionalPropertyTypes`
-    // cannot object to an explicit undefined.
-    ...(options.schedule ? { schedule: options.schedule } : {})
+    // before: `GovernorOptions.schedule` is optional and the constructor
+    // already falls back to `null` with `options.schedule ?? null`.
+    schedule: options.schedule
   });
 
   const timer = setInterval(() => persist(), SRAM_INTERVAL_MS);
