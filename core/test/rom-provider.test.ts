@@ -318,3 +318,41 @@ test('un stockage qui refuse ne fait pas échouer le lancement', async () => {
 	assert.deepEqual([...got!], [...bytes], 'un quota plein a fait perdre la ROM au joueur');
 	useKeptFiles(null);
 });
+
+/*
+ * Pourquoi la recherche est revenue vide.
+ *
+ * `resolveQuietly` répond `null` pour cinq situations très différentes, et
+ * l'appelant ne pouvait pas les distinguer : dans un casque, la notice disait
+ * « ce fichier n'a pas pu être lu » sans que personne puisse savoir si le
+ * fautif était la permission, le dossier ou le fichier. Une session de test
+ * entière y est passée. Sous Bun, `supportsDirectoryPicker()` est faux, donc
+ * seule la première raison est atteignable ici - les autres vivent derrière un
+ * vrai handle de dossier.
+ */
+
+test('une recherche vide dit pourquoi', async () => {
+	const { resolveQuietly } = await provider();
+	const reasons: string[] = [];
+
+	assert.equal(await resolveQuietly('deadbeef', { onMiss: (r) => reasons.push(r) }), null);
+	assert.deepEqual(reasons, ['no-picker'], 'sans raison, la notice du casque est indéchiffrable');
+});
+
+test('une ROM trouvée ne déclenche aucune raison', async () => {
+	// Une raison signalée sur un succès rendrait la notice mensongère.
+	const { resolveQuietly, remember } = await provider();
+	const bytes = rom(33);
+	const checksum = remember(bytes);
+	const reasons: string[] = [];
+
+	assert.deepEqual([...(await resolveQuietly(checksum, { onMiss: (r) => reasons.push(r) }))!], [...bytes]);
+	assert.deepEqual(reasons, []);
+});
+
+test('le rapport de raison ne change pas ce qui est renvoyé', async () => {
+	// Purement informatif : les quatre appelants à plat n'en passent pas, et
+	// doivent se comporter exactement comme avant.
+	const { resolveQuietly } = await provider();
+	assert.equal(await resolveQuietly('deadbeef'), await resolveQuietly('deadbeef', { onMiss: () => {} }));
+});
