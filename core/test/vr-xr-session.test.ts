@@ -3,10 +3,11 @@
  *
  * Two rules, both learned from what goes wrong without them.
  *
- * Only `local` is asked for, and nothing is negotiated. Wanting a floor is
- * what makes the Quest demand a boundary before every entry, and the floor
- * bought nothing: the scene was placed from a guessed 1.6 m eye height, wrong
- * for anybody sitting down. `layout.ts` now measures from the eyes instead.
+ * Only `local` is asked for, and nothing is negotiated. `layout.ts` measures
+ * every height from the eyes, so no floor is wanted - and the 1.6 m eye
+ * height the floor path guessed was wrong for a seated player anyway. This
+ * does NOT stop the Quest asking which boundary to use: that dialog is the
+ * system's own Guardian and no web API reaches it.
  *
  * And `onEnd` fires exactly once. The system menu ending a session, the player
  * pressing quit, and the headset being put down all arrive as the same `end`
@@ -55,17 +56,16 @@ function fakeNavigator(session: ReturnType<typeof fakeSession>) {
 
 test('only the stationary space is asked for, and no feature is negotiated', async () => {
   /*
-   * Asking for a floor is what makes the Quest demand a boundary before every
-   * entry, and the floor bought nothing: the scene was placed from a guessed
-   * 1.6 m eye height, wrong for anybody sitting down. `local` is guaranteed
-   * for an immersive session, so there is nothing left to negotiate and no
-   * degradation to fall back from.
+   * `local` is guaranteed for an immersive session, and the geometry is
+   * eye-relative, so there is nothing left to negotiate and no degradation to
+   * fall back from. A negotiated feature is one more thing that can be
+   * refused by a headset for no benefit here.
    */
   const session = fakeSession({ spaces: ['local'] });
   const nav = fakeNavigator(session);
   const vr = await openVrSession(() => {}, nav);
 
-  assert.deepEqual(session.asked, ['local'], 'local-floor is what triggers the boundary prompt');
+  assert.deepEqual(session.asked, ['local'], 'a floor would be a height nothing needs');
 
   const init = nav.inits[0] as
     | { requiredFeatures?: string[]; optionalFeatures?: string[] }

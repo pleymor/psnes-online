@@ -47,13 +47,12 @@ export interface SceneLayout {
  *
  * That follows from the reference space: `xr-session.ts` asks for `local`
  * only, whose origin is the head's pose when the session opens, so y = 0 is
- * eye level. It used to ask for `local-floor` and place the scene from a
- * guessed 1.6 m eye height, which cost a prompt the player had to answer on
- * every entry - the Quest asks which boundary to use the moment an app wants
- * a real floor - and got the height wrong for anybody sitting down.
+ * eye level. It used to ask for `local-floor` and place everything from a
+ * guessed 1.6 m eye height, which was wrong for anybody sitting down - and
+ * which the old `local` fallback would have hung a full 1.6 m overhead.
  *
- * Eye-relative removes both. There is no height left to guess: the scene is
- * placed where the head actually was.
+ * There is no height left to guess: the scene is placed where the head
+ * actually was.
  */
 
 const SCREEN_RADIUS = 2.5;

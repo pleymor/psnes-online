@@ -9,9 +9,9 @@
  *
  * The reference space is `local`, set here to match what `xr-session.ts`
  * asked for. Both have to say the same thing: three requests its own space
- * rather than reusing the session's, so a floor-relative type here would ask
- * for a space this session was never granted - and asking for a floor at all
- * is what makes the Quest demand a boundary before every entry.
+ * rather than reusing the session's (`WebXRManager.js`, whose default is
+ * `local-floor`), so a floor-relative type here would ask for a space this
+ * session was never granted.
  */
 
 import * as THREE from 'three';
@@ -201,9 +201,10 @@ export function createVrScene(opts: {
     onFrame: (fn) => void perFrame.push(fn),
 
     async attach(session: XRSession): Promise<void> {
-      // `local`, matching what `xr-session.ts` asked for. Anything
-      // floor-relative here would make three request a space the session was
-      // never granted, and it is also what makes the Quest demand a boundary.
+      // `local`, matching what `xr-session.ts` asked for, and BEFORE
+      // `setSession`: three requests its own space from inside that call, and
+      // its default is `local-floor`, so setting this afterwards would ask
+      // for a space the session was never granted.
       renderer.xr.setReferenceSpaceType('local');
       await renderer.xr.setSession(session);
       renderer.setAnimationLoop(() => {
