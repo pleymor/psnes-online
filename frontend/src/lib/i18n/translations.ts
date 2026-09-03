@@ -468,7 +468,9 @@ export const translations = {
     enterVr: 'Enter VR',
     vrUnavailable: 'VR could not start. Another app may be using the headset.',
     vrContextLost: 'VR stopped: the graphics context was lost.',
-    vrAddGamesFlat: 'Leave VR, add your games in the browser, then come back.'
+    vrAddGamesFlat: 'Leave VR, add your games in the browser, then come back.',
+    vrRomUnreadable: 'That file could not be read. Check the folder permission from the browser.',
+    vrLaunchFailed: 'The game could not be started.'
   },
   fr: {
     // Legal disclaimer
@@ -924,7 +926,9 @@ export const translations = {
     enterVr: 'Passer en VR',
     vrUnavailable: 'La VR n\'a pas pu démarrer. Une autre application utilise peut-être le casque.',
     vrContextLost: 'La VR s\'est arrêtée : le contexte graphique a été perdu.',
-    vrAddGamesFlat: 'Quitte la VR, ajoute tes jeux depuis le navigateur, puis reviens.'
+    vrAddGamesFlat: 'Quitte la VR, ajoute tes jeux depuis le navigateur, puis reviens.',
+    vrRomUnreadable: 'Ce fichier n\'a pas pu être lu. Vérifie l\'autorisation du dossier depuis le navigateur.',
+    vrLaunchFailed: 'Le jeu n\'a pas pu démarrer.'
   }
 };
 

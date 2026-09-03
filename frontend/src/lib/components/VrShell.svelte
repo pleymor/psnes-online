@@ -43,11 +43,20 @@
     LIBRARY_PANEL_SIZE, layoutLibraryPanel, drawLibraryPanel,
     libraryRows, clampScroll, type LibraryState
   } from '$lib/vr/panels/library';
-  import { menuPressed } from '$lib/vr/pad';
+  import { menuPressed, readVrPad } from '$lib/vr/pad';
+  import { readPadScheme } from '$lib/vr/pad-scheme';
   import { games } from '$lib/stores/games';
   import { deviceLibrary } from '$lib/roms/device-library';
-  import { resolvableHere } from '$lib/roms/provider';
+  import { resolvableHere, resolveQuietly } from '$lib/roms/provider';
   import type { PanelMesh } from '$lib/vr/panel-mesh';
+  import { loadCore, AudioSink } from '$lib/znet';
+  import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
+  import { createRoom } from '$lib/rooms/actions';
+  import { decodeSram } from '$lib/rooms/sram';
+  import { toBase64 } from '$lib/saves/base64';
+  import { socket } from '$lib/api/socket';
+  import { setLogLabels } from '$lib/utils/log-shipper';
+  import type { PsnesCore } from '$lib/znet/core';
 
   const logger = createLogger('VrShell');
 
@@ -66,6 +75,14 @@
   /** Read once on entry: the picker that would change it does not exist in
    *  here, so it cannot change during a session. */
   let resolvable: string[] = [];
+
+  let engine: SoloEngine | null = null;
+  let core: PsnesCore | null = null;
+  let audio: AudioSink | null = null;
+  let needsAudioGesture = false;
+  /** Shown on the lectern when a launch could not read the file. */
+  let launchNotice: string | null = null;
+  $: padScheme = readPadScheme(localStorage);
 
   /** Covers are same-origin behind the session cookie (`api/covers.ts:9`), so
    *  they load with no crossOrigin attribute - setting one would break the
@@ -90,6 +107,20 @@
         covers
       })
     );
+    const notice = launchNotice;
+    if (notice) {
+      library.paint((ctx) => {
+        ctx.save();
+        ctx.fillStyle = '#7a2222';
+        ctx.fillRect(0, 0, LIBRARY_PANEL_SIZE.width, 40);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '18px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(notice, LIBRARY_PANEL_SIZE.width / 2, 20);
+        ctx.restore();
+      });
+    }
   }
 
   function loadCovers(list: typeof $games): void {
@@ -112,13 +143,128 @@
       repaintLibrary();
       return;
     }
-    // Launching arrives in the next task.
+    if (target.region.id.startsWith('game:')) {
+      launchNotice = null;
+      // The gesture that got us here is an XR select, which is as close to a
+      // user gesture as this session will ever get - so resume here, where a
+      // browser that counts it will let the sound through with no prompt.
+      void audio?.resume();
+      void launch(target.region.id.slice('game:'.length));
+    }
+  }
+
+  async function launch(gameId: string): Promise<void> {
+    if (!scene) return;
+    const game = libraryState.games.find((candidate) => candidate.id === gameId);
+    if (!game?.crc32) return;
+
+    /*
+     * `resolveQuietly`, never the picker.
+     *
+     * `resolvable` was read when the session opened, but a folder handle can
+     * lose its permission between then and now. On the flat screen
+     * `obtainRom()` answers that by opening `LocateRom`; in here there is no
+     * modal to open, so the failure has to be a line on the panel. The game
+     * stays in the grid: it exists, it just could not be read this time.
+     */
+    const rom = await resolveQuietly(game.crc32);
+    if (!rom) {
+      launchNotice = t($language, 'vrRomUnreadable');
+      repaintLibrary();
+      return;
+    }
+
+    const roomId = await createRoom({ gameId: game.id, gameTitle: game.title, autoStart: true });
+    if (!roomId) {
+      launchNotice = t($language, 'vrLaunchFailed');
+      repaintLibrary();
+      return;
+    }
+    setLogLabels({ roomId, player: 'vr' });
+
+    core = await loadCore();
+    audio = new AudioSink();
+
+    engine = await createSoloEngine({
+      core,
+      rom,
+      sram: {
+        load: () => readRoomSram(roomId),
+        save: (bytes) => $socket?.emit('game:saveSram', { roomId, sramData: toBase64(bytes) })
+      },
+      audio,
+      readPads: () => ({
+        // Zero while the panels are up: the trigger is the pointer then, and
+        // both readers on one button is a scroll press that jumps in game.
+        pad1: scene && !scene.arePanelsVisible()
+          ? readVrPad(scene.inputSources(), padScheme, sessionVisibility())
+          : 0,
+        pad2: 0
+      }),
+      onFrame: (c) => scene?.screen.upload(c.videoSurface()),
+      onError: (err) => logger.error('vr engine', err),
+      /*
+       * The whole reason `GovernorOptions.schedule` exists, and the one line
+       * that makes the chain behind it real.
+       *
+       * Without this the governor falls back to `window.requestAnimationFrame`,
+       * which is NOT the display's clock once a headset is presenting - the
+       * WebXR spec lets a user agent throttle it freely. The game would still
+       * run, which is exactly what makes the omission dangerous: nothing looks
+       * broken, and `frame-pump.ts`, the governor's new option and the XR
+       * animation loop would all be dead weight.
+       */
+      schedule: scene.schedule
+    });
+
+    // `needsGesture` is a question, not an assumption - `output.ts:199` records
+    // what happened to the caller who assumed otherwise. An XR `select` may or
+    // may not count as user activation, so the in-world prompt is the designed
+    // answer rather than a hope.
+    needsAudioGesture = audio.needsGesture;
+
+    scene?.panelsVisible(false);
+    engine.governor.start();
+  }
+
+  /** The session's own visibility, which is what `readVrPad` gates on. */
+  function sessionVisibility(): string {
+    return (session?.session.visibilityState as string) ?? 'hidden';
+  }
+
+  function readRoomSram(roomId: string): Promise<Uint8Array | null> {
+    return new Promise((resolve) => {
+      const sock = $socket;
+      if (!sock) return resolve(null);
+      const timer = setTimeout(() => { sock.off('game:sramLoaded', done); resolve(null); }, 5000);
+      function done(data: { sramData: string | null }) {
+        sock!.off('game:sramLoaded', done);
+        clearTimeout(timer);
+        try {
+          resolve(data.sramData ? decodeSram(data.sramData) : null);
+        } catch {
+          // A save that will not decode is not a save. Starting fresh beats
+          // refusing to start.
+          resolve(null);
+        }
+      }
+      sock.on('game:sramLoaded', done);
+      sock.emit('game:loadSram', { roomId });
+    });
   }
 
   function frame(): void {
     if (!scene) return;
 
     if (menuPressed(scene.inputSources())) scene.panelsVisible(true);
+
+    // A player who has to press once for sound presses the trigger, which is
+    // also SNES R - so the prompt keeps the panels up until it is answered,
+    // and answering it is the same select that dismisses it.
+    if (needsAudioGesture && scene.triggerDown()) {
+      void audio?.resume();
+      needsAudioGesture = audio?.needsGesture ?? false;
+    }
 
     /*
      * The panels and the game never read the controllers at the same time.
@@ -154,7 +300,7 @@
       session = await openVrSession(() => {
         // The single exit. Not `leave()`: the session is already over, and
         // asking it to end again would be the second call this guards against.
-        teardown();
+        void teardown();
       });
 
       await scene.attach(session.session as unknown as XRSession, session.spaceType);
@@ -212,13 +358,21 @@
     if (session) {
       void leave();
     } else {
-      teardown();
+      void teardown();
     }
   }
 
   /** Assumes the browser's `XRSession` is already gone. Only `onEnd` above may
    * call this directly - every other exit goes through `closeAnySession()`. */
-  function teardown(): void {
+  async function teardown(): Promise<void> {
+    // First, and awaited: it stops the governor and writes the cartridge save
+    // one last time, before core, audio and the scene it renders into are torn
+    // down out from under it.
+    await engine?.stop();
+    engine = null;
+    core = null;
+    audio = null;
+    needsAudioGesture = false;
     scene?.dispose();
     scene = null;
     session = null;
@@ -226,6 +380,7 @@
     covers.clear();
     hovered = null;
     pointer = createPointer();
+    launchNotice = null;
     vrActive.set(false);
     vrRequested.set(false);
   }
