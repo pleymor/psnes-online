@@ -43,6 +43,10 @@
     LIBRARY_PANEL_SIZE, layoutLibraryPanel, drawLibraryPanel,
     libraryRows, clampScroll, type LibraryState
   } from '$lib/vr/panels/library';
+  import {
+    FRIENDS_PANEL_SIZE, friendRows, layoutFriendsPanel, drawFriendsPanel
+  } from '$lib/vr/panels/friends';
+  import { activeRooms } from '$lib/rooms/my-room';
   import { menuPressed, readVrPad } from '$lib/vr/pad';
   import { readPadScheme } from '$lib/vr/pad-scheme';
   import { games } from '$lib/stores/games';
@@ -71,6 +75,9 @@
   let pointer = createPointer();
   let library: PanelMesh | null = null;
   let libraryState: LibraryState = { games: [], ownedTotal: 0, scroll: 0 };
+  let friendsPanel: PanelMesh | null = null;
+  let friendEntries: Array<{ friend: { id: string; pseudo: string } }> = [];
+  let onlineFriends = new Map<string, boolean>();
   let hovered: PointerTarget | null = null;
   /** Read once on entry: the picker that would change it does not exist in
    *  here, so it cannot change during a session. */
@@ -83,6 +90,14 @@
   /** Shown on the lectern when a launch could not read the file. */
   let launchNotice: string | null = null;
   $: padScheme = readPadScheme(localStorage);
+
+  /** Who is in a running game, from the rooms the socket already publishes -
+   *  the same source `TopBar` hands `FriendsList`. */
+  $: playingByUserId = new Map(
+    $activeRooms
+      .filter((room) => room.status === 'playing')
+      .flatMap((room) => room.players.map((p) => [p.userId, room.gameTitle ?? ''] as const))
+  );
 
   /** Covers are same-origin behind the session cookie (`api/covers.ts:9`), so
    *  they load with no crossOrigin attribute - setting one would break the
@@ -121,6 +136,21 @@
         ctx.restore();
       });
     }
+  }
+
+  function repaintFriends(): void {
+    if (!friendsPanel) return;
+    const rows = friendRows(friendEntries, onlineFriends, playingByUserId);
+    friendsPanel.regions = layoutFriendsPanel(rows);
+    friendsPanel.paint((ctx) =>
+      drawFriendsPanel(ctx, rows, [], {
+        heading: t($language, 'friends'),
+        online: t($language, 'online'),
+        offline: t($language, 'offline'),
+        nobody: t($language, 'vrNoFriends'),
+        readOnly: t($language, 'vrFriendsReadOnly')
+      })
+    );
   }
 
   function loadCovers(list: typeof $games): void {
@@ -389,6 +419,27 @@
       };
       loadCovers(libraryState.games);
       repaintLibrary();
+
+      friendsPanel = scene.addPanel('friends', scene.layout.friends, FRIENDS_PANEL_SIZE);
+      try {
+        const res = await fetch('/api/friends', { credentials: 'include' });
+        if (res.ok) friendEntries = await res.json();
+      } catch (err) {
+        // A shopfront that failed to load is a shopfront that says "no
+        // friends yet". Nothing here is worth ending a session over.
+        logger.warn('friends could not be loaded for VR', err);
+      }
+      $socket?.on('friends:online', (list: Array<{ id: string; online: boolean }>) => {
+        onlineFriends = new Map(list.map((f) => [f.id, f.online]));
+        repaintFriends();
+      });
+      $socket?.on('friend:statusChanged', ({ userId, online }: { userId: string; online: boolean }) => {
+        onlineFriends.set(userId, online);
+        repaintFriends();
+      });
+      $socket?.emit('friends:getOnlineStatus');
+      repaintFriends();
+
       scene.onFrame(frame);
 
       vrActive.set(true);
@@ -453,6 +504,11 @@
     scene = null;
     session = null;
     library = null;
+    $socket?.off('friends:online');
+    $socket?.off('friend:statusChanged');
+    friendsPanel = null;
+    friendEntries = [];
+    onlineFriends = new Map();
     covers.clear();
     hovered = null;
     pointer = createPointer();
