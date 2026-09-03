@@ -1,16 +1,18 @@
 /**
  * The life of one immersive session, and nothing about its contents.
  *
- * `local` is the only space asked for, and that is a decision rather than a
- * fallback. Wanting a real floor is what makes the Quest ask which boundary to
- * use, on every single entry, before the player can get in - and the floor
- * bought nothing: the scene was placed from a guessed 1.6 m eye height, which
- * is wrong for anybody sitting down. `local` is the stationary space, its
- * origin is the head's pose when the session opens, and `layout.ts` measures
- * every distance from the eyes. Nothing is guessed and nothing is asked.
+ * `local` is the only space asked for. The geometry in `layout.ts` is measured
+ * from the eyes, so there is no floor height left to want, and `local` is
+ * guaranteed for an immersive session by the WebXR spec - nothing to
+ * negotiate, nothing to fall back from.
  *
- * `local` is also guaranteed for an immersive session by the WebXR spec, so
- * there is no longer a degradation to handle, and no feature to negotiate.
+ * It was changed hoping to stop the Quest asking which boundary to use before
+ * every entry. It did not: that dialog is the system's own Guardian - "enter
+ * the nearby boundary or resume where you left off" - it never names the site,
+ * and it appears whatever the page requests. No web API reaches it. The change
+ * is kept on its own merits, which are real: the old `local` fallback placed
+ * the whole scene at a floor-relative height and would have hung it overhead,
+ * and the 1.6 m eye height it guessed was wrong for a seated player.
  *
  * `onEnd` fires exactly once, whatever ended the session. The system menu, the
  * quit button and a headset set down on the table all arrive as the same `end`
