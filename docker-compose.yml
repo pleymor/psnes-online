@@ -93,13 +93,6 @@ services:
     environment:
       - VITE_API_URL=http://localhost:3000
       - BACKEND_URL=http://backend:3000
-      # Passed through from the host, empty by default, so `VITE_HTTPS=1 docker
-      # compose up frontend` serves the self-signed cert in frontend/.certs and
-      # everything else is unchanged. It exists because WebXR needs a secure
-      # context: localhost is one, but a Quest reaches this machine by LAN IP,
-      # which is not - and there `navigator.xr` is undefined, so the VR button
-      # never appears and it looks like a bug in the app. See vite.config.ts.
-      - VITE_HTTPS=${VITE_HTTPS:-}
     # Dependencies come from the image build (frontend/dev.Dockerfile), not from an
     # install at start. Its /app/node_modules above is an ANONYMOUS volume — by
     # default Compose carries an anonymous volume's *data* over from the old
