@@ -247,6 +247,78 @@ la grille n'affiche que ce que *ce navigateur* sait ouvrir : sans
 `keepRomOnDevice(page, checksum)` (`e2e/helpers.ts`), la carte n'est jamais
 dessinée et le test expire sur « None of your N games are on this device ».
 
+### Tester le mode VR sur un casque
+
+**Le problème à comprendre avant de commencer : WebXR n'existe que dans un
+contexte sécurisé.** `localhost` en est un, quel que soit l'absence de TLS. Une
+IP de réseau local n'en est pas un — et là, `navigator.xr` vaut simplement
+`undefined`, donc `vr/support.ts` ne rapporte aucun casque, le bouton « Passer
+en VR » ne s'affiche jamais, et **ça ressemble exactement à un bug du code VR**.
+
+La bonne voie est donc de faire voir l'app au casque *sur* `localhost`, avec
+`adb reverse`. Elle n'a besoin d'aucun certificat.
+
+**1. Sur le casque** — Paramètres → Système → Développeur → **Débogage sans
+fil**. Le mode développeur doit d'abord être activé pour le compte depuis l'app
+mobile Meta Quest.
+
+**2. Appairage**, une seule fois. Le casque affiche un code et un port :
+
+```bash
+adb pair <ip-casque>:<port-appairage>
+adb connect <ip-casque>:5555
+adb devices                 # doit lister le casque
+```
+
+**3. Les deux redirections** :
+
+```bash
+adb reverse tcp:5173 tcp:5173   # l'app
+adb reverse tcp:3000 tcp:3000   # le socket ET l'auth
+adb reverse --list
+```
+
+**4. Dans le navigateur du casque** : `http://localhost:5173`.
+
+⚠️ **Deux ports, pas un.** `socket.ts` construit son URL de socket avec
+`window.location.hostname` en développement (il évite délibérément le proxy
+Vite, qui pose des problèmes avec les données binaires). Sans la redirection du
+3000, la page se charge et le socket meurt — le bandeau « Connection lost »
+apparaît et rien de multijoueur ne fonctionne. Le 3000 sert aussi le callback
+Google, donc c'est lui qui rend le **vrai compte** utilisable depuis le casque,
+avec sa vraie bibliothèque.
+
+⚠️ **N'essayez pas de servir l'app en HTTPS auto-signé sur l'IP du réseau.**
+C'est une impasse, et elle coûte cher à diagnostiquer : il faudrait à la fois du
+TLS pour satisfaire WebXR **et** un socket en clair pour `socket.ts`, ce qu'aucun
+navigateur n'accepte (contenu mixte). Il faudrait donc mettre le backend en TLS
+lui aussi et rediriger le 3000 — deux fois plus de bricolage pour une voie que
+`adb reverse` rend inutile. Un certificat accepté « en passant outre » n'est de
+plus pas toujours traité comme un contexte sécurisé pour les fonctionnalités
+puissantes.
+
+**Sans casque de développeur : le mode d'authentification `dev`.** Google refuse
+les adresses IP privées comme URI de redirection autorisée, donc si vous ne
+passez pas par `adb reverse`, l'auth Google ne peut pas aboutir depuis le casque.
+`AUTH_MODE=dev docker compose up -d backend` ouvre trois utilisateurs de test par
+un simple POST, sans aucune redirection. Le prix : un utilisateur de dev ne
+possède aucun jeu, donc le pupitre bibliothèque est vide — ce qui exerce le
+parcours réel, puisque les ROMs s'ajoutent depuis le navigateur à plat avant
+d'entrer en VR.
+
+⚠️ **Après un `bun add`, vérifiez le conteneur et pas seulement l'hôte.**
+`/app/node_modules` est un volume anonyme (voir le commentaire dans
+`docker-compose.yml`) : un `docker compose up -d` ordinaire reporte l'ancien
+contenu, donc une dépendance installée sur l'hôte reste absente du conteneur.
+`bun run build` et `bun run check` passent alors sur l'hôte pendant que Vite
+échoue dans le conteneur sur `Failed to resolve import`. Le remède est
+`docker compose up --build -d --renew-anon-volumes frontend`, et le contrôle utile
+est de demander le module au serveur de dev :
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5173/src/lib/vr/scene.ts
+```
+
 ### Documentation
 
 | Fichier | Contenu |
