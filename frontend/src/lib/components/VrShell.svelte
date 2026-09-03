@@ -420,7 +420,19 @@
         if (!scene) {
           void engine.stop();
           engine = null;
-          void audio.stop();
+          /*
+           * Optional, and that is the whole point of this block.
+           *
+           * The `sessionend` that nulled `scene` also ran `teardown()`, which
+           * does `void audio?.stop(); audio = null;` on this same
+           * component-scope variable. So by the time we get here `audio` is
+           * usually already null, and a bare `audio.stop()` would throw -
+           * replacing the accidental crash this guard exists to remove with a
+           * second one, in the guard itself. It would be caught by the outer
+           * try and logged as "vr engine failed to start", which is a lie:
+           * the engine started fine and was then torn down on purpose.
+           */
+          void audio?.stop();
           audio = null;
           return;
         }
