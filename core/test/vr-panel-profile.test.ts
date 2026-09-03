@@ -36,7 +36,7 @@ const LABELS = {
   gripLeft: 'Left grip',
   gripRight: 'Right grip',
   triggers: 'Triggers',
-  leftStick: 'Left stick',
+  sticks: 'Either stick',
   dpad: 'D-pad'
 };
 

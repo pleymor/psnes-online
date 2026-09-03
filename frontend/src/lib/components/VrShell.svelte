@@ -221,7 +221,7 @@
           gripLeft: t($language, 'vrGripLeft'),
           gripRight: t($language, 'vrGripRight'),
           triggers: t($language, 'vrTriggers'),
-          leftStick: t($language, 'vrLeftStick'),
+          sticks: t($language, 'vrSticks'),
           dpad: t($language, 'vrDpad')
         },
         hoverId: hovered?.panel === 'profile' ? hovered.region.id : null

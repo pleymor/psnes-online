@@ -61,7 +61,7 @@ export interface ProfileLabels {
   gripLeft: string;
   gripRight: string;
   triggers: string;
-  leftStick: string;
+  sticks: string;
   dpad: string;
 }
 
@@ -101,7 +101,7 @@ export function fixedMapRows(labels: ProfileLabels): Array<[string, string]> {
     [labels.gripRight, 'START'],
     [labels.gripLeft, 'SELECT'],
     [labels.triggers, 'L / R'],
-    [labels.leftStick, labels.dpad]
+    [labels.sticks, labels.dpad]
   ];
 }
 

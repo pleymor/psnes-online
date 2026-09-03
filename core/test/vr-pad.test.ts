@@ -103,8 +103,38 @@ test('the stick has to be pushed past the threshold to count', () => {
   assert.equal(readVrPad([controller('left', { stick: [over, 0] })], 'letters', 'visible'), PAD.RIGHT);
 });
 
-test('only the left stick steers', () => {
-  assert.equal(readVrPad([controller('right', { stick: [-1, 0] })], 'letters', 'visible'), 0);
+test('either stick steers', () => {
+  // The right one too, and this is the ergonomics rather than a convenience:
+  // see `steer`. Reported from actual play.
+  assert.equal(readVrPad([controller('right', { stick: [-1, 0] })], 'letters', 'visible'), PAD.LEFT);
+  assert.equal(readVrPad([controller('left', { stick: [-1, 0] })], 'letters', 'visible'), PAD.LEFT);
+});
+
+test('the right stick steers while the left thumb works the buttons', () => {
+  // The whole reason for the change. With only the left stick on the d-pad,
+  // SNES X and Y - which live on the left controller's face - could not be
+  // pressed while moving at all.
+  const both = [
+    controller('right', { stick: [0, 1] }),
+    controller('left', { buttons: [4, 5] })
+  ];
+  assert.equal(readVrPad(both, 'letters', 'visible'), PAD.DOWN | PAD.X | PAD.Y);
+});
+
+test('two sticks pushed against each other report both directions', () => {
+  // Accepted, not prevented: real hardware does the same when somebody holds
+  // left and right together, and it takes a deliberate act to produce.
+  const fighting = [
+    controller('left', { stick: [-1, 0] }),
+    controller('right', { stick: [1, 0] })
+  ];
+  assert.equal(readVrPad(fighting, 'letters', 'visible'), PAD.LEFT | PAD.RIGHT);
+});
+
+test('a stick on neither hand steers nothing', () => {
+  // `handedness` is still the gate. A tracked source that is neither hand can
+  // carry a gamepad, and it has no business driving the d-pad.
+  assert.equal(readVrPad([controller('none', { stick: [-1, 0] })], 'letters', 'visible'), 0);
 });
 
 test('a blurred session reads as nothing held', () => {
