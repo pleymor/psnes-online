@@ -32,10 +32,62 @@
   import { wayBack } from '$lib/nav/way-back';
   import { vrAvailable } from '$lib/vr/support';
   import { requestVr } from '$lib/vr/entry';
+  import { folderNeedsGrant, grantFolder, type DoorPorts } from '$lib/vr/door';
+  import {
+    supportsDirectoryPicker, storedDirectory, hasAccess, ensureAccess
+  } from '$lib/roms/local-library';
+  import { notifications } from '$lib/services/notification';
 
   /** Undefined until asked, so the button does not flash in and out on load. */
   let headsetHere: boolean | undefined;
-  onMount(async () => { headsetHere = await vrAvailable(); });
+
+  const DOOR: DoorPorts = { supportsDirectoryPicker, storedDirectory, hasAccess, ensureAccess };
+
+  /**
+   * Whether the next press has to buy the folder permission first.
+   *
+   * Asked here rather than inside the handler so the common path stays
+   * synchronous - see `folderNeedsGrant`.
+   */
+  let needsGrant = false;
+
+  onMount(async () => {
+    headsetHere = await vrAvailable();
+    needsGrant = await folderNeedsGrant(DOOR);
+  });
+
+  /**
+   * Synchronous whenever it can be. `requestSession`, several frames later in
+   * `VrShell`, still runs on the activation this click carries; an `await` on
+   * the way to `requestVr()` would spend part of that window for nothing.
+   */
+  function enterVr(): void {
+    if (!needsGrant) {
+      requestVr();
+      return;
+    }
+    void spendPressOnFolder();
+  }
+
+  async function spendPressOnFolder(): Promise<void> {
+    const outcome = await grantFolder(DOOR);
+    if (outcome === 'entered') {
+      // No dialog was shown, so the gesture is intact and the player should
+      // not be charged a second press for a check they never saw.
+      needsGrant = false;
+      requestVr();
+      return;
+    }
+    needsGrant = outcome === 'refused';
+    // A dialog was shown, which spends the activation `requestSession` needs.
+    // Asking for a second press is honest; entering anyway would fail with a
+    // message about user activation that means nothing to a player.
+    notifications.show(
+      t($language, outcome === 'granted' ? 'vrFolderGranted' : 'vrFolderRefused'),
+      outcome === 'granted' ? 'success' : 'error',
+      5000
+    );
+  }
 
   /**
    * The labelled way back, on the screens where plain navigation is the right
@@ -92,7 +144,7 @@
       <!-- Capability, never a user agent: this button appears on a Quest and
            on a PC with a headset plugged in, and the "two controllers and
            nothing else" assumption only has to hold inside the session. -->
-      <button class="bar-button" on:click={requestVr}>
+      <button class="bar-button" on:click={enterVr}>
         {t($language, 'enterVr')}
       </button>
     {/if}
