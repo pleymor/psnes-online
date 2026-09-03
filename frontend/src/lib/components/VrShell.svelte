@@ -46,9 +46,13 @@
   import {
     FRIENDS_PANEL_SIZE, friendRows, layoutFriendsPanel, drawFriendsPanel
   } from '$lib/vr/panels/friends';
+  import {
+    PROFILE_PANEL_SIZE, layoutProfilePanel, drawProfilePanel
+  } from '$lib/vr/panels/profile';
   import { activeRooms } from '$lib/rooms/my-room';
   import { menuPressed, readVrPad } from '$lib/vr/pad';
-  import { readPadScheme } from '$lib/vr/pad-scheme';
+  import { readPadScheme, writePadScheme, type VrPadScheme } from '$lib/vr/pad-scheme';
+  import { user } from '$lib/stores/user';
   import { games } from '$lib/stores/games';
   import { deviceLibrary } from '$lib/roms/device-library';
   import { resolvableHere, resolveQuietly } from '$lib/roms/provider';
@@ -78,6 +82,7 @@
   let friendsPanel: PanelMesh | null = null;
   let friendEntries: Array<{ friend: { id: string; pseudo: string } }> = [];
   let onlineFriends = new Map<string, boolean>();
+  let profilePanel: PanelMesh | null = null;
   let hovered: PointerTarget | null = null;
   /** Read once on entry: the picker that would change it does not exist in
    *  here, so it cannot change during a session. */
@@ -89,7 +94,15 @@
   let needsAudioGesture = false;
   /** Shown on the lectern when a launch could not read the file. */
   let launchNotice: string | null = null;
-  $: padScheme = readPadScheme(localStorage);
+  /**
+   * A plain `let`, set once in `enter()` and reassigned by the switch in
+   * `activate()` - never `$: padScheme = readPadScheme(localStorage)`. Made
+   * reactive, that statement would recompute on the very write it triggers
+   * (`writePadScheme` touches `localStorage`) and overwrite the assignment
+   * before the panel ever repaints with it - the button would appear to do
+   * nothing.
+   */
+  let padScheme: VrPadScheme = 'letters';
 
   /** Who is in a running game, from the rooms the socket already publishes -
    *  the same source `TopBar` hands `FriendsList`. */
@@ -162,6 +175,30 @@
     );
   }
 
+  function repaintProfile(): void {
+    if (!profilePanel) return;
+    const state = {
+      pseudo: $user?.pseudo ?? '',
+      scheme: padScheme,
+      language: $language,
+      playing: engine !== null
+    };
+    profilePanel.regions = layoutProfilePanel(state);
+    const regions = profilePanel.regions;
+    profilePanel.paint((ctx) =>
+      drawProfilePanel(ctx, state, regions, {
+        labels: {
+          letters: t($language, 'vrPresetLetters'),
+          thumb: t($language, 'vrPresetThumb'),
+          quit: t($language, 'vrQuit'),
+          resume: t($language, 'vrResume'),
+          controls: t($language, 'controls')
+        },
+        hoverId: hovered?.panel === 'profile' ? hovered.region.id : null
+      })
+    );
+  }
+
   function loadCovers(list: typeof $games): void {
     for (const game of list) {
       if (!game.coverUrl || covers.has(game.id)) continue;
@@ -172,23 +209,49 @@
   }
 
   function activate(target: PointerTarget): void {
-    if (target.panel !== 'library') return;
-    if (target.region.id === 'scroll:up' || target.region.id === 'scroll:down') {
-      const step = target.region.id === 'scroll:down' ? 1 : -1;
-      libraryState = {
-        ...libraryState,
-        scroll: clampScroll(libraryState.scroll + step, libraryRows(libraryState))
-      };
-      repaintLibrary();
+    if (target.panel === 'library') {
+      if (target.region.id === 'scroll:up' || target.region.id === 'scroll:down') {
+        const step = target.region.id === 'scroll:down' ? 1 : -1;
+        libraryState = {
+          ...libraryState,
+          scroll: clampScroll(libraryState.scroll + step, libraryRows(libraryState))
+        };
+        repaintLibrary();
+        return;
+      }
+      if (target.region.id.startsWith('game:')) {
+        launchNotice = null;
+        // The gesture that got us here is an XR select, which is as close to a
+        // user gesture as this session will ever get - so resume here, where a
+        // browser that counts it will let the sound through with no prompt.
+        void audio?.resume();
+        void launch(target.region.id.slice('game:'.length));
+      }
       return;
     }
-    if (target.region.id.startsWith('game:')) {
-      launchNotice = null;
-      // The gesture that got us here is an XR select, which is as close to a
-      // user gesture as this session will ever get - so resume here, where a
-      // browser that counts it will let the sound through with no prompt.
-      void audio?.resume();
-      void launch(target.region.id.slice('game:'.length));
+
+    if (target.panel === 'profile') {
+      const id = target.region.id;
+      if (id === 'quit') { void leave(); return; }
+      if (id === 'resume') { scene?.panelsVisible(false); return; }
+      if (id === 'scheme:letters' || id === 'scheme:thumb') {
+        const next = id === 'scheme:thumb' ? 'thumb' : 'letters';
+        writePadScheme(localStorage, next);
+        // Read back rather than assumed: `readPadScheme` is the only thing
+        // that decides, and a preset written and not stored (the default is
+        // removed, not stored) must still read back correctly.
+        padScheme = readPadScheme(localStorage);
+        repaintProfile();
+        return;
+      }
+      if (id === 'lang:en' || id === 'lang:fr') {
+        language.set(id === 'lang:en' ? 'en' : 'fr');
+        // Every panel carries text.
+        repaintLibrary();
+        repaintFriends();
+        repaintProfile();
+        return;
+      }
     }
   }
 
@@ -315,6 +378,9 @@
 
         scene?.panelsVisible(false);
         engine.governor.start();
+        // So `resume` is there next time the panels come back, even though
+        // they are hidden right now and the paint itself is invisible.
+        repaintProfile();
       } catch (err) {
         // `loadCore()` and `createSoloEngine()` were unguarded here: a
         // rejection from either used to be an unhandled promise rejection
@@ -387,8 +453,16 @@
 
     const tick = pointer.update(scene.aimedAt(), scene.triggerDown());
     if (!sameTarget(tick.hover, hovered)) {
+      const before = hovered;
       hovered = tick.hover;
-      repaintLibrary();
+      // Only the panels whose hover actually changed: a panel repaint is a
+      // canvas rasterise, and doing it for all three every hover tick would
+      // cost more, at 72 Hz, than the emulator itself.
+      for (const panel of new Set([before?.panel, hovered?.panel])) {
+        if (panel === 'library') repaintLibrary();
+        if (panel === 'friends') repaintFriends();
+        if (panel === 'profile') repaintProfile();
+      }
     }
     if (tick.activated) activate(tick.activated);
   }
@@ -396,6 +470,10 @@
   async function enter(): Promise<void> {
     if (session) return;
     try {
+      // Read once per session, into the plain `let` above - see its comment
+      // for why this cannot be a reactive statement.
+      padScheme = readPadScheme(localStorage);
+
       scene = createVrScene({
         aspect: readAspectPreference(localStorage),
         onContextLost: () => {
@@ -454,6 +532,9 @@
       });
       $socket?.emit('friends:getOnlineStatus');
       repaintFriends();
+
+      profilePanel = scene.addPanel('profile', scene.layout.profile, PROFILE_PANEL_SIZE);
+      repaintProfile();
 
       scene.onFrame(frame);
 
@@ -524,6 +605,7 @@
     friendsPanel = null;
     friendEntries = [];
     onlineFriends = new Map();
+    profilePanel = null;
     covers.clear();
     hovered = null;
     pointer = createPointer();
