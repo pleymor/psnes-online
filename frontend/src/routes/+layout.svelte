@@ -1,12 +1,14 @@
 <script lang="ts">
   import '$lib/polyfills'; // Load Node.js polyfills for browser
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { goto } from '$app/navigation';
   import { user, userLoading } from '$lib/stores/user';
   import { socket, initializeSocket, waitForSocket } from '$lib/api/socket';
   import { startLogShipping } from '$lib/utils/log-shipper';
   import { createLogger } from '$lib/utils/logger';
   import { linkState } from '$lib/stores/connection';
+  import { vrActive } from '$lib/vr/entry';
   import NotificationToast from '$lib/components/NotificationToast.svelte';
   import InvitationCard from '$lib/components/InvitationCard.svelte';
   import PseudoGate from '$lib/components/PseudoGate.svelte';
@@ -47,6 +49,18 @@
    */
   function handleRoomOpened({ roomId, reason }: { roomId: string; reason?: string }) {
     if (!roomId) return;
+    /*
+     * Not while a headset is presenting.
+     *
+     * A solo launch from VR cannot reach here - `room:opened` is emitted by
+     * `room:choose-game` (`websocket/room-handlers.ts:237`), not by
+     * `room:create`. But `openRoomForMembers` addresses every member of the
+     * room, "both members go, including the one who just chose", so a player
+     * who joined a group before putting the headset on would be navigated by
+     * their partner's choice - mounting a whole second emulator underneath a
+     * session they are still playing in.
+     */
+    if (get(vrActive)) return;
     const query = reason === 'invitation' ? '?from=invitation' : '';
     void goto(`/room/${roomId}${query}`);
   }

@@ -21,8 +21,14 @@ const logger = createLogger('GroupActions');
  * navigate to it - and `room:created` is the only place it comes from. A refusal
  * arrives on the `error` channel and is reported by whoever listens to it, so
  * the timeout only has to stop this promise from hanging for ever.
+ *
+ * Exported because the VR shell needs the room without the navigation.
+ * `launchSolo` is `createRoom` plus a `goto`, and that `goto` under an
+ * immersive session would mount `SoloRoom.svelte` behind it: a second core, a
+ * second AudioContext, a second governor, and two writers racing on one room's
+ * cartridge save.
  */
-function createRoom(payload: {
+export function createRoom(payload: {
 	gameId?: string;
 	gameTitle?: string;
 	autoStart?: boolean;
