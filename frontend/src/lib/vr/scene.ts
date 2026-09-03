@@ -7,18 +7,17 @@
  * the pump - which is what keeps the emulator running at 60.0988 Hz on a 72 or
  * 90 Hz display.
  *
- * A small redundancy is deliberate: `xr-session.ts` already probed for
- * `local-floor` and three requests its own reference space here. The probe is
- * what tells `layout.ts` whether the floor is real or assumed, and three gives
- * no usable answer to that question - so the space is asked for twice and the
- * answer is used once.
+ * The reference space is `local`, set here to match what `xr-session.ts`
+ * asked for. Both have to say the same thing: three requests its own space
+ * rather than reusing the session's, so a floor-relative type here would ask
+ * for a space this session was never granted - and asking for a floor at all
+ * is what makes the Quest demand a boundary before every entry.
  */
 
 import * as THREE from 'three';
 import { createFramePump } from './frame-pump';
 import { createVrScreen, type VrScreen } from './screen';
 import { sceneLayout, type SceneLayout, type Placement } from './layout';
-import type { SpaceType } from './xr-session';
 import type { PixelAspect } from '$lib/znet/fit';
 import { createPanelMesh, type PanelMesh } from './panel-mesh';
 import { hit, type PanelSize } from './panel';
@@ -33,7 +32,7 @@ export interface VrScene {
   schedule: (run: () => void) => void;
   /** Runs every XR frame, before the render. */
   onFrame: (fn: () => void) => void;
-  attach(session: XRSession, spaceType: SpaceType): Promise<void>;
+  attach(session: XRSession): Promise<void>;
   addPanel(id: string, placement: Placement, size: PanelSize): PanelMesh;
   panelsVisible(visible: boolean): void;
   arePanelsVisible(): boolean;
@@ -45,7 +44,6 @@ export interface VrScene {
 
 export function createVrScene(opts: {
   aspect: PixelAspect;
-  eyeHeight?: number;
   onContextLost: () => void;
   /**
    * A throw that escaped the pumped emulation slice or a per-frame callback.
@@ -55,7 +53,7 @@ export function createVrScene(opts: {
    */
   onFrameError: (err: unknown) => void;
 }): VrScene {
-  const layout = sceneLayout(opts.aspect, opts.eyeHeight);
+  const layout = sceneLayout(opts.aspect);
 
   const canvas = document.createElement('canvas');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -202,8 +200,11 @@ export function createVrScene(opts: {
     schedule: pump.schedule,
     onFrame: (fn) => void perFrame.push(fn),
 
-    async attach(session: XRSession, spaceType: SpaceType): Promise<void> {
-      renderer.xr.setReferenceSpaceType(spaceType);
+    async attach(session: XRSession): Promise<void> {
+      // `local`, matching what `xr-session.ts` asked for. Anything
+      // floor-relative here would make three request a space the session was
+      // never granted, and it is also what makes the Quest demand a boundary.
+      renderer.xr.setReferenceSpaceType('local');
       await renderer.xr.setSession(session);
       renderer.setAnimationLoop(() => {
         // Order matters: the governor may run a frame, and the render should

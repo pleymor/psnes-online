@@ -606,7 +606,7 @@
         void teardown();
       });
 
-      await scene.attach(session.session as unknown as XRSession, session.spaceType);
+      await scene.attach(session.session as unknown as XRSession);
 
       /*
        * Armed as early as they can be, not after the panels and the friends

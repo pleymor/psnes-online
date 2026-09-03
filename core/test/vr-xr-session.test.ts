@@ -3,11 +3,10 @@
  *
  * Two rules, both learned from what goes wrong without them.
  *
- * `local-floor` is asked for as an OPTIONAL feature, then requested as a
- * reference space with `local` as the fallback. Asking for it as a *required*
- * feature would make `requestSession` itself reject on a headset that cannot
- * offer a floor, which turns a cosmetic degradation - a scene positioned from
- * an assumed eye height - into "VR does not work on your device".
+ * Only `local` is asked for, and nothing is negotiated. Wanting a floor is
+ * what makes the Quest demand a boundary before every entry, and the floor
+ * bought nothing: the scene was placed from a guessed 1.6 m eye height, wrong
+ * for anybody sitting down. `layout.ts` now measures from the eyes instead.
  *
  * And `onEnd` fires exactly once. The system menu ending a session, the player
  * pressing quit, and the headset being put down all arrive as the same `end`
@@ -54,27 +53,36 @@ function fakeNavigator(session: ReturnType<typeof fakeSession>) {
   };
 }
 
-test('local-floor is optional, never required', async () => {
-  const session = fakeSession();
+test('only the stationary space is asked for, and no feature is negotiated', async () => {
+  /*
+   * Asking for a floor is what makes the Quest demand a boundary before every
+   * entry, and the floor bought nothing: the scene was placed from a guessed
+   * 1.6 m eye height, wrong for anybody sitting down. `local` is guaranteed
+   * for an immersive session, so there is nothing left to negotiate and no
+   * degradation to fall back from.
+   */
+  const session = fakeSession({ spaces: ['local'] });
   const nav = fakeNavigator(session);
   const vr = await openVrSession(() => {}, nav);
 
-  const init = nav.inits[0] as { requiredFeatures?: string[]; optionalFeatures?: string[] };
-  assert.deepEqual(init.optionalFeatures, ['local-floor']);
+  assert.deepEqual(session.asked, ['local'], 'local-floor is what triggers the boundary prompt');
+
+  const init = nav.inits[0] as
+    | { requiredFeatures?: string[]; optionalFeatures?: string[] }
+    | undefined;
   assert.ok(
-    !init.requiredFeatures?.includes('local-floor'),
-    'requiring it turns a cosmetic degradation into a device that cannot do VR at all'
+    !init?.optionalFeatures?.length && !init?.requiredFeatures?.length,
+    'a negotiated feature is one more thing the player has to answer'
   );
-  assert.equal(vr.spaceType, 'local-floor');
   await vr.end();
 });
 
-test('a headset with no floor falls back to local and says so', async () => {
+test('a headset that only offers local is now the ordinary case', async () => {
+  // It used to be the fallback. Nothing special happens here any more, and
+  // that is the point of the change.
   const session = fakeSession({ spaces: ['local'] });
   const vr = await openVrSession(() => {}, fakeNavigator(session));
-
-  assert.deepEqual(session.asked, ['local-floor', 'local'], 'the good one is tried first');
-  assert.equal(vr.spaceType, 'local', 'the scene needs to know it is guessing the eye height');
+  assert.ok(vr.referenceSpace, 'the session came back with a space to render in');
   await vr.end();
 });
 

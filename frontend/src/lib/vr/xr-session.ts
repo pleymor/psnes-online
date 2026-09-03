@@ -1,11 +1,16 @@
 /**
  * The life of one immersive session, and nothing about its contents.
  *
- * `local-floor` is an OPTIONAL feature here, not a required one. Required, it
- * would make `requestSession` reject outright on a headset that cannot report a
- * floor - turning a cosmetic degradation, a scene placed from an assumed eye
- * height, into "VR does not work on your device". So the session is asked for
- * plainly and the reference space is where the fallback happens.
+ * `local` is the only space asked for, and that is a decision rather than a
+ * fallback. Wanting a real floor is what makes the Quest ask which boundary to
+ * use, on every single entry, before the player can get in - and the floor
+ * bought nothing: the scene was placed from a guessed 1.6 m eye height, which
+ * is wrong for anybody sitting down. `local` is the stationary space, its
+ * origin is the head's pose when the session opens, and `layout.ts` measures
+ * every distance from the eyes. Nothing is guessed and nothing is asked.
+ *
+ * `local` is also guaranteed for an immersive session by the WebXR spec, so
+ * there is no longer a degradation to handle, and no feature to negotiate.
  *
  * `onEnd` fires exactly once, whatever ended the session. The system menu, the
  * quit button and a headset set down on the table all arrive as the same `end`
@@ -15,8 +20,6 @@
  * Its navigator is a parameter for the reason the rest of this codebase's
  * device code gives: so it can be tested without one.
  */
-
-export type SpaceType = 'local-floor' | 'local';
 
 /** The part of `XRSession` this module touches. three.js gets the real thing. */
 export interface XrSessionLike {
@@ -33,9 +36,6 @@ export interface XrEntryNavigator {
 export interface VrSession {
   session: XrSessionLike;
   referenceSpace: unknown;
-  /** `'local'` tells the scene it is guessing the eye height rather than
-   * measuring from a real floor. */
-  spaceType: SpaceType;
   end(): Promise<void>;
 }
 
@@ -47,21 +47,12 @@ export async function openVrSession(
     throw new Error('WebXR is not available in this browser');
   }
 
-  // Optional, not required - see the header. A rejection here is a real
+  // No features negotiated - see the header. A rejection here is a real
   // refusal (permission, no device, a session already running) and belongs to
   // the caller, which keeps its button and explains itself.
-  const session = await nav.xr.requestSession('immersive-vr', {
-    optionalFeatures: ['local-floor']
-  });
+  const session = await nav.xr.requestSession('immersive-vr');
 
-  let spaceType: SpaceType = 'local-floor';
-  let referenceSpace: unknown;
-  try {
-    referenceSpace = await session.requestReferenceSpace('local-floor');
-  } catch {
-    referenceSpace = await session.requestReferenceSpace('local');
-    spaceType = 'local';
-  }
+  const referenceSpace = await session.requestReferenceSpace('local');
 
   let finished = false;
   const finish = () => {
@@ -74,7 +65,6 @@ export async function openVrSession(
   return {
     session,
     referenceSpace,
-    spaceType,
     end: async () => {
       if (finished) return;
       // `end()` raises the event, which runs `finish`. Nothing else to do.
