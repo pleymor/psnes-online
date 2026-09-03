@@ -153,83 +153,154 @@
     }
   }
 
+  /** Guards `launch()` against overlapping itself - the same shape of problem
+   *  `leaving` guards `leave()` against. A second trigger press landing while
+   *  the first launch is still mid-flight (neither has reached `engine` yet)
+   *  would otherwise slip past the `if (engine)` check below and construct
+   *  two engines, both handed the same `scene.schedule`. */
+  let launching = false;
+
   async function launch(gameId: string): Promise<void> {
-    if (!scene) return;
+    if (!scene || launching) return;
     const game = libraryState.games.find((candidate) => candidate.id === gameId);
     if (!game?.crc32) return;
 
-    /*
-     * `resolveQuietly`, never the picker.
-     *
-     * `resolvable` was read when the session opened, but a folder handle can
-     * lose its permission between then and now. On the flat screen
-     * `obtainRom()` answers that by opening `LocateRom`; in here there is no
-     * modal to open, so the failure has to be a line on the panel. The game
-     * stays in the grid: it exists, it just could not be read this time.
-     */
-    const rom = await resolveQuietly(game.crc32);
-    if (!rom) {
-      launchNotice = t($language, 'vrRomUnreadable');
-      repaintLibrary();
-      return;
-    }
-
-    const roomId = await createRoom({ gameId: game.id, gameTitle: game.title, autoStart: true });
-    if (!roomId) {
-      launchNotice = t($language, 'vrLaunchFailed');
-      repaintLibrary();
-      return;
-    }
-    setLogLabels({ roomId, player: 'vr' });
-
-    core = await loadCore();
-    audio = new AudioSink();
-
-    engine = await createSoloEngine({
-      core,
-      rom,
-      sram: {
-        load: () => readRoomSram(roomId),
-        save: (bytes) => $socket?.emit('game:saveSram', { roomId, sramData: toBase64(bytes) })
-      },
-      audio,
-      readPads: () => ({
-        // Zero while the panels are up: the trigger is the pointer then, and
-        // both readers on one button is a scroll press that jumps in game.
-        pad1: scene && !scene.arePanelsVisible()
-          ? readVrPad(scene.inputSources(), padScheme, sessionVisibility())
-          : 0,
-        pad2: 0
-      }),
-      onFrame: (c) => scene?.screen.upload(c.videoSurface()),
-      onError: (err) => logger.error('vr engine', err),
+    launching = true;
+    try {
       /*
-       * The whole reason `GovernorOptions.schedule` exists, and the one line
-       * that makes the chain behind it real.
+       * `resolveQuietly`, never the picker.
        *
-       * Without this the governor falls back to `window.requestAnimationFrame`,
-       * which is NOT the display's clock once a headset is presenting - the
-       * WebXR spec lets a user agent throttle it freely. The game would still
-       * run, which is exactly what makes the omission dangerous: nothing looks
-       * broken, and `frame-pump.ts`, the governor's new option and the XR
-       * animation loop would all be dead weight.
+       * `resolvable` was read when the session opened, but a folder handle can
+       * lose its permission between then and now. On the flat screen
+       * `obtainRom()` answers that by opening `LocateRom`; in here there is no
+       * modal to open, so the failure has to be a line on the panel. The game
+       * stays in the grid: it exists, it just could not be read this time.
        */
-      schedule: scene.schedule
-    });
+      const rom = await resolveQuietly(game.crc32);
+      if (!rom) {
+        launchNotice = t($language, 'vrRomUnreadable');
+        repaintLibrary();
+        return;
+      }
 
-    // `needsGesture` is a question, not an assumption - `output.ts:199` records
-    // what happened to the caller who assumed otherwise. An XR `select` may or
-    // may not count as user activation, so the in-world prompt is the designed
-    // answer rather than a hope.
-    needsAudioGesture = audio.needsGesture;
+      const roomId = await createRoom({ gameId: game.id, gameTitle: game.title, autoStart: true });
+      if (!roomId) {
+        launchNotice = t($language, 'vrLaunchFailed');
+        repaintLibrary();
+        return;
+      }
+      setLogLabels({ roomId, player: 'vr' });
 
-    scene?.panelsVisible(false);
-    engine.governor.start();
+      /*
+       * A second launch while one is already live - reachable straight from
+       * the checklist's own flow: stick-click recalls the panels while the
+       * game keeps running, then the player aims at a different tile. Stopped
+       * here, and awaited, rather than left running underneath the new one:
+       * two governors would otherwise fight over the one pending slot
+       * `frame-pump.ts`'s `schedule` holds (both would get the same
+       * `scene.schedule`), and the first engine's SRAM interval and
+       * AudioContext would leak past it.
+       *
+       * Placed after the ROM and room are already secured, not before: a
+       * launch that is about to fail on either must leave the game already
+       * running untouched.
+       */
+      if (engine) {
+        await engine.stop();
+        engine = null;
+        void audio?.stop();
+        audio = null;
+        core = null;
+        needsAudioGesture = false;
+      }
+
+      try {
+        core = await loadCore();
+        audio = new AudioSink();
+
+        /*
+         * Re-checked, not trusted from the entry guard at the top of this
+         * function: `resolveQuietly` and `createRoom` above are real awaits -
+         * `createRoom` up to a 5 s timeout - and a `sessionend` landing during
+         * either drives `teardown()`, which nulls `scene` (and everything
+         * else) out from under this continuation. Without this, `scene.schedule`
+         * below would throw on a null `scene`; `activate()` calls `launch()`
+         * with `void`, so that throw would be an unhandled rejection.
+         */
+        if (!scene) {
+          void audio.stop();
+          audio = null;
+          core = null;
+          return;
+        }
+
+        engine = await createSoloEngine({
+          core,
+          rom,
+          sram: {
+            load: () => readRoomSram(roomId),
+            save: (bytes) => $socket?.emit('game:saveSram', { roomId, sramData: toBase64(bytes) })
+          },
+          audio,
+          readPads: () => ({
+            // Zero while the panels are up (the trigger is the pointer then)
+            // and zero while a gesture is pending (the trigger press that
+            // unlocks audio must not also register as SNES R) - both gate the
+            // same physical button so a single press never means two things.
+            pad1: scene && !scene.arePanelsVisible() && !needsAudioGesture
+              ? readVrPad(scene.inputSources(), padScheme, sessionVisibility())
+              : 0,
+            pad2: 0
+          }),
+          onFrame: (c) => scene?.screen.upload(c.videoSurface()),
+          onError: (err) => logger.error('vr engine', err),
+          /*
+           * The whole reason `GovernorOptions.schedule` exists, and the one line
+           * that makes the chain behind it real.
+           *
+           * Without this the governor falls back to `window.requestAnimationFrame`,
+           * which is NOT the display's clock once a headset is presenting - the
+           * WebXR spec lets a user agent throttle it freely. The game would still
+           * run, which is exactly what makes the omission dangerous: nothing looks
+           * broken, and `frame-pump.ts`, the governor's new option and the XR
+           * animation loop would all be dead weight.
+           */
+          schedule: scene.schedule
+        });
+
+        // `needsGesture` is a question, not an assumption - `output.ts:199` records
+        // what happened to the caller who assumed otherwise. An XR `select` may or
+        // may not count as user activation, so the in-world prompt is the designed
+        // answer rather than a hope.
+        needsAudioGesture = audio.needsGesture;
+
+        scene?.panelsVisible(false);
+        engine.governor.start();
+      } catch (err) {
+        // `loadCore()` and `createSoloEngine()` were unguarded here: a
+        // rejection from either used to be an unhandled promise rejection
+        // with no console in the headset, no `launchNotice`, and no cleanup -
+        // the panel just sat there, unrepainted and unexplained.
+        // `SoloRoom.svelte`'s flat boot catches the same failure class; this
+        // is its VR shape.
+        logger.error('vr engine failed to start', err);
+        launchNotice = t($language, 'vrLaunchFailed');
+        repaintLibrary();
+        void engine?.stop();
+        engine = null;
+        void audio?.stop();
+        audio = null;
+        core = null;
+        needsAudioGesture = false;
+      }
+    } finally {
+      launching = false;
+    }
   }
 
   /** The session's own visibility, which is what `readVrPad` gates on. */
   function sessionVisibility(): string {
-    return (session?.session.visibilityState as string) ?? 'hidden';
+    return session?.session.visibilityState ?? 'hidden';
   }
 
   function readRoomSram(roomId: string): Promise<Uint8Array | null> {
@@ -259,8 +330,9 @@
     if (menuPressed(scene.inputSources())) scene.panelsVisible(true);
 
     // A player who has to press once for sound presses the trigger, which is
-    // also SNES R - so the prompt keeps the panels up until it is answered,
-    // and answering it is the same select that dismisses it.
+    // also SNES R. This is the same physical button `readPads` above already
+    // zeroes for while `needsAudioGesture` is true, so this press resumes
+    // audio and does nothing in-game until it resolves.
     if (needsAudioGesture && scene.triggerDown()) {
       void audio?.resume();
       needsAudioGesture = audio?.needsGesture ?? false;
@@ -371,6 +443,10 @@
     await engine?.stop();
     engine = null;
     core = null;
+    // Closes the AudioContext rather than just dropping the reference - the
+    // same leak Finding 2's relaunch guard closes on its own path, but this
+    // is the ordinary one: every session that ever launched a game takes it.
+    void audio?.stop();
     audio = null;
     needsAudioGesture = false;
     scene?.dispose();
