@@ -120,17 +120,32 @@ export async function storedDirectory(): Promise<FileSystemDirectoryHandle | und
 }
 
 /**
+ * Whether a stored folder's read permission is granted right now, without
+ * ever asking for it.
+ *
+ * Split out of `ensureAccess` so a caller that must not risk the native
+ * permission prompt - even off the back of a real user gesture, because the
+ * prompt itself is the harm, not just the gesture requirement - can stop at
+ * the query and treat anything short of `granted` as absent.
+ */
+export async function hasAccess(handle: FileSystemDirectoryHandle): Promise<boolean> {
+	const withPermissions = handle as unknown as {
+		queryPermission(d: { mode: string }): Promise<PermissionState>;
+	};
+	return (await withPermissions.queryPermission({ mode: 'read' })) === 'granted';
+}
+
+/**
  * Re-grants read permission on a stored folder.
  *
  * Returns false when the browser wants a fresh gesture, which is not an error
  * - it is the normal state at the start of a session.
  */
 export async function ensureAccess(handle: FileSystemDirectoryHandle): Promise<boolean> {
+	if (await hasAccess(handle)) return true;
 	const withPermissions = handle as unknown as {
-		queryPermission(d: { mode: string }): Promise<PermissionState>;
 		requestPermission(d: { mode: string }): Promise<PermissionState>;
 	};
-	if ((await withPermissions.queryPermission({ mode: 'read' })) === 'granted') return true;
 	try {
 		return (await withPermissions.requestPermission({ mode: 'read' })) === 'granted';
 	} catch {

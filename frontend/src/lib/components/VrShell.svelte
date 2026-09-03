@@ -310,8 +310,13 @@
        * `obtainRom()` answers that by opening `LocateRom`; in here there is no
        * modal to open, so the failure has to be a line on the panel. The game
        * stays in the grid: it exists, it just could not be read this time.
+       *
+       * `requestPermission: false` is not optional here: the trigger press that
+       * got us into `launch()` is a real gesture, so without this the browser's
+       * native permission dialog would fire and eject the player from the
+       * headset to show it - the exact interruption this panel exists to avoid.
        */
-      const rom = await resolveQuietly(game.crc32);
+      const rom = await resolveQuietly(game.crc32, { requestPermission: false });
       if (!rom) {
         launchNotice = t($language, 'vrRomUnreadable');
         repaintLibrary();
