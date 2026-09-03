@@ -472,7 +472,11 @@ export const translations = {
     vrRomUnreadable: 'That file could not be read. Check the folder permission from the browser.',
     vrLaunchFailed: 'The game could not be started.',
     vrNoFriends: 'No friends yet',
-    vrFriendsReadOnly: 'Invitations are not available in VR yet'
+    vrFriendsReadOnly: 'Invitations are not available in VR yet',
+    vrPresetLetters: 'Letters match',
+    vrPresetThumb: 'Thumb comfort',
+    vrQuit: 'Leave VR',
+    vrResume: 'Back to the game'
   },
   fr: {
     // Legal disclaimer
@@ -932,7 +936,11 @@ export const translations = {
     vrRomUnreadable: 'Ce fichier n\'a pas pu être lu. Vérifie l\'autorisation du dossier depuis le navigateur.',
     vrLaunchFailed: 'Le jeu n\'a pas pu démarrer.',
     vrNoFriends: 'Pas encore d\'amis',
-    vrFriendsReadOnly: 'Les invitations ne sont pas encore disponibles en VR'
+    vrFriendsReadOnly: 'Les invitations ne sont pas encore disponibles en VR',
+    vrPresetLetters: 'Fidèle aux lettres',
+    vrPresetThumb: 'Confort du pouce',
+    vrQuit: 'Quitter la VR',
+    vrResume: 'Retour au jeu'
   }
 };
 
