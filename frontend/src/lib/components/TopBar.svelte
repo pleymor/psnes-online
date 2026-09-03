@@ -144,9 +144,17 @@
       <!-- Capability, never a user agent: this button appears on a Quest and
            on a PC with a headset plugged in, and the "two controllers and
            nothing else" assumption only has to hold inside the session. -->
-      <button class="bar-button" on:click={enterVr}>
+      <button
+        class="bar-button"
+        title={t($language, 'vrSeatedTitle')}
+        on:click={enterVr}
+      >
         {t($language, 'enterVr')}
       </button>
+      <!-- Beside the button, not under it: this bar is a centred flex row and a
+           second line would change its height on every page. Only rendered
+           where the button is, so a PC with no headset never sees it. -->
+      <span class="vr-hint">{t($language, 'vrSeatedHint')}</span>
     {/if}
 
     <button class="bar-button" class:on={showFriends} on:click={toggleFriends}>
@@ -228,6 +236,22 @@
     padding: 0.35rem 0.7rem;
     border-radius: 6px;
     cursor: pointer;
+  }
+
+  /* Quiet on purpose: it is a caption for the button next to it, not a
+     control, and the bar already has enough things asking to be pressed. */
+  .vr-hint {
+    color: #8a8a98;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  /* The bar is tight on a phone, and this is the one thing in it that is
+     advice rather than function - so it is the first thing to go. */
+  @media (max-width: 640px) {
+    .vr-hint {
+      display: none;
+    }
   }
 
   .bar-button.on {

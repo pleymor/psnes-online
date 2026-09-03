@@ -485,6 +485,12 @@ export const translations = {
     vrGripRight: 'Right grip',
     vrTriggers: 'Triggers',
     vrSticks: 'Either stick',
+    // Shown beside the VR button, for the reason WebXR cannot help with: the
+    // standard gives a page no way to keep a player in their chair, so saying
+    // so is the only thing that works.
+    vrSeatedHint: 'Played seated or standing still',
+    vrSeatedTitle:
+      'This experience is designed to be played seated or standing still, so a stationary boundary is enough.',
     vrDpad: 'D-pad'
   },
   fr: {
@@ -956,6 +962,9 @@ export const translations = {
     vrGripRight: 'Grip droit',
     vrTriggers: 'Gâchettes',
     vrSticks: 'Un des sticks',
+    vrSeatedHint: 'Se joue assis ou sur place',
+    vrSeatedTitle:
+      'Cette expérience est conçue pour être jouée assis ou sur place : une limite stationnaire suffit.',
     vrDpad: 'Croix'
   }
 };
