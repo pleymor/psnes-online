@@ -217,7 +217,12 @@
           thumb: t($language, 'vrPresetThumb'),
           quit: t($language, 'vrQuit'),
           resume: t($language, 'vrResume'),
-          controls: t($language, 'controls')
+          controls: t($language, 'controls'),
+          gripLeft: t($language, 'vrGripLeft'),
+          gripRight: t($language, 'vrGripRight'),
+          triggers: t($language, 'vrTriggers'),
+          leftStick: t($language, 'vrLeftStick'),
+          dpad: t($language, 'vrDpad')
         },
         hoverId: hovered?.panel === 'profile' ? hovered.region.id : null
       })

@@ -14,6 +14,11 @@
  * canvas is already being drawn, so it is nearly free - which is exactly why
  * the spec chose to do it here rather than in a help page nobody opens.
  *
+ * Below the cards sit the four mappings no preset changes - START, SELECT,
+ * the shoulders and the d-pad. They are here because they are the only ones a
+ * player cannot guess: the face buttons have their letter printed under the
+ * thumb, and these have nothing printed anywhere. See `fixedMapRows`.
+ *
  * What is deliberately absent: the ROM source (there is no file picker in an
  * immersive session), the portable config (files), account deletion (a
  * destructive action behind a confirmation), and per-button rebinding (the
@@ -50,6 +55,14 @@ export interface ProfileLabels {
   quit: string;
   resume: string;
   controls: string;
+  /* The four rows below the cards. Kept short on purpose: `fixedMapRows`
+   * renders each as `<hardware> -> <SNES>` inside FIXED_COL_W, and a long
+   * translation runs into the quit button rather than wrapping. */
+  gripLeft: string;
+  gripRight: string;
+  triggers: string;
+  leftStick: string;
+  dpad: string;
 }
 
 /** What each preset puts on the four Touch face buttons, for the diagram.
@@ -61,6 +74,36 @@ const DIAGRAM: Record<VrPadScheme, Array<[string, string]>> = {
   letters: [['Y', 'Y'], ['X', 'X'], ['B', 'B'], ['A', 'A']],
   thumb: [['Y', 'X'], ['X', 'Y'], ['B', 'A'], ['A', 'B']]
 };
+
+/** The strip under the two cards, clear of the buttons on the right. */
+const FIXED_Y = CARD_Y + CARD_H + 26;
+const FIXED_ROW_H = 30;
+export const FIXED_COL_W = 228;
+
+/**
+ * The mappings no preset changes - and the ones that actually needed showing.
+ *
+ * The two cards draw the four face buttons, which are the mappings a player
+ * can already guess, because the letter is printed on the controller under
+ * their thumb. START, SELECT, the shoulders and the d-pad have nothing
+ * printed anywhere and no preset moves them, so before this block the headset
+ * named them nowhere at all. That is not hypothetical: START sits on the
+ * right grip, the one button nobody thinks to squeeze, and a whole hardware
+ * test session was spent concluding the controls were dead when they were
+ * merely unlabelled.
+ *
+ * `vr/pad.ts` remains the single source of truth for every mapping here; this
+ * is its picture. Exported so the test can measure the rows against
+ * FIXED_COL_W, which is how the cards' own overlap bug was caught.
+ */
+export function fixedMapRows(labels: ProfileLabels): Array<[string, string]> {
+  return [
+    [labels.gripRight, 'START'],
+    [labels.gripLeft, 'SELECT'],
+    [labels.triggers, 'L / R'],
+    [labels.leftStick, labels.dpad]
+  ];
+}
 
 export function layoutProfilePanel(state: ProfileState): Region[] {
   const regions: Region[] = [];
@@ -167,6 +210,22 @@ function drawButton(
   }
 }
 
+function drawFixedMap(ctx: CanvasRenderingContext2D, labels: ProfileLabels): void {
+  ctx.font = '17px system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  fixedMapRows(labels).forEach(([hardware, snes], index) => {
+    const column = index % 2;
+    const row = Math.floor(index / 2);
+    ctx.fillStyle = '#c2c2d2';
+    ctx.fillText(
+      `${hardware} → ${snes}`,
+      PAD + IDENTITY_W + column * FIXED_COL_W,
+      FIXED_Y + row * FIXED_ROW_H
+    );
+  });
+}
+
 export function drawProfilePanel(
   ctx: CanvasRenderingContext2D,
   state: ProfileState,
@@ -213,6 +272,8 @@ export function drawProfilePanel(
         break;
     }
   }
+
+  drawFixedMap(ctx, opts.labels);
 
   ctx.restore();
 }
