@@ -21,6 +21,7 @@
 import { crc32, normaliseRom } from './checksum.js';
 import {
 	ensureAccess,
+	hasAccess,
 	indexedChecksums,
 	readRomByChecksum,
 	romBytes,
@@ -87,13 +88,34 @@ export function isCached(checksum: string): boolean {
 }
 
 /**
+ * Options for {@link resolveQuietly}.
+ */
+export interface ResolveQuietlyOptions {
+	/**
+	 * Whether a lapsed folder permission may be re-requested.
+	 *
+	 * Defaults to true - re-granting from the gesture that triggered the
+	 * launch is how a flat page recovers a folder permission that lapsed
+	 * between sessions, and it is the behaviour every existing caller relies
+	 * on. Pass false only where the browser's own permission dialog would
+	 * itself be the problem: in the immersive VR session, a `select` event is
+	 * a real user gesture, so `requestPermission` does not fail quietly there
+	 * - it shows the native prompt and throws the player out of the headset.
+	 */
+	requestPermission?: boolean;
+}
+
+/**
  * Finds a ROM without asking the player anything.
  *
  * Returns null rather than throwing when it comes up empty: not finding the
  * file is the expected state on a browser with no folder picker, and the
  * caller's job is then to ask.
  */
-export async function resolveQuietly(checksum: string): Promise<Uint8Array | null> {
+export async function resolveQuietly(
+	checksum: string,
+	options?: ResolveQuietlyOptions
+): Promise<Uint8Array | null> {
 	const cached = cache.get(checksum);
 	if (cached) return cached;
 
@@ -118,9 +140,15 @@ export async function resolveQuietly(checksum: string): Promise<Uint8Array | nul
 		const handle = await storedDirectory();
 		if (!handle) return null;
 
-		// Permission on a stored folder lapses between sessions, and re-granting it
-		// needs a user gesture we do not have here. Silence is the correct answer.
-		if (!(await ensureAccess(handle))) return null;
+		// Permission on a stored folder lapses between sessions. Whether it is
+		// worth re-requesting is not this function's call to make - it is the
+		// caller's, via `options.requestPermission` - because only the caller
+		// knows whether a native permission prompt right now is recoverable
+		// (a flat page) or a disaster (an immersive session with no page behind
+		// it to show the prompt on).
+		const granted =
+			options?.requestPermission === false ? await hasAccess(handle) : await ensureAccess(handle);
+		if (!granted) return null;
 
 		const bytes = await readRomByChecksum(handle, checksum);
 		if (bytes) cache.set(checksum, bytes);

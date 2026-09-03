@@ -229,3 +229,37 @@ test('un stockage qui lève laisse une bibliothèque vide, pas une promesse reje
 	assert.deepEqual(await resolvableHere(), []);
 	useKeptFiles(null);
 });
+
+/* -------------------------------------- la permission d un dossier, en VR */
+
+/**
+ * A stored-folder handle whose `requestPermission` throws if it is ever
+ * called - the sharpest way to prove a code path never escalates to the
+ * native prompt, rather than merely observing that it "happened" not to.
+ */
+function fakeDirectoryHandle(granted: boolean) {
+	let requested = false;
+	const handle = {
+		queryPermission: async () => (granted ? 'granted' : 'prompt'),
+		requestPermission: async () => {
+			requested = true;
+			throw new Error('requestPermission must not be called on the non-prompting path');
+		}
+	};
+	return {
+		handle: handle as unknown as FileSystemDirectoryHandle,
+		wasRequested: () => requested
+	};
+}
+
+test('hasAccess answers from the query alone and never calls requestPermission', async () => {
+	const { hasAccess } = await import('../../frontend/src/lib/roms/local-library.js');
+	const ungranted = fakeDirectoryHandle(false);
+
+	assert.equal(await hasAccess(ungranted.handle), false);
+	assert.equal(ungranted.wasRequested(), false);
+
+	const granted = fakeDirectoryHandle(true);
+	assert.equal(await hasAccess(granted.handle), true);
+	assert.equal(granted.wasRequested(), false, 'already granted needs no request either');
+});
