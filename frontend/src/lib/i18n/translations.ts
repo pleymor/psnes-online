@@ -484,7 +484,7 @@ export const translations = {
     vrGripLeft: 'Left grip',
     vrGripRight: 'Right grip',
     vrTriggers: 'Triggers',
-    vrLeftStick: 'Left stick',
+    vrSticks: 'Either stick',
     vrDpad: 'D-pad'
   },
   fr: {
@@ -955,7 +955,7 @@ export const translations = {
     vrGripLeft: 'Grip gauche',
     vrGripRight: 'Grip droit',
     vrTriggers: 'Gâchettes',
-    vrLeftStick: 'Stick gauche',
+    vrSticks: 'Un des sticks',
     vrDpad: 'Croix'
   }
 };

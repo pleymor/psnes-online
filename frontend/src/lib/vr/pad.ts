@@ -59,6 +59,36 @@ function held(source: PadLikeSource, index: number): boolean {
   return source.gamepad?.buttons[index]?.pressed === true;
 }
 
+/**
+ * The d-pad contribution of one thumbstick.
+ *
+ * Called for BOTH hands, and that is ergonomics rather than generosity. With
+ * only the left stick steering, the left thumb is occupied for as long as the
+ * player is moving - and SNES X and Y live on the left controller's face, so
+ * half the button map was unreachable in motion. Reported from actual play.
+ *
+ * The objection this replaces was that a d-pad on both hands "would fight
+ * itself the moment a player rested a thumb on the right one". It does not: a
+ * resting thumb reads about zero and never crosses XR_AXIS_THRESHOLD. Getting
+ * a conflict takes pushing both sticks in opposite directions at once, which
+ * is deliberate, and which the caller's OR then reports as both directions
+ * held - exactly what real hardware does when somebody presses left and right
+ * together.
+ *
+ * Still only from a hand: `handedness` is checked at the call sites, so an
+ * input source that is neither left nor right never steers.
+ */
+function steer(gamepad: NonNullable<PadLikeSource['gamepad']>): PadMask {
+  let mask = 0;
+  const x = gamepad.axes[STICK_X] ?? 0;
+  const y = gamepad.axes[STICK_Y] ?? 0;
+  if (x <= -XR_AXIS_THRESHOLD) mask |= PAD.LEFT;
+  if (x >= XR_AXIS_THRESHOLD) mask |= PAD.RIGHT;
+  if (y <= -XR_AXIS_THRESHOLD) mask |= PAD.UP;
+  if (y >= XR_AXIS_THRESHOLD) mask |= PAD.DOWN;
+  return mask;
+}
+
 export function readVrPad(
   sources: Iterable<PadLikeSource>,
   scheme: VrPadScheme,
@@ -76,20 +106,15 @@ export function readVrPad(
     if (!source.gamepad) continue;
 
     if (source.handedness === 'left') {
+      mask |= steer(source.gamepad);
       if (held(source, FACE_UPPER)) mask |= face.left[0];
       if (held(source, FACE_LOWER)) mask |= face.left[1];
       if (held(source, TRIGGER)) mask |= PAD.L;
       if (held(source, SQUEEZE)) mask |= PAD.SELECT;
-
-      // Only the left stick steers: a d-pad on both hands would fight itself
-      // the moment a player rested a thumb on the right one.
-      const x = source.gamepad.axes[STICK_X] ?? 0;
-      const y = source.gamepad.axes[STICK_Y] ?? 0;
-      if (x <= -XR_AXIS_THRESHOLD) mask |= PAD.LEFT;
-      if (x >= XR_AXIS_THRESHOLD) mask |= PAD.RIGHT;
-      if (y <= -XR_AXIS_THRESHOLD) mask |= PAD.UP;
-      if (y >= XR_AXIS_THRESHOLD) mask |= PAD.DOWN;
     } else if (source.handedness === 'right') {
+      // The right stick steers so the LEFT thumb is free for X and Y. That is
+      // the whole point of `steer` being called twice.
+      mask |= steer(source.gamepad);
       if (held(source, FACE_UPPER)) mask |= face.right[0];
       if (held(source, FACE_LOWER)) mask |= face.right[1];
       if (held(source, TRIGGER)) mask |= PAD.R;
