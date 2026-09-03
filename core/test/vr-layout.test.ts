@@ -18,10 +18,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  sceneLayout,
-  DEFAULT_EYE_HEIGHT
-} from '../../frontend/src/lib/vr/layout.js';
+import { sceneLayout } from '../../frontend/src/lib/vr/layout.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -40,7 +37,7 @@ test('the screen is a wide arc at arm-and-then-some length', () => {
   const { screen } = sceneLayout('crt');
   assert.equal(screen.radius, 2.5);
   assert.ok(screen.arc > 0.9 && screen.arc < 1.2, 'about 60 degrees of arc, in radians');
-  assert.equal(screen.centerY, DEFAULT_EYE_HEIGHT, 'the picture is at eye level, not above it');
+  assert.equal(screen.centerY, 0, 'straight ahead: y is measured from the eyes');
 });
 
 test('the screen takes its shape from the aspect preference', () => {
@@ -107,8 +104,25 @@ test('the lecterns pitch back so a lowered panel faces raised eyes', () => {
   assert.ok(Math.abs(library.rotation[0]) > 0.5, 'and by a real amount, not a token degree');
 });
 
-test('a headset that gives no floor still gets a sane scene', () => {
-  const assumed = sceneLayout('crt');
-  const explicit = sceneLayout('crt', DEFAULT_EYE_HEIGHT);
-  assert.deepEqual(assumed, explicit, "the 'local' fallback must not be a special case elsewhere");
+test('every height is measured from the eyes, never from a floor', () => {
+  /*
+   * `local` puts the origin at the head, so a positive y would hang the scene
+   * above the player's gaze - which is exactly what the old floor-relative
+   * numbers did whenever the fallback fired, and nobody ever saw it because
+   * the Quest always granted the floor.
+   */
+  const layout = sceneLayout('crt');
+  assert.equal(layout.screen.centerY, 0);
+
+  for (const [name, placement] of [
+    ['library', layout.library],
+    ['friends', layout.friends],
+    ['profile', layout.profile]
+  ] as const) {
+    assert.ok(placement.position[1] < 0, `${name} hangs above the eyes instead of below them`);
+    assert.ok(
+      placement.position[1] > -1.2,
+      `${name} is down where a floor would be, which is what this change removed`
+    );
+  }
 });

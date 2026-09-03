@@ -42,9 +42,19 @@ export interface SceneLayout {
   profile: Placement;
 }
 
-/** Used when the headset refuses `local-floor` and there is no real floor to
- * measure from. A guess is better than a scene on the ground. */
-export const DEFAULT_EYE_HEIGHT = 1.6;
+/*
+ * Every y here is measured from the player's eyes, not from the floor.
+ *
+ * That follows from the reference space: `xr-session.ts` asks for `local`
+ * only, whose origin is the head's pose when the session opens, so y = 0 is
+ * eye level. It used to ask for `local-floor` and place the scene from a
+ * guessed 1.6 m eye height, which cost a prompt the player had to answer on
+ * every entry - the Quest asks which boundary to use the moment an app wants
+ * a real floor - and got the height wrong for anybody sitting down.
+ *
+ * Eye-relative removes both. There is no height left to guess: the scene is
+ * placed where the head actually was.
+ */
 
 const SCREEN_RADIUS = 2.5;
 /** 60 degrees. Wide enough to fill the view, narrow enough that the edges are
@@ -76,11 +86,11 @@ const BAND_HEIGHT = 0.3;
  * sign wrong here shows the player the back of an invisible panel, which reads
  * as "the panel did not load".
  */
-function lectern(azimuth: number, eyeHeight: number): Placement {
+function lectern(azimuth: number): Placement {
   return {
     position: [
       LECTERN_DISTANCE * Math.sin(azimuth),
-      eyeHeight - LECTERN_DROP,
+      -LECTERN_DROP,
       -LECTERN_DISTANCE * Math.cos(azimuth)
     ],
     rotation: [LECTERN_PITCH, -azimuth, 0],
@@ -89,10 +99,7 @@ function lectern(azimuth: number, eyeHeight: number): Placement {
   };
 }
 
-export function sceneLayout(
-  aspect: PixelAspect,
-  eyeHeight: number = DEFAULT_EYE_HEIGHT
-): SceneLayout {
+export function sceneLayout(aspect: PixelAspect): SceneLayout {
   // Arc length is the screen's width, so the height is what the player's
   // aspect choice actually decides.
   const screenWidth = SCREEN_RADIUS * SCREEN_ARC;
@@ -102,12 +109,14 @@ export function sceneLayout(
       radius: SCREEN_RADIUS,
       arc: SCREEN_ARC,
       height: screenWidth / aspectRatioOf(aspect),
-      centerY: eyeHeight
+      // Straight ahead: the picture is what the player came for, so it goes
+      // where they are already looking rather than above or below it.
+      centerY: 0
     },
-    library: lectern(-LECTERN_AZIMUTH, eyeHeight),
-    friends: lectern(LECTERN_AZIMUTH, eyeHeight),
+    library: lectern(-LECTERN_AZIMUTH),
+    friends: lectern(LECTERN_AZIMUTH),
     profile: {
-      position: [0, eyeHeight - BAND_DROP, -BAND_DISTANCE],
+      position: [0, -BAND_DROP, -BAND_DISTANCE],
       rotation: [BAND_PITCH, 0, 0],
       width: BAND_WIDTH,
       height: BAND_HEIGHT
