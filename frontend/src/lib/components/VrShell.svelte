@@ -55,7 +55,7 @@
   import { user } from '$lib/stores/user';
   import { games } from '$lib/stores/games';
   import { deviceLibrary } from '$lib/roms/device-library';
-  import { resolvableHere, resolveQuietly } from '$lib/roms/provider';
+  import { resolvableHere, resolveQuietly, type MissReason } from '$lib/roms/provider';
   import type { PanelMesh } from '$lib/vr/panel-mesh';
   import { loadCore, AudioSink } from '$lib/znet';
   import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
@@ -321,9 +321,25 @@
        * native permission dialog would fire and eject the player from the
        * headset to show it - the exact interruption this panel exists to avoid.
        */
-      const rom = await resolveQuietly(game.crc32, { requestPermission: false });
+      /*
+       * The reason is carried onto the panel, not just logged.
+       *
+       * `resolveQuietly` answers null for five different situations and used to
+       * look identical for all five, which cost a whole headset session: the
+       * notice said the file could not be read and nobody could tell whether
+       * the permission, the folder, or the file itself was the problem. There
+       * is no console in here and the shipped logs are not readable from the
+       * headset either, so the panel is the only channel that reaches the
+       * person who can see the failure.
+       */
+      let miss: MissReason | null = null;
+      const rom = await resolveQuietly(game.crc32, {
+        requestPermission: false,
+        onMiss: (reason) => { miss = reason; }
+      });
       if (!rom) {
-        launchNotice = t($language, 'vrRomUnreadable');
+        launchNotice = `${t($language, 'vrRomUnreadable')} [${miss ?? 'unknown'}]`;
+        logger.error('vr rom miss', { crc32: game.crc32, reason: miss });
         repaintLibrary();
         return;
       }

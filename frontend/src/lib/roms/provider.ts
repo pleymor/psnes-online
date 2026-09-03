@@ -123,9 +123,38 @@ export async function readAndKeep(
 }
 
 /**
+ * Why a lookup came up empty.
+ *
+ * `resolveQuietly` answers `null` for five quite different situations, and the
+ * caller could not tell them apart - which is how a headset ended up showing
+ * "that file could not be read" for a failure nobody could locate. These are
+ * codes rather than sentences on purpose: the flat pages have a modal that can
+ * ask for the file, so only the VR panel needs to explain itself, and the
+ * wording belongs there.
+ */
+export type MissReason =
+	/** This browser has no directory picker, and nothing was kept. */
+	| 'no-picker'
+	/** No folder has ever been chosen on this device. */
+	| 'no-folder'
+	/** A folder is stored, but its read permission is not granted right now. */
+	| 'no-permission'
+	/** Permission is fine; neither the remembered name nor a full scan found it. */
+	| 'not-in-folder'
+	/** The folder itself threw - locked database, revoked handle, unreadable disk. */
+	| 'folder-error';
+
+/**
  * Options for {@link resolveQuietly}.
  */
 export interface ResolveQuietlyOptions {
+	/**
+	 * Told which of the five empty answers this was.
+	 *
+	 * Informational only - it never changes what is returned, and a caller that
+	 * omits it behaves exactly as before.
+	 */
+	onMiss?: (reason: MissReason) => void;
 	/**
 	 * Whether a lapsed folder permission may be re-requested.
 	 *
@@ -169,11 +198,17 @@ export async function resolveQuietly(
 		}
 	}
 
-	if (!supportsDirectoryPicker()) return null;
+	if (!supportsDirectoryPicker()) {
+		options?.onMiss?.('no-picker');
+		return null;
+	}
 
 	try {
 		const handle = await storedDirectory();
-		if (!handle) return null;
+		if (!handle) {
+			options?.onMiss?.('no-folder');
+			return null;
+		}
 
 		// Permission on a stored folder lapses between sessions. Whether it is
 		// worth re-requesting is not this function's call to make - it is the
@@ -183,10 +218,16 @@ export async function resolveQuietly(
 		// it to show the prompt on).
 		const granted =
 			options?.requestPermission === false ? await hasAccess(handle) : await ensureAccess(handle);
-		if (!granted) return null;
+		if (!granted) {
+			options?.onMiss?.('no-permission');
+			return null;
+		}
 
-		return await readAndKeep(handle, checksum);
+		const bytes = await readAndKeep(handle, checksum);
+		if (!bytes) options?.onMiss?.('not-in-folder');
+		return bytes;
 	} catch {
+		options?.onMiss?.('folder-error');
 		// Même raison : un dossier illisible n'est pas trouvé, et l'appelant sait
 		// déjà quoi faire d'un « non ».
 		return null;
