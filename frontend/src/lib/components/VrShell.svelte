@@ -99,6 +99,15 @@
       .flatMap((room) => room.players.map((p) => [p.userId, room.gameTitle ?? ''] as const))
   );
 
+  // `playingByUserId` is read inside `repaintFriends()`, but Svelte 4 derives a
+  // reactive statement's dependencies from the identifiers written in the
+  // statement itself, not from what the functions it calls happen to read
+  // (`renderer-surface.ts`'s header spells this trap out at length). Naming
+  // `playingByUserId` here, not just `friendsPanel`, is what makes a friend
+  // starting or ending a game while the panel is up repaint it - dropping this
+  // reference would make the statement run once and never again.
+  $: if (friendsPanel && playingByUserId) repaintFriends();
+
   /** Covers are same-origin behind the session cookie (`api/covers.ts:9`), so
    *  they load with no crossOrigin attribute - setting one would break the
    *  cookie AND taint the canvas, and a tainted canvas cannot become a WebGL
@@ -434,7 +443,13 @@
         repaintFriends();
       });
       $socket?.on('friend:statusChanged', ({ userId, online }: { userId: string; online: boolean }) => {
-        onlineFriends.set(userId, online);
+        // Reassigned, not mutated in place: `onlineFriends` is only read
+        // through the explicit `repaintFriends()` call below today, but a
+        // `.set()` with no reassignment is invisible to Svelte's reactivity,
+        // and the `friends:online` handler above already reassigns - keeping
+        // both handlers in that shape means neither can quietly become the
+        // one Svelte can't see.
+        onlineFriends = new Map(onlineFriends).set(userId, online);
         repaintFriends();
       });
       $socket?.emit('friends:getOnlineStatus');
