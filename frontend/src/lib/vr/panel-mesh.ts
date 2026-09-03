@@ -56,6 +56,21 @@ export function createPanelMesh(
   const geometry = new THREE.PlaneGeometry(placement.width, placement.height);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(...placement.position);
+  /*
+   * `YXZ`, not three's default `XYZ`, and this is not a preference.
+   *
+   * A lectern is aimed and then tipped back: swing it round to its azimuth,
+   * then pitch it about its OWN horizontal axis. Under `XYZ` the pitch is
+   * applied before the yaw carries it away, so the two combine into a roll -
+   * measured at 33.8 degrees for these placements, and mirrored, so the left
+   * panel leans one way and the right panel the other. Nothing in the design
+   * asks for any roll at all.
+   *
+   * With `YXZ` the same numbers give exactly zero roll and a facing of
+   * cos(40 deg) = 0.766, which is precisely the intended tip-back. The order
+   * has to be set before the values, or `set()` uses the old one.
+   */
+  mesh.rotation.order = 'YXZ';
   mesh.rotation.set(...placement.rotation);
 
   return {
