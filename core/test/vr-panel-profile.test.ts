@@ -19,6 +19,8 @@ import assert from 'node:assert/strict';
 import {
   layoutProfilePanel,
   drawProfilePanel,
+  fixedMapRows,
+  FIXED_COL_W,
   PROFILE_PANEL_SIZE
 } from '../../frontend/src/lib/vr/panels/profile.js';
 
@@ -27,23 +29,38 @@ const LABELS = {
   thumb: 'Thumb',
   quit: 'Leave VR',
   resume: 'Back to the game',
-  controls: 'Controls'
+  controls: 'Controls',
+  // The shipped English, not placeholders: two of the tests below measure
+  // these strings, and a short stand-in would pass a width check the real
+  // wording could fail.
+  gripLeft: 'Left grip',
+  gripRight: 'Right grip',
+  triggers: 'Triggers',
+  leftStick: 'Left stick',
+  dpad: 'D-pad'
 };
 
 function recordingContext() {
   const texts: string[] = [];
   const calls: string[] = [];
+  /** Where each string landed. `texts` alone cannot answer "does it fit". */
+  const placed: Array<{ text: string; x: number }> = [];
   return {
     texts,
     calls,
+    placed,
     font: '', fillStyle: '', strokeStyle: '', lineWidth: 0,
     textAlign: 'left', textBaseline: 'alphabetic',
     save() {}, restore() {}, clearRect() {}, fillRect() { calls.push('fillRect'); },
     strokeRect() { calls.push('strokeRect'); },
     beginPath() {}, arc() { calls.push('arc'); }, fill() {}, stroke() {},
-    fillText(text: string) { texts.push(text); },
+    fillText(text: string, x: number) { texts.push(text); placed.push({ text, x }); },
     measureText(text: string) { return { width: text.length * 9 }; }
-  } as unknown as CanvasRenderingContext2D & { texts: string[]; calls: string[] };
+  } as unknown as CanvasRenderingContext2D & {
+    texts: string[];
+    calls: string[];
+    placed: Array<{ text: string; x: number }>;
+  };
 }
 
 const IDLE = { pseudo: 'Ada', scheme: 'letters' as const, language: 'fr' as const, playing: false };
@@ -144,4 +161,59 @@ test('the active preset is marked, so a player can see what they have', () => {
   const strokes = (c: typeof plain) =>
     (c as unknown as { calls: string[] }).calls.filter((k) => k === 'strokeRect').length;
   assert.ok(strokes(hovered) > strokes(plain));
+});
+
+/*
+ * The two tests below exist because of a real hardware session, not a
+ * hypothesis. The cards draw the four face buttons - the mappings whose letter
+ * is printed on the controller, so the ones a player can already guess. START,
+ * SELECT, the shoulders and the d-pad were named nowhere in the headset, and
+ * START is on the right grip: the session ended with the controls reported
+ * dead when they were merely unlabelled.
+ */
+
+test('the four unguessable mappings are drawn under either preset', () => {
+  // Under both, because no preset moves them - a block that appeared only on
+  // one would leave half the players with nothing.
+  for (const scheme of ['letters', 'thumb'] as const) {
+    const state = { ...IDLE, scheme };
+    const ctx = recordingContext();
+    drawProfilePanel(ctx, state, layoutProfilePanel(state), { labels: LABELS, hoverId: null });
+    const drawn = (ctx as unknown as { texts: string[] }).texts;
+    for (const [hardware, snes] of fixedMapRows(LABELS)) {
+      assert.ok(
+        drawn.includes(`${hardware} \u2192 ${snes}`),
+        `${snes} is named nowhere with scheme=${scheme}, and nothing else in the headset names it`
+      );
+    }
+  }
+});
+
+test('the mapping rows clear the buttons on the right', () => {
+  // Measured where they actually landed rather than against the constant:
+  // this catches a long translation, a wrong column width, and the block
+  // drifting sideways, which a constant-only check would all miss.
+  const state = { ...IDLE, playing: true };
+  const quit = layoutProfilePanel(state).find((r) => r.id === 'quit');
+  assert.ok(quit, 'no quit region to measure against');
+
+  const ctx = recordingContext();
+  drawProfilePanel(ctx, state, layoutProfilePanel(state), { labels: LABELS, hoverId: null });
+  const placed = (ctx as unknown as { placed: Array<{ text: string; x: number }> }).placed;
+
+  for (const [hardware, snes] of fixedMapRows(LABELS)) {
+    const line = `${hardware} \u2192 ${snes}`;
+    const drawn = placed.find((p) => p.text === line);
+    assert.ok(drawn, `${line} was not drawn`);
+    // The same metric the fixture's own measureText uses.
+    const width = line.length * 9;
+    assert.ok(
+      width <= FIXED_COL_W,
+      `"${line}" needs ${width}px in a ${FIXED_COL_W}px column - shorten the wording`
+    );
+    assert.ok(
+      drawn!.x + width <= quit!.x,
+      `"${line}" reaches ${drawn!.x + width}px and the buttons start at ${quit!.x}px`
+    );
+  }
 });

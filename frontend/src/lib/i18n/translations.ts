@@ -476,7 +476,14 @@ export const translations = {
     vrPresetLetters: 'Letters match',
     vrPresetThumb: 'Thumb comfort',
     vrQuit: 'Leave VR',
-    vrResume: 'Back to the game'
+    vrResume: 'Back to the game',
+    // Kept short: `vr/panels/profile.ts` draws these as `<this> -> <SNES>`
+    // inside a 228px column and does not wrap.
+    vrGripLeft: 'Left grip',
+    vrGripRight: 'Right grip',
+    vrTriggers: 'Triggers',
+    vrLeftStick: 'Left stick',
+    vrDpad: 'D-pad'
   },
   fr: {
     // Legal disclaimer
@@ -940,7 +947,12 @@ export const translations = {
     vrPresetLetters: 'Fidèle aux lettres',
     vrPresetThumb: 'Confort du pouce',
     vrQuit: 'Quitter la VR',
-    vrResume: 'Retour au jeu'
+    vrResume: 'Retour au jeu',
+    vrGripLeft: 'Grip gauche',
+    vrGripRight: 'Grip droit',
+    vrTriggers: 'Gâchettes',
+    vrLeftStick: 'Stick gauche',
+    vrDpad: 'Croix'
   }
 };
 
