@@ -263,3 +263,58 @@ test('hasAccess answers from the query alone and never calls requestPermission',
 	assert.equal(await hasAccess(granted.handle), true);
 	assert.equal(granted.wasRequested(), false, 'already granted needs no request either');
 });
+
+/*
+ * Ce que le dossier donne, l'appareil le garde.
+ *
+ * Sans ça, une ROM lue depuis le dossier n'allait que dans le cache de session :
+ * chaque lancement dépendait à nouveau de la permission de lecture du dossier,
+ * qui expire entre deux sessions de navigateur et dont le renouvellement exige
+ * un geste - impossible à obtenir dans un casque, où aucun dialogue natif ne
+ * peut s'afficher. Signalé depuis un vrai Quest 3 : « l'autorisation ne dure
+ * plus, sauf si je l'autorise en lançant le jeu hors VR », parce que hors VR le
+ * joueur désigne le fichier à la main, et un fichier désigné, lui, était gardé.
+ */
+
+test('une ROM lue depuis le dossier est gardée, donc la permission cesse de compter', async () => {
+	const { readAndKeep, useKeptFiles } = await provider();
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+	const kept = memoryKeptFiles();
+	useKeptFiles(kept);
+
+	const bytes = rom(31);
+	const checksum = crc32(normaliseRom(bytes));
+	const got = await readAndKeep({} as FileSystemDirectoryHandle, checksum, async () => bytes);
+
+	assert.deepEqual([...got!], [...bytes]);
+	assert.deepEqual(
+		await kept.checksums(),
+		[checksum],
+		'non gardée, la ROM redemande le dossier à chaque lancement'
+	);
+	useKeptFiles(null);
+});
+
+test('un dossier qui ne contient pas la ROM ne garde rien', async () => {
+	const { readAndKeep, useKeptFiles } = await provider();
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+	const kept = memoryKeptFiles();
+	useKeptFiles(kept);
+
+	assert.equal(await readAndKeep({} as FileSystemDirectoryHandle, 'deadbeef', async () => null), null);
+	assert.deepEqual(await kept.checksums(), [], 'rien à garder, et surtout pas une absence');
+	useKeptFiles(null);
+});
+
+test('un stockage qui refuse ne fait pas échouer le lancement', async () => {
+	// La règle de `keepQuietly` : « garder est un confort, jamais une condition ».
+	// En navigation privée ou sur quota plein, la partie doit démarrer quand même.
+	const { readAndKeep, useKeptFiles } = await provider();
+	useKeptFiles(throwingKeptFiles());
+
+	const bytes = rom(32);
+	const got = await readAndKeep({} as FileSystemDirectoryHandle, crc32(normaliseRom(bytes)), async () => bytes);
+
+	assert.deepEqual([...got!], [...bytes], 'un quota plein a fait perdre la ROM au joueur');
+	useKeptFiles(null);
+});
