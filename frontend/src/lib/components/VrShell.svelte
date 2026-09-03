@@ -588,7 +588,11 @@
           // one lands on the flat page the player has just been dropped onto.
           notifications.show(t($language, 'vrContextLost'), 'error', 6000);
           void leave();
-        }
+        },
+        // The one witness to a throw out of the XR animation loop. Without it
+        // the loop's own guard would keep the world drawable and tell nobody
+        // why the game had stopped.
+        onFrameError: (err) => logger.error('vr frame', err)
       });
 
       session = await openVrSession(() => {

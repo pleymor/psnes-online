@@ -47,6 +47,13 @@ export function createVrScene(opts: {
   aspect: PixelAspect;
   eyeHeight?: number;
   onContextLost: () => void;
+  /**
+   * A throw that escaped the pumped emulation slice or a per-frame callback.
+   *
+   * Reported, never swallowed: the loop below keeps drawing regardless, and
+   * without this the player would be the only witness.
+   */
+  onFrameError: (err: unknown) => void;
 }): VrScene {
   const layout = sceneLayout(opts.aspect, opts.eyeHeight);
 
@@ -76,6 +83,33 @@ export function createVrScene(opts: {
 
   const pump = createFramePump();
   const perFrame: Array<() => void> = [];
+
+  /*
+   * Why the render is outside the try below.
+   *
+   * A throw from the pumped slice or from a per-frame callback used to take
+   * `renderer.render()` down with it, and that is the worst shape this loop
+   * can fail in: the player is left inside a world that has stopped
+   * redrawing - frozen, or black if no frame ever arrived - with the panels
+   * unusable and the exit unreachable, because both of those are drawn by the
+   * render that no longer happens. Whatever the emulator did, the world still
+   * draws, so the right stick still recalls the panels and `quit` still
+   * works.
+   *
+   * Reported once per session. The two throwing paths differ in what they do
+   * next and neither wants repeating: a slice that throws never reaches the
+   * `schedule()` that ends `FrameGovernor.slice()`, so it is already dead and
+   * will never throw again, while a per-frame callback throws afresh on every
+   * one of the next seventy-two frames a second. Logging each of those would
+   * bury the first line - the only one that names the cause - and blow
+   * straight past `log-shipper.ts`'s hundred-entry batch.
+   */
+  let frameErrorReported = false;
+  function reportFrameError(err: unknown): void {
+    if (frameErrorReported) return;
+    frameErrorReported = true;
+    opts.onFrameError(err);
+  }
 
   const panels: PanelMesh[] = [];
   // Rebuilt only in `addPanel`, never inside `aimedAt`: that loop runs twice
@@ -174,8 +208,12 @@ export function createVrScene(opts: {
       renderer.setAnimationLoop(() => {
         // Order matters: the governor may run a frame, and the render should
         // show that frame rather than the previous one.
-        pump.pump();
-        for (const fn of perFrame) fn();
+        try {
+          pump.pump();
+          for (const fn of perFrame) fn();
+        } catch (err) {
+          reportFrameError(err);
+        }
         renderer.render(scene, camera);
       });
     },
