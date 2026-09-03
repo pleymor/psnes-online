@@ -88,6 +88,41 @@ export function isCached(checksum: string): boolean {
 }
 
 /**
+ * Reads one ROM out of the folder, and keeps it.
+ *
+ * The keeping is the whole point of this being its own function. Until now a
+ * ROM read from the folder went into the session cache and nowhere else, so
+ * every launch depended on the folder's read permission - which lapses between
+ * browser sessions and needs a gesture to re-grant, a gesture that inside a
+ * headset takes a whole separate dance (`vr/door.ts`). Keeping the bytes the
+ * first time a game actually runs means that game never needs the permission
+ * again, in VR or out of it, because `resolveQuietly` looks in the kept store
+ * before it ever looks at the folder.
+ *
+ * It also finishes something that was only half built: `kept-files.ts`'s header
+ * already says "l'appareil se remplit au fil des parties", and it did not - only
+ * a file the player designated by hand was ever kept. A ROM read from the
+ * player's own folder is theirs by exactly the same argument, and the rule that
+ * header states - what a HOST sends never enters here - is untouched.
+ *
+ * `read` is a parameter with a default for the reason `xr-session.ts` gives
+ * about `navigator`: `readRomByChecksum` needs IndexedDB and a real directory
+ * handle, so without this seam the keeping could not be tested at all, and a
+ * later edit could drop it in silence.
+ */
+export async function readAndKeep(
+	handle: FileSystemDirectoryHandle,
+	checksum: string,
+	read: typeof readRomByChecksum = readRomByChecksum
+): Promise<Uint8Array | null> {
+	const bytes = await read(handle, checksum);
+	if (!bytes) return null;
+	cache.set(checksum, bytes);
+	await keepQuietly(checksum, bytes);
+	return bytes;
+}
+
+/**
  * Options for {@link resolveQuietly}.
  */
 export interface ResolveQuietlyOptions {
@@ -150,9 +185,7 @@ export async function resolveQuietly(
 			options?.requestPermission === false ? await hasAccess(handle) : await ensureAccess(handle);
 		if (!granted) return null;
 
-		const bytes = await readRomByChecksum(handle, checksum);
-		if (bytes) cache.set(checksum, bytes);
-		return bytes;
+		return await readAndKeep(handle, checksum);
 	} catch {
 		// Même raison : un dossier illisible n'est pas trouvé, et l'appelant sait
 		// déjà quoi faire d'un « non ».
