@@ -89,9 +89,7 @@
   let resolvable: string[] = [];
 
   let engine: SoloEngine | null = null;
-  let core: PsnesCore | null = null;
   let audio: AudioSink | null = null;
-  let needsAudioGesture = false;
   /** Shown on the lectern when a launch could not read the file. */
   let launchNotice: string | null = null;
   /**
@@ -157,7 +155,11 @@
     if (!library) return;
     library.regions = layoutLibraryPanel(libraryState);
     const regions = library.regions;
-    library.paint((ctx) =>
+    const notice = launchNotice;
+    // One `paint()`, not two: each call rasterises the whole canvas and
+    // uploads a texture, so a second call for the notice overlay used to cost
+    // a repeat of both for what is really one logical repaint.
+    library.paint((ctx) => {
       drawLibraryPanel(ctx, libraryState, regions, {
         labels: {
           heading: t($language, 'library'),
@@ -168,11 +170,8 @@
         },
         hoverId: hovered?.panel === 'library' ? hovered.region.id : null,
         covers
-      })
-    );
-    const notice = launchNotice;
-    if (notice) {
-      library.paint((ctx) => {
+      });
+      if (notice) {
         ctx.save();
         ctx.fillStyle = '#7a2222';
         ctx.fillRect(0, 0, LIBRARY_PANEL_SIZE.width, 40);
@@ -182,8 +181,8 @@
         ctx.textBaseline = 'middle';
         ctx.fillText(notice, LIBRARY_PANEL_SIZE.width / 2, 20);
         ctx.restore();
-      });
-    }
+      }
+    });
   }
 
   function repaintFriends(): void {
@@ -254,10 +253,11 @@
       }
       if (target.region.id.startsWith('game:')) {
         launchNotice = null;
-        // The gesture that got us here is an XR select, which is as close to a
-        // user gesture as this session will ever get - so resume here, where a
-        // browser that counts it will let the sound through with no prompt.
-        void audio?.resume();
+        // Not `void audio?.resume()` here any more: on a first launch `audio`
+        // is still null (it is constructed inside `launch()`, several awaits
+        // below), and on a relaunch this is the context `launch()` is about to
+        // close. `launch()` itself resumes the context it just started, once
+        // `audio.start()` has actually run.
         void launch(target.region.id.slice('game:'.length));
       }
       return;
@@ -345,12 +345,15 @@
         engine = null;
         void audio?.stop();
         audio = null;
-        core = null;
-        needsAudioGesture = false;
       }
 
       try {
-        core = await loadCore();
+        // Local, not component state: unlike `engine` and `audio`, nothing
+        // outside this function ever reads `core` again once
+        // `createSoloEngine` has it - the engine keeps its own reference via
+        // closure (`solo-engine.ts`), and this component's own copy was
+        // write-only.
+        const core: PsnesCore = await loadCore();
         audio = new AudioSink();
 
         /*
@@ -365,7 +368,6 @@
         if (!scene) {
           void audio.stop();
           audio = null;
-          core = null;
           return;
         }
 
@@ -378,11 +380,10 @@
           },
           audio,
           readPads: () => ({
-            // Zero while the panels are up (the trigger is the pointer then)
-            // and zero while a gesture is pending (the trigger press that
-            // unlocks audio must not also register as SNES R) - both gate the
-            // same physical button so a single press never means two things.
-            pad1: scene && !scene.arePanelsVisible() && !needsAudioGesture
+            // Zero while the panels are up: the trigger is the pointer then,
+            // and letting both read it at once would make a menu press also
+            // register as SNES R.
+            pad1: scene && !scene.arePanelsVisible()
               ? readVrPad(scene.inputSources(), padScheme, sessionVisibility())
               : 0,
             pad2: 0
@@ -403,11 +404,51 @@
           schedule: scene.schedule
         });
 
-        // `needsGesture` is a question, not an assumption - `output.ts:199` records
-        // what happened to the caller who assumed otherwise. An XR `select` may or
-        // may not count as user activation, so the in-world prompt is the designed
-        // answer rather than a hope.
-        needsAudioGesture = audio.needsGesture;
+        /*
+         * `createSoloEngine`'s own awaits - the SRAM round trip, up to 5 s,
+         * and `audioWorklet.addModule` - are exactly the kind that outlive a
+         * closed session. A `sessionend` landing during either already drove
+         * `teardown()` above, which nulled `scene`, `engine` and `audio` - and
+         * without this check the assignment just above would put a live
+         * engine straight back into `engine` right after `teardown()` cleared
+         * it, leaking its governor and 30 s SRAM interval forever.
+         *
+         * Mirrors `SoloRoom.svelte`'s `destroyed` check. This component has no
+         * separate flag: `scene` being null after `teardown()` is already the
+         * signal, the same one the check above this call reads.
+         */
+        if (!scene) {
+          void engine.stop();
+          engine = null;
+          void audio.stop();
+          audio = null;
+          return;
+        }
+
+        /*
+         * The one resume attempt this session gets, and why it lives here
+         * rather than at the click that led to `launch()`: `audio` does not
+         * exist yet on a first launch at that point, and holds the PREVIOUS
+         * session's closing context on a relaunch. Here it is the context
+         * this launch just started via `audio.start()` (inside
+         * `createSoloEngine` above), and the XR select that led to this call
+         * is as close to a user gesture as this session will ever get.
+         *
+         * This is very likely a no-op: the document already has sticky
+         * activation from the DOM click that entered VR in the first place,
+         * so the context should already be `running`. If it is not - some
+         * browser did not count the XR select - there is deliberately no
+         * in-world prompt for it: a `needsAudioGesture` flag used to zero
+         * `pad1` while this was pending and re-fire `resume()` every frame
+         * with nothing drawn anywhere to explain why the controller had gone
+         * dead - unreachable in practice, and worth deleting rather than
+         * building a screen for. The game plays muted instead, and this is
+         * the one place that says so, once.
+         */
+        await audio.resume();
+        if (audio.needsGesture) {
+          logger.warn('audio context still suspended after resume; game will run muted');
+        }
 
         scene?.panelsVisible(false);
         engine.governor.start();
@@ -428,8 +469,6 @@
         engine = null;
         void audio?.stop();
         audio = null;
-        core = null;
-        needsAudioGesture = false;
       }
     } finally {
       launching = false;
@@ -467,15 +506,6 @@
 
     if (menuPressed(scene.inputSources())) scene.panelsVisible(true);
 
-    // A player who has to press once for sound presses the trigger, which is
-    // also SNES R. This is the same physical button `readPads` above already
-    // zeroes for while `needsAudioGesture` is true, so this press resumes
-    // audio and does nothing in-game until it resolves.
-    if (needsAudioGesture && scene.triggerDown()) {
-      void audio?.resume();
-      needsAudioGesture = audio?.needsGesture ?? false;
-    }
-
     /*
      * The panels and the game never read the controllers at the same time.
      * The trigger is the pointer while the panels are up and SNES R while they
@@ -498,6 +528,31 @@
       }
     }
     if (tick.activated) activate(tick.activated);
+  }
+
+  /*
+   * Named consts, registered in `enter()` below and unregistered with the
+   * SAME references in `teardown()`. `FriendsList.svelte` binds these same
+   * two socket.io events on the same socket and stays mounted across a VR
+   * session; in socket.io v4 `off(event)` with no handler argument removes
+   * EVERY listener for that event, not just this component's, so a bare
+   * `$socket?.off('friends:online')` here used to also strip `FriendsList`'s
+   * listener - it kept rendering, just never updating again, which pointed
+   * nowhere near VR as the cause.
+   */
+  function handleFriendsOnline(list: Array<{ id: string; online: boolean }>): void {
+    onlineFriends = new Map(list.map((f) => [f.id, f.online]));
+    repaintFriends();
+  }
+
+  function handleFriendStatusChanged({ userId, online }: { userId: string; online: boolean }): void {
+    // Reassigned, not mutated in place: `onlineFriends` is only read through
+    // the explicit `repaintFriends()` call below today, but a `.set()` with
+    // no reassignment is invisible to Svelte's reactivity, and
+    // `handleFriendsOnline` above already reassigns - keeping both handlers in
+    // that shape means neither can quietly become the one Svelte can't see.
+    onlineFriends = new Map(onlineFriends).set(userId, online);
+    repaintFriends();
   }
 
   async function enter(): Promise<void> {
@@ -526,6 +581,28 @@
       });
 
       await scene.attach(session.session as unknown as XRSession, session.spaceType);
+
+      /*
+       * Armed as early as they can be, not after the panels and the friends
+       * fetch below - `frame()` and `vrActive` used to be the LAST two
+       * statements of this function, after an unbounded `fetch`. Until they
+       * ran: `frame()` did not exist, so nothing on any panel could respond,
+       * including the quit region - `profile.ts`'s header calls that the
+       * only exit this app offers - and `vrActive` was still false, so the
+       * `room:opened` guard at `+layout.svelte:62` was not yet in place for a
+       * partner who chose a game during that window.
+       *
+       * Safe this early: `frame()` reads `library`, `friendsPanel` and
+       * `profilePanel`, all still null below, and the repaint calls it can
+       * reach already guard on that (`if (!library) return;` and its
+       * siblings). `scene.arePanelsVisible()` defaults true with no panels
+       * added yet, `aimedAt()` raycasts against an empty mesh list and
+       * returns null, and `sameTarget(null, null)` is true - so a frame here
+       * finds nothing to do rather than throwing on it.
+       */
+      scene.onFrame(frame);
+      vrActive.set(true);
+
       // Until a game is launched, this is what the screen carries - and what
       // makes a wrong distance or height obvious.
       scene.screen.showTestPattern();
@@ -533,7 +610,17 @@
       library = scene.addPanel('library', scene.layout.library, LIBRARY_PANEL_SIZE);
       resolvable = await resolvableHere();
       libraryState = {
-        games: deviceLibrary($games, resolvable),
+        // `deviceLibrary()` deliberately keeps an entry with no `crc32` - see
+        // its own header - because the flat library is where that game gets
+        // an identity. There is no identify flow in here (no file picker to
+        // launch it from), so that same entry would otherwise become a
+        // `game:<id>` tile that highlights and swallows the press without
+        // ever launching anything - `panels/library.ts`'s own comment on
+        // `layoutLibraryPanel` calls that worse than not listing it at all.
+        // Filtered here, not in `deviceLibrary()`, so the flat library keeps
+        // offering to identify these; VR just does not list what it cannot
+        // act on.
+        games: deviceLibrary($games, resolvable).filter((game) => Boolean(game.crc32)),
         ownedTotal: $games.length,
         scroll: 0
       };
@@ -542,36 +629,34 @@
 
       friendsPanel = scene.addPanel('friends', scene.layout.friends, FRIENDS_PANEL_SIZE);
       try {
-        const res = await fetch('/api/friends', { credentials: 'include' });
-        if (res.ok) friendEntries = await res.json();
+        // Bounded the same way `readRoomSram` bounds its own round trip
+        // below: a network stall here is the same class of problem the
+        // reordering above just fixed for `frame()` and `vrActive` - an
+        // await with no ceiling holding something armed for however long it
+        // takes, except this one still had no ceiling at all.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        try {
+          const res = await fetch('/api/friends', {
+            credentials: 'include',
+            signal: controller.signal
+          });
+          if (res.ok) friendEntries = await res.json();
+        } finally {
+          clearTimeout(timer);
+        }
       } catch (err) {
         // A shopfront that failed to load is a shopfront that says "no
         // friends yet". Nothing here is worth ending a session over.
         logger.warn('friends could not be loaded for VR', err);
       }
-      $socket?.on('friends:online', (list: Array<{ id: string; online: boolean }>) => {
-        onlineFriends = new Map(list.map((f) => [f.id, f.online]));
-        repaintFriends();
-      });
-      $socket?.on('friend:statusChanged', ({ userId, online }: { userId: string; online: boolean }) => {
-        // Reassigned, not mutated in place: `onlineFriends` is only read
-        // through the explicit `repaintFriends()` call below today, but a
-        // `.set()` with no reassignment is invisible to Svelte's reactivity,
-        // and the `friends:online` handler above already reassigns - keeping
-        // both handlers in that shape means neither can quietly become the
-        // one Svelte can't see.
-        onlineFriends = new Map(onlineFriends).set(userId, online);
-        repaintFriends();
-      });
+      $socket?.on('friends:online', handleFriendsOnline);
+      $socket?.on('friend:statusChanged', handleFriendStatusChanged);
       $socket?.emit('friends:getOnlineStatus');
       repaintFriends();
 
       profilePanel = scene.addPanel('profile', scene.layout.profile, PROFILE_PANEL_SIZE);
       repaintProfile();
-
-      scene.onFrame(frame);
-
-      vrActive.set(true);
     } catch (err) {
       logger.error('entering VR failed', err);
       notifications.show(t($language, 'vrUnavailable'), 'error', 6000);
@@ -618,23 +703,25 @@
    * call this directly - every other exit goes through `closeAnySession()`. */
   async function teardown(): Promise<void> {
     // First, and awaited: it stops the governor and writes the cartridge save
-    // one last time, before core, audio and the scene it renders into are torn
-    // down out from under it.
+    // one last time, before audio and the scene it renders into are torn down
+    // out from under it. `core` needs no line here - it never lived in this
+    // component's state, only the engine's own closure, which `engine.stop()`
+    // already released.
     await engine?.stop();
     engine = null;
-    core = null;
     // Closes the AudioContext rather than just dropping the reference - the
     // same leak Finding 2's relaunch guard closes on its own path, but this
     // is the ordinary one: every session that ever launched a game takes it.
     void audio?.stop();
     audio = null;
-    needsAudioGesture = false;
     scene?.dispose();
     scene = null;
     session = null;
     library = null;
-    $socket?.off('friends:online');
-    $socket?.off('friend:statusChanged');
+    // The same references `enter()` registered - see the comment above
+    // `handleFriendsOnline` for why a bare `off(event)` is not safe here.
+    $socket?.off('friends:online', handleFriendsOnline);
+    $socket?.off('friend:statusChanged', handleFriendStatusChanged);
     friendsPanel = null;
     friendEntries = [];
     onlineFriends = new Map();

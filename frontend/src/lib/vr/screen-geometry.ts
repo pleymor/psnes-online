@@ -51,7 +51,13 @@ export function visibleU(width: number, stride: number): number {
 }
 
 export function curvedScreenGeometry(spec: CurvedScreenSpec): ScreenGeometry {
-  const segments = spec.segments ?? DEFAULT_SEGMENTS;
+  // `Math.max(1, ...)` closes off `segments: 0`, which would otherwise divide
+  // by zero in `t = i / segments` below and produce a silent NaN mesh - an
+  // invisible screen inside a headset, indistinguishable from a game that
+  // failed to boot. Unreachable today (the only caller omits the argument),
+  // but the failure mode is the most expensive one on this branch to
+  // diagnose, so it is closed even with nothing yet able to trigger it.
+  const segments = Math.max(1, spec.segments ?? DEFAULT_SEGMENTS);
   const columns = segments + 1;
   const half = spec.arc / 2;
   const top = spec.height / 2;

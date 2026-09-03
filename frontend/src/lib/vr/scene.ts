@@ -111,7 +111,19 @@ export function createVrScene(opts: {
   const direction = new THREE.Vector3();
   const worldQuaternion = new THREE.Quaternion();
 
-  /** Whichever hand is aiming at a panel, right first. */
+  /**
+   * Whichever hand is aiming at a panel.
+   *
+   * Not "right first": `controllers` comes from `getController(0)` and
+   * `getController(1)`, and WebXR hands those out in connection order, not by
+   * handedness - so which one this checks first depends on which controller
+   * woke up first, not on which hand it is. `triggerDown()` below compounds
+   * this rather than working around it: it returns true for EITHER
+   * controller, so a press on the hand not being checked first still
+   * activates whatever the other hand happens to be pointing at. Both are
+   * defensible (a two-controller precondition this scene already has, and a
+   * single physical trigger button), but neither is "right hand wins".
+   */
   function aimedAt(): PointerTarget | null {
     if (!panelGroup.visible) return null;
 
