@@ -470,7 +470,9 @@ export const translations = {
     vrContextLost: 'VR stopped: the graphics context was lost.',
     vrAddGamesFlat: 'Leave VR, add your games in the browser, then come back.',
     vrRomUnreadable: 'That file could not be read. Check the folder permission from the browser.',
-    vrLaunchFailed: 'The game could not be started.'
+    vrLaunchFailed: 'The game could not be started.',
+    vrNoFriends: 'No friends yet',
+    vrFriendsReadOnly: 'Invitations are not available in VR yet'
   },
   fr: {
     // Legal disclaimer
@@ -928,7 +930,9 @@ export const translations = {
     vrContextLost: 'La VR s\'est arrêtée : le contexte graphique a été perdu.',
     vrAddGamesFlat: 'Quitte la VR, ajoute tes jeux depuis le navigateur, puis reviens.',
     vrRomUnreadable: 'Ce fichier n\'a pas pu être lu. Vérifie l\'autorisation du dossier depuis le navigateur.',
-    vrLaunchFailed: 'Le jeu n\'a pas pu démarrer.'
+    vrLaunchFailed: 'Le jeu n\'a pas pu démarrer.',
+    vrNoFriends: 'Pas encore d\'amis',
+    vrFriendsReadOnly: 'Les invitations ne sont pas encore disponibles en VR'
   }
 };
 
