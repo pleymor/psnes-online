@@ -121,11 +121,37 @@
   // reference would make the statement run once and never again.
   $: if (friendsPanel && playingByUserId) repaintFriends();
 
-  /** Covers are same-origin behind the session cookie (`api/covers.ts:9`), so
-   *  they load with no crossOrigin attribute - setting one would break the
-   *  cookie AND taint the canvas, and a tainted canvas cannot become a WebGL
-   *  texture at all. */
+  /**
+   * Cover art, and the one rule that decides whether this panel exists at all.
+   *
+   * `coverUrl` comes in two flavours and they need opposite treatment. An
+   * uploaded cover is same-origin — `/api/covers/<id>` behind `requireAuth`
+   * (`api/covers.ts:9`) — so it needs the session cookie and must NOT carry a
+   * `crossOrigin` attribute, which would strip credentials and 401. A cover
+   * from the community metadata is an absolute URL to somebody else's host
+   * (`raw.githubusercontent.com/libretro-thumbnails/...`,
+   * `images.launchbox-app.com/...`), and drawing one of those into a canvas
+   * WITHOUT CORS taints it — after which WebGL refuses `texSubImage2D` on the
+   * whole texture, so the panel renders with no map and, being transparent,
+   * disappears entirely. Not a missing picture: a missing panel.
+   *
+   * So the attribute is set per URL. GitHub's thumbnails send
+   * `Access-Control-Allow-Origin: *` and load fine; launchbox sends no CORS at
+   * all, so those fail `onerror` and are skipped — a title with no box art,
+   * which is what `drawLibraryPanel` already draws for an unidentified game.
+   */
   const covers = new Map<string, CanvasImageSource>();
+
+  /** Whether a cover lives on somebody else's host, and so needs CORS. */
+  function isForeign(url: string): boolean {
+    try {
+      return new URL(url, location.href).origin !== location.origin;
+    } catch {
+      // An unparseable URL is not something to reason about; treat it as
+      // foreign so it can only ever fail safely.
+      return true;
+    }
+  }
 
   function repaintLibrary(): void {
     if (!library) return;
@@ -203,7 +229,14 @@
     for (const game of list) {
       if (!game.coverUrl || covers.has(game.id)) continue;
       const image = new Image();
+      // Before `src`, or the attribute does not apply to the request. See the
+      // note on `covers` for why this is per-URL rather than always or never.
+      if (isForeign(game.coverUrl)) image.crossOrigin = 'anonymous';
       image.onload = () => { covers.set(game.id, image); repaintLibrary(); };
+      // A host that sends no CORS headers lands here. Nothing to do: the game
+      // keeps its title, and never entering `covers` is what stops a tainted
+      // image from reaching the canvas.
+      image.onerror = () => logger.warn('cover unavailable in VR', game.coverUrl);
       image.src = game.coverUrl;
     }
   }
