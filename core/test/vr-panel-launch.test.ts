@@ -32,7 +32,11 @@ import type { LaunchOptions } from '../../frontend/src/lib/vr/launch-options.js'
 
 const LABELS: LaunchLabels = {
   newGame: 'New game',
-  saveLockedByCreator: 'Your friend opened this room, so they choose where it starts.',
+  // The shipped English, not a placeholder: two tests below measure this
+  // string, and a short stand-in would pass a width check the real wording
+  // could fail - which is exactly how the banner came to run into the friend
+  // line.
+  saveLockedByCreator: 'Your friend chooses where this starts.',
   launch: 'Launch',
   port1: 'Player 1',
   port2: 'Player 2',
@@ -153,30 +157,89 @@ test('the friend is named with their state', () => {
   assert.ok(drawn.includes('Bob'));
 });
 
-test('every region stays on the panel and none overlap', () => {
-  const o = options({
-    friend: { pseudo: 'Bob', online: true, port: null, isReady: false },
-    blocked: null
-  });
-  const regions = layoutLaunchPanel(o, LABELS);
-  for (const r of regions) {
-    assert.ok(r.x >= 0 && r.y >= 0, `${r.id} starts off-panel`);
-    assert.ok(r.x + r.w <= LAUNCH_PANEL_SIZE.width, `${r.id} runs off the right`);
-    assert.ok(r.y + r.h <= LAUNCH_PANEL_SIZE.height, `${r.id} runs off the bottom`);
-  }
-  for (let i = 0; i < regions.length; i++) {
-    for (let j = i + 1; j < regions.length; j++) {
-      const a = regions[i];
-      const b = regions[j];
-      const apart = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
-      assert.ok(apart, `${a.id} overlaps ${b.id}`);
+test('no arrangement puts a region off the panel or on top of another', () => {
+  /*
+   * Every arrangement, not one of them - and that is the correction.
+   *
+   * This test used to build a single fixture with two saves, where nothing
+   * could collide. With four saves or more the fifth and sixth rows reached
+   * y 584..708 and overlapped a launch button centred at x 312..712: two
+   * hit-testable regions on top of each other, on a curved texture with no
+   * layout engine to notice, and the test read as guarding it. The button now
+   * lives outside the save column entirely, so no row count can reach it -
+   * but the fixture is what let the bug in, so the fixture is what changed.
+   */
+  const counts = [0, 1, 2, 5, 8];
+  const friends = [null, { pseudo: 'Bob', online: true, port: null, isReady: false }] as const;
+  const blocks = [null, 'no-seat'] as const;
+
+  for (const count of counts) {
+    for (const friend of friends) {
+      for (const blocked of blocks) {
+        for (const mayChooseSave of [true, false]) {
+          const o = options({
+            saves: Array.from({ length: count }, (_, i) => ({
+              id: `s${i}`,
+              name: `Save ${i}`,
+              slotNumber: i + 1
+            })),
+            friend,
+            blocked,
+            mayChooseSave
+          });
+          const regions = layoutLaunchPanel(o, LABELS);
+          const where = `saves=${count} friend=${!!friend} blocked=${blocked} may=${mayChooseSave}`;
+
+          for (const r of regions) {
+            assert.ok(r.x >= 0 && r.y >= 0, `${r.id} starts off-panel (${where})`);
+            assert.ok(
+              r.x + r.w <= LAUNCH_PANEL_SIZE.width,
+              `${r.id} runs off the right (${where})`
+            );
+            assert.ok(
+              r.y + r.h <= LAUNCH_PANEL_SIZE.height,
+              `${r.id} runs off the bottom (${where})`
+            );
+          }
+          for (let i = 0; i < regions.length; i++) {
+            for (let j = i + 1; j < regions.length; j++) {
+              const a = regions[i];
+              const b = regions[j];
+              const apart =
+                a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+              assert.ok(apart, `${a.id} overlaps ${b.id} (${where})`);
+            }
+          }
+        }
+      }
     }
   }
 });
 
-// Beyond the brief's own fixtures: every save-list test above used two
-// saves, so the cap could be deleted entirely and nothing above would
-// notice. This is the arrangement that exercises it.
+test('the locked-save banner stays clear of the friend line', () => {
+  /*
+   * Text, not regions, so the overlap test above cannot see it - and this is
+   * the one case the banner exists for: a guest who cannot pick the save,
+   * looking at a room their friend occupies. At full panel width the banner
+   * ran to x 589 while "Bob — Ready" starts at 560.
+   */
+  const ctx = draw(
+    options({
+      mayChooseSave: false,
+      friend: { pseudo: 'Bob', online: true, port: 2, isReady: true }
+    })
+  );
+  const banner = ctx.placed.find((p) => p.text === LABELS.saveLockedByCreator);
+  const friendLine = ctx.placed.find((p) => p.text.includes('Bob'));
+
+  assert.ok(banner && friendLine, 'both lines must be drawn in this state');
+  // The fixture's own metric, as the other width tests use.
+  assert.ok(
+    banner.x + banner.text.length * 9 <= friendLine.x,
+    `the banner reaches ${banner.x + banner.text.length * 9}px, the friend line starts at ${friendLine.x}px`
+  );
+});
+
 test('the save list is capped, not merely offered', () => {
   const many = Array.from({ length: 8 }, (_, i) => ({
     id: `s${i}`,
@@ -221,6 +284,30 @@ test('a hovered region draws an outline that an unhovered one does not', () => {
   const hovered = draw(o, 'launch').calls.filter((c) => c === 'strokeRect').length;
   assert.ok(regions.some((r) => r.id === 'launch'), 'fixture needs a launch region to hover');
   assert.ok(hovered > unhovered, 'hovering drew no extra outline');
+});
+
+test('a banner too long for its column is cut to it, not to the panel', () => {
+  /*
+   * The shipped wording fits 470px whole, so the test above passes whatever
+   * the truncation bound is - it guards the outcome, not the rule. A future
+   * translation is what the bound exists for, and this is what pins it: a
+   * label that must be cut, and a column it must be cut to.
+   */
+  const long = { ...LABELS, saveLockedByCreator: 'X'.repeat(200) };
+  const o = options({
+    mayChooseSave: false,
+    friend: { pseudo: 'Bob', online: true, port: 2, isReady: true }
+  });
+  const ctx = recordingContext();
+  drawLaunchPanel(ctx, o, layoutLaunchPanel(o, long), { labels: long, hoverId: null });
+
+  const banner = ctx.placed.find((p) => p.text.startsWith('X'));
+  const friendLine = ctx.placed.find((p) => p.text.includes('Bob'));
+  assert.ok(banner && friendLine, 'both lines must be drawn in this state');
+  assert.ok(
+    banner.x + banner.text.length * 9 <= friendLine.x,
+    `a long banner reached ${banner.x + banner.text.length * 9}px, past the friend line at ${friendLine.x}px`
+  );
 });
 
 test('a long save name is truncated rather than run into the ports', () => {
