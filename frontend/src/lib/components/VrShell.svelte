@@ -148,6 +148,14 @@
   // that is resolved once at launch, never reactively, or a `room:updated`
   // would push it back down over a running game.
   $: if (launchFor && $myRoom) repaintLaunch();
+  /*
+   * The library changes underneath too, and `repaintLaunch`'s own guard for a
+   * dump that left the library only runs when something calls it. A folder
+   * sync or a reload from the flat page - both share this store - would
+   * otherwise leave a launch screen advertising a game this device no longer
+   * has.
+   */
+  $: if (launchFor && $games) repaintLaunch();
 
   /**
    * Cover art, and the one rule that decides whether this panel exists at all.
@@ -338,6 +346,18 @@
         const game = libraryState.games.find((candidate) => candidate.id === gameId);
         // Stages the launch screen instead of launching straight away: the
         // screen is the only place a save can be chosen or a friend seen.
+        /*
+         * Not while a launch is in flight.
+         *
+         * Without this, staging game B over a launching game A left the
+         * player looking at B's options while A booted underneath and took
+         * the screen - and their click on B's `launch` was silently swallowed
+         * by `launch`'s own `launching` guard. Worse, restaging the SAME game
+         * cleared `stagedSaveId` before `launch` had read it, so a save the
+         * player had explicitly chosen was dropped and the game started fresh
+         * with no notice.
+         */
+        if (launching) return;
         if (game?.crc32) {
           launchFor = game.crc32;
           stagedSaveId = null;
@@ -352,7 +372,16 @@
     if (target.panel === 'profile') {
       const id = target.region.id;
       if (id === 'quit') { void leave(); return; }
-      if (id === 'resume') { scene?.panelsVisible(false); return; }
+      if (id === 'resume') {
+        // Back to the game, so the game gets its screen back. The launch
+        // screen is abandoned rather than kept: `launchFor` surviving here
+        // would leave regions on a mesh that is a picture again.
+        launchFor = null;
+        if (scene) scene.screen.regions.length = 0;
+        scene?.screen.showPicture();
+        scene?.panelsVisible(false);
+        return;
+      }
       if (id === 'scheme:letters' || id === 'scheme:thumb') {
         const next = id === 'scheme:thumb' ? 'thumb' : 'letters';
         writePadScheme(localStorage, next);
@@ -576,20 +605,7 @@
           // Once. A reconnect must not rewind the game - the same rule the
           // flat path states about `resumeSaveId`.
           stagedSaveId = null;
-          const sock = $socket;
-          const onLoaded = (payload: { saveData?: string }) => {
-            sock?.off('game:loaded', onLoaded);
-            if (!payload?.saveData) return;
-            try {
-              core.loadState(fromBase64(payload.saveData));
-            } catch (err) {
-              logger.error('vr could not decode the save', err);
-              launchNotice = t($language, 'vrLaunchFailed');
-              repaintLibrary();
-            }
-          };
-          sock?.on('game:loaded', onLoaded);
-          sock?.emit('game:load', { roomId, saveId: wanted });
+          awaitSave(core, roomId, wanted);
         }
 
         /*
@@ -621,6 +637,9 @@
         // pointer target - `scene.aimedAt` holds this same `regions` array.
         launchFor = null;
         scene.screen.regions.length = 0;
+        // The new engine's first frame needs the screen back; `upload` will
+        // not take it by itself any more.
+        scene.screen.showPicture();
         scene?.panelsVisible(false);
         engine.governor.start();
         // So `resume` is there next time the panels come back, even though
@@ -650,6 +669,53 @@
   /** The session's own visibility, which is what `readVrPad` gates on. */
   function sessionVisibility(): string {
     return session?.session.visibilityState ?? 'hidden';
+  }
+
+  /**
+   * The staged save, asked for once and waited on for a bounded time.
+   *
+   * A one-shot listener that removes itself inside its own handler leaks
+   * whenever the handler never runs - a save id the server no longer has, a
+   * room already gone, a dropped packet - and this socket outlives the VR
+   * session, so the leak outlives it too. Two relaunches would then leave two
+   * closures, and a late reply would call `loadState` on a core whose engine
+   * has already been stopped. `readRoomSram` bounds its own one-shot for
+   * exactly this reason; this one now does the same, and `teardown` takes it
+   * off on the way out.
+   */
+  function awaitSave(core: PsnesCore, roomId: string, saveId: string): void {
+    const sock = $socket;
+    if (!sock) return;
+
+    dropSaveListener();
+    const timer = setTimeout(() => {
+      dropSaveListener();
+      logger.warn('vr save load never answered', { roomId, saveId });
+    }, 5000);
+
+    saveListener = (payload: { saveData?: string }) => {
+      clearTimeout(timer);
+      dropSaveListener();
+      if (!payload?.saveData) return;
+      try {
+        core.loadState(fromBase64(payload.saveData));
+      } catch (err) {
+        logger.error('vr could not decode the save', err);
+        launchNotice = t($language, 'vrLaunchFailed');
+        repaintLibrary();
+      }
+    };
+    sock.on('game:loaded', saveListener);
+    sock.emit('game:load', { roomId, saveId });
+  }
+
+  /** Held at component scope so `teardown` can take it off the shared socket. */
+  let saveListener: ((payload: { saveData?: string }) => void) | null = null;
+
+  function dropSaveListener(): void {
+    if (!saveListener) return;
+    $socket?.off('game:loaded', saveListener);
+    saveListener = null;
   }
 
   function readRoomSram(roomId: string): Promise<Uint8Array | null> {
@@ -931,6 +997,9 @@
     // but this `let` is component state and outlives the session that set it.
     launchFor = null;
     stagedSaveId = null;
+    // The shared socket outlives this session; a listener left on it would
+    // fire against a core that no longer has an engine.
+    dropSaveListener();
     vrActive.set(false);
     vrRequested.set(false);
   }

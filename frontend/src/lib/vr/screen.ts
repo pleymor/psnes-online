@@ -31,6 +31,13 @@ export interface VrScreen {
    * this shape can fail.
    */
   paintPanel(size: PanelSize, draw: (ctx: CanvasRenderingContext2D) => void): void;
+  /**
+   * Gives the screen back to the emulator.
+   *
+   * Explicit, because the alternative was a race the emulator won: see
+   * `upload`.
+   */
+  showPicture(): void;
   isPanel(): boolean;
   panelSize(): PanelSize | null;
   /** Replaced whenever the launch screen is laid out. `scene.aimedAt` reads it. */
@@ -108,6 +115,25 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
     mesh,
 
     upload(surface: VideoSurface): void {
+      /*
+       * A running game does not take the screen back by itself.
+       *
+       * The mode is authoritative, and it has to be. A game is still running
+       * while its player recalls the panels and opens another game's launch
+       * screen - `resume` exists precisely so they can go back to it - and its
+       * `onFrame` keeps calling this method seventy-two times a second. When
+       * this method could switch the mode, it won: the launch screen appeared
+       * for exactly one frame, the emulator's picture reclaimed the screen,
+       * `isPanel()` went false, and the screen dropped out of `aimedAt`'s
+       * targets - so `launch` and the save rows could never be pressed again,
+       * and the staged game was unreachable for the rest of the session.
+       *
+       * The frames are dropped, not queued: the emulator, its audio and its
+       * cartridge save all keep running, and only the picture waits. That is
+       * what a menu over a running game should do.
+       */
+      if (mode === 'panel') return;
+
       if (
         surface.width !== builtFor.width ||
         surface.height !== builtFor.height ||
@@ -213,22 +239,28 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
         rebuildGeometry(1);
         material.map = panelTexture;
         material.needsUpdate = true;
-        /*
-         * And the picture's shape is deliberately forgotten.
-         *
-         * `upload` only rebuilds when the surface's shape differs from
-         * `builtFor`. Left alone, the first frame of a game would find its
-         * shape unchanged, skip the rebuild, and upload into the panel's
-         * geometry - a picture stretched across a mesh built for something
-         * else, which is exactly the class of silent wrongness this file's
-         * header warns about.
-         */
-        builtFor = { width: -1, height: -1, stride: -1 };
         mode = 'panel';
       }
 
       draw(panelCtx!);
       panelTexture!.needsUpdate = true;
+    },
+
+    /*
+     * The one way out of panel mode, and the reason it is a method.
+     *
+     * `builtFor` is forgotten here rather than when the panel went up. The
+     * shape has to be invalidated - otherwise the next frame finds it
+     * unchanged, skips the rebuild, and uploads a picture into geometry built
+     * for a 1024x768 canvas at full uv. But invalidating it at paint time made
+     * `upload` rebuild on its very next call, which is how the emulator used
+     * to steal the screen back. Doing it here means the caller decides when
+     * the picture returns.
+     */
+    showPicture(): void {
+      if (mode === 'picture') return;
+      builtFor = { width: -1, height: -1, stride: -1 };
+      mode = 'picture';
     },
 
     isPanel: () => mode === 'panel',
