@@ -35,11 +35,11 @@
   import { folderNeedsGrant, grantFolder, type DoorPorts } from '$lib/vr/door';
   import { missingFromDevice, prepareForVr, type PreparePorts } from '$lib/vr/prepare';
   import {
-    supportsDirectoryPicker, storedDirectory, hasAccess, ensureAccess
+    supportsDirectoryPicker, storedDirectory, hasAccess, ensureAccess,
+    indexedChecksums, scanDirectory
   } from '$lib/roms/local-library';
   import { readAndKeep } from '$lib/roms/provider';
   import { keptFilesAvailable, indexedDbKeptFiles } from '$lib/roms/kept-files';
-  import { indexedChecksums, scanDirectory } from '$lib/roms/local-library';
   import { games } from '$lib/stores/games';
   import { notifications } from '$lib/services/notification';
 
@@ -62,9 +62,11 @@
   /**
    * Whether anything still has to be read out of the folder.
    *
-   * Recomputed whenever the library changes, never inside the click handler:
-   * `requestSession` runs on the activation the press carries, and the common
-   * path - nothing to prepare - has to stay synchronous from click to session.
+   * Recomputed whenever the library changes rather than inside the click
+   * handler, so a press that has nothing to do reaches the session without
+   * waiting on a disk. Not because the activation would expire - that claim
+   * was mine and it is measured false, see `spendPressOnFolder` - but because
+   * a button that pauses before doing anything reads as a broken button.
    */
   let needsPrepare = false;
   /**
@@ -126,9 +128,9 @@
   });
 
   /**
-   * Synchronous whenever it can be. `requestSession`, several frames later in
-   * `VrShell`, still runs on the activation this click carries; an `await` on
-   * the way to `requestVr()` would spend part of that window for nothing.
+   * Straight through whenever there is nothing to do, which is the usual case
+   * once the games have been transferred: no disk is touched and the session
+   * opens on this press. The work only happens when there is work.
    */
   function enterVr(): void {
     if (!needsGrant && !needsPrepare) {
@@ -159,14 +161,17 @@
     if (needsPrepare) await bringGamesOntoTheDevice();
 
     /*
-     * Open the session rather than asking for another press.
+     * Open the session on this press. Measured on a Quest 3, not assumed.
      *
-     * The received wisdom - mine - was that `requestSession` needs the
-     * transient activation this press carried and that a native dialog or
-     * seconds of reading spends it. That was never measured on this browser,
-     * and being told to press again after sitting through a transfer is a
-     * miserable way to find out. So it is attempted; if the headset refuses,
-     * `VrShell` reports it and pressing again still works.
+     * The received wisdom - mine - was that `requestSession` needs fresh
+     * transient activation, and that a native permission dialog or seconds of
+     * reading the folder spends what this press carried. That was the entire
+     * justification for making the player press twice, and it was never
+     * checked on this browser. It is wrong: the session opens here after both.
+     *
+     * So do not reintroduce a second press on that reasoning. If some future
+     * headset does refuse, `VrShell` reports it and pressing again works,
+     * because `needsPrepare` is false by then and the button enters directly.
      */
     requestVr();
   }
