@@ -2187,6 +2187,12 @@ pad. Its ROM resolution, its `resolvable` check, its `launching` guard and its
       launchFor = null;
       scene.screen.regions.length = 0;
       scene?.panelsVisible(false);
+      // The engine does not start its own governor - `solo-engine.ts` does not
+      // either, and `SoloRoom.svelte:582` and `VrShell.svelte:509` are where
+      // the flat and solo paths start theirs. Task 5's implementer found this
+      // the hard way: starting it inside the engine reaches
+      // `requestAnimationFrame` and cannot run under Bun at all.
+      engine.governor.start();
       repaintProfile();
     } catch (err) {
       logger.error('vr lockstep failed to start', err);
