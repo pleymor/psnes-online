@@ -59,7 +59,7 @@
   import type { PanelMesh } from '$lib/vr/panel-mesh';
   import { loadCore, AudioSink } from '$lib/znet';
   import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
-  import { createRoom } from '$lib/rooms/actions';
+  import { createRoom, leaveGroup } from '$lib/rooms/actions';
   import { decodeSram } from '$lib/rooms/sram';
   import { toBase64 } from '$lib/saves/base64';
   import { socket } from '$lib/api/socket';
@@ -90,6 +90,21 @@
 
   let engine: SoloEngine | null = null;
   let audio: AudioSink | null = null;
+  /**
+   * The room this shell created and therefore owes the server.
+   *
+   * `createRoom` seats the player in a room, and nothing here used to give it
+   * back: every VR game left one alive forever. The room outlived the session,
+   * so the library page kept offering "back to the room" for a game that had
+   * stopped, and - worse than a stray button - the player's friends saw them
+   * as playing indefinitely, because `broadcastRoomUpdate` had no reason to
+   * think otherwise.
+   *
+   * Only overwritten on a relaunch, never left behind: the server's own
+   * `leaveCurrentRoom` gives up the previous room on every create, so the id
+   * this holds is always the only one outstanding.
+   */
+  let ownedRoomId: string | null = null;
   /** Shown on the lectern when a launch could not read the file. */
   let launchNotice: string | null = null;
   /**
@@ -351,6 +366,7 @@
         return;
       }
       setLogLabels({ roomId, player: 'vr' });
+      ownedRoomId = roomId;
 
       /*
        * A second launch while one is already live - reachable straight from
@@ -446,6 +462,7 @@
         if (!scene) {
           void engine.stop();
           engine = null;
+          giveUpRoom();
           /*
            * Optional, and that is the whole point of this block.
            *
@@ -507,6 +524,7 @@
         engine = null;
         void audio?.stop();
         audio = null;
+        giveUpRoom();
       }
     } finally {
       launching = false;
@@ -741,6 +759,22 @@
     }
   }
 
+  /**
+   * Hands the room back.
+   *
+   * Called from every path that ends a game without another taking its place:
+   * the ordinary exit, a session that died mid-launch, and a launch whose
+   * engine never started. NOT from the relaunch guard - `createRoom` has
+   * already run there, and the server dropped the old room when it did.
+   *
+   * Silent when there is nothing owed, so it is safe to call twice.
+   */
+  function giveUpRoom(): void {
+    if (!ownedRoomId) return;
+    leaveGroup(ownedRoomId);
+    ownedRoomId = null;
+  }
+
   /** Assumes the browser's `XRSession` is already gone. Only `onEnd` above may
    * call this directly - every other exit goes through `closeAnySession()`. */
   async function teardown(): Promise<void> {
@@ -751,6 +785,9 @@
     // already released.
     await engine?.stop();
     engine = null;
+    // After the engine, so the last cartridge save is written while the room
+    // that stores it still exists.
+    giveUpRoom();
     // Closes the AudioContext rather than just dropping the reference - the
     // same leak Finding 2's relaunch guard closes on its own path, but this
     // is the ordinary one: every session that ever launched a game takes it.
