@@ -209,6 +209,49 @@ test('my port is read from my own row, and is null before I sit', () => {
   assert.equal(standing!.myPort, null);
 });
 
+test('my row is found by id, not by position', () => {
+  /*
+   * Every other fixture puts me at index 0, which a plain `players[0]` would
+   * satisfy just as well - so the matching logic read as guarded and was not.
+   * A room I joined second puts my row at index 1, and matching by position
+   * would hand me my friend's port and my friend my own.
+   */
+  const options = launchOptions({
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({
+      players: [
+        { userId: 'you', pseudo: 'Bob', port: 2, isReady: true, online: true },
+        { userId: 'me', pseudo: 'Ada', port: 1, isReady: true, online: true }
+      ]
+    }),
+    me: 'me',
+    openable: OPENABLE
+  });
+
+  assert.equal(options!.myPort, 1, 'my port was read from the wrong row');
+  assert.equal(options!.friend!.pseudo, 'Bob', 'and my friend from mine');
+});
+
+test('a device that can open other games still cannot open this one', () => {
+  /*
+   * Every other fixture passes either the exactly-matching set or an empty
+   * one, which `openable.size > 0` would satisfy too. A folder of forty
+   * cartridges minus this one is the ordinary case, and getting it wrong is
+   * the silent black screen this whole module exists to prevent.
+   */
+  const options = launchOptions({
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room(),
+    me: 'me',
+    openable: new Set(['bbbb2222', 'cccc3333'])
+  });
+
+  assert.equal(options!.romHere, false);
+  assert.equal(options!.blocked, 'rom-missing');
+});
+
 test('a ROM this device cannot read blocks the launch and says so', () => {
   const options = launchOptions({
     library: library(),
