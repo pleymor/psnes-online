@@ -180,3 +180,34 @@ test('un index de dossier illisible ne barre pas la porte', async () => {
 	const p = ports({ folderChecksums: async () => { throw new Error('index illisible'); } });
 	assert.deepEqual(await missingFromDevice(['aaa'], p), []);
 });
+
+test('tout est deja sur l appareil : le dossier n est pas lu du tout', async () => {
+	/*
+	 * L'ordre est le correctif. Lister ce que l'appareil possède est une
+	 * requête de clés ; scanner le dossier lit et hache chaque cartouche.
+	 * Poser la question chère d'abord faisait payer une lecture complète du
+	 * dossier à un joueur qui n'avait rien à transférer - « c'est long ».
+	 */
+	let scanned = 0;
+	let opened = 0;
+	const p = ports({
+		keptChecksums: async () => ['aaa', 'bbb'],
+		storedDirectory: async () => { opened++; return HANDLE; },
+		scanFolder: async () => { scanned++; return ['aaa', 'bbb']; }
+	});
+
+	assert.deepEqual(await prepareForVr(['aaa', 'bbb'], p), { prepared: 0, failed: 0 });
+	assert.equal(scanned, 0, 'le dossier a été haché pour rien');
+	assert.equal(opened, 0, 'le dossier a même été ouvert pour rien');
+});
+
+test('un seul jeu manquant ne fait pas recopier les autres', async () => {
+	const read: string[] = [];
+	const p = ports({
+		keptChecksums: async () => ['aaa', 'ccc'],
+		readAndKeep: async (_h, checksum) => { read.push(checksum); return new Uint8Array([1]); }
+	});
+
+	assert.deepEqual(await prepareForVr(['aaa', 'bbb', 'ccc'], p), { prepared: 1, failed: 0 });
+	assert.deepEqual(read, ['bbb'], 'les jeux déjà gardés doivent être laissés tranquilles');
+});

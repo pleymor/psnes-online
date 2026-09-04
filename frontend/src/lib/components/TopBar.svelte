@@ -77,10 +77,34 @@
    * "nothing bars the door" while barring it.
    */
   let prepareTried = false;
+  let preparing = false;
   $: void refreshPrepareNeed(wanted);
   async function refreshPrepareNeed(list: string[]): Promise<void> {
     if (prepareTried) return;
     needsPrepare = list.length > 0 && (await missingFromDevice(list, PREPARE)).length > 0;
+    void prepareAhead();
+  }
+
+  /**
+   * Transfers the games before anybody presses anything.
+   *
+   * The reason the second press was miserable: the player pressed, waited
+   * through a transfer, and was then told to press again. None of that
+   * transfer needed their gesture - it needs the folder PERMISSION, which is
+   * already granted and needs no click - so it can happen while the page sits
+   * there, and the press that follows walks straight into the session.
+   *
+   * Only when the folder needs no dialog. If it does, the press has to buy
+   * that first, and nothing here may touch the disk before then.
+   */
+  async function prepareAhead(): Promise<void> {
+    if (!doorChecked || needsGrant || !needsPrepare || prepareTried || preparing) return;
+    preparing = true;
+    try {
+      await bringGamesOntoTheDevice();
+    } finally {
+      preparing = false;
+    }
   }
 
   /**
@@ -91,9 +115,14 @@
    */
   let needsGrant = false;
 
+  /** Until the folder has been asked about, nothing may read it. */
+  let doorChecked = false;
+
   onMount(async () => {
     headsetHere = await vrAvailable();
     needsGrant = await folderNeedsGrant(DOOR);
+    doorChecked = true;
+    void prepareAhead();
   });
 
   /**
@@ -110,7 +139,6 @@
   }
 
   async function spendPressOnFolder(): Promise<void> {
-    let granted = false;
     if (needsGrant) {
       const outcome = await grantFolder(DOOR);
       if (outcome === 'refused') {
@@ -118,7 +146,6 @@
         notifications.show(t($language, 'vrFolderRefused'), 'error', 5000);
         return;
       }
-      granted = outcome === 'granted';
       needsGrant = false;
       if (outcome === 'entered' && !needsPrepare) {
         // No dialog was shown and there is nothing to read, so the gesture is
@@ -131,17 +158,17 @@
 
     if (needsPrepare) await bringGamesOntoTheDevice();
 
-    // Whatever happened above spent the activation `requestSession` needs -
-    // a native dialog, or seconds of reading. Asking for another press is
-    // honest; entering anyway fails with a message about user activation that
-    // means nothing to a player.
-    // Two different truths: a folder was authorised, or games were merely read.
-    // Saying "folder allowed" after a run that only read files would be false.
-    notifications.show(
-      t($language, granted ? 'vrFolderGranted' : 'vrReadyPressAgain'),
-      'success',
-      5000
-    );
+    /*
+     * Open the session rather than asking for another press.
+     *
+     * The received wisdom - mine - was that `requestSession` needs the
+     * transient activation this press carried and that a native dialog or
+     * seconds of reading spends it. That was never measured on this browser,
+     * and being told to press again after sitting through a transfer is a
+     * miserable way to find out. So it is attempted; if the headset refuses,
+     * `VrShell` reports it and pressing again still works.
+     */
+    requestVr();
   }
 
   /**
