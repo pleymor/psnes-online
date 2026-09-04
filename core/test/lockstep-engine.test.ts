@@ -301,3 +301,19 @@ test('stopping releases the link, and still writes the cartridge save', async ()
     'the cartridge save must outlive the link, not race it'
   );
 });
+
+test('a guest never writes the cartridge save it never loaded', async () => {
+  /*
+   * The mirror of the host-only load, and the reason it matters more.
+   *
+   * `game:saveSram` resolves the caller's own row, so a guest writing would
+   * replace THEIR battery save for that cartridge with the host's state -
+   * silently, thirty seconds in, and permanently. Their own SRAM was never
+   * loaded, so there is nothing to write back and everything to lose.
+   */
+  const { options, log } = harness({ isHost: false });
+  const engine = await createLockstepEngine(options);
+  await engine.stop();
+
+  assert.ok(!log.includes('sram.save'), 'the guest overwrote its own battery save');
+});

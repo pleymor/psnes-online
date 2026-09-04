@@ -161,6 +161,20 @@ export async function createLockstepEngine(
 	const timer = setInterval(() => persist(), SRAM_INTERVAL_MS);
 
 	function persist(): void {
+		/*
+		 * The host, and only the host - the mirror of the load above.
+		 *
+		 * Both machines hold identical SRAM by construction, so the guest
+		 * writing too would store the same bytes twice. Worse than wasteful:
+		 * `game:saveSram` resolves the CALLER's own row, so a guest's write
+		 * replaces their own battery save for that cartridge with the host's
+		 * state - silently, thirty seconds in, and permanently. The guest's
+		 * SRAM was never loaded (see above), so this is pure loss.
+		 *
+		 * `LockstepRoom.svelte:929` refuses it for the same reason and states
+		 * the harmless half of it; this engine shipped without the guard.
+		 */
+		if (!isHost) return;
 		try {
 			const saved = core.sram();
 			if (saved && saved.length > 0) sram.save(saved);
