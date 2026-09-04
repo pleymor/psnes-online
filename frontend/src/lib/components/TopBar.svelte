@@ -39,7 +39,7 @@
   } from '$lib/roms/local-library';
   import { readAndKeep } from '$lib/roms/provider';
   import { keptFilesAvailable, indexedDbKeptFiles } from '$lib/roms/kept-files';
-  import { indexedChecksums } from '$lib/roms/local-library';
+  import { indexedChecksums, scanDirectory } from '$lib/roms/local-library';
   import { games } from '$lib/stores/games';
   import { notifications } from '$lib/services/notification';
 
@@ -51,6 +51,7 @@
   const PREPARE: PreparePorts = {
     keptChecksums: async () => (keptFilesAvailable() ? indexedDbKeptFiles().checksums() : []),
     folderChecksums: async () => (supportsDirectoryPicker() ? indexedChecksums() : []),
+    scanFolder: async (handle) => (await scanDirectory(handle)).map((entry) => entry.checksum),
     storedDirectory,
     readAndKeep
   };

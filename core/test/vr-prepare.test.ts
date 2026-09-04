@@ -37,6 +37,7 @@ function ports(over: Partial<PreparePorts> = {}): PreparePorts {
 		// The fixture's whole universe: every checksum these tests name is in
 		// this device's folder unless a test says otherwise.
 		folderChecksums: async () => ['aaa', 'bbb', 'ccc', 'ddd'],
+		scanFolder: async () => ['aaa', 'bbb', 'ccc', 'ddd'],
 		storedDirectory: async () => HANDLE,
 		readAndKeep: async () => new Uint8Array([1]),
 		...over
@@ -55,17 +56,43 @@ test('a device that cannot say what it holds does not bar the door', async () =>
 	assert.deepEqual(await missingFromDevice(['aaa'], p), []);
 });
 
-test('nothing missing means the folder is never touched', async () => {
-	// The press that finds nothing to do has to stay fast: it is the common
-	// case, and the activation `requestSession` needs is spent by waiting.
-	let asked = false;
+test('a game already on the device is not read again', async () => {
+	let read = 0;
 	const p = ports({
 		keptChecksums: async () => ['aaa'],
-		storedDirectory: async () => { asked = true; return HANDLE; }
+		readAndKeep: async () => { read++; return new Uint8Array([1]); }
 	});
 
 	assert.deepEqual(await prepareForVr(['aaa'], p), { prepared: 0, failed: 0 });
-	assert.equal(asked, false, 'the folder was opened for a device that needed nothing');
+	assert.equal(read, 0, 'a kept ROM needs no folder at all');
+});
+
+test('the scan decides what is attempted, never the index', async () => {
+	/*
+	 * The bug this pins. A headset reported "11/11 games could not be read"
+	 * over a folder holding six: the index still described an older folder,
+	 * every entry missed, and the warning counted them all. Anything the
+	 * folder does not hold is not work that failed - it is work that was
+	 * never possible.
+	 */
+	const read: string[] = [];
+	const p = ports({
+		folderChecksums: async () => ['stale1', 'stale2', 'aaa'],
+		scanFolder: async () => ['aaa'],
+		readAndKeep: async (_h, checksum) => { read.push(checksum); return new Uint8Array([1]); }
+	});
+
+	assert.deepEqual(
+		await prepareForVr(['stale1', 'stale2', 'aaa'], p),
+		{ prepared: 1, failed: 0 },
+		'the two the folder does not hold must not be counted as failures'
+	);
+	assert.deepEqual(read, ['aaa']);
+});
+
+test('a folder that cannot be scanned is a no-op, not a failure', async () => {
+	const p = ports({ scanFolder: async () => { throw new Error('permission gone'); } });
+	assert.deepEqual(await prepareForVr(['aaa'], p), { prepared: 0, failed: 0 });
 });
 
 test('every missing game is read and kept', async () => {
@@ -141,8 +168,10 @@ test('un jeu absent de CE dossier n est pas du travail à faire', async () => {
 
 test('une bibliothèque entièrement ailleurs ne demande aucune préparation', async () => {
 	// Le cas du casque dont le dossier est vide : rien à faire, et surtout pas
-	// une pression qui ne prépare rien indéfiniment.
-	const p = ports({ folderChecksums: async () => [] });
+	// une pression qui ne prépare rien indéfiniment. Les deux sources doivent
+	// être vides - l'index pour ne pas proposer la pression, le scan pour ne
+	// rien tenter si elle a lieu quand même.
+	const p = ports({ folderChecksums: async () => [], scanFolder: async () => [] });
 	assert.deepEqual(await missingFromDevice(['aaa', 'bbb'], p), []);
 	assert.deepEqual(await prepareForVr(['aaa', 'bbb'], p), { prepared: 0, failed: 0 });
 });

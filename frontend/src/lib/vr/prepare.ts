@@ -27,14 +27,24 @@ export interface PreparePorts {
 	/** The checksums already on this device, needing no permission ever again. */
 	keptChecksums(): Promise<string[]>;
 	/**
-	 * What this device's folder claims to hold, from its own index.
+	 * What the folder's INDEX claims, which is a cache of an older scan.
 	 *
-	 * The library comes from the server and spans every machine the player
-	 * owns, so most of it is not in THIS folder. Trying anyway made every such
-	 * game a permanent failure - and while preparation gated the door, a
-	 * permanent failure was a lockout.
+	 * Cheap, and only ever used to decide whether to offer a preparation press
+	 * - `missingFromDevice` runs on every library change and must not read the
+	 * disk. Being wrong here costs one wasted press, which is why the guess is
+	 * allowed to be stale.
 	 */
 	folderChecksums(): Promise<string[]>;
+	/**
+	 * What is in the folder RIGHT NOW, read and hashed.
+	 *
+	 * The index cannot be trusted for the work itself. A headset reported
+	 * "11/11 games could not be read" over a folder holding six: the index
+	 * described a folder that was no longer there, every one of its entries
+	 * missed, and the warning counted them all. `scanDirectory` computes each
+	 * checksum from the bytes, so it cannot describe a file that is not there.
+	 */
+	scanFolder(handle: FileSystemDirectoryHandle): Promise<string[]>;
 	storedDirectory(): Promise<FileSystemDirectoryHandle | undefined>;
 	/** `roms/provider.ts`'s `readAndKeep`: reads from the folder and keeps it. */
 	readAndKeep(
@@ -91,9 +101,6 @@ export async function prepareForVr(
 	ports: PreparePorts,
 	onProgress?: (done: number, total: number) => void
 ): Promise<PrepareResult> {
-	const missing = await missingFromDevice(wanted, ports);
-	if (missing.length === 0) return { prepared: 0, failed: 0 };
-
 	let handle: FileSystemDirectoryHandle | undefined;
 	try {
 		handle = await ports.storedDirectory();
@@ -103,6 +110,26 @@ export async function prepareForVr(
 	// No folder is not a failure of this device, it is the ordinary state of one
 	// that keeps its games another way. Nothing to read, nothing to report.
 	if (!handle) return { prepared: 0, failed: 0 };
+
+	/*
+	 * The scan, not the index, decides what is attempted.
+	 *
+	 * Anything the folder does not actually hold is not work that failed - it
+	 * is work that was never possible, and counting it produced a warning about
+	 * eleven unreadable games over a folder of six. A game whose ROM lives on
+	 * the player's other machine belongs to that machine.
+	 */
+	let missing: string[];
+	try {
+		const present = new Set(await ports.scanFolder(handle));
+		const kept = new Set(await ports.keptChecksums());
+		missing = wanted.filter((checksum) => present.has(checksum) && !kept.has(checksum));
+	} catch {
+		// A folder that cannot be scanned yields nothing, and says so as a
+		// no-op rather than as a failure the player is asked to act on.
+		return { prepared: 0, failed: 0 };
+	}
+	if (missing.length === 0) return { prepared: 0, failed: 0 };
 
 	let prepared = 0;
 	let failed = 0;
