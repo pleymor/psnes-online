@@ -157,7 +157,20 @@ export function createVrScene(opts: {
    * single physical trigger button), but neither is "right hand wins".
    */
   function aimedAt(): PointerTarget | null {
-    if (!panelGroup.visible) return null;
+    /*
+     * Which meshes are targets, and why the rule moved.
+     *
+     * It used to be "nothing while the panels are hidden", which was a
+     * shorthand for the real rule: the trigger is the SNES R button while a
+     * game is running, and letting it also be a pointer would make a shot
+     * register as a menu press. The screen is now a target too when it is a
+     * launch screen, so the shorthand stopped being true - the rule below is
+     * the one that was always meant.
+     */
+    const targets: THREE.Object3D[] = [];
+    if (panelGroup.visible) targets.push(...panelMeshes);
+    if (screen.isPanel()) targets.push(screen.mesh);
+    if (targets.length === 0) return null;
 
     for (const controller of controllers) {
       origin.setFromMatrixPosition(controller.matrixWorld);
@@ -172,13 +185,24 @@ export function createVrScene(opts: {
       direction.set(0, 0, -1).applyQuaternion(worldQuaternion).normalize();
       raycaster.set(origin, direction);
 
-      const [first] = raycaster.intersectObjects(panelMeshes, false);
+      const [first] = raycaster.intersectObjects(targets, false);
       if (!first?.uv) continue;
+      const uv = { x: first.uv.x, y: first.uv.y };
+
+      // The screen is not in `panels`, so it needs its own lookup rather than
+      // a `find` that would silently return undefined and skip the controller.
+      if (first.object === screen.mesh) {
+        const size = screen.panelSize();
+        if (!size) continue;
+        const onScreen = hit(screen.regions, uv, size);
+        if (onScreen) return { panel: 'screen', region: onScreen };
+        continue;
+      }
 
       const panel = panels.find((candidate) => candidate.mesh === first.object);
       if (!panel) continue;
 
-      const region = hit(panel.regions, { x: first.uv.x, y: first.uv.y }, panel.size);
+      const region = hit(panel.regions, uv, panel.size);
       if (region) return { panel: panel.id, region };
     }
     return null;
