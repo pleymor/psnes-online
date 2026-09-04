@@ -1772,7 +1772,7 @@ git commit -m "Extract the lockstep boot sequence from its component"
 
 **Interfaces:**
 - Consumes: everything Tasks 1–4 produced.
-- Produces: `showLaunchScreen(crc32)` and `repaintLaunch()` inside `VrShell`, plus the `'screen'` branch of `activate`. Task 7 adds the group behaviour to the same functions rather than new ones.
+- Produces: `repaintLaunch()`, `launchLabels()` and `entryFor(crc32)` inside `VrShell`, plus the `'screen'` branch of `activate` and the staging body of the `'library'` branch — both inline in `activate`, not functions. Task 7 replaces those two bodies in place.
 
 - [ ] **Step 1: Declare the two fields the server already sends**
 
@@ -1911,9 +1911,12 @@ and, beside the existing `$:` statements:
   $: if (launchFor && $myRoom) repaintLaunch();
 ```
 
-- [ ] **Step 7: `launch` keeps its game, and resumes the staged save**
+- [ ] **Step 7: `launch` takes the entry, and resumes the staged save**
 
-`launch(game)` keeps its signature. It cannot take a checksum alone:
+`launch` is `launch(gameId: string)` today and finds the entry itself, by id.
+It becomes `launch(game)` and receives the entry already resolved — by CRC32,
+which is the rule D4 states and which an id lookup cannot honour. It cannot
+take a checksum alone either:
 `createRoom({ gameId, gameTitle, autoStart: true })` needs the library entry,
 and a crc32 is not one. So `launchFor` holds the checksum for the screen, and
 the `'launch'` branch resolves the entry before calling:

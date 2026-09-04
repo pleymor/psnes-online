@@ -43,6 +43,12 @@ export interface RoomView {
 	gameId?: string;
 	gameTitle?: string;
 	gameCoverUrl?: string;
+	/** CRC32 of the room's ROM, which each player resolves against their own
+	 * files. The room carries the CHOOSER's game id, so this is the only field
+	 * that finds the same cartridge in my library. */
+	gameCrc32?: string;
+	/** The save this room will start on, staged through `room:choose-save`. */
+	resumeSaveId?: string;
 	hostId: string;
 	createdBy: string;
 	status: 'waiting' | 'playing';

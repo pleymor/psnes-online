@@ -49,7 +49,11 @@
   import {
     PROFILE_PANEL_SIZE, layoutProfilePanel, drawProfilePanel
   } from '$lib/vr/panels/profile';
-  import { activeRooms } from '$lib/rooms/my-room';
+  import {
+    LAUNCH_PANEL_SIZE, layoutLaunchPanel, drawLaunchPanel, type LaunchLabels
+  } from '$lib/vr/panels/launch';
+  import { launchOptions } from '$lib/vr/launch-options';
+  import { activeRooms, myRoom } from '$lib/rooms/my-room';
   import { menuPressed, readVrPad } from '$lib/vr/pad';
   import { readPadScheme, writePadScheme, type VrPadScheme } from '$lib/vr/pad-scheme';
   import { user } from '$lib/stores/user';
@@ -61,7 +65,7 @@
   import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
   import { createRoom, leaveGroup } from '$lib/rooms/actions';
   import { decodeSram } from '$lib/rooms/sram';
-  import { toBase64 } from '$lib/saves/base64';
+  import { toBase64, fromBase64 } from '$lib/saves/base64';
   import { socket } from '$lib/api/socket';
   import { setLogLabels } from '$lib/utils/log-shipper';
   import type { PsnesCore } from '$lib/znet/core';
@@ -107,6 +111,11 @@
   let ownedRoomId: string | null = null;
   /** Shown on the lectern when a launch could not read the file. */
   let launchNotice: string | null = null;
+  /** The dump whose launch options the screen is showing, or null for the
+   * checkerboard. */
+  let launchFor: string | null = null;
+  /** Solo only: no room exists yet to hold it. See the spec's D5. */
+  let stagedSaveId: string | null = null;
   /**
    * A plain `let`, set once in `enter()` and reassigned by the switch in
    * `activate()` - never `$: padScheme = readPadScheme(localStorage)`. Made
@@ -133,6 +142,12 @@
   // starting or ending a game while the panel is up repaint it - dropping this
   // reference would make the statement run once and never again.
   $: if (friendsPanel && playingByUserId) repaintFriends();
+
+  // The room decides half of what this screen shows - the friend's readiness,
+  // the staged save, whether the game changed under us. Not the save itself:
+  // that is resolved once at launch, never reactively, or a `room:updated`
+  // would push it back down over a running game.
+  $: if (launchFor && $myRoom) repaintLaunch();
 
   /**
    * Cover art, and the one rule that decides whether this panel exists at all.
@@ -244,6 +259,53 @@
     );
   }
 
+  function repaintLaunch(): void {
+    if (!scene || launchFor === null) return;
+    const options = launchOptions({
+      library: $games,
+      crc32: launchFor,
+      room: $myRoom ?? null,
+      me: $user?.id ?? '',
+      openable: new Set(resolvable ?? []),
+      stagedSaveId
+    });
+    // The dump left the library while its screen was up - a folder sync can do
+    // that. Back to the test pattern rather than a half-drawn screen.
+    if (!options) {
+      launchFor = null;
+      scene.screen.regions.length = 0;
+      scene.screen.showTestPattern();
+      return;
+    }
+
+    const labels = launchLabels();
+    const regions = layoutLaunchPanel(options, labels);
+    // Replaced in place: `scene.aimedAt` holds this same array.
+    scene.screen.regions.length = 0;
+    scene.screen.regions.push(...regions);
+    scene.screen.paintPanel(LAUNCH_PANEL_SIZE, (ctx) =>
+      drawLaunchPanel(ctx, options, regions, {
+        labels,
+        hoverId: hovered?.panel === 'screen' ? hovered.region.id : null
+      })
+    );
+  }
+
+  function launchLabels(): LaunchLabels {
+    return {
+      newGame: t($language, 'vrNewGame'),
+      saveLockedByCreator: t($language, 'vrSaveLockedByCreator'),
+      launch: t($language, 'vrLaunch'),
+      port1: t($language, 'vrPort1'),
+      port2: t($language, 'vrPort2'),
+      waitingForFriend: t($language, 'vrWaitingForFriend'),
+      friendReady: t($language, 'vrFriendReady'),
+      romMissing: t($language, 'vrRomMissing'),
+      alreadyPlaying: t($language, 'vrAlreadyPlaying'),
+      noSeat: t($language, 'vrNoSeat')
+    };
+  }
+
   function loadCovers(list: typeof $games): void {
     for (const game of list) {
       if (!game.coverUrl || covers.has(game.id)) continue;
@@ -272,13 +334,17 @@
         return;
       }
       if (target.region.id.startsWith('game:')) {
-        launchNotice = null;
-        // Not `void audio?.resume()` here any more: on a first launch `audio`
-        // is still null (it is constructed inside `launch()`, several awaits
-        // below), and on a relaunch this is the context `launch()` is about to
-        // close. `launch()` itself resumes the context it just started, once
-        // `audio.start()` has actually run.
-        void launch(target.region.id.slice('game:'.length));
+        const gameId = target.region.id.slice('game:'.length);
+        const game = libraryState.games.find((candidate) => candidate.id === gameId);
+        // Stages the launch screen instead of launching straight away: the
+        // screen is the only place a save can be chosen or a friend seen.
+        if (game?.crc32) {
+          launchFor = game.crc32;
+          stagedSaveId = null;
+          launchNotice = null;
+          repaintLibrary();
+          repaintLaunch();
+        }
       }
       return;
     }
@@ -306,6 +372,26 @@
         return;
       }
     }
+
+    if (target.panel === 'screen') {
+      const id = target.region.id;
+
+      if (id === 'save:none' || id.startsWith('save:')) {
+        const saveId = id === 'save:none' ? null : id.slice('save:'.length);
+        // Solo stages it locally; a group stages it on the room so the friend
+        // sees it. Task 7 adds the second half.
+        stagedSaveId = saveId;
+        repaintLaunch();
+        return;
+      }
+
+      if (id === 'launch' && launchFor) {
+        const game = entryFor(launchFor);
+        if (game) void launch(game);
+        return;
+      }
+      return;
+    }
   }
 
   /** Guards `launch()` against overlapping itself - the same shape of problem
@@ -315,10 +401,15 @@
    *  two engines, both handed the same `scene.schedule`. */
   let launching = false;
 
-  async function launch(gameId: string): Promise<void> {
+  /** The library entry for a dump, by CRC32 - never by game id, for the reason
+   * `launch-options.ts` gives at length. */
+  function entryFor(crc32: string): (typeof $games)[number] | null {
+    return $games.find((game) => game.crc32 === crc32) ?? null;
+  }
+
+  async function launch(game: (typeof $games)[number]): Promise<void> {
     if (!scene || launching) return;
-    const game = libraryState.games.find((candidate) => candidate.id === gameId);
-    if (!game?.crc32) return;
+    if (!game.crc32) return;
 
     launching = true;
     try {
@@ -480,6 +571,27 @@
           return;
         }
 
+        if (stagedSaveId) {
+          const wanted = stagedSaveId;
+          // Once. A reconnect must not rewind the game - the same rule the
+          // flat path states about `resumeSaveId`.
+          stagedSaveId = null;
+          const sock = $socket;
+          const onLoaded = (payload: { saveData?: string }) => {
+            sock?.off('game:loaded', onLoaded);
+            if (!payload?.saveData) return;
+            try {
+              core.loadState(fromBase64(payload.saveData));
+            } catch (err) {
+              logger.error('vr could not decode the save', err);
+              launchNotice = t($language, 'vrLaunchFailed');
+              repaintLibrary();
+            }
+          };
+          sock?.on('game:loaded', onLoaded);
+          sock?.emit('game:load', { roomId, saveId: wanted });
+        }
+
         /*
          * The one resume attempt this session gets, and why it lives here
          * rather than at the click that led to `launch()`: `audio` does not
@@ -505,6 +617,10 @@
           logger.warn('audio context still suspended after resume; game will run muted');
         }
 
+        // The screen becomes a picture again, so it must stop being a
+        // pointer target - `scene.aimedAt` holds this same `regions` array.
+        launchFor = null;
+        scene.screen.regions.length = 0;
         scene?.panelsVisible(false);
         engine.governor.start();
         // So `resume` is there next time the panels come back, even though
@@ -581,6 +697,7 @@
         if (panel === 'library') repaintLibrary();
         if (panel === 'friends') repaintFriends();
         if (panel === 'profile') repaintProfile();
+        if (panel === 'screen') repaintLaunch();
       }
     }
     if (tick.activated) activate(tick.activated);
@@ -809,6 +926,11 @@
     hovered = null;
     pointer = createPointer();
     launchNotice = null;
+    // Left set, a quit from the launch screen would show it again on the very
+    // next session's screen before anything was clicked - `scene` is fresh,
+    // but this `let` is component state and outlives the session that set it.
+    launchFor = null;
+    stagedSaveId = null;
     vrActive.set(false);
     vrRequested.set(false);
   }
