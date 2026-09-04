@@ -423,3 +423,35 @@ test('a missing ROM outranks an away friend', () => {
   });
   assert.equal(options!.blocked, 'rom-missing');
 });
+
+test('a room that no longer holds this game refuses the launch', async () => {
+  /*
+   * A friend releasing the game clears `gameCrc32` and returns the room to
+   * `waiting`, and `game:stopped` reaches the headset before the room's own
+   * update does - so the launch screen reopens for a game the room is about
+   * to stop carrying. Every other guard then passes: two players, both
+   * seated, both online, status `waiting`. The button existed, and
+   * `game:start` refused it with an `error` nothing in a headset draws.
+   */
+  const options = launchOptions({
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({ gameCrc32: 'bbbb2222' }),
+    me: 'me',
+    openable: OPENABLE
+  });
+  assert.equal(options!.blocked, 'game-changed');
+});
+
+test('a room holding no game at all does not refuse a solo-shaped launch', async () => {
+  // `gameCrc32` undefined is the ordinary state of a group that has not
+  // chosen yet; only a DIFFERENT game is a refusal.
+  const options = launchOptions({
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({ gameCrc32: undefined }),
+    me: 'me',
+    openable: OPENABLE
+  });
+  assert.notEqual(options!.blocked, 'game-changed');
+});

@@ -23,7 +23,6 @@
  * what save it is staged on), not just for a lobby banner, so a handler that
  * still broadcasts only the `d` one is a bug here, not a matter of taste.
  *
-
  * The listeners are attached from module scope rather than from a component's
  * `onMount`, deliberately: `rooms:list` is pushed by the server at connection
  * time, and a component subscribing afterwards can be late for it. The HTTP seed

@@ -60,7 +60,12 @@ export interface FriendState {
 }
 
 /** Why a launch is refused. Ordered by what the player can do about it. */
-export type LaunchBlock = 'rom-missing' | 'already-playing' | 'no-seat' | 'friend-away';
+export type LaunchBlock =
+	| 'rom-missing'
+	| 'already-playing'
+	| 'no-seat'
+	| 'friend-away'
+	| 'game-changed';
 
 export interface LaunchOptions {
 	game: { title: string; coverUrl?: string; crc32: string };
@@ -146,7 +151,7 @@ export function launchOptions(input: LaunchInput): LaunchOptions | null {
 			? { pseudo: other.pseudo, online: other.online, port: other.port, isReady: other.isReady }
 			: null,
 		romHere,
-		blocked: blockedBy(room, romHere)
+		blocked: blockedBy(room, romHere, input.crc32)
 	};
 }
 
@@ -157,10 +162,24 @@ export function launchOptions(input: LaunchInput): LaunchOptions | null {
  * inside the headset - a seat is two buttons away, and a playing room has the
  * game itself to go back to.
  */
-function blockedBy(room: LaunchRoom | null, romHere: boolean): LaunchBlock | null {
+function blockedBy(room: LaunchRoom | null, romHere: boolean, crc32: string): LaunchBlock | null {
 	if (!romHere) return 'rom-missing';
 	if (!room) return null;
 	if (room.status === 'playing') return 'already-playing';
+
+	/*
+	 * The room stopped holding this game.
+	 *
+	 * A friend releasing the game clears `gameCrc32` and returns the room to
+	 * `waiting`, and `game:stopped` reaches the headset before the room's own
+	 * update does - so the launch screen reopens for a game the room is about
+	 * to stop carrying. Every other guard then passes: two players, both
+	 * seated, both online, status `waiting`. The Launch button existed and
+	 * `game:start` refused it with an `error` nothing in a headset draws.
+	 */
+	if (room.players.length >= 2 && room.gameCrc32 !== undefined && room.gameCrc32 !== crc32) {
+		return 'game-changed';
+	}
 
 	// Mirrors `game:start`'s own guard: it refuses when no player has both a
 	// port and readiness. Offering the button anyway earns an `error` that

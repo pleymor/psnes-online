@@ -1998,3 +1998,29 @@ test('game:stop reaches the group through room:update too', async () => {
     assert.equal(perSocket.status, 'waiting');
   });
 });
+
+test('room:setEmulationMode reaches the group through room:update too', async () => {
+  /*
+   * The one handler the broadcast sweep skipped, on the premise that nothing
+   * in the VR model read this field. The VR shell then began refusing to boot
+   * anything but lockstep, and `RoomView` began declaring the field, so the
+   * premise died twice. Without the per-socket copy, a creator switching to
+   * streaming while a VR player sits on the launch screen leaves that
+   * player's store saying `lockstep`: the guard passes on stale state and a
+   * lockstep session meets a `P2PRoom` in silence.
+   */
+  await withLobby(async lobby => {
+    const { host, guest, room } = await roomOfTwo(lobby);
+
+    const guestChannel = once<Room>(guest, 'room:updated');
+    const guestPerSocket = once<Room>(guest, 'room:update');
+    host.emit('room:setEmulationMode', { roomId: room.id, emulationMode: 'streaming' });
+
+    const [channel, perSocket] = await Promise.all([guestChannel, guestPerSocket]);
+    assert.equal(channel.emulationMode, 'streaming');
+    assert.equal(
+      perSocket.emulationMode, 'streaming',
+      'the per-socket update never arrived, so a VR client would boot lockstep against streaming'
+    );
+  });
+});

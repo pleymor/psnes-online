@@ -444,7 +444,7 @@ export function registerRoomHandlers(
   });
 
   // Set emulation mode (only room creator can change)
-  socket.on('room:setEmulationMode', (data: { roomId: string; emulationMode: EmulationMode }) => {
+  socket.on('room:setEmulationMode', async (data: { roomId: string; emulationMode: EmulationMode }) => {
     const room = rooms.get(data.roomId);
     if (!room) return;
 
@@ -456,6 +456,19 @@ export function registerRoomHandlers(
 
     room.emulationMode = data.emulationMode;
     io.to(data.roomId).emit('room:updated', room);
+    /*
+     * And to `room:update`, which is what `my-room.ts` listens to.
+     *
+     * Skipped when the other broadcasts were added, on the premise that
+     * nothing in the VR model read this field. The VR shell then began
+     * refusing to boot anything but lockstep, and `RoomView` began declaring
+     * the field - so the premise died twice and nobody came back. Without
+     * this, a creator switching to streaming while a VR player sits on the
+     * launch screen leaves that player's copy saying `lockstep`: the guard
+     * passes on stale state, and a lockstep session meets a `P2PRoom` in
+     * mutual silence.
+     */
+    await broadcastRoomUpdate(io, room, getUserSocket);
     logger.info({ roomId: room.id, mode: data.emulationMode }, 'Emulation mode changed');
   });
 }
