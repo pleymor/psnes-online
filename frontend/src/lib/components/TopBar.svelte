@@ -39,6 +39,7 @@
   } from '$lib/roms/local-library';
   import { readAndKeep } from '$lib/roms/provider';
   import { keptFilesAvailable, indexedDbKeptFiles } from '$lib/roms/kept-files';
+  import { indexedChecksums } from '$lib/roms/local-library';
   import { games } from '$lib/stores/games';
   import { notifications } from '$lib/services/notification';
 
@@ -49,6 +50,7 @@
 
   const PREPARE: PreparePorts = {
     keptChecksums: async () => (keptFilesAvailable() ? indexedDbKeptFiles().checksums() : []),
+    folderChecksums: async () => (supportsDirectoryPicker() ? indexedChecksums() : []),
     storedDirectory,
     readAndKeep
   };
@@ -64,8 +66,19 @@
    * path - nothing to prepare - has to stay synchronous from click to session.
    */
   let needsPrepare = false;
+  /**
+   * Tried once per page, whatever came of it.
+   *
+   * Without this the door locks: a game that cannot be read here keeps
+   * `needsPrepare` true, so every press runs the preparation again and none of
+   * them ever reaches `requestVr()`. Shipped exactly that way, and it is the
+   * bug this guard exists for - the commit that introduced it claimed
+   * "nothing bars the door" while barring it.
+   */
+  let prepareTried = false;
   $: void refreshPrepareNeed(wanted);
   async function refreshPrepareNeed(list: string[]): Promise<void> {
+    if (prepareTried) return;
     needsPrepare = list.length > 0 && (await missingFromDevice(list, PREPARE)).length > 0;
   }
 
@@ -148,7 +161,11 @@
     });
 
     notifications.dismiss(toast);
-    needsPrepare = (await missingFromDevice(wanted, PREPARE)).length > 0;
+    // Unconditionally, and this is the whole point: preparation is a courtesy,
+    // never a precondition. A second press must enter the session even if
+    // nothing could be read.
+    prepareTried = true;
+    needsPrepare = false;
 
     if (result.failed > 0) {
       // Named rather than hidden: these are the games the headset will still
