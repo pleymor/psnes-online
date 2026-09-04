@@ -2183,6 +2183,26 @@ pad. Its ROM resolution, its `resolvable` check, its `launching` guard and its
         schedule: scene.schedule
       });
 
+      /*
+       * The session may have died while the relay handshake was in flight.
+       *
+       * `createLockstepEngine` awaits the ROM, the audio device, the cartridge
+       * save and the relay - and a headset put down at any of them runs
+       * `onDestroy` -> `closeAnySession()`, which nulls `scene`, `engine` and
+       * `audio`. The pending promise then resolves onto a corpse and, without
+       * this, reassigns `engine`, starts a governor and arms a thirty-second
+       * SRAM timer that nothing is left to stop. `scene` being null is the
+       * signal, exactly as the solo path reads it (`VrShell.svelte:449-481`).
+       */
+      if (!scene) {
+        void engine.stop();
+        engine = null;
+        giveUpRoom();
+        void audio?.stop();
+        audio = null;
+        return;
+      }
+
       await audio.resume();
       launchFor = null;
       scene.screen.regions.length = 0;
