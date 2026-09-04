@@ -327,7 +327,9 @@
       friendReady: t($language, 'vrFriendReady'),
       romMissing: t($language, 'vrRomMissing'),
       alreadyPlaying: t($language, 'vrAlreadyPlaying'),
-      noSeat: t($language, 'vrNoSeat')
+      noSeat: t($language, 'vrNoSeat'),
+      friendAway: t($language, 'vrFriendAway'),
+      friendAwayBlocked: t($language, 'vrFriendAwayBlocked')
     };
   }
 

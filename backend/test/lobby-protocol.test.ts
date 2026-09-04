@@ -1880,3 +1880,121 @@ test('the creator asking is served, and the answer reaches both players', async 
     }
   });
 });
+
+/*
+ * `room:update` (no `d`), not only `room:updated` (with a `d`).
+ *
+ * Two different events, addressed differently: `room:updated` goes to the
+ * room's socket.io channel and feeds only the flat room page.
+ * `room:update` is emitted per socket by `broadcastRoomUpdate`, and it is the
+ * only thing `frontend/src/lib/rooms/my-room.ts` listens to - the store the
+ * VR launch screen reads. A handler that mutates the room and emits only the
+ * first is invisible to a VR client no matter how correct its state is.
+ *
+ * Each test below is the fix's own justification: reverting the added
+ * `broadcastRoomUpdate` call in the handler under test times this test out,
+ * because the per-socket event never arrives.
+ */
+
+test('room:selectPort reaches the group through room:update, not only room:updated', async () => {
+  await withLobby(async lobby => {
+    const { host, guest, room } = await roomOfTwo(lobby);
+
+    const guestChannel = once<Room>(guest, 'room:updated');
+    const guestPerSocket = once<Room>(guest, 'room:update');
+    host.emit('room:selectPort', { roomId: room.id, port: 1 });
+
+    const [channel, perSocket] = await Promise.all([guestChannel, guestPerSocket]);
+    assert.equal(channel.players.find(p => p.userId === lobby.alice.id)?.port, 1);
+    assert.equal(
+      perSocket.players.find(p => p.userId === lobby.alice.id)?.port, 1,
+      'the per-socket update never arrived, so a VR client never saw the seat taken'
+    );
+  });
+});
+
+test('room:unselectPort reaches the group through room:update too', async () => {
+  await withLobby(async lobby => {
+    const { host, guest, room } = await roomOfTwo(lobby);
+    // Both events from the setup step, not just the channel one: `room:update`
+    // for the port taken can otherwise still be in flight when the next
+    // listener below is armed, and land on it instead of the one
+    // `room:unselectPort` produces - the same race `roomOfTwo`'s own comment
+    // describes.
+    host.emit('room:selectPort', { roomId: room.id, port: 1 });
+    await Promise.all([once(guest, 'room:updated'), once(guest, 'room:update')]);
+
+    const guestPerSocket = once<Room>(guest, 'room:update');
+    host.emit('room:unselectPort', { roomId: room.id });
+    const perSocket = await guestPerSocket;
+
+    const alice = perSocket.players.find(p => p.userId === lobby.alice.id);
+    assert.equal(alice?.port, null);
+    assert.equal(alice?.isReady, false);
+  });
+});
+
+test('room:toggleReady reaches the group through room:update too', async () => {
+  await withLobby(async lobby => {
+    const { host, guest, room } = await roomOfTwo(lobby);
+
+    // Ready by default from `room:create`, so toggling flips it to false -
+    // provable without first driving it true.
+    const guestPerSocket = once<Room>(guest, 'room:update');
+    host.emit('room:toggleReady', { roomId: room.id });
+    const perSocket = await guestPerSocket;
+
+    assert.equal(perSocket.players.find(p => p.userId === lobby.alice.id)?.isReady, false);
+  });
+});
+
+test('room:choose-save reaches the group through room:update, staged and cleared', async () => {
+  await withLobby(async lobby => {
+    const { host, guest, room } = await roomOfTwo(lobby);
+    const save = stageable(lobby.gameId, 'Before Lavos');
+
+    const staged = once<Room>(guest, 'room:update');
+    host.emit('room:choose-save', { roomId: room.id, saveId: save.id });
+    assert.equal((await staged).resumeSaveId, save.id, 'a staged save was a visible no-op in a headset');
+
+    const cleared = once<Room>(guest, 'room:update');
+    host.emit('room:choose-save', { roomId: room.id, saveId: null });
+    assert.equal((await cleared).resumeSaveId, undefined);
+  });
+});
+
+test('game:start reaches the group through room:update, not only room:updated', async () => {
+  await withLobby(async lobby => {
+    // `roomOfTwo` already seats both: the host at creation, the guest on
+    // `joinRoom`'s guest-always-port-2 default - so `game:start` succeeds with
+    // no further setup.
+    const { host, guest, room } = await roomOfTwo(lobby);
+
+    const guestChannel = once<Room>(guest, 'room:updated');
+    const guestPerSocket = once<Room>(guest, 'room:update');
+    host.emit('game:start', { roomId: room.id });
+
+    const [channel, perSocket] = await Promise.all([guestChannel, guestPerSocket]);
+    assert.equal(channel.status, 'playing');
+    assert.equal(
+      perSocket.status, 'playing',
+      'the VR store never learned the room left "waiting", so its already-playing guard could never fire'
+    );
+  });
+});
+
+test('game:stop reaches the group through room:update too', async () => {
+  await withLobby(async lobby => {
+    const { host, guest, room } = await roomOfTwo(lobby);
+    // Both events from the setup step - see the comment on the unselectPort
+    // test above for why the channel one alone is not enough here.
+    host.emit('game:start', { roomId: room.id });
+    await Promise.all([once(guest, 'room:updated'), once(guest, 'room:update')]);
+
+    const guestPerSocket = once<Room>(guest, 'room:update');
+    host.emit('game:stop', { roomId: room.id });
+    const perSocket = await guestPerSocket;
+
+    assert.equal(perSocket.status, 'waiting');
+  });
+});

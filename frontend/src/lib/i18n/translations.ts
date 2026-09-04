@@ -502,9 +502,11 @@ export const translations = {
     vrPort2: 'Player 2',
     vrWaitingForFriend: 'Waiting for your friend',
     vrFriendReady: 'Ready',
+    vrFriendAway: 'Away',
     vrRomMissing: 'This game is not on this device. Launch it once outside VR.',
     vrAlreadyPlaying: 'This room is already playing.',
-    vrNoSeat: 'Somebody has to take a controller first.'
+    vrNoSeat: 'Somebody has to take a controller first.',
+    vrFriendAwayBlocked: 'A player is away. Wait for them to come back before starting.'
   },
   fr: {
     // Legal disclaimer
@@ -987,9 +989,11 @@ export const translations = {
     vrPort2: 'Joueur 2',
     vrWaitingForFriend: 'En attente de ton ami',
     vrFriendReady: 'Prêt',
+    vrFriendAway: 'Absent',
     vrRomMissing: 'Ce jeu n\'est pas sur cet appareil. Lance-le une fois hors VR.',
     vrAlreadyPlaying: 'Ce salon joue déjà.',
-    vrNoSeat: 'Quelqu\'un doit d\'abord prendre une manette.'
+    vrNoSeat: 'Quelqu\'un doit d\'abord prendre une manette.',
+    vrFriendAwayBlocked: 'Un joueur est absent. Attends son retour avant de lancer.'
   }
 };
 
