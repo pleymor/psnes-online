@@ -2285,10 +2285,16 @@ let the compiler name any site that assumed the solo shape.
   }
 ```
 
-Read the `SessionEvent` union in `frontend/src/lib/znet/session.ts` before
-writing this switch and cover every member of it: the compiler will not warn
-about a case you left out of a `switch` with a `default`, so write it without
-one and let an unhandled member be a type error.
+Read `SessionEvent` in `frontend/src/lib/znet/session.ts:103` before writing
+this switch. It is an **interface** whose `type` field enumerates **nine**
+values - `state`, `desync`, `resync-start`, `resync-done`, `rtt`, `link-lost`,
+`link-restored`, `error`, `peer-ready` - not the six this plan first claimed.
+That number came from counting `case` labels in `LockstepRoom.svelte`'s
+handler, which is a consumer and drops three of them silently.
+
+And omitting the `default` does NOT make an unhandled member a type error: a
+statement switch with no return is not exhaustiveness-checked. Write a
+`default` that assigns the narrowed value to `never`, which does.
 
 - [ ] **Step 5: The room is still given back**
 

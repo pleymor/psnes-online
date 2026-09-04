@@ -50,6 +50,7 @@ function fakeCore(log: string[]) {
 function fakeSession(log: string[]): LockstepSessionLike {
   return {
     coreReset: null,
+    close() { log.push('session.close'); },
     pump() {},
     tick: () => 'idle',
     start() { log.push('session.start'); },
@@ -278,4 +279,25 @@ test('a throw while drawing is reported, not lost', async () => {
   assert.doesNotThrow(() => (session()!.onFrame as (n: number) => void)(1));
   assert.equal(errors.length, 1, 'the frame loop swallowed a renderer failure');
   await engine.stop();
+});
+
+test('stopping releases the link, and still writes the cartridge save', async () => {
+  /*
+   * `LockstepRoom.svelte`'s teardown calls `session.close()`. This engine did
+   * not, so every VR lockstep game that ended left a netplay session open -
+   * a leak per game rather than per session.
+   *
+   * And the close must not be able to cost the save: `persist()` reads the
+   * core, not the link, so a throw from `close` is reported and the write
+   * still happens.
+   */
+  const { options, log } = harness();
+  const engine = await createLockstepEngine(options);
+  await engine.stop();
+
+  assert.ok(log.includes('session.close'), 'the netplay session was left open');
+  assert.ok(
+    log.lastIndexOf('sram.save') > log.indexOf('session.close'),
+    'the cartridge save must outlive the link, not race it'
+  );
 });
