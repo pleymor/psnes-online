@@ -13,6 +13,17 @@
  * `room:destroyed` when one dies. `friend:roomCreated` is here too, because a
  * friend's brand new room arrives on that event and on no other.
  *
+ * Deliberately not a fourth: `room:updated` (with the `d`). That is a
+ * different, room-channel event the flat room page listens to directly, and
+ * confusing the two once cost a whole feature's worth of state - a room's
+ * `status`, ports and readiness never reaching a VR client at all, because
+ * several server handlers broadcast only `room:updated` and this store only
+ * ever heard `room:update`. This store is load-bearing for a VR gameplay
+ * decision now (whether a room is a group, whether it is already playing,
+ * what save it is staged on), not just for a lobby banner, so a handler that
+ * still broadcasts only the `d` one is a bug here, not a matter of taste.
+ *
+
  * The listeners are attached from module scope rather than from a component's
  * `onMount`, deliberately: `rooms:list` is pushed by the server at connection
  * time, and a component subscribing afterwards can be late for it. The HTTP seed
@@ -49,6 +60,15 @@ export interface RoomView {
 	gameCrc32?: string;
 	/** The save this room will start on, staged through `room:choose-save`. */
 	resumeSaveId?: string;
+	/**
+	 * Which emulation mode this room plays in.
+	 *
+	 * The server always sends it. Declared here because the VR shell refuses
+	 * to boot anything but lockstep - it runs `NetplaySession`, and against a
+	 * room set to streaming or dual the two peers would sit in mutual
+	 * silence.
+	 */
+	emulationMode?: string;
 	hostId: string;
 	createdBy: string;
 	status: 'waiting' | 'playing';

@@ -110,9 +110,13 @@ export function createVrScene(opts: {
   }
 
   const panels: PanelMesh[] = [];
-  // Rebuilt only in `addPanel`, never inside `aimedAt`: that loop runs twice
-  // a frame while panels are visible, and a GC pause there is audible as an
-  // audio glitch, same as the raycaster scratch objects below.
+  // Pushed to only in `addPanel`, never inside `aimedAt`. `aimedAt` itself is
+  // no longer allocation-free, though: it now builds a small per-call
+  // `targets` list, because which meshes count as a target depends on
+  // `screen.isPanel()` too (see the comment inside `aimedAt` for why). What
+  // this array buys is narrower than it used to be - `panelMeshes.push` never
+  // running inside that hot loop, same as the raycaster scratch objects
+  // below - not that the loop allocates nothing at all.
   const panelMeshes: THREE.Mesh[] = [];
   const panelGroup = new THREE.Group();
   scene.add(panelGroup);

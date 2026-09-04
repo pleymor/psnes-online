@@ -91,10 +91,15 @@ export interface LaunchInput {
 	/** What this device can open, from `resolvableHere`. */
 	openable: ReadonlySet<string>;
 	/**
-	 * A save staged locally, before any room exists to hold it.
+	 * A save staged locally, before a GROUP exists to carry it.
 	 *
-	 * Solo only. Once a room exists its `resumeSaveId` is the truth, because
-	 * that is the value both players see and the one the engine resolves.
+	 * Not solo only: `chosenSaveId` below reads this whenever the room holds
+	 * fewer than two players, which includes a lone creator's own room, not
+	 * only the no-room-at-all case - see the comment on `chosenSaveId` for why
+	 * that is keyed on being a group rather than on a room existing. Once a
+	 * friend is really there, the room's `resumeSaveId` becomes the truth,
+	 * because that is the value both players see and the one the engine
+	 * resolves.
 	 */
 	stagedSaveId?: string | null;
 }

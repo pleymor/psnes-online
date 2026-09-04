@@ -187,9 +187,10 @@ export async function createLockstepEngine(
 	// Not started here: `solo-engine.ts` leaves this to the caller too, and for
 	// the same reason - `FrameGovernor.start()` falls back to
 	// `requestAnimationFrame` when no `schedule` is given, which does not exist
-	// under the node test runner. `SoloRoom.svelte:582` and
-	// `VrShell.svelte:509` both call `engine.governor.start()` themselves once
-	// the engine resolves; the netplay call sites do the same.
+	// under the node test runner. `SoloRoom.svelte` and `VrShell.svelte` both
+	// call `engine.governor.start()` themselves once the engine resolves, in
+	// both their solo and group launch paths; the other netplay call sites do
+	// the same.
 
 	return {
 		session,
