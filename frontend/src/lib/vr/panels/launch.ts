@@ -76,6 +76,7 @@ export interface LaunchLabels {
 	romMissing: string;
 	alreadyPlaying: string;
 	noSeat: string;
+	gameChanged: string;
 	/** The blocked-launch banner for `'friend-away'` - a full sentence, like
 	 * the other three `blockedLabel` cases, not the short word above. */
 	friendAwayBlocked: string;
@@ -202,6 +203,8 @@ function blockedLabel(options: LaunchOptions, labels: LaunchLabels): string | nu
 			return labels.alreadyPlaying;
 		case 'no-seat':
 			return labels.noSeat;
+		case 'game-changed':
+			return labels.gameChanged;
 		case 'friend-away':
 			return labels.friendAwayBlocked;
 		case null:

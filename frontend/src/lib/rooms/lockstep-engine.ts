@@ -47,6 +47,15 @@ export interface LockstepSessionLike {
 	/** Releases the link. `LockstepRoom.svelte`'s teardown calls this; an
 	 * engine that stops without it leaves a netplay session open per game. */
 	close(): void;
+	/**
+	 * Whether this session is still playable.
+	 *
+	 * Exposed because an `error` event does not mean the session died:
+	 * `fail()` sets `'failed'`, while a savestate that will not load reports
+	 * `error` and leaves the session running. A consumer that treats the two
+	 * alike ends a healthy game.
+	 */
+	readonly state: string;
 	coreReset: (() => void) | null;
 	loadAuthoritativeState(state: Uint8Array, reason: string): boolean;
 }

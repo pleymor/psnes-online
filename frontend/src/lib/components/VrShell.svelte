@@ -30,6 +30,7 @@
    * restart.
    */
   import { onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { vrRequested, vrActive } from '$lib/vr/entry';
   import { openVrSession, type VrSession } from '$lib/vr/xr-session';
   import { createVrScene, type VrScene } from '$lib/vr/scene';
@@ -352,6 +353,7 @@
       romMissing: t($language, 'vrRomMissing'),
       alreadyPlaying: t($language, 'vrAlreadyPlaying'),
       noSeat: t($language, 'vrNoSeat'),
+      gameChanged: t($language, 'vrGameChanged'),
       friendAway: t($language, 'vrFriendAway'),
       friendAwayBlocked: t($language, 'vrFriendAwayBlocked')
     };
@@ -568,7 +570,7 @@
 
       const roomId = await createRoom({ gameId: game.id, gameTitle: game.title, autoStart: true });
       if (!roomId) {
-        launchNotice = t($language, 'vrModeNotLockstep');
+        launchNotice = t($language, 'vrLaunchFailed');
         repaintLibrary();
         return;
       }
@@ -787,13 +789,12 @@
     if (!sock) return;
 
     dropSaveListener();
-    const timer = setTimeout(() => {
+    saveTimer = setTimeout(() => {
       dropSaveListener();
       logger.warn('vr save load never answered', { roomId, saveId });
     }, 5000);
 
     saveListener = (payload: { saveData?: string; name?: string }) => {
-      clearTimeout(timer);
       dropSaveListener();
       if (!payload?.saveData) return;
       try {
@@ -808,10 +809,25 @@
     sock.emit('game:load', { roomId, saveId });
   }
 
+  /** Taken off in `teardown`: the socket outlives the session. */
+  let rejoinRoom: (() => void) | null = null;
+
   /** Held at component scope so `teardown` can take it off the shared socket. */
   let saveListener: ((payload: { saveData?: string; name?: string }) => void) | null = null;
+  /**
+   * Held beside it, and cleared by the same function.
+   *
+   * A local `const` was unreachable from `teardown`, and a superseded
+   * `awaitSave` left the old one armed - five seconds later it dropped the
+   * NEW listener while logging the old save's id.
+   */
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   function dropSaveListener(): void {
+    if (saveTimer !== null) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
     if (!saveListener) return;
     $socket?.off('game:loaded', saveListener);
     saveListener = null;
@@ -875,7 +891,7 @@
         // exactly the shape a flat `P2PRoom` on the other end is built to
         // run, and releasing it here could kill a game that is working fine
         // for them.
-        launchNotice = t($language, 'vrLaunchFailed');
+        launchNotice = t($language, 'vrModeNotLockstep');
         scene?.panelsVisible(true);
         repaintLibrary();
         return;
@@ -1034,8 +1050,10 @@
    * which point it is already there instead of needing another frame to
    * catch up.
    *
-   * Not localised: none of the three events this feeds have copy in
-   * `translations.ts` yet, and adding one is outside this file's own scope.
+   * Localised through `NOTICE_FOR` below: it composed
+   * `${event.type}: ${event.message}` at first, so a player read "link-lost"
+   * off a two-and-a-half-metre screen. The event names belong in the log,
+   * which `onSessionEvent` already writes.
    */
   function noteOnLibrary(event: SessionEvent): void {
     /*
@@ -1121,6 +1139,21 @@
         break;
       case 'error':
         logger.error('vr session', event);
+        /*
+         * An `error` is not always a death.
+         *
+         * `fail()` sets the session to `'failed'`; a savestate that will not
+         * load reports `error` and leaves it running - and that second path
+         * is reachable only through the resume this feature added. Ending the
+         * game on it would cost the FRIEND their session over a save that
+         * merely did not apply, which the flat twin does not do: it shows the
+         * text and plays on.
+         */
+        if (engine && (engine as LockstepEngine).session?.state !== 'failed') {
+          noteOnLibrary(event);
+          scene?.panelsVisible(true);
+          break;
+        }
         // Back to the screen that can explain itself, rather than a picture
         // that has stopped moving for no stated reason - `stopTogether`
         // below is what actually puts it there.
@@ -1382,6 +1415,19 @@
        * `game:started` that was supposed to build the engine.
        */
       if ($myRoom) $socket?.emit('room:join', { roomId: $myRoom.id });
+      /*
+       * And again on every reconnect, which `rooms/room-session.ts:75` calls
+       * mandatory in as many words: the socket comes back on its own, but
+       * `room:join` does not replay itself. Without this a blip mid-session
+       * drops channel membership for good - after which `game:started` and
+       * `game:stopped` never arrive again, so a friend's quit leaves the
+       * frozen picture this feature spent two rounds removing.
+       */
+      rejoinRoom = () => {
+        const room = get(myRoom);
+        if (room) $socket?.emit('room:join', { roomId: room.id });
+      };
+      $socket?.on('connect', rejoinRoom);
 
       profilePanel = scene.addPanel('profile', scene.layout.profile, PROFILE_PANEL_SIZE);
       repaintProfile();
@@ -1519,6 +1565,10 @@
     // The shared socket outlives this session; a listener left on it would
     // fire against a core that no longer has an engine.
     dropSaveListener();
+    if (rejoinRoom) {
+      $socket?.off('connect', rejoinRoom);
+      rejoinRoom = null;
+    }
     vrActive.set(false);
     vrRequested.set(false);
   }
