@@ -101,6 +101,29 @@ export async function prepareForVr(
 	ports: PreparePorts,
 	onProgress?: (done: number, total: number) => void
 ): Promise<PrepareResult> {
+	/*
+	 * The cheap question first, and the whole point of the ordering.
+	 *
+	 * Listing what the device already holds is one key query against
+	 * IndexedDB. Scanning the folder reads and hashes every cartridge in it.
+	 * Asking the expensive question first meant a player whose games were all
+	 * transferred already paid for a full folder read on every press, for
+	 * nothing - reported as "c'est long", and they were right.
+	 *
+	 * A game already kept is never re-copied either, which the filter below
+	 * has always done; this is about not paying to find that out.
+	 */
+	let candidates: string[];
+	try {
+		const kept = new Set(await ports.keptChecksums());
+		candidates = wanted.filter((checksum) => !kept.has(checksum));
+	} catch {
+		// A device that cannot say what it holds is not one to start reading
+		// folders on: it would re-copy everything it already has.
+		return { prepared: 0, failed: 0 };
+	}
+	if (candidates.length === 0) return { prepared: 0, failed: 0 };
+
 	let handle: FileSystemDirectoryHandle | undefined;
 	try {
 		handle = await ports.storedDirectory();
@@ -122,8 +145,7 @@ export async function prepareForVr(
 	let missing: string[];
 	try {
 		const present = new Set(await ports.scanFolder(handle));
-		const kept = new Set(await ports.keptChecksums());
-		missing = wanted.filter((checksum) => present.has(checksum) && !kept.has(checksum));
+		missing = candidates.filter((checksum) => present.has(checksum));
 	} catch {
 		// A folder that cannot be scanned yields nothing, and says so as a
 		// no-op rather than as a failure the player is asked to act on.
