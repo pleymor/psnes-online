@@ -506,7 +506,12 @@ export const translations = {
     vrRomMissing: 'This game is not on this device. Launch it once outside VR.',
     vrAlreadyPlaying: 'This room is already playing.',
     vrNoSeat: 'Somebody has to take a controller first.',
-    vrFriendAwayBlocked: 'A player is away. Wait for them to come back before starting.'
+    vrFriendAwayBlocked: 'A player is away. Wait for them to come back before starting.',
+    vrDesync: 'The two machines drifted apart. Resynchronising…',
+    vrLinkLost: 'The link went quiet. Waiting for your friend…',
+    vrLinkRestored: 'The link is back.',
+    vrModeNotLockstep:
+      'This room plays in another emulation mode. VR plays in lockstep only - change it from the browser.'
   },
   fr: {
     // Legal disclaimer
@@ -993,7 +998,12 @@ export const translations = {
     vrRomMissing: 'Ce jeu n\'est pas sur cet appareil. Lance-le une fois hors VR.',
     vrAlreadyPlaying: 'Ce salon joue déjà.',
     vrNoSeat: 'Quelqu\'un doit d\'abord prendre une manette.',
-    vrFriendAwayBlocked: 'Un joueur est absent. Attends son retour avant de lancer.'
+    vrFriendAwayBlocked: 'Un joueur est absent. Attends son retour avant de lancer.',
+    vrDesync: 'Les deux machines ont dérivé. Resynchronisation…',
+    vrLinkLost: 'La liaison s\'est interrompue. En attente de ton ami…',
+    vrLinkRestored: 'La liaison est rétablie.',
+    vrModeNotLockstep:
+      'Ce salon joue dans un autre mode d\'émulation. La VR ne joue qu\'en lockstep - change-le depuis le navigateur.'
   }
 };
 

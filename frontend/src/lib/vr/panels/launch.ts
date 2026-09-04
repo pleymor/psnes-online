@@ -235,10 +235,16 @@ export function drawLaunchPanel(
 	ctx.textBaseline = 'middle';
 	ctx.fillText(truncate(ctx, options.game.title, width - PAD * 2), PAD, TITLE_Y);
 
-	// A placeholder rectangle rather than a fetch: the cover is drawn by the
-	// caller when it has one, for the reason `VrShell`'s library panel already
-	// gives - a cross-origin image drawn into a canvas taints the whole
-	// texture and WebGL then refuses the upload.
+	// A placeholder rectangle, always - no caller passes this function an
+	// actual cover image today, so the reason a fetch belongs to a caller
+	// rather than to this module still applies but is not yet exercised:
+	// `VrShell`'s library panel already draws its own covers into a canvas
+	// through `<img crossOrigin>`, and a cross-origin one drawn without that
+	// taints the whole texture, which WebGL then refuses to upload. Wiring an
+	// actual cover through here would mean passing this module the same
+	// `covers` map and the same per-URL CORS handling `VrShell` already has -
+	// left undone rather than duplicated, so the title is what identifies the
+	// game on this screen for now.
 	ctx.fillStyle = '#1c1c26';
 	ctx.fillRect(COVER.x, COVER.y, COVER.w, COVER.h);
 

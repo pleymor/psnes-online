@@ -61,11 +61,12 @@
   import { deviceLibrary } from '$lib/roms/device-library';
   import { resolvableHere, resolveQuietly, type MissReason } from '$lib/roms/provider';
   import type { PanelMesh } from '$lib/vr/panel-mesh';
-  import { loadCore, AudioSink, SocketTransport, UpgradingTransport, type SessionEvent } from '$lib/znet';
+  import { loadCore, AudioSink, SocketTransport, UpgradingTransport, type SessionEvent, type Transport } from '$lib/znet';
   import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
   import { createLockstepEngine, type LockstepEngine } from '$lib/rooms/lockstep-engine';
   import { createRoom, leaveGroup, chooseGameForGroup } from '$lib/rooms/actions';
   import { gameClick } from '$lib/rooms/game-click';
+  import { resumeSaveToRequest } from '$lib/rooms/resume-save';
   import { decodeSram } from '$lib/rooms/sram';
   import { toBase64, fromBase64 } from '$lib/saves/base64';
   import { socket } from '$lib/api/socket';
@@ -116,8 +117,31 @@
   /** The dump whose launch options the screen is showing, or null for the
    * checkerboard. */
   let launchFor: string | null = null;
-  /** Solo only: no room exists yet to hold it. See the spec's D5. */
+  /**
+   * A save staged before a group exists to carry it.
+   *
+   * Not "solo only" any more: `launch-options.ts`'s `chosenSaveId` reads this
+   * whenever the room holds fewer than two players, which is a lone creator's
+   * group room just as much as no room at all - `launch-options.ts` explains
+   * why that rule is keyed on being a group rather than on a room existing.
+   * Once a friend is really there, `room.resumeSaveId` takes over and this is
+   * ignored, per the spec's D5.
+   */
   let stagedSaveId: string | null = null;
+  /**
+   * The room and host-ness a live group game is playing under, and the save
+   * still owed a `game:load` once the session first reports `running`.
+   *
+   * Snapshotted in `launchTogether` rather than read fresh from `$myRoom`
+   * everywhere: `onSessionEvent` and `awaitSave`'s reply run outside that
+   * function's closure, and `hostId` moving to the other player mid-game must
+   * not change which peer this session was built to be.
+   */
+  let groupRoomId: string | null = null;
+  let groupIsHost = false;
+  /** Null once asked (or for a guest, who never asks - see `resume-save.ts`),
+   * so a `running` after a resync cannot re-request and rewind the game. */
+  let pendingResumeSaveId: string | null = null;
   /**
    * A plain `let`, set once in `enter()` and reassigned by the switch in
    * `activate()` - never `$: padScheme = readPadScheme(localStorage)`. Made
@@ -473,8 +497,8 @@
         if (room && room.players.length >= 2) {
           // Any member may start: `game:start` asks only for membership, a
           // chosen game and one seated player. The engine is built when
-          // `game:started` comes back, in Task 8 - not here, because the
-          // friend may start it too.
+          // `game:started` comes back - not here, because the friend may
+          // start it too.
           $socket?.emit('game:start', { roomId: room.id });
           return;
         }
@@ -544,7 +568,7 @@
 
       const roomId = await createRoom({ gameId: game.id, gameTitle: game.title, autoStart: true });
       if (!roomId) {
-        launchNotice = t($language, 'vrLaunchFailed');
+        launchNotice = t($language, 'vrModeNotLockstep');
         repaintLibrary();
         return;
       }
@@ -668,7 +692,7 @@
           // Once. A reconnect must not rewind the game - the same rule the
           // flat path states about `resumeSaveId`.
           stagedSaveId = null;
-          awaitSave(core, roomId, wanted);
+          awaitSave(roomId, wanted, (bytes) => core.loadState(bytes));
         }
 
         /*
@@ -741,12 +765,24 @@
    * whenever the handler never runs - a save id the server no longer has, a
    * room already gone, a dropped packet - and this socket outlives the VR
    * session, so the leak outlives it too. Two relaunches would then leave two
-   * closures, and a late reply would call `loadState` on a core whose engine
-   * has already been stopped. `readRoomSram` bounds its own one-shot for
-   * exactly this reason; this one now does the same, and `teardown` takes it
-   * off on the way out.
+   * closures, and a late reply would apply a save to a core whose engine has
+   * already been stopped. `readRoomSram` bounds its own one-shot for exactly
+   * this reason; this one now does the same, and `teardown` takes it off on
+   * the way out.
+   *
+   * `apply` is a parameter rather than a hardcoded `core.loadState` because
+   * solo and a group game disagree on what "loading a save" means once a
+   * session exists: solo owns the only core there is, but in lockstep only
+   * the host may act on the reply - the guest's copy is meant to arrive as an
+   * ordinary resync over the netplay protocol instead (`resume-save.ts`
+   * states the rule; `onSessionEvent`'s `'state'` case is where the group
+   * caller lives).
    */
-  function awaitSave(core: PsnesCore, roomId: string, saveId: string): void {
+  function awaitSave(
+    roomId: string,
+    saveId: string,
+    apply: (bytes: Uint8Array, name?: string) => void
+  ): void {
     const sock = $socket;
     if (!sock) return;
 
@@ -756,12 +792,12 @@
       logger.warn('vr save load never answered', { roomId, saveId });
     }, 5000);
 
-    saveListener = (payload: { saveData?: string }) => {
+    saveListener = (payload: { saveData?: string; name?: string }) => {
       clearTimeout(timer);
       dropSaveListener();
       if (!payload?.saveData) return;
       try {
-        core.loadState(fromBase64(payload.saveData));
+        apply(fromBase64(payload.saveData), payload.name);
       } catch (err) {
         logger.error('vr could not decode the save', err);
         launchNotice = t($language, 'vrLaunchFailed');
@@ -773,7 +809,7 @@
   }
 
   /** Held at component scope so `teardown` can take it off the shared socket. */
-  let saveListener: ((payload: { saveData?: string }) => void) | null = null;
+  let saveListener: ((payload: { saveData?: string; name?: string }) => void) | null = null;
 
   function dropSaveListener(): void {
     if (!saveListener) return;
@@ -813,13 +849,50 @@
   async function launchTogether(roomId: string, crc32: string, isHost: boolean): Promise<void> {
     if (launching) return;
     launching = true;
+    // Built before the engine exists to own it, so it is this function's own
+    // job to close it on every path that abandons it before that handoff -
+    // see the two `transport.close()`/`transport?.close()` calls below.
+    let transport: Transport | null = null;
     try {
+      /*
+       * D6: lockstep, and lockstep only.
+       *
+       * A creator who set streaming or dual from the flat page would
+       * otherwise hand a VR peer a `LockstepEngine` built against a
+       * `P2PRoom` on the other end - a session with nothing to talk to,
+       * failing in mutual silence rather than a stated refusal.
+       *
+       * `emulationMode` is not in `my-room.ts`'s `RoomView` - round A left it
+       * out of the store's type - but `toPublicRoom` (backend) always sends
+       * it, on every `room:update`, so it is on the wire and this reads it
+       * with a local cast rather than widening a file outside this fix's
+       * scope.
+       */
+      const mode = $myRoom?.emulationMode;
+      if (mode && mode !== 'lockstep') {
+        // Refused locally, not on the server: the room's game is left alone
+        // rather than released, because a mode of streaming or dual is
+        // exactly the shape a flat `P2PRoom` on the other end is built to
+        // run, and releasing it here could kill a game that is working fine
+        // for them.
+        launchNotice = t($language, 'vrLaunchFailed');
+        scene?.panelsVisible(true);
+        repaintLibrary();
+        return;
+      }
+
+      // Lets one query pull both players' lines for the same match, exactly
+      // as `LockstepRoom.svelte`'s own `boot()` does - the one label the solo
+      // path (`launch()` above) has no use for, since it plays alone.
+      setLogLabels({ roomId, player: isHost ? 'p1' : 'p2' });
+
       const rom = await resolveQuietly(crc32, { requestPermission: false });
       if (!rom) {
         // The refusal the launch screen already predicted. Saying it twice is
         // better than a black screen.
         launchNotice = t($language, 'vrRomMissing');
-        repaintLaunch();
+        scene?.panelsVisible(true);
+        repaintLibrary();
         return;
       }
 
@@ -830,16 +903,26 @@
       // `import.meta.env`, exactly as `LockstepRoom.svelte` notes.
       const { ZnetWebRtcTransport } = await import('$lib/znet/webrtc-transport');
       const relay = new SocketTransport($socket as never, roomId);
-      const transport = new UpgradingTransport(
+      transport = new UpgradingTransport(
         relay,
         new ZnetWebRtcTransport($socket as never, roomId, isHost)
       );
 
       if (!scene) {
+        transport.close();
         void audio.stop();
         audio = null;
         return;
       }
+
+      // Snapshotted for `onSessionEvent` and `awaitSave`'s reply, which run
+      // outside this function's closure - see the header on the `let`s
+      // themselves. `resumeSaveToRequest` is the same rule `LockstepRoom.svelte`
+      // follows: null for a guest, who never asks and would discard its own
+      // reply anyway (`resume-save.ts`).
+      groupRoomId = roomId;
+      groupIsHost = isHost;
+      pendingResumeSaveId = resumeSaveToRequest($myRoom, $myRoom?.createdBy === $user?.id, null);
 
       engine = await createLockstepEngine({
         core,
@@ -873,11 +956,14 @@
        * `audio`. The pending promise then resolves onto a corpse and, without
        * this, reassigns `engine`, starts a governor and arms a thirty-second
        * SRAM timer that nothing is left to stop. `scene` being null is the
-       * signal, exactly as the solo path reads it (`VrShell.svelte:643-662`).
+       * signal, exactly as the solo path reads it above.
        */
       if (!scene) {
         void engine.stop();
         engine = null;
+        groupRoomId = null;
+        groupIsHost = false;
+        pendingResumeSaveId = null;
         giveUpRoom();
         void audio?.stop();
         audio = null;
@@ -890,18 +976,23 @@
       scene.screen.showPicture();
       scene?.panelsVisible(false);
       // The engine does not start its own governor - `solo-engine.ts` does not
-      // either, and `SoloRoom.svelte:582` and `VrShell.svelte:705` are where
-      // the flat and solo paths start theirs. Task 5's implementer found this
-      // the hard way: starting it inside the engine reaches
-      // `requestAnimationFrame` and cannot run under Bun at all.
+      // either, and `SoloRoom.svelte`'s own `boot()` and this file's `launch()`
+      // above are where the flat and solo paths start theirs: starting it
+      // inside the engine reaches `requestAnimationFrame`, which does not
+      // exist under the node test runner.
       engine.governor.start();
       repaintProfile();
     } catch (err) {
       logger.error('vr lockstep failed to start', err);
       launchNotice = t($language, 'vrLaunchFailed');
-      repaintLaunch();
+      scene?.panelsVisible(true);
+      repaintLibrary();
+      transport?.close();
       void engine?.stop();
       engine = null;
+      groupRoomId = null;
+      groupIsHost = false;
+      pendingResumeSaveId = null;
       void audio?.stop();
       audio = null;
     } finally {
@@ -929,15 +1020,92 @@
     });
   }
 
+  /**
+   * A mid-game notice, painted where it can actually be seen.
+   *
+   * There is no HUD over the running picture: `frame()` reads
+   * `scene.arePanelsVisible()` to decide whether the trigger is a pointer or
+   * the SNES R button, and both `readVrPad` call sites zero the pad while the
+   * panels are up - so forcing them up for a transient `desync` or
+   * `link-lost` would silently take the controller away mid-play, which is a
+   * worse surprise than the notice it would carry. Painted onto the library
+   * band instead, unseen until the player raises the panels on their own
+   * (the menu button, or `vrResume`'s own screen) to check on the game - at
+   * which point it is already there instead of needing another frame to
+   * catch up.
+   *
+   * Not localised: none of the three events this feeds have copy in
+   * `translations.ts` yet, and adding one is outside this file's own scope.
+   */
+  function noteOnLibrary(event: SessionEvent): void {
+    /*
+     * A sentence, not an identifier.
+     *
+     * This composed `${event.type}: ${event.message}` - so a player read
+     * "link-lost" off a two-metre screen. The event names are for the log,
+     * which `onSessionEvent` already writes; what reaches the band has to say
+     * what happened and whether to wait.
+     */
+    launchNotice = t($language, NOTICE_FOR[event.type] ?? 'vrLaunchFailed');
+    repaintLibrary();
+  }
+
+  /** Only the three the player can act on; the rest never reach the band. */
+  const NOTICE_FOR: Partial<Record<SessionEvent['type'], 'vrDesync' | 'vrLinkLost' | 'vrLinkRestored'>> = {
+    desync: 'vrDesync',
+    'link-lost': 'vrLinkLost',
+    'link-restored': 'vrLinkRestored'
+  };
+
+  /**
+   * Puts the curved screen back on something a player can act on, instead of
+   * leaving a dead game's last frame up front and centre.
+   *
+   * Reopens the launch screen for the room's own game when the library still
+   * has it - the same options screen `repaintLaunch` would have shown before
+   * the game started - and falls back to the test pattern otherwise, exactly
+   * as `repaintLaunch` itself does when a dump leaves the library mid-session.
+   */
+  function backToLaunchScreen(): void {
+    const crc32 = $myRoom?.gameCrc32 ?? null;
+    if (crc32 && entryFor(crc32)) {
+      launchFor = crc32;
+      repaintLaunch();
+      return;
+    }
+    launchFor = null;
+    if (scene) {
+      scene.screen.regions.length = 0;
+      scene.screen.showTestPattern();
+    }
+  }
+
   /** The whole session event surface: covers every member of `SessionEvent`'s
    *  `type` union, and none may be silent - see `session.ts` for what each
    *  one means. */
   function onSessionEvent(event: SessionEvent): void {
     switch (event.type) {
       case 'state':
+        logger.info('vr session', event);
+        // Once, and only here: 'running' comes back after every resync too,
+        // and re-sending this would rewind a match that had already moved on
+        // - `LockstepRoom.svelte`'s own handler states the same rule for the
+        // flat path's `resumeSaveId`.
+        if (event.message === 'running' && pendingResumeSaveId && groupRoomId) {
+          const wanted = pendingResumeSaveId;
+          pendingResumeSaveId = null;
+          const applyingHost = groupIsHost;
+          awaitSave(groupRoomId, wanted, (bytes, name) => {
+            // D5: only the host adopts and reseeds the session; the guest
+            // gets the change as an ordinary resync over the netplay
+            // protocol, exactly like `LockstepRoom.svelte`'s `onSaveLoaded`.
+            if (!applyingHost) return;
+            (engine as LockstepEngine | null)?.adoptState(bytes, `save "${name ?? ''}"`);
+          });
+        }
+        break;
       case 'resync-start':
       case 'resync-done':
-      case 'link-restored':
       case 'peer-ready':
       case 'rtt':
         logger.info('vr session', event);
@@ -945,11 +1113,17 @@
       case 'desync':
       case 'link-lost':
         logger.warn('vr session', event);
+        noteOnLibrary(event);
+        break;
+      case 'link-restored':
+        logger.info('vr session', event);
+        noteOnLibrary(event);
         break;
       case 'error':
         logger.error('vr session', event);
         // Back to the screen that can explain itself, rather than a picture
-        // that has stopped moving for no stated reason.
+        // that has stopped moving for no stated reason - `stopTogether`
+        // below is what actually puts it there.
         launchNotice = t($language, 'vrLaunchFailed');
         void stopTogether();
         break;
@@ -957,12 +1131,11 @@
         /*
          * An exhaustiveness assertion, not a catch-all.
          *
-         * The plan asked for this switch to carry no `default` so that an
-         * unhandled member would be a type error. That does not work: a
+         * Carrying no `default` at all would not protect this switch: a
          * statement switch with no return is not exhaustiveness-checked, so
-         * the protection was imaginary and a tenth `SessionEvent` would have
-         * been dropped in silence - which is what `LockstepRoom.svelte`'s own
-         * handler does today with three of the nine.
+         * an unhandled member would silently do nothing - which is what
+         * `LockstepRoom.svelte`'s own handler does today with three of the
+         * nine.
          *
          * Assigning the narrowed value to `never` is what makes the compiler
          * name the member nobody handled.
@@ -978,19 +1151,53 @@
    * Tears the lockstep engine down after `onSessionEvent` reports `error`, and
    * gives the room back the same way every other end-of-game path does.
    *
-   * Not defined by Task 8's brief, which calls it without a body - the panels
-   * are also raised here, because without that the "screen that can explain
-   * itself" the brief's own comment promises is exactly the frozen picture it
-   * says this is better than: the library's notice band is what carries the
-   * message, and it is invisible while `panelsVisible` is false.
+   * Raises the panels, because the library's notice band that carries the
+   * error message is invisible while `panelsVisible` is false, and puts the
+   * curved screen itself back on the launch options rather than leaving the
+   * dead game's last frame up front and centre - see `backToLaunchScreen`.
+   * A session-level `error` is treated as fatal to the game for both
+   * players, not just this one: the same lockstep session is what just broke,
+   * so `giveUpRoom` releases the room's game rather than only this seat - see
+   * its own header for the full reasoning.
    */
   async function stopTogether(): Promise<void> {
     await engine?.stop();
     engine = null;
     void audio?.stop();
     audio = null;
+    groupRoomId = null;
+    groupIsHost = false;
+    pendingResumeSaveId = null;
     giveUpRoom();
     scene?.panelsVisible(true);
+    backToLaunchScreen();
+    repaintLibrary();
+    repaintProfile();
+  }
+
+  /**
+   * The other side of a group game ending: the friend released it (their own
+   * quit button or pause menu, from the flat page), and the server has
+   * already told the whole room by the time this fires.
+   *
+   * Local cleanup only. Unlike `stopTogether`, this never calls `giveUpRoom`
+   * - nothing here decided to end the game, so there is nothing to give back
+   * that the other player has not already taken care of - and it never
+   * touches the socket. Guarded on `engine` so the echo of this player's own
+   * `room:release-game` (see `giveUpRoom`) is a safe no-op: `teardown` and
+   * `stopTogether` both null `engine` before they can cause that echo.
+   */
+  function onGameStopped(): void {
+    if (!engine) return;
+    void engine.stop();
+    engine = null;
+    void audio?.stop();
+    audio = null;
+    groupRoomId = null;
+    groupIsHost = false;
+    pendingResumeSaveId = null;
+    scene?.panelsVisible(true);
+    backToLaunchScreen();
     repaintLibrary();
     repaintProfile();
   }
@@ -1158,6 +1365,23 @@
       // to both members once either of them asks, and `onGameStarted` reads
       // `$myRoom` fresh rather than trusting anything carried on the event.
       $socket?.on('game:started', onGameStarted);
+      // The friend's own quit reaches this listener the same way - the only
+      // path that can tell the *other* player of a netplay room the match is
+      // over, exactly as `room-session.ts` states for the flat page.
+      $socket?.on('game:stopped', onGameStopped);
+
+      /*
+       * `game:started` and `game:stopped` are room-channel events, and
+       * `socket.join(room.id)` only ever happens in `room:create` and
+       * `joinRoom` (`room:join`'s handler) - never on its own for a socket
+       * that reconnects. A VR player who reloads, or opens a fresh tab, then
+       * enters VR while already in a group is on a socket the room channel
+       * has never seen, exactly the gap the flat room page closes by
+       * emitting this on every mount. Without it, pressing Launch here gets
+       * `game:start` accepted server-side with nobody left to hear the
+       * `game:started` that was supposed to build the engine.
+       */
+      if ($myRoom) $socket?.emit('room:join', { roomId: $myRoom.id });
 
       profilePanel = scene.addPanel('profile', scene.layout.profile, PROFILE_PANEL_SIZE);
       repaintProfile();
@@ -1207,16 +1431,44 @@
    * Hands the room back.
    *
    * Called from every path that ends a game without another taking its place:
-   * the ordinary exit, a session that died mid-launch, and a launch whose
-   * engine never started. NOT from the relaunch guard - `createRoom` has
-   * already run there, and the server dropped the old room when it did.
+   * the ordinary exit, a session that died mid-launch, a launch whose engine
+   * never started, and a lockstep session `onSessionEvent` gave up on. NOT
+   * from the relaunch guard - `createRoom` has already run there, and the
+   * server dropped the old room when it did. NOT from `onGameStopped` either
+   * - that path did not decide to end the game, the other player did, and
+   * there is nothing left here to give back.
+   *
+   * Two different ways to give a room back, chosen deliberately rather than
+   * one applied everywhere.
+   *
+   * A room this shell created for itself (`ownedRoomId`, solo only) is given
+   * up for real, through `leaveGroup`'s `room:leave` - a solo room only ever
+   * has one member, so leaving it and destroying it are the same act.
+   *
+   * A group's room is never left this way. `room:leave` is, in the flat
+   * lobby's own words, "what dissolves a group of two" - exactly what
+   * quitting a shared GAME must not do. The flat lobby's quit button and its
+   * pause-menu twin (`+page.svelte`'s `releaseGame`, `LockstepRoom.svelte`'s
+   * `quitToLobby`) both emit `room:release-game` instead: the game is
+   * detached, the room and its membership survive, and the friend keeps
+   * their seat to pick another game together. Ending a VR player's group
+   * game the harsher way, for no reason tied to VR at all, would be a worse
+   * exit than the same action already takes on the flat page - so this
+   * mirrors `room:release-game` for the group case too.
    *
    * Silent when there is nothing owed, so it is safe to call twice.
    */
   function giveUpRoom(): void {
-    if (!ownedRoomId) return;
-    leaveGroup(ownedRoomId);
-    ownedRoomId = null;
+    if (ownedRoomId) {
+      leaveGroup(ownedRoomId);
+      ownedRoomId = null;
+      return;
+    }
+
+    const room = $myRoom;
+    if (room && room.players.length >= 2 && room.status === 'playing') {
+      $socket?.emit('room:release-game', { roomId: room.id });
+    }
   }
 
   /** Assumes the browser's `XRSession` is already gone. Only `onEnd` above may
@@ -1229,12 +1481,16 @@
     // already released.
     await engine?.stop();
     engine = null;
+    groupRoomId = null;
+    groupIsHost = false;
+    pendingResumeSaveId = null;
     // After the engine, so the last cartridge save is written while the room
     // that stores it still exists.
     giveUpRoom();
     // Closes the AudioContext rather than just dropping the reference - the
-    // same leak Finding 2's relaunch guard closes on its own path, but this
-    // is the ordinary one: every session that ever launched a game takes it.
+    // same leak the relaunch guard in `launch()` closes on its own path, but
+    // this is the ordinary one: every session that ever launched a game
+    // takes it.
     void audio?.stop();
     audio = null;
     scene?.dispose();
@@ -1246,6 +1502,7 @@
     $socket?.off('friends:online', handleFriendsOnline);
     $socket?.off('friend:statusChanged', handleFriendStatusChanged);
     $socket?.off('game:started', onGameStarted);
+    $socket?.off('game:stopped', onGameStopped);
     friendsPanel = null;
     friendEntries = [];
     onlineFriends = new Map();
