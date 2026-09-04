@@ -10,6 +10,7 @@ import { requireGame } from '../rooms/require-game.js';
 import { saveSuitsRoom } from '../rooms/save-suits-room.js';
 import { findOwnGameIdForRoom } from '../rooms/own-game.js';
 import { onlinePlayers } from '../rooms/online-players.js';
+import { broadcastRoomUpdate } from './room-handlers.js';
 
 const logger = createLogger('Game');
 
@@ -68,6 +69,11 @@ export function registerGameHandlers(
 
     room.status = 'playing';
     io.to(data.roomId).emit('room:updated', room);
+    // Also to `room:update`: the VR launch screen reads `status` off
+    // `my-room.ts`, which only `broadcastRoomUpdate` feeds. Without this the
+    // room never left `waiting` from a VR player's point of view, and the
+    // "already playing" guard in `launch-options.ts` could never fire.
+    await broadcastRoomUpdate(io, room, getUserSocket);
 
     await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'playing', getUserSocket);
 
@@ -137,6 +143,10 @@ export function registerGameHandlers(
     });
     io.to(data.roomId).emit('game:stopped');
     io.to(data.roomId).emit('room:updated', room);
+    // The inverse of `game:start`'s broadcast, for the same reason: without
+    // it a VR player whose friend stopped the game from the flat page would
+    // never see the room leave `playing`.
+    await broadcastRoomUpdate(io, room, getUserSocket);
     logger.info({ roomId: room.id }, 'Game stopped (client-side emulation)');
   });
 

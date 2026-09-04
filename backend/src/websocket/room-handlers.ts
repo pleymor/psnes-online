@@ -285,7 +285,14 @@ export function registerRoomHandlers(
   });
 
   // Select controller port
-  socket.on('room:selectPort', (data: { roomId: string; port: 1 | 2 }) => {
+  //
+  // Broadcasts to `room:update` too (`broadcastRoomUpdate`), matching
+  // `room:choose-game`'s pattern. Taking a seat declares ready in the same
+  // stroke - the spec's own words for it - and that is exactly the kind of
+  // change the VR launch screen has to see: it reads `my-room.ts`, which only
+  // `room:update` (no `d`) feeds. Without this a friend selecting a port never
+  // repainted the headset's screen.
+  socket.on('room:selectPort', async (data: { roomId: string; port: 1 | 2 }) => {
     const room = rooms.get(data.roomId);
     if (!room) return;
 
@@ -302,10 +309,12 @@ export function registerRoomHandlers(
     player.port = data.port;
     player.isReady = true;
     io.to(data.roomId).emit('room:updated', room);
+    await broadcastRoomUpdate(io, room, getUserSocket);
   });
 
-  // Unselect controller port
-  socket.on('room:unselectPort', (data: { roomId: string }) => {
+  // Unselect controller port - the inverse of `room:selectPort`, so it
+  // broadcasts for the same reason.
+  socket.on('room:unselectPort', async (data: { roomId: string }) => {
     const room = rooms.get(data.roomId);
     if (!room) return;
 
@@ -315,6 +324,7 @@ export function registerRoomHandlers(
     player.port = null;
     player.isReady = false;
     io.to(data.roomId).emit('room:updated', room);
+    await broadcastRoomUpdate(io, room, getUserSocket);
   });
 
   // Update key config
@@ -329,8 +339,12 @@ export function registerRoomHandlers(
     io.to(data.roomId).emit('room:updated', room);
   });
 
-  // Toggle ready
-  socket.on('room:toggleReady', (data: { roomId: string }) => {
+  // Toggle ready. No caller in the frontend today - `room:selectPort` and
+  // `room:unselectPort` are the only ways a player's readiness actually
+  // changes - but it mutates the same field the VR launch screen reads, so it
+  // gets the same broadcast rather than being a second, inconsistent way to
+  // flip `isReady`.
+  socket.on('room:toggleReady', async (data: { roomId: string }) => {
     const room = rooms.get(data.roomId);
     if (!room) return;
 
@@ -339,6 +353,7 @@ export function registerRoomHandlers(
 
     player.isReady = !player.isReady;
     io.to(data.roomId).emit('room:updated', room);
+    await broadcastRoomUpdate(io, room, getUserSocket);
   });
 
   /*
@@ -376,8 +391,12 @@ export function registerRoomHandlers(
    * only at boot, a wrong save became an error over a running game; checked
    * here, it is a refusal in the lobby, where there is still something to do
    * about it.
+   *
+   * Broadcasts to `room:update` too, same as `room:choose-game`: the VR
+   * launch screen reads `resumeSaveId` off `my-room.ts`, which only that
+   * event feeds. Without it a staged save was a visible no-op in a headset.
    */
-  socket.on('room:choose-save', (data: { roomId: string; saveId: string | null }) => {
+  socket.on('room:choose-save', async (data: { roomId: string; saveId: string | null }) => {
     const room = rooms.get(data?.roomId);
     if (!room) return;
     if (room.createdBy !== user.id) {
@@ -394,6 +413,7 @@ export function registerRoomHandlers(
       room.resumeSaveId = undefined;
       room.resumeSaveName = undefined;
       io.to(room.id).emit('room:updated', room);
+      await broadcastRoomUpdate(io, room, getUserSocket);
       logger.info({ roomId: room.id }, 'Starting save cleared');
       return;
     }
@@ -419,6 +439,7 @@ export function registerRoomHandlers(
     room.resumeSaveId = save.id;
     room.resumeSaveName = save.name;
     io.to(room.id).emit('room:updated', room);
+    await broadcastRoomUpdate(io, room, getUserSocket);
     logger.info({ roomId: room.id, saveId: save.id, by: user.pseudo }, 'Starting save staged');
   });
 

@@ -71,9 +71,14 @@ export interface LaunchLabels {
 	port2: string;
 	waitingForFriend: string;
 	friendReady: string;
+	/** The friend line's short state word when `FriendState.online` is false. */
+	friendAway: string;
 	romMissing: string;
 	alreadyPlaying: string;
 	noSeat: string;
+	/** The blocked-launch banner for `'friend-away'` - a full sentence, like
+	 * the other three `blockedLabel` cases, not the short word above. */
+	friendAwayBlocked: string;
 }
 
 /** The rows the list shows, capped, with "start fresh" always first. */
@@ -197,8 +202,16 @@ function blockedLabel(options: LaunchOptions, labels: LaunchLabels): string | nu
 			return labels.alreadyPlaying;
 		case 'no-seat':
 			return labels.noSeat;
-		default:
+		case 'friend-away':
+			return labels.friendAwayBlocked;
+		case null:
 			return null;
+		default: {
+			// Exhaustiveness the compiler enforces: a new `LaunchBlock` member
+			// with no case here is a type error, not a silently blank banner.
+			const _exhaustive: never = options.blocked;
+			return _exhaustive;
+		}
 	}
 }
 
@@ -278,7 +291,14 @@ export function drawLaunchPanel(
 		ctx.font = '22px system-ui, sans-serif';
 		ctx.fillStyle = '#c2c2d2';
 		ctx.textAlign = 'left';
-		const state = options.friend.isReady ? labels.friendReady : labels.waitingForFriend;
+		// Away outranks ready/waiting: a closed tab keeps both the port and
+		// `isReady`, so those two would otherwise go on describing a friend who
+		// is not there to have either.
+		const state = !options.friend.online
+			? labels.friendAway
+			: options.friend.isReady
+				? labels.friendReady
+				: labels.waitingForFriend;
 		ctx.fillText(`${options.friend.pseudo} — ${state}`, PORT_X, FRIEND_Y);
 
 		const one = byId.get('port:1');

@@ -42,9 +42,11 @@ const LABELS: LaunchLabels = {
   port2: 'Player 2',
   waitingForFriend: 'Waiting for your friend',
   friendReady: 'Ready',
+  friendAway: 'Away',
   romMissing: 'This game is not on this device. Launch it once outside VR.',
   alreadyPlaying: 'This room is already playing.',
-  noSeat: 'Somebody has to take a controller first.'
+  noSeat: 'Somebody has to take a controller first.',
+  friendAwayBlocked: 'A player is away. Wait for them to come back before starting.'
 };
 
 const SAVES = [
@@ -129,7 +131,8 @@ test('a blocked launch has no launch region, and says which block it is', () => 
   for (const [blocked, label] of [
     ['rom-missing', LABELS.romMissing],
     ['already-playing', LABELS.alreadyPlaying],
-    ['no-seat', LABELS.noSeat]
+    ['no-seat', LABELS.noSeat],
+    ['friend-away', LABELS.friendAwayBlocked]
   ] as const) {
     const o = options({ blocked, romHere: blocked !== 'rom-missing' });
     const ids = layoutLaunchPanel(o, LABELS).map((r) => r.id);
@@ -273,6 +276,23 @@ test('the friend line says ready only when the friend is ready', () => {
   ).texts.join('\n');
   assert.ok(ready.includes(LABELS.friendReady), 'ready must say ready');
   assert.ok(!ready.includes(LABELS.waitingForFriend), 'ready must not also claim waiting');
+});
+
+// `FriendState.online` was computed and never drawn: a friend who closed
+// their tab kept their port and `isReady`, so the line above would have kept
+// reading "Ready" with nobody there to have pressed anything.
+test('the friend line says away when the friend is offline, whatever their port says', () => {
+  const awayButReady = draw(
+    options({ friend: { pseudo: 'Bob', online: false, port: 2, isReady: true } })
+  ).texts.join('\n');
+  assert.ok(awayButReady.includes(LABELS.friendAway), 'offline must say away');
+  assert.ok(!awayButReady.includes(LABELS.friendReady), 'a stale "ready" must not survive the friend leaving');
+  assert.ok(!awayButReady.includes(LABELS.waitingForFriend), 'nor a stale "waiting"');
+
+  const present = draw(
+    options({ friend: { pseudo: 'Bob', online: true, port: 2, isReady: true } })
+  ).texts.join('\n');
+  assert.ok(!present.includes(LABELS.friendAway), 'online must not also claim away');
 });
 
 // No test above ever passed a hoverId, so the outline block could be

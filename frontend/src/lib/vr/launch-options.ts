@@ -60,7 +60,7 @@ export interface FriendState {
 }
 
 /** Why a launch is refused. Ordered by what the player can do about it. */
-export type LaunchBlock = 'rom-missing' | 'already-playing' | 'no-seat';
+export type LaunchBlock = 'rom-missing' | 'already-playing' | 'no-seat' | 'friend-away';
 
 export interface LaunchOptions {
 	game: { title: string; coverUrl?: string; crc32: string };
@@ -116,9 +116,26 @@ export function launchOptions(input: LaunchInput): LaunchOptions | null {
 	return {
 		game: { title: entry.title, coverUrl: entry.coverUrl, crc32: input.crc32 },
 		saves: entry.saves,
-		chosenSaveId: room ? room.resumeSaveId ?? null : input.stagedSaveId ?? null,
-		// In solo the room does not exist yet, so it will be created by me.
-		mayChooseSave: !room || room.createdBy === input.me,
+		/*
+		 * Keyed on being a group, not on a room existing.
+		 *
+		 * A room holding only me is an ordinary state - an empty room is how a
+		 * group starts, before the friend accepts - and until the friend is
+		 * really there the save I am staging is mine alone, exactly like solo.
+		 * Keying this on `room` instead read a lone creator as already in a
+		 * group: the screen drew `room.resumeSaveId` (always empty for a room
+		 * nobody has staged anything in yet) while the component staged into a
+		 * local variable nothing here could see, so the chosen-save marker
+		 * landed on the wrong row and the launch resumed from something the
+		 * screen never showed.
+		 */
+		chosenSaveId: room && room.players.length >= 2
+			? room.resumeSaveId ?? null
+			: input.stagedSaveId ?? null,
+		// Same key, same reason: a one-player room otherwise greyed out the
+		// list because `createdBy` belongs to someone who has not joined
+		// anything yet - a refusal the solo launch would never have made.
+		mayChooseSave: !room || room.players.length < 2 || room.createdBy === input.me,
 		myPort: mine?.port ?? null,
 		friend: other
 			? { pseudo: other.pseudo, online: other.online, port: other.port, isReady: other.isReady }
@@ -146,5 +163,18 @@ function blockedBy(room: LaunchRoom | null, romHere: boolean): LaunchBlock | nul
 	if (room.players.length >= 2 && !room.players.some((p) => p.port !== null && p.isReady)) {
 		return 'no-seat';
 	}
+
+	/*
+	 * Mirrors `game:start`'s second guard, exactly rather than approximately:
+	 * a seat is not a presence. A member who closes their tab keeps their port
+	 * and `isReady` - giving it away is what the seating rule exists to stop -
+	 * so the screen would otherwise show "Ready", offer a live Launch button,
+	 * and get back a server `error` that nothing in a headset draws.
+	 */
+	const seated = room.players.filter((p) => p.port !== null && p.isReady);
+	if (seated.some((p) => p.online !== true)) {
+		return 'friend-away';
+	}
+
 	return null;
 }

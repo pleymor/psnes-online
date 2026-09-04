@@ -132,6 +132,47 @@ test('the chosen save comes from the room in a group, and from the staged value 
   assert.equal(alone!.chosenSaveId, 's1', 'nothing else holds it before the room exists');
 });
 
+test('the save may be chosen alone, even in a room somebody else created', () => {
+  /*
+   * `createdBy` never changes once a room exists - only `hostId` does, when
+   * the creator leaves. A room built by a friend who then left is a real
+   * state, not a hypothetical one: the lone remaining player's room still
+   * carries the departed creator's id. Keying `mayChooseSave` on the room
+   * existing, instead of on being a group, read this exactly like a guest in
+   * somebody else's group and greyed out a list the solo launch would have
+   * accepted whole.
+   */
+  const options = launchOptions({
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({
+      createdBy: 'you',
+      players: [{ userId: 'me', pseudo: 'Ada', port: 1, isReady: true, online: true }]
+    }),
+    me: 'me',
+    openable: OPENABLE
+  });
+  assert.equal(options!.mayChooseSave, true, 'alone is alone, whoever created the room');
+});
+
+test('the chosen save is the staged one alone, even over a stale resumeSaveId', () => {
+  // The same room as above can still carry a `resumeSaveId` from before the
+  // friend left. A room holding only me is not the group truth that field
+  // belongs to - the locally staged choice is, exactly as in solo.
+  const options = launchOptions({
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({
+      players: [{ userId: 'me', pseudo: 'Ada', port: 1, isReady: true, online: true }],
+      resumeSaveId: 's1'
+    }),
+    me: 'me',
+    openable: OPENABLE,
+    stagedSaveId: undefined
+  });
+  assert.equal(options!.chosenSaveId, null, 'a stale resumeSaveId is not mine to inherit while alone');
+});
+
 test('there is no friend when there is no group', () => {
   const alone = launchOptions({
     library: library(),
@@ -312,6 +353,69 @@ test('a missing ROM outranks a missing seat', () => {
       players: [
         { userId: 'me', pseudo: 'Ada', port: null, isReady: false, online: true },
         { userId: 'you', pseudo: 'Bob', port: null, isReady: false, online: true }
+      ]
+    }),
+    me: 'me',
+    openable: new Set<string>()
+  });
+  assert.equal(options!.blocked, 'rom-missing');
+});
+
+test('a friend who has gone away blocks the launch, mirroring the server', () => {
+  /*
+   * `game:start` refuses when a seated player - port taken, ready - is not
+   * online: a closed tab keeps both, so the room would otherwise show
+   * "Ready" and a live Launch button that earns an `error` nothing in a
+   * headset draws.
+   */
+  const options = launchOptions({
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({
+      players: [
+        { userId: 'me', pseudo: 'Ada', port: 1, isReady: true, online: true },
+        { userId: 'you', pseudo: 'Bob', port: 2, isReady: true, online: false }
+      ]
+    }),
+    me: 'me',
+    openable: OPENABLE
+  });
+  assert.equal(options!.blocked, 'friend-away');
+});
+
+test('an away friend who never took a seat does not block the launch', () => {
+  /*
+   * Mirroring the server exactly rather than approximating it: `game:start`
+   * only inspects players who are seated - port and ready - never every
+   * player in the room. An away friend with no seat was never who the game
+   * was waiting on, so a version of this rule that reads "any offline
+   * player blocks" would fail this where the real guard does not.
+   */
+  const options = launchOptions({
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({
+      players: [
+        { userId: 'me', pseudo: 'Ada', port: 1, isReady: true, online: true },
+        { userId: 'you', pseudo: 'Bob', port: null, isReady: false, online: false }
+      ]
+    }),
+    me: 'me',
+    openable: OPENABLE
+  });
+  assert.equal(options!.blocked, null);
+});
+
+test('a missing ROM outranks an away friend', () => {
+  // Same ranking as the missing seat above: nothing in here fixes a ROM
+  // that is not on the device, so that is the reason to lead with.
+  const options = launchOptions({
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({
+      players: [
+        { userId: 'me', pseudo: 'Ada', port: 1, isReady: true, online: true },
+        { userId: 'you', pseudo: 'Bob', port: 2, isReady: true, online: false }
       ]
     }),
     me: 'me',
