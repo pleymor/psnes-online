@@ -494,7 +494,17 @@ export const translations = {
     vrSeatedHint: 'Played seated or standing still',
     vrSeatedTitle:
       'This experience is designed to be played seated or standing still, so a stationary boundary is enough.',
-    vrDpad: 'D-pad'
+    vrDpad: 'D-pad',
+    vrNewGame: 'New game',
+    vrSaveLockedByCreator: 'Your friend opened this room, so they choose where it starts.',
+    vrLaunch: 'Launch',
+    vrPort1: 'Player 1',
+    vrPort2: 'Player 2',
+    vrWaitingForFriend: 'Waiting for your friend',
+    vrFriendReady: 'Ready',
+    vrRomMissing: 'This game is not on this device. Launch it once outside VR.',
+    vrAlreadyPlaying: 'This room is already playing.',
+    vrNoSeat: 'Somebody has to take a controller first.'
   },
   fr: {
     // Legal disclaimer
@@ -969,7 +979,17 @@ export const translations = {
     vrSeatedHint: 'Se joue assis ou sur place',
     vrSeatedTitle:
       'Cette expérience est conçue pour être jouée assis ou sur place : une limite stationnaire suffit.',
-    vrDpad: 'Croix'
+    vrDpad: 'Croix',
+    vrNewGame: 'Nouvelle partie',
+    vrSaveLockedByCreator: 'Ton ami a ouvert ce salon, c\'est donc lui qui choisit le point de départ.',
+    vrLaunch: 'Lancer',
+    vrPort1: 'Joueur 1',
+    vrPort2: 'Joueur 2',
+    vrWaitingForFriend: 'En attente de ton ami',
+    vrFriendReady: 'Prêt',
+    vrRomMissing: 'Ce jeu n\'est pas sur cet appareil. Lance-le une fois hors VR.',
+    vrAlreadyPlaying: 'Ce salon joue déjà.',
+    vrNoSeat: 'Quelqu\'un doit d\'abord prendre une manette.'
   }
 };
 
