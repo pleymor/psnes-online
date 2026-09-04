@@ -27,6 +27,7 @@ import {
   type LockstepSessionLike
 } from '../../frontend/src/lib/rooms/lockstep-engine.js';
 import type { PsnesCore } from '../../frontend/src/lib/znet/core.js';
+import { normaliseRom, romCrc32 } from '../../frontend/src/lib/znet/index.js';
 import type { Transport } from '../../frontend/src/lib/znet/index.js';
 
 /** Enough of `PsnesCore` for the engine: what it loads, runs and reports. */
@@ -62,6 +63,17 @@ function fakeSession(log: string[]): LockstepSessionLike {
 function harness(over: { isHost?: boolean; joinRelay?: () => Promise<void> } = {}) {
   const log: string[] = [];
   const saved: Uint8Array[] = [];
+  const pushed: number[] = [];
+  const framed: number[] = [];
+  /*
+   * What the engine handed NetplaySession, kept rather than discarded.
+   *
+   * The first version of this harness took no argument, so the whole options
+   * object - playerIndex, romCrc, onEvent, and the onFrame closure - was
+   * built by the code under test and thrown away untested. Swapping
+   * `isHost ? 0 : 1` would have passed every assertion in this file.
+   */
+  let built: Record<string, unknown> | null = null;
   const options = {
     core: fakeCore(log),
     rom: new Uint8Array(1024),
@@ -72,20 +84,23 @@ function harness(over: { isHost?: boolean; joinRelay?: () => Promise<void> } = {
     },
     audio: {
       start: async (rate: number) => { log.push(`audio.start:${rate}`); },
-      push: () => {},
+      push: (samples: Int16Array) => { pushed.push(samples.length); log.push('audio.push'); },
       flush: () => { log.push('audio.flush'); }
     },
     transport: {} as unknown as Transport,
     joinRelay: over.joinRelay ?? (async () => { log.push('joinRelay'); }),
-    readLocalInput: () => 0,
+    readLocalInput: () => 0x1234,
     onEvent: () => {},
-    onFrame: () => {},
+    onFrame: (_c: unknown, frame: number) => { framed.push(frame); log.push('onFrame'); },
     onError: () => {},
     // The seam: the ordering is what matters here, not NetplaySession, which
     // `core/test/lockstep.test.ts` already covers.
-    makeSession: () => fakeSession(log)
+    makeSession: (opts: Record<string, unknown>) => {
+      built = opts;
+      return fakeSession(log);
+    }
   };
-  return { options, log, saved };
+  return { options, log, saved, pushed, framed, session: () => built };
 }
 
 test('the ROM, the audio and the relay all precede the session', async () => {
@@ -161,5 +176,106 @@ test('adopting a savestate reseeds the session and drops the stale audio', async
   const flush = log.indexOf('audio.flush');
   assert.ok(adopt >= 0, 'the session was not reseeded');
   assert.ok(flush > adopt, 'the stale audio outlived the timeline it belonged to');
+  await engine.stop();
+});
+
+/*
+ * What the engine hands NetplaySession.
+ *
+ * None of the tests above look at it: the harness used to discard the options
+ * object entirely, so `playerIndex`, `romCrc`, `onEvent` and the `onFrame`
+ * closure were built by the code under test and never checked. A swap of
+ * `isHost ? 0 : 1` puts both players on the same pad and desynchronises on
+ * frame one, and it would have passed this whole file.
+ */
+
+test('the host takes seat 0 and the guest seat 1', async () => {
+  const host = harness({ isHost: true });
+  const h = await createLockstepEngine(host.options);
+  assert.equal(host.session()!.playerIndex, 0);
+  assert.equal(host.session()!.isHost, true);
+  await h.stop();
+
+  const guest = harness({ isHost: false });
+  const g = await createLockstepEngine(guest.options);
+  assert.equal(guest.session()!.playerIndex, 1, 'both peers on seat 0 desync on frame one');
+  assert.equal(guest.session()!.isHost, false);
+  await g.stop();
+});
+
+test('the cartridge and the local pad reach the session', async () => {
+  // Both peers must agree on the ROM before a frame runs, and the session
+  // reads this machine's pad through the callback it was given.
+  const { options, session } = harness();
+  const engine = await createLockstepEngine(options);
+
+  // A number, not a string: `romCrc32` (`znet/index.ts:77`) returns the CRC
+  // itself. And it must be OF THE NORMALISED ROM - the peers compare this
+  // value, so a header stripped on one side and not the other refuses a
+  // session between two copies of the same cartridge.
+  assert.equal(session()!.romCrc, romCrc32(normaliseRom(options.rom)));
+  assert.equal(session()!.transport, options.transport, 'a session on the wrong link');
+  assert.equal((session()!.readLocalInput as () => number)(), 0x1234);
+  assert.equal(session()!.onEvent, options.onEvent, 'the six session events reach nobody');
+  await engine.stop();
+});
+
+test('the checksum is of the normalised cartridge, not of the file', async () => {
+  /*
+   * The peers compare this value to refuse a session between mismatched
+   * cartridges. `normaliseRom` strips a 512-byte copier header when
+   * `length % 1024 === 512`, so a headered dump and a clean one of the same
+   * game must hash alike - otherwise netplay refuses a session over a
+   * difference that does not exist.
+   *
+   * A 1024-byte fixture cannot see this: it has no header, so hashing the
+   * file and hashing the cartridge give the same answer and the rule reads as
+   * guarded while being unguarded. 1536 is `1024 + 512`, which does.
+   */
+  const headered = new Uint8Array(1536);
+  for (let i = 0; i < headered.length; i++) headered[i] = i & 0xff;
+
+  const { options, session } = harness();
+  options.rom = headered;
+  const engine = await createLockstepEngine(options);
+
+  assert.equal(session()!.romCrc, romCrc32(normaliseRom(headered)));
+  assert.notEqual(
+    session()!.romCrc,
+    romCrc32(headered),
+    'hashing the file rather than the cartridge refuses a session between two copies of one game'
+  );
+  await engine.stop();
+});
+
+test('a frame draws before its audio is queued', async () => {
+  const { options, log, framed, pushed, session } = harness();
+  const engine = await createLockstepEngine(options);
+
+  // The closure the engine built and handed to the session, not one of ours.
+  (session()!.onFrame as (n: number) => void)(7);
+
+  assert.deepEqual(framed, [7], 'the caller was not told about the frame');
+  assert.deepEqual(pushed, [0], 'the audio for that frame was not queued');
+  assert.ok(
+    log.indexOf('onFrame') < log.indexOf('audio.push'),
+    'audio queued for a frame the caller has not drawn yet'
+  );
+  await engine.stop();
+});
+
+test('a throw while drawing is reported, not lost', async () => {
+  // Without the try/catch the exception escapes into the frame loop, which in
+  // a headset stops the picture with nothing anywhere to say why.
+  const errors: unknown[] = [];
+  const { options, session } = harness();
+  options.onFrame = () => {
+    throw new Error('the renderer went away');
+  };
+  options.onError = (err: unknown) => void errors.push(err);
+  const engine = await createLockstepEngine(options);
+
+  assert.doesNotThrow(() => (session()!.onFrame as (n: number) => void)(1));
+  assert.equal(errors.length, 1, 'the frame loop swallowed a renderer failure');
   await engine.stop();
 });
