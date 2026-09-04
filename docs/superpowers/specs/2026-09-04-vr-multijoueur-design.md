@@ -221,11 +221,25 @@ D7.
 Lancer masque les panneaux, rend l'écran à son mode `DataTexture` et démarre le
 moteur.
 
-### Les six événements de session
+### Les neuf événements de session
 
-`state`, `resync-start`, `desync`, `link-lost`, `link-restored`, `error`. Ils
-s'affichent sur l'écran incurvé pendant une partie ; `error` renvoie à l'écran de
-lancement avec son message.
+`SessionEvent` (`znet/session.ts:103`) est une **interface** dont le champ
+`type` énumère neuf valeurs : `state`, `desync`, `resync-start`,
+`resync-done`, `rtt`, `link-lost`, `link-restored`, `error`, `peer-ready`.
+
+Ce spec a d'abord annoncé **six**, et l'erreur méritait d'être corrigée plutôt
+que masquée : j'avais compté les `case` du gestionnaire de `LockstepRoom` au
+lieu de lire le type. J'ai mesuré un consommateur à la place du contrat — et ce
+consommateur en laisse trois tomber en silence, ce qui est un défaut du chemin
+plat, hors périmètre ici mais réel.
+
+La VR traite les neuf, et son `switch` porte une assertion d'exhaustivité : un
+`default` qui affecte la valeur à `never`, parce qu'un `switch` sans retour
+n'est pas contrôlé par le compilateur — l'absence de `default` que ce plan
+demandait d'abord ne protégeait de rien.
+
+`error` renvoie à l'écran de lancement, panneaux relevés, avec son message :
+sans les relever, la notice qui porte l'explication est invisible.
 
 ---
 

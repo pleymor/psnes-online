@@ -44,6 +44,9 @@ export interface LockstepSessionLike {
 	pump(): void;
 	tick(): TickResult;
 	start(): void;
+	/** Releases the link. `LockstepRoom.svelte`'s teardown calls this; an
+	 * engine that stops without it leaves a netplay session open per game. */
+	close(): void;
 	coreReset: (() => void) | null;
 	loadAuthoritativeState(state: Uint8Array, reason: string): boolean;
 }
@@ -188,6 +191,23 @@ export async function createLockstepEngine(
 		async stop(): Promise<void> {
 			governor.stop();
 			clearInterval(timer);
+			/*
+			 * The link, released the same way the flat path releases it.
+			 *
+			 * `LockstepRoom.svelte`'s teardown calls `session?.close()`, and
+			 * this engine did not - so every VR lockstep game that ended left
+			 * its netplay session open. Found by Task 8's implementer, flagged
+			 * as out of scope, and it was not: a leak per game is worse than a
+			 * leak per session.
+			 *
+			 * Before the last SRAM write, because `persist()` reads the core
+			 * rather than the link and must not be skipped if this throws.
+			 */
+			try {
+				session.close();
+			} catch (err) {
+				onError(err);
+			}
 			// Last, and unconditionally: without it the periodic timer is all
 			// there was, so a clean exit loses up to SRAM_INTERVAL_MS of play.
 			persist();

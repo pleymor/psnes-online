@@ -61,9 +61,11 @@
   import { deviceLibrary } from '$lib/roms/device-library';
   import { resolvableHere, resolveQuietly, type MissReason } from '$lib/roms/provider';
   import type { PanelMesh } from '$lib/vr/panel-mesh';
-  import { loadCore, AudioSink } from '$lib/znet';
+  import { loadCore, AudioSink, SocketTransport, UpgradingTransport, type SessionEvent } from '$lib/znet';
   import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
-  import { createRoom, leaveGroup } from '$lib/rooms/actions';
+  import { createLockstepEngine, type LockstepEngine } from '$lib/rooms/lockstep-engine';
+  import { createRoom, leaveGroup, chooseGameForGroup } from '$lib/rooms/actions';
+  import { gameClick } from '$lib/rooms/game-click';
   import { decodeSram } from '$lib/rooms/sram';
   import { toBase64, fromBase64 } from '$lib/saves/base64';
   import { socket } from '$lib/api/socket';
@@ -92,7 +94,7 @@
    *  here, so it cannot change during a session. */
   let resolvable: string[] = [];
 
-  let engine: SoloEngine | null = null;
+  let engine: SoloEngine | LockstepEngine | null = null;
   let audio: AudioSink | null = null;
   /**
    * The room this shell created and therefore owes the server.
@@ -156,6 +158,21 @@
    * has.
    */
   $: if (launchFor && $games) repaintLaunch();
+
+  /*
+   * The other way in.
+   *
+   * The friend can choose a game from their flat page, and then the room
+   * carries it and this player never touched anything. It is also the only
+   * path by which a game absent from THIS device can reach the launch screen -
+   * the lectern only ever offers what `resolvableHere` returned - so it is the
+   * path that earns the `rom-missing` refusal.
+   */
+  $: if ($myRoom?.gameCrc32 && $myRoom.gameCrc32 !== launchFor && $myRoom.status === 'waiting') {
+    launchFor = $myRoom.gameCrc32;
+    stagedSaveId = null;
+    repaintLaunch();
+  }
 
   /**
    * Cover art, and the one rule that decides whether this panel exists at all.
@@ -358,13 +375,32 @@
          * with no notice.
          */
         if (launching) return;
-        if (game?.crc32) {
-          launchFor = game.crc32;
-          stagedSaveId = null;
-          launchNotice = null;
+        if (!game?.crc32) return;
+        const click = gameClick($myRoom);
+
+        // `blocked` means the room is playing: the profile band carries the way
+        // back into it, and there is nothing for this click to do.
+        if (click.kind === 'blocked') {
+          launchNotice = t($language, 'vrAlreadyPlaying');
           repaintLibrary();
-          repaintLaunch();
+          return;
         }
+
+        launchFor = game.crc32;
+        stagedSaveId = null;
+        launchNotice = null;
+
+        if (click.kind === 'choose-for-group') {
+          // This is what opens the room, and it opens it for BOTH of us: the
+          // server answers with `room:opened` to every member, which navigates
+          // the friend to the room page. It does not navigate this player -
+          // `+layout.svelte` returns early while `vrActive` is set, a guard
+          // written to prevent an accident that turns out to be the mechanism.
+          chooseGameForGroup(click.roomId, { id: game.id, title: game.title });
+        }
+
+        repaintLibrary();
+        repaintLaunch();
       }
       return;
     }
@@ -405,16 +441,41 @@
     if (target.panel === 'screen') {
       const id = target.region.id;
 
-      if (id === 'save:none' || id.startsWith('save:')) {
+      if (id.startsWith('save:')) {
         const saveId = id === 'save:none' ? null : id.slice('save:'.length);
-        // Solo stages it locally; a group stages it on the room so the friend
-        // sees it. Task 7 adds the second half.
-        stagedSaveId = saveId;
+        const room = $myRoom;
+        if (room && room.players.length >= 2) {
+          // Staged on the room so the friend sees what they are joining. The
+          // server refuses this from anyone but the room's creator, which is
+          // why the layout gave these rows no regions in that case - so
+          // reaching here at all means it will be accepted.
+          $socket?.emit('room:choose-save', { roomId: room.id, saveId });
+        } else {
+          stagedSaveId = saveId;
+        }
         repaintLaunch();
         return;
       }
 
+      if (id === 'port:1' || id === 'port:2') {
+        const room = $myRoom;
+        if (!room) return;
+        // One emit: `room:selectPort` sets `isReady` as well, so choosing a
+        // controller is also declaring yourself ready.
+        $socket?.emit('room:selectPort', { roomId: room.id, port: id === 'port:1' ? 1 : 2 });
+        return;
+      }
+
       if (id === 'launch' && launchFor) {
+        const room = $myRoom;
+        if (room && room.players.length >= 2) {
+          // Any member may start: `game:start` asks only for membership, a
+          // chosen game and one seated player. The engine is built when
+          // `game:started` comes back, in Task 8 - not here, because the
+          // friend may start it too.
+          $socket?.emit('game:start', { roomId: room.id });
+          return;
+        }
         const game = entryFor(launchFor);
         if (game) void launch(game);
         return;
@@ -739,6 +800,199 @@
     });
   }
 
+  function onGameStarted(): void {
+    const room = $myRoom;
+    if (!room || room.players.length < 2 || !room.gameCrc32) return;
+    // A game already running here is the relaunch case, which `launch` guards.
+    if (engine) return;
+    void launchTogether(room.id, room.gameCrc32, room.hostId === $user?.id);
+  }
+
+  async function launchTogether(roomId: string, crc32: string, isHost: boolean): Promise<void> {
+    if (launching) return;
+    launching = true;
+    try {
+      const rom = await resolveQuietly(crc32, { requestPermission: false });
+      if (!rom) {
+        // The refusal the launch screen already predicted. Saying it twice is
+        // better than a black screen.
+        launchNotice = t($language, 'vrRomMissing');
+        repaintLaunch();
+        return;
+      }
+
+      const core = await loadCore();
+      audio = new AudioSink();
+
+      // By path, not through the barrel: it reaches `simple-peer` and
+      // `import.meta.env`, exactly as `LockstepRoom.svelte` notes.
+      const { ZnetWebRtcTransport } = await import('$lib/znet/webrtc-transport');
+      const relay = new SocketTransport($socket as never, roomId);
+      const transport = new UpgradingTransport(
+        relay,
+        new ZnetWebRtcTransport($socket as never, roomId, isHost)
+      );
+
+      if (!scene) {
+        void audio.stop();
+        audio = null;
+        return;
+      }
+
+      engine = await createLockstepEngine({
+        core,
+        rom,
+        isHost,
+        transport,
+        sram: {
+          load: () => readRoomSram(roomId),
+          save: (bytes) => $socket?.emit('game:saveSram', { roomId, sramData: toBase64(bytes) })
+        },
+        audio,
+        joinRelay: () => joinRelay(roomId),
+        // One mask, which is what `readVrPad` already produces - no `pad2: 0`
+        // here, because the other pad arrives over the transport.
+        readLocalInput: () =>
+          scene && !scene.arePanelsVisible()
+            ? readVrPad(scene.inputSources(), padScheme, sessionVisibility())
+            : 0,
+        onEvent: onSessionEvent,
+        onFrame: (c) => scene?.screen.upload(c.videoSurface()),
+        onError: (err) => logger.error('vr lockstep', err),
+        schedule: scene.schedule
+      });
+
+      /*
+       * The session may have died while the relay handshake was in flight.
+       *
+       * `createLockstepEngine` awaits the ROM, the audio device, the cartridge
+       * save and the relay - and a headset put down at any of them runs
+       * `onDestroy` -> `closeAnySession()`, which nulls `scene`, `engine` and
+       * `audio`. The pending promise then resolves onto a corpse and, without
+       * this, reassigns `engine`, starts a governor and arms a thirty-second
+       * SRAM timer that nothing is left to stop. `scene` being null is the
+       * signal, exactly as the solo path reads it (`VrShell.svelte:643-662`).
+       */
+      if (!scene) {
+        void engine.stop();
+        engine = null;
+        giveUpRoom();
+        void audio?.stop();
+        audio = null;
+        return;
+      }
+
+      await audio.resume();
+      launchFor = null;
+      scene.screen.regions.length = 0;
+      scene.screen.showPicture();
+      scene?.panelsVisible(false);
+      // The engine does not start its own governor - `solo-engine.ts` does not
+      // either, and `SoloRoom.svelte:582` and `VrShell.svelte:705` are where
+      // the flat and solo paths start theirs. Task 5's implementer found this
+      // the hard way: starting it inside the engine reaches
+      // `requestAnimationFrame` and cannot run under Bun at all.
+      engine.governor.start();
+      repaintProfile();
+    } catch (err) {
+      logger.error('vr lockstep failed to start', err);
+      launchNotice = t($language, 'vrLaunchFailed');
+      repaintLaunch();
+      void engine?.stop();
+      engine = null;
+      void audio?.stop();
+      audio = null;
+    } finally {
+      launching = false;
+    }
+  }
+
+  /** Emits `znet:join` and resolves on `znet:joined`, with the same ten-second
+   * ceiling the flat path uses. */
+  function joinRelay(roomId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const sock = $socket;
+      if (!sock) return reject(new Error('Not connected to the server'));
+      const timer = setTimeout(() => {
+        sock.off('znet:joined', onJoined);
+        reject(new Error('The server did not confirm the netplay session'));
+      }, 10000);
+      const onJoined = () => {
+        clearTimeout(timer);
+        sock.off('znet:joined', onJoined);
+        resolve();
+      };
+      sock.on('znet:joined', onJoined);
+      sock.emit('znet:join', { roomId });
+    });
+  }
+
+  /** The whole session event surface: covers every member of `SessionEvent`'s
+   *  `type` union, and none may be silent - see `session.ts` for what each
+   *  one means. */
+  function onSessionEvent(event: SessionEvent): void {
+    switch (event.type) {
+      case 'state':
+      case 'resync-start':
+      case 'resync-done':
+      case 'link-restored':
+      case 'peer-ready':
+      case 'rtt':
+        logger.info('vr session', event);
+        break;
+      case 'desync':
+      case 'link-lost':
+        logger.warn('vr session', event);
+        break;
+      case 'error':
+        logger.error('vr session', event);
+        // Back to the screen that can explain itself, rather than a picture
+        // that has stopped moving for no stated reason.
+        launchNotice = t($language, 'vrLaunchFailed');
+        void stopTogether();
+        break;
+      default: {
+        /*
+         * An exhaustiveness assertion, not a catch-all.
+         *
+         * The plan asked for this switch to carry no `default` so that an
+         * unhandled member would be a type error. That does not work: a
+         * statement switch with no return is not exhaustiveness-checked, so
+         * the protection was imaginary and a tenth `SessionEvent` would have
+         * been dropped in silence - which is what `LockstepRoom.svelte`'s own
+         * handler does today with three of the nine.
+         *
+         * Assigning the narrowed value to `never` is what makes the compiler
+         * name the member nobody handled.
+         */
+        const unhandled: never = event.type;
+        logger.warn('vr session event nobody handles', { type: unhandled });
+        break;
+      }
+    }
+  }
+
+  /**
+   * Tears the lockstep engine down after `onSessionEvent` reports `error`, and
+   * gives the room back the same way every other end-of-game path does.
+   *
+   * Not defined by Task 8's brief, which calls it without a body - the panels
+   * are also raised here, because without that the "screen that can explain
+   * itself" the brief's own comment promises is exactly the frozen picture it
+   * says this is better than: the library's notice band is what carries the
+   * message, and it is invisible while `panelsVisible` is false.
+   */
+  async function stopTogether(): Promise<void> {
+    await engine?.stop();
+    engine = null;
+    void audio?.stop();
+    audio = null;
+    giveUpRoom();
+    scene?.panelsVisible(true);
+    repaintLibrary();
+    repaintProfile();
+  }
+
   function frame(): void {
     if (!scene) return;
 
@@ -898,6 +1152,11 @@
       $socket?.emit('friends:getOnlineStatus');
       repaintFriends();
 
+      // Neither player's press is the trigger: the room answers `game:started`
+      // to both members once either of them asks, and `onGameStarted` reads
+      // `$myRoom` fresh rather than trusting anything carried on the event.
+      $socket?.on('game:started', onGameStarted);
+
       profilePanel = scene.addPanel('profile', scene.layout.profile, PROFILE_PANEL_SIZE);
       repaintProfile();
     } catch (err) {
@@ -984,6 +1243,7 @@
     // `handleFriendsOnline` for why a bare `off(event)` is not safe here.
     $socket?.off('friends:online', handleFriendsOnline);
     $socket?.off('friend:statusChanged', handleFriendStatusChanged);
+    $socket?.off('game:started', onGameStarted);
     friendsPanel = null;
     friendEntries = [];
     onlineFriends = new Map();
