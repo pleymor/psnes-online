@@ -26,6 +26,15 @@
 export interface PreparePorts {
 	/** The checksums already on this device, needing no permission ever again. */
 	keptChecksums(): Promise<string[]>;
+	/**
+	 * What this device's folder claims to hold, from its own index.
+	 *
+	 * The library comes from the server and spans every machine the player
+	 * owns, so most of it is not in THIS folder. Trying anyway made every such
+	 * game a permanent failure - and while preparation gated the door, a
+	 * permanent failure was a lockout.
+	 */
+	folderChecksums(): Promise<string[]>;
 	storedDirectory(): Promise<FileSystemDirectoryHandle | undefined>;
 	/** `roms/provider.ts`'s `readAndKeep`: reads from the folder and keeps it. */
 	readAndKeep(
@@ -59,7 +68,11 @@ export async function missingFromDevice(
 ): Promise<string[]> {
 	try {
 		const kept = new Set(await ports.keptChecksums());
-		return wanted.filter((checksum) => !kept.has(checksum));
+		const folder = new Set(await ports.folderChecksums());
+		// Both conditions matter. Already kept means nothing to do; absent from
+		// this folder means nothing CAN be done, and counting it as work would
+		// leave the player pressing a button that prepares nothing forever.
+		return wanted.filter((checksum) => !kept.has(checksum) && folder.has(checksum));
 	} catch {
 		return [];
 	}

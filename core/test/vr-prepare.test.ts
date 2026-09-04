@@ -34,6 +34,9 @@ const HANDLE = {} as FileSystemDirectoryHandle;
 function ports(over: Partial<PreparePorts> = {}): PreparePorts {
 	return {
 		keptChecksums: async () => [],
+		// The fixture's whole universe: every checksum these tests name is in
+		// this device's folder unless a test says otherwise.
+		folderChecksums: async () => ['aaa', 'bbb', 'ccc', 'ddd'],
 		storedDirectory: async () => HANDLE,
 		readAndKeep: async () => new Uint8Array([1]),
 		...over
@@ -118,4 +121,33 @@ test('progress is reported once per game, including the failures', async () => {
 
 	await prepareForVr(['aaa', 'bbb', 'ccc'], p, (done, total) => steps.push([done, total]));
 	assert.deepEqual(steps, [[1, 3], [2, 3], [3, 3]]);
+});
+
+test('un jeu absent de CE dossier n est pas du travail à faire', async () => {
+	/*
+	 * La bibliothèque vient du serveur et couvre tous les appareils du joueur,
+	 * donc l'essentiel n'est pas dans ce dossier-ci. Les compter faisait de
+	 * chacun un échec permanent - et tant que la préparation gardait la porte,
+	 * un échec permanent était un verrou : les deux messages revenaient à
+	 * chaque pression et la session ne s'ouvrait jamais. Livré comme ça.
+	 */
+	const p = ports({ folderChecksums: async () => ['aaa'] });
+	assert.deepEqual(
+		await missingFromDevice(['aaa', 'surPC', 'surPortable'], p),
+		['aaa'],
+		'seuls les jeux que ce dossier prétend avoir peuvent être préparés'
+	);
+});
+
+test('une bibliothèque entièrement ailleurs ne demande aucune préparation', async () => {
+	// Le cas du casque dont le dossier est vide : rien à faire, et surtout pas
+	// une pression qui ne prépare rien indéfiniment.
+	const p = ports({ folderChecksums: async () => [] });
+	assert.deepEqual(await missingFromDevice(['aaa', 'bbb'], p), []);
+	assert.deepEqual(await prepareForVr(['aaa', 'bbb'], p), { prepared: 0, failed: 0 });
+});
+
+test('un index de dossier illisible ne barre pas la porte', async () => {
+	const p = ports({ folderChecksums: async () => { throw new Error('index illisible'); } });
+	assert.deepEqual(await missingFromDevice(['aaa'], p), []);
 });
