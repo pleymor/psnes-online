@@ -179,6 +179,31 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
         panelTexture.magFilter = THREE.LinearFilter;
         panelTexture.generateMipmaps = false;
         panelAt = size;
+      } else if (panelAt && (panelAt.width !== size.width || panelAt.height !== size.height)) {
+        /*
+         * A second size, honoured rather than ignored.
+         *
+         * The canvas is created once, so a later call with different
+         * dimensions used to keep the old ones - and `panelSize()`, which is
+         * what `scene.aimedAt` hit-tests against, would then report a size the
+         * canvas no longer had: every press landing on the wrong region, with
+         * the picture looking perfectly correct. Unreachable while the only
+         * caller passes one constant, which is exactly the kind of latent
+         * branch this project keeps discovering inside a headset.
+         */
+        panelCanvas.width = size.width;
+        panelCanvas.height = size.height;
+        panelAt = size;
+        // The canvas element is the texture's source; resizing it blanks the
+        // pixels, so three has to be told the source changed shape.
+        panelTexture!.dispose();
+        panelTexture = new THREE.CanvasTexture(panelCanvas);
+        panelTexture.colorSpace = THREE.SRGBColorSpace;
+        panelTexture.minFilter = THREE.LinearFilter;
+        panelTexture.magFilter = THREE.LinearFilter;
+        panelTexture.generateMipmaps = false;
+        material.map = panelTexture;
+        material.needsUpdate = true;
       }
 
       if (mode !== 'panel') {
