@@ -472,6 +472,11 @@ export const translations = {
     vrRomUnreadable: 'That file could not be read. Check the folder permission from the browser.',
     vrFolderGranted: 'Folder allowed. Press again to enter VR.',
     vrFolderRefused: 'Without access to the folder, your games cannot be read in VR.',
+    // The headset cannot read the folder itself - see `vr/prepare.ts` - so the
+    // games are brought onto the device here, once, before the session opens.
+    vrPreparing: 'Bringing your games onto this device…',
+    vrPrepareFailed: '{count} game(s) could not be read from the folder.',
+    vrReadyPressAgain: 'Your games are ready. Press again to enter VR.',
     vrLaunchFailed: 'The game could not be started.',
     vrNoFriends: 'No friends yet',
     vrFriendsReadOnly: 'Invitations are not available in VR yet',
@@ -951,6 +956,9 @@ export const translations = {
     vrRomUnreadable: 'Ce fichier n\'a pas pu être lu. Vérifie l\'autorisation du dossier depuis le navigateur.',
     vrFolderGranted: 'Dossier autorisé. Appuie à nouveau pour passer en VR.',
     vrFolderRefused: 'Sans accès au dossier, tes jeux ne seront pas lisibles en VR.',
+    vrPreparing: 'Transfert de tes jeux sur cet appareil…',
+    vrPrepareFailed: '{count} jeu(x) n\'ont pas pu être lus depuis le dossier.',
+    vrReadyPressAgain: 'Tes jeux sont prêts. Appuie à nouveau pour passer en VR.',
     vrLaunchFailed: 'Le jeu n\'a pas pu démarrer.',
     vrNoFriends: 'Pas encore d\'amis',
     vrFriendsReadOnly: 'Les invitations ne sont pas encore disponibles en VR',

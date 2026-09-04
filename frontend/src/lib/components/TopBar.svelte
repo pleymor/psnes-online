@@ -33,15 +33,41 @@
   import { vrAvailable } from '$lib/vr/support';
   import { requestVr } from '$lib/vr/entry';
   import { folderNeedsGrant, grantFolder, type DoorPorts } from '$lib/vr/door';
+  import { missingFromDevice, prepareForVr, type PreparePorts } from '$lib/vr/prepare';
   import {
     supportsDirectoryPicker, storedDirectory, hasAccess, ensureAccess
   } from '$lib/roms/local-library';
+  import { readAndKeep } from '$lib/roms/provider';
+  import { keptFilesAvailable, indexedDbKeptFiles } from '$lib/roms/kept-files';
+  import { games } from '$lib/stores/games';
   import { notifications } from '$lib/services/notification';
 
   /** Undefined until asked, so the button does not flash in and out on load. */
   let headsetHere: boolean | undefined;
 
   const DOOR: DoorPorts = { supportsDirectoryPicker, storedDirectory, hasAccess, ensureAccess };
+
+  const PREPARE: PreparePorts = {
+    keptChecksums: async () => (keptFilesAvailable() ? indexedDbKeptFiles().checksums() : []),
+    storedDirectory,
+    readAndKeep
+  };
+
+  /** The games the headset will offer, which are the ones it must be able to open. */
+  $: wanted = $games.map((game) => game.crc32).filter((c): c is string => Boolean(c));
+
+  /**
+   * Whether anything still has to be read out of the folder.
+   *
+   * Recomputed whenever the library changes, never inside the click handler:
+   * `requestSession` runs on the activation the press carries, and the common
+   * path - nothing to prepare - has to stay synchronous from click to session.
+   */
+  let needsPrepare = false;
+  $: void refreshPrepareNeed(wanted);
+  async function refreshPrepareNeed(list: string[]): Promise<void> {
+    needsPrepare = list.length > 0 && (await missingFromDevice(list, PREPARE)).length > 0;
+  }
 
   /**
    * Whether the next press has to buy the folder permission first.
@@ -62,7 +88,7 @@
    * the way to `requestVr()` would spend part of that window for nothing.
    */
   function enterVr(): void {
-    if (!needsGrant) {
+    if (!needsGrant && !needsPrepare) {
       requestVr();
       return;
     }
@@ -70,23 +96,69 @@
   }
 
   async function spendPressOnFolder(): Promise<void> {
-    const outcome = await grantFolder(DOOR);
-    if (outcome === 'entered') {
-      // No dialog was shown, so the gesture is intact and the player should
-      // not be charged a second press for a check they never saw.
+    let granted = false;
+    if (needsGrant) {
+      const outcome = await grantFolder(DOOR);
+      if (outcome === 'refused') {
+        needsGrant = true;
+        notifications.show(t($language, 'vrFolderRefused'), 'error', 5000);
+        return;
+      }
+      granted = outcome === 'granted';
       needsGrant = false;
-      requestVr();
-      return;
+      if (outcome === 'entered' && !needsPrepare) {
+        // No dialog was shown and there is nothing to read, so the gesture is
+        // intact and the player must not be charged a second press for a check
+        // they never saw.
+        requestVr();
+        return;
+      }
     }
-    needsGrant = outcome === 'refused';
-    // A dialog was shown, which spends the activation `requestSession` needs.
-    // Asking for a second press is honest; entering anyway would fail with a
-    // message about user activation that means nothing to a player.
+
+    if (needsPrepare) await bringGamesOntoTheDevice();
+
+    // Whatever happened above spent the activation `requestSession` needs -
+    // a native dialog, or seconds of reading. Asking for another press is
+    // honest; entering anyway fails with a message about user activation that
+    // means nothing to a player.
+    // Two different truths: a folder was authorised, or games were merely read.
+    // Saying "folder allowed" after a run that only read files would be false.
     notifications.show(
-      t($language, outcome === 'granted' ? 'vrFolderGranted' : 'vrFolderRefused'),
-      outcome === 'granted' ? 'success' : 'error',
+      t($language, granted ? 'vrFolderGranted' : 'vrReadyPressAgain'),
+      'success',
       5000
     );
+  }
+
+  /**
+   * Reads the library out of the folder, once, so the headset never has to.
+   *
+   * The reason this exists at all: reading the folder from inside an immersive
+   * session never succeeds - see `vr/prepare.ts`. The player had been doing
+   * this by hand, one launch per cartridge on the flat page.
+   */
+  async function bringGamesOntoTheDevice(): Promise<void> {
+    // Duration 0, so it stays up for as long as the reading takes; dismissed
+    // by hand below. A silent minute would read as a dead button.
+    let toast = notifications.show(t($language, 'vrPreparing'), 'info', 0);
+
+    const result = await prepareForVr(wanted, PREPARE, (done, total) => {
+      notifications.dismiss(toast);
+      toast = notifications.show(`${t($language, 'vrPreparing')} ${done}/${total}`, 'info', 0);
+    });
+
+    notifications.dismiss(toast);
+    needsPrepare = (await missingFromDevice(wanted, PREPARE)).length > 0;
+
+    if (result.failed > 0) {
+      // Named rather than hidden: these are the games the headset will still
+      // refuse to open, and the player is the only one who can find out why.
+      notifications.show(
+        t($language, 'vrPrepareFailed', { count: String(result.failed) }),
+        'warning',
+        6000
+      );
+    }
   }
 
   /**
