@@ -45,7 +45,21 @@ const PORT_H = 76;
 const PORT_GAP = 16;
 const FRIEND_Y = 268;
 
-const LAUNCH_W = 400;
+/*
+ * The launch button lives in the RIGHT column, under the ports, and that is a
+ * correction rather than a preference.
+ *
+ * Centred at 400px wide it spanned x 312..712, which crosses the save column
+ * (40..510). With four saves or more the fifth and sixth rows reach y 584..708
+ * and collide with it - two hit-testable regions overlapping, on a curved
+ * texture with no layout engine to notice. The no-overlap test never saw it
+ * because it only ever built the two-save arrangement.
+ *
+ * Out of the save column's x range, no number of rows can reach it, so the
+ * bug cannot come back by adding a save.
+ */
+const LAUNCH_X = PORT_X;
+const LAUNCH_W = 384;
 const LAUNCH_H = 96;
 const LAUNCH_Y = 620;
 
@@ -101,13 +115,7 @@ export function layoutLaunchPanel(options: LaunchOptions, _labels: LaunchLabels)
 
 	// Absent rather than dead. See the header.
 	if (options.blocked === null) {
-		regions.push({
-			id: 'launch',
-			x: (LAUNCH_PANEL_SIZE.width - LAUNCH_W) / 2,
-			y: LAUNCH_Y,
-			w: LAUNCH_W,
-			h: LAUNCH_H
-		});
+		regions.push({ id: 'launch', x: LAUNCH_X, y: LAUNCH_Y, w: LAUNCH_W, h: LAUNCH_H });
 	}
 
 	return regions;
@@ -250,8 +258,17 @@ export function drawLaunchPanel(
 		// Not SAVE_W: this is a banner line above the list, not a row within it,
 		// so it is free to run the same full width the title and the blocked
 		// reason already use.
+		/*
+		 * Bounded by the save column, never by the panel.
+		 *
+		 * At full width this line ran to x 589 while the friend's name starts
+		 * at 560, sixteen pixels away vertically - the banner ran into it in
+		 * the one case it exists for, a guest who cannot pick the save looking
+		 * at a room their friend occupies. The wording is short enough to fit
+		 * 470px whole, so nothing is truncated away either.
+		 */
 		ctx.fillText(
-			truncate(ctx, labels.saveLockedByCreator, width - PAD * 2),
+			truncate(ctx, labels.saveLockedByCreator, SAVE_W),
 			SAVE_X,
 			SAVE_Y - 28
 		);
