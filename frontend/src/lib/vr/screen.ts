@@ -16,11 +16,25 @@ import * as THREE from 'three';
 import { curvedScreenGeometry, visibleU } from './screen-geometry';
 import type { ScreenPlacement } from './layout';
 import type { VideoSurface } from '$lib/znet/core';
+import type { PanelSize, Region } from './panel';
 
 export interface VrScreen {
   mesh: THREE.Mesh;
   upload(surface: VideoSurface): void;
   showTestPattern(): void;
+  /**
+   * Turns the screen into a canvas and paints it.
+   *
+   * The paint and the upload are one call for the reason `panel-mesh.ts`
+   * gives about its own: a forgotten `needsUpdate` leaves a panel correct in
+   * memory and stale on the player's face, which is the most confusing way
+   * this shape can fail.
+   */
+  paintPanel(size: PanelSize, draw: (ctx: CanvasRenderingContext2D) => void): void;
+  isPanel(): boolean;
+  panelSize(): PanelSize | null;
+  /** Replaced whenever the launch screen is laid out. `scene.aimedAt` reads it. */
+  regions: Region[];
   dispose(): void;
 }
 
@@ -38,19 +52,32 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
    * frame. */
   let builtFor = { width: -1, height: -1, stride: -1 };
 
-  function rebuild(width: number, height: number, stride: number): void {
+  let panelCanvas: HTMLCanvasElement | null = null;
+  let panelCtx: CanvasRenderingContext2D | null = null;
+  let panelTexture: THREE.CanvasTexture | null = null;
+  let panelAt: PanelSize | null = null;
+  /** Which of the two things this screen currently is. */
+  let mode: 'picture' | 'panel' = 'picture';
+  /** Replaced whenever the launch screen is laid out. `scene.aimedAt` reads it. */
+  const regions: Region[] = [];
+
+  function rebuildGeometry(uMax: number): void {
     mesh.geometry.dispose();
     const { positions, uvs, indices } = curvedScreenGeometry({
       radius: placement.radius,
       arc: placement.arc,
       height: placement.height,
-      uMax: visibleU(width, stride)
+      uMax
     });
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     mesh.geometry = geometry;
+  }
+
+  function rebuildPicture(width: number, height: number, stride: number): void {
+    rebuildGeometry(visibleU(width, stride));
 
     texture?.dispose();
     texture = new THREE.DataTexture(
@@ -74,6 +101,7 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
     material.needsUpdate = true;
 
     builtFor = { width, height, stride };
+    mode = 'picture';
   }
 
   return {
@@ -85,7 +113,7 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
         surface.height !== builtFor.height ||
         surface.stride !== builtFor.stride
       ) {
-        rebuild(surface.width, surface.height, surface.stride);
+        rebuildPicture(surface.width, surface.height, surface.stride);
       }
       /*
        * The view is handed to the texture rather than copied into it, which is
@@ -110,7 +138,7 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
       const width = 256;
       const height = 224;
       const stride = 512;
-      rebuild(width, height, stride);
+      rebuildPicture(width, height, stride);
       const data = texture!.image.data as Uint8Array;
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < stride; x++) {
@@ -128,9 +156,64 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
       texture!.needsUpdate = true;
     },
 
+    /**
+     * Turns the screen into a canvas and paints it.
+     *
+     * The paint and the upload are one call for the reason `panel-mesh.ts`
+     * gives about its own: a forgotten `needsUpdate` leaves a panel correct in
+     * memory and stale on the player's face, which is the most confusing way
+     * this shape can fail.
+     */
+    paintPanel(size: PanelSize, draw: (ctx: CanvasRenderingContext2D) => void): void {
+      if (!panelCanvas) {
+        panelCanvas = document.createElement('canvas');
+        panelCanvas.width = size.width;
+        panelCanvas.height = size.height;
+        panelCtx = panelCanvas.getContext('2d');
+        if (!panelCtx) throw new Error('no 2d context for the screen panel');
+        panelTexture = new THREE.CanvasTexture(panelCanvas);
+        panelTexture.colorSpace = THREE.SRGBColorSpace;
+        // Linear, unlike the picture: this is text on a two-and-a-half-metre
+        // screen, and nearest-neighbour text at an angle is unreadable.
+        panelTexture.minFilter = THREE.LinearFilter;
+        panelTexture.magFilter = THREE.LinearFilter;
+        panelTexture.generateMipmaps = false;
+        panelAt = size;
+      }
+
+      if (mode !== 'panel') {
+        // uMax 1, not the picture's width/stride: the game's geometry stops
+        // half way across the texture, and reusing it would show the player
+        // the left half of a launch screen with no clue why.
+        rebuildGeometry(1);
+        material.map = panelTexture;
+        material.needsUpdate = true;
+        /*
+         * And the picture's shape is deliberately forgotten.
+         *
+         * `upload` only rebuilds when the surface's shape differs from
+         * `builtFor`. Left alone, the first frame of a game would find its
+         * shape unchanged, skip the rebuild, and upload into the panel's
+         * geometry - a picture stretched across a mesh built for something
+         * else, which is exactly the class of silent wrongness this file's
+         * header warns about.
+         */
+        builtFor = { width: -1, height: -1, stride: -1 };
+        mode = 'panel';
+      }
+
+      draw(panelCtx!);
+      panelTexture!.needsUpdate = true;
+    },
+
+    isPanel: () => mode === 'panel',
+    panelSize: () => panelAt,
+    regions,
+
     dispose(): void {
       mesh.geometry.dispose();
       texture?.dispose();
+      panelTexture?.dispose();
       material.dispose();
     }
   };
