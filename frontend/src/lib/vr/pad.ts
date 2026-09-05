@@ -8,13 +8,15 @@
  * does not have and the stick is on 2 and 3. Reusing that table gives a dead
  * d-pad with no error and no warning, so the two tables stay apart.
  *
- * Pure, and it reaches for nothing: the sources and the session's visibility
- * both arrive as arguments. That is what lets both presets and the
- * blurred-session rule be tested under Bun.
+ * Pure, and it reaches for nothing: the sources, the mapping and the session's
+ * visibility all arrive as arguments. That is what lets the mapping and the
+ * blurred-session rule be tested under Bun. The mapping itself - which input
+ * carries which SNES button, and the two presets that seed it - belongs to
+ * `pad-map.ts`; this module only reads one.
  */
 
 import { PAD, type PadMask } from '$lib/znet/protocol';
-import type { VrPadScheme } from './pad-scheme';
+import { VR_BUTTONS, type VrButton, type VrPadMap, type XrInput } from './pad-map';
 
 /** The part of `XRInputSource` this reads. */
 export interface PadLikeSource {
@@ -42,17 +44,37 @@ const FACE_UPPER = 5;
 const STICK_X = 2;
 const STICK_Y = 3;
 
+/** The SNES mask each assignable button carries. */
+const MASK: Record<VrButton, number> = {
+  a: PAD.A, b: PAD.B, x: PAD.X, y: PAD.Y,
+  l: PAD.L, r: PAD.R, start: PAD.START, select: PAD.SELECT
+};
+
 /**
- * The four action buttons, per preset: [upper, lower] of each hand.
+ * Which physical input is which index, per hand.
  *
- * The SNES diamond (X top, Y left, A right, B bottom) has to fold onto two
- * vertical pairs, and no folding is free. `letters` keeps the printed letter
- * honest. `thumb` puts SNES B (jump) and SNES Y (run) on the two lower buttons,
- * where the thumbs already rest.
+ * The RIGHT stick click is absent, and that IS the model: it carries the menu,
+ * and an input outside this table can be neither captured nor assigned. The
+ * left one is here - it is the ninth input, free.
+ *
+ * The two presets that used to live in a `FACE` table here now live in
+ * `pad-map.ts` as two complete maps, because a preset is no longer the whole
+ * of what this module can be told - it takes any permutation the player built.
  */
-const FACE: Record<VrPadScheme, { left: [number, number]; right: [number, number] }> = {
-  letters: { left: [PAD.Y, PAD.X], right: [PAD.B, PAD.A] },
-  thumb: { left: [PAD.X, PAD.Y], right: [PAD.A, PAD.B] }
+const INPUT_AT: Record<'left' | 'right', ReadonlyArray<readonly [number, XrInput]>> = {
+  left: [
+    [TRIGGER, 'XrLeftTrigger'],
+    [SQUEEZE, 'XrLeftSqueeze'],
+    [FACE_UPPER, 'XrLeftFaceUpper'],
+    [FACE_LOWER, 'XrLeftFaceLower'],
+    [STICK_CLICK, 'XrLeftStickClick']
+  ],
+  right: [
+    [TRIGGER, 'XrRightTrigger'],
+    [SQUEEZE, 'XrRightSqueeze'],
+    [FACE_UPPER, 'XrRightFaceUpper'],
+    [FACE_LOWER, 'XrRightFaceLower']
+  ]
 };
 
 function held(source: PadLikeSource, index: number): boolean {
@@ -89,9 +111,31 @@ function steer(gamepad: NonNullable<PadLikeSource['gamepad']>): PadMask {
   return mask;
 }
 
+/**
+ * The assignable inputs currently held down.
+ *
+ * Distinct from `readVrPad` because it answers a different question: not
+ * "which SNES mask" but "which physical inputs". The two coincide only by
+ * accident, and it is `CaptureGate` that consumes this one.
+ *
+ * The accumulator is `found`, not `held`: `held` is already the name of the
+ * local function that tests one button, a few lines above.
+ */
+export function activeXrInputs(sources: Iterable<PadLikeSource>): XrInput[] {
+  const found: XrInput[] = [];
+  for (const source of sources) {
+    if (!source.gamepad) continue;
+    if (source.handedness !== 'left' && source.handedness !== 'right') continue;
+    for (const [index, input] of INPUT_AT[source.handedness]) {
+      if (held(source, index)) found.push(input);
+    }
+  }
+  return found;
+}
+
 export function readVrPad(
   sources: Iterable<PadLikeSource>,
-  scheme: VrPadScheme,
+  map: VrPadMap,
   visibility: string
 ): PadMask {
   // The system menu leaves the animation loop running and stops delivering
@@ -99,26 +143,23 @@ export function readVrPad(
   // session.
   if (visibility !== 'visible') return 0;
 
+  // Inverted once per call: the map says button -> input, and reading needs
+  // input -> mask.
+  const byInput = new Map<XrInput, number>();
+  for (const button of VR_BUTTONS) byInput.set(map[button], MASK[button]);
+
   let mask = 0;
-  const face = FACE[scheme];
 
   for (const source of sources) {
     if (!source.gamepad) continue;
+    if (source.handedness !== 'left' && source.handedness !== 'right') continue;
 
-    if (source.handedness === 'left') {
-      mask |= steer(source.gamepad);
-      if (held(source, FACE_UPPER)) mask |= face.left[0];
-      if (held(source, FACE_LOWER)) mask |= face.left[1];
-      if (held(source, TRIGGER)) mask |= PAD.L;
-      if (held(source, SQUEEZE)) mask |= PAD.SELECT;
-    } else if (source.handedness === 'right') {
-      // The right stick steers so the LEFT thumb is free for X and Y. That is
-      // the whole point of `steer` being called twice.
-      mask |= steer(source.gamepad);
-      if (held(source, FACE_UPPER)) mask |= face.right[0];
-      if (held(source, FACE_LOWER)) mask |= face.right[1];
-      if (held(source, TRIGGER)) mask |= PAD.R;
-      if (held(source, SQUEEZE)) mask |= PAD.START;
+    // Both sticks steer. The right one too, so the LEFT thumb is free for X
+    // and Y - that is the whole point of `steer` being called for each hand.
+    mask |= steer(source.gamepad);
+
+    for (const [index, input] of INPUT_AT[source.handedness]) {
+      if (held(source, index)) mask |= byInput.get(input) ?? 0;
     }
   }
 

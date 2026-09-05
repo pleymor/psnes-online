@@ -23,12 +23,20 @@ import {
   FIXED_COL_W,
   PROFILE_PANEL_SIZE
 } from '../../frontend/src/lib/vr/panels/profile.js';
+import {
+  LETTERS_MAP,
+  THUMB_MAP,
+  assignInput
+} from '../../frontend/src/lib/vr/pad-map.js';
 
 const LABELS = {
   letters: 'Letters',
   thumb: 'Thumb',
   quit: 'Leave VR',
   resume: 'Back to the game',
+  // L'anglais expédié, pas un bouchon : le test ci-dessous mesure cette chaîne
+  // contre la largeur réelle du bouton.
+  remap: 'Rebind',
   stopGame: 'Stop the game',
   controls: 'Controls',
   // The shipped English, not placeholders: two of the tests below measure
@@ -64,15 +72,15 @@ function recordingContext() {
   };
 }
 
-const IDLE = { pseudo: 'Ada', scheme: 'letters' as const, language: 'fr' as const, playing: false };
+const IDLE = { pseudo: 'Ada', map: LETTERS_MAP, language: 'fr' as const, playing: false };
 
 test('the exit exists in every state, because nothing else can offer one', () => {
   for (const playing of [false, true]) {
-    for (const scheme of ['letters', 'thumb'] as const) {
-      const ids = layoutProfilePanel({ ...IDLE, scheme, playing }).map((r) => r.id);
+    for (const [name, map] of [['letters', LETTERS_MAP], ['thumb', THUMB_MAP]] as const) {
+      const ids = layoutProfilePanel({ ...IDLE, map, playing }).map((r) => r.id);
       assert.ok(
         ids.includes('quit'),
-        `no way out with playing=${playing} scheme=${scheme}; the Quest menu button gives the page nothing`
+        `no way out with playing=${playing} map=${name}; the Quest menu button gives the page nothing`
       );
     }
   }
@@ -140,7 +148,7 @@ test('the two presets draw different mappings', () => {
   const letters = recordingContext();
   drawProfilePanel(letters, IDLE, layoutProfilePanel(IDLE), { labels: LABELS, hoverId: null });
   const thumb = recordingContext();
-  const thumbState = { ...IDLE, scheme: 'thumb' as const };
+  const thumbState = { ...IDLE, map: THUMB_MAP };
   drawProfilePanel(thumb, thumbState, layoutProfilePanel(thumbState), {
     labels: LABELS, hoverId: null
   });
@@ -268,4 +276,130 @@ test('stopping the game says so, in words that are not the ones for leaving VR',
   const drawn = ctx.texts.join('\n');
   assert.ok(drawn.includes(LABELS.stopGame), 'the button is unlabelled');
   assert.ok(drawn.includes(LABELS.quit), 'leaving VR lost its own label');
+});
+
+/*
+ * Les cartes de preset décrivent maintenant une map, pas un choix.
+ *
+ * « Active » ne veut plus dire « c'est le preset sélectionné » mais « la map
+ * courante est égale à ce preset ». La différence compte le jour où le joueur
+ * remappe un bouton : sa map n'égale plus aucun des deux, et cocher « lettres »
+ * lui dirait que son réglage a été perdu.
+ */
+
+/** `drawCard` entoure la carte active d'un `strokeRect`. C'est ce qui rend
+ *  l'état lisible autrement que par un remplissage. */
+function strokes(state: typeof IDLE): number {
+  const ctx = recordingContext();
+  drawProfilePanel(ctx, state, layoutProfilePanel(state), { labels: LABELS, hoverId: null });
+  return ctx.calls.filter((call) => call === 'strokeRect').length;
+}
+
+test('la carte active est celle que la map égale', () => {
+  const onLetters = { ...IDLE, map: LETTERS_MAP };
+  const onThumb = { ...IDLE, map: THUMB_MAP };
+
+  const a = recordingContext();
+  drawProfilePanel(a, onLetters, layoutProfilePanel(onLetters), { labels: LABELS, hoverId: null });
+  const b = recordingContext();
+  drawProfilePanel(b, onThumb, layoutProfilePanel(onThumb), { labels: LABELS, hoverId: null });
+
+  assert.equal(strokes(onLetters), 1, 'exactement une carte doit être marquée');
+  assert.equal(strokes(onThumb), 1, 'exactement une carte doit être marquée');
+  assert.notDeepEqual(a.calls, b.calls, 'les deux presets marquent la même carte');
+});
+
+test('une map personnalisée ne prétend être aucun des deux presets', () => {
+  // Sinon le joueur qui a remappé un bouton voit « lettres » coché et croit que
+  // son réglage a été perdu.
+  const custom = { ...IDLE, map: assignInput(LETTERS_MAP, 'a', 'XrLeftStickClick') };
+  assert.equal(strokes(custom), 0, 'une map remappée passe pour un preset');
+});
+
+/*
+ * Le remap est atteignable depuis le pupitre, dans tous les états.
+ *
+ * Y compris pendant une partie : c'est en jouant qu'on découvre qu'un mapping
+ * est mauvais, et l'écran courbe peut tenir contre un jeu qui tourne - c'est
+ * déjà ce que fait l'écran de lancement.
+ */
+
+test('le remap est offert dans tous les états', () => {
+  for (const playing of [false, true]) {
+    const ids = layoutProfilePanel({ ...IDLE, playing }).map((r) => r.id);
+    assert.ok(ids.includes('remap'), `pas de remap avec playing=${playing}`);
+  }
+});
+
+test('le remap a son propre libellé, distinct du titre des touches fixes', () => {
+  // `controls` titre déjà le rappel des touches fixes sur ce même panneau : un
+  // seul mot pour un titre et un bouton n'identifie plus ni l'un ni l'autre.
+  const state = { ...IDLE, playing: true };
+  const ctx = recordingContext();
+  drawProfilePanel(ctx, state, layoutProfilePanel(state), { labels: LABELS, hoverId: null });
+  assert.ok(ctx.texts.includes(LABELS.remap), 'le bouton de remap est sans libellé');
+  assert.notEqual(LABELS.remap, LABELS.controls, 'les deux ne peuvent pas être le même mot');
+});
+
+test('le bouton de remap ne recouvre pas le rappel des touches fixes', () => {
+  /*
+   * Texte contre région : le test de non-chevauchement ci-dessus ne voit que
+   * les régions, et le rappel des touches fixes est dessiné, pas cliquable.
+   * Placé sous les cartes, le bouton de remap est tombé exactement sur les
+   * deux lignes de sa première colonne - lisible nulle part, et signalé par
+   * aucun test jusqu'à celui-ci.
+   */
+  const state = { ...IDLE, playing: true };
+  const ctx = recordingContext();
+  drawProfilePanel(ctx, state, layoutProfilePanel(state), { labels: LABELS, hoverId: null });
+
+  const remap = layoutProfilePanel(state).find((r) => r.id === 'remap');
+  assert.ok(remap, 'no remap region to measure against');
+
+  for (const line of fixedMapRows(LABELS)) {
+    const text = `${line[0]} → ${line[1]}`;
+    const drawn = ctx.placed.find((p) => p.text === text);
+    assert.ok(drawn, `"${text}" was not drawn`);
+    const apart =
+      drawn.x + FIXED_COL_W <= remap.x || drawn.x >= remap.x + remap.w;
+    assert.ok(
+      apart,
+      `"${text}" starts at x=${drawn.x} and runs ${FIXED_COL_W}px into the remap button at x=${remap.x}..${remap.x + remap.w}`
+    );
+  }
+});
+
+test('un libellé trop long pour son bouton est coupé, pas laissé déborder', () => {
+  // `drawButton` ne tronquait pas : une traduction longue sortait du bouton
+  // sans que rien ne le remarque, sur une texture courbe sans moteur de mise
+  // en page pour s'en plaindre.
+  const state = { ...IDLE, playing: true };
+  const long = { ...LABELS, remap: 'X'.repeat(200) };
+  const ctx = recordingContext();
+  drawProfilePanel(ctx, state, layoutProfilePanel(state), { labels: long, hoverId: null });
+
+  const remap = layoutProfilePanel(state).find((r) => r.id === 'remap');
+  // `startsWith('X')` trouvait « X → X », une ligne du diagramme de preset
+  // dessinée avant le bouton : le test passait sur une chaîne de 5 caractères
+  // et n'aurait jamais mordu.
+  const drawn = ctx.placed.find((p) => p.text.startsWith('XXX'));
+  assert.ok(remap && drawn, 'the button was not drawn');
+  // Centré : la moitié de chaque côté du milieu du bouton.
+  assert.ok(
+    drawn.text.length * 9 <= remap.w,
+    `the label measures ${drawn.text.length * 9}px inside a ${remap.w}px button`
+  );
+});
+
+test('le libellé de remap expédié tient dans son bouton sans être coupé', () => {
+  // La troncature ajoutée à `drawButton` est un garde-fou, pas une excuse : si
+  // le libellé réel avait besoin d'elle, le bouton dirait « Réassign… » à tout
+  // le monde, ce qui n'est pas un libellé mais un aveu.
+  const state = { ...IDLE, playing: true };
+  const ctx = recordingContext();
+  drawProfilePanel(ctx, state, layoutProfilePanel(state), { labels: LABELS, hoverId: null });
+  assert.ok(
+    ctx.texts.includes(LABELS.remap),
+    `"${LABELS.remap}" ne tient pas et a été tronqué`
+  );
 });

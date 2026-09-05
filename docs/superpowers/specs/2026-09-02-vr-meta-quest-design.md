@@ -1,5 +1,9 @@
 # Une expérience immersive pour Meta Quest
 
+> **Révisé le 2026-09-05 :** la conclusion sur les contrôles — deux presets
+> plutôt qu'un remap bouton par bouton — a été reprise. Voir
+> `2026-09-05-vr-remap-controles-design.md`.
+
 Conception. Issue [#25](https://github.com/pleymor/psnes-online/issues/25) :
 « Créer une expérience immersive pour les utilisateurs de meta quest […] pour
 l'instant, l'expérience VR sera juste un grand écran incurvé, comme Netflix,

@@ -55,8 +55,17 @@
   } from '$lib/vr/panels/launch';
   import { launchOptions } from '$lib/vr/launch-options';
   import { activeRooms, myRoom } from '$lib/rooms/my-room';
-  import { menuPressed, readVrPad } from '$lib/vr/pad';
-  import { readPadScheme, writePadScheme, type VrPadScheme } from '$lib/vr/pad-scheme';
+  import { menuPressed, readVrPad, activeXrInputs } from '$lib/vr/pad';
+  import {
+    readPadMap, writePadMap, assignInput,
+    LETTERS_MAP, THUMB_MAP,
+    type VrPadMap, type VrButton, type XrInput
+  } from '$lib/vr/pad-map';
+  import {
+    CONTROLS_PANEL_SIZE, layoutControlsPanel, drawControlsPanel,
+    type ControlsLabels
+  } from '$lib/vr/panels/controls';
+  import { CaptureGate } from '$lib/controls/capture-gate';
   import { user } from '$lib/stores/user';
   import { games } from '$lib/stores/games';
   import { deviceLibrary } from '$lib/roms/device-library';
@@ -145,13 +154,33 @@
   let pendingResumeSaveId: string | null = null;
   /**
    * A plain `let`, set once in `enter()` and reassigned by the switch in
-   * `activate()` - never `$: padScheme = readPadScheme(localStorage)`. Made
+   * `activate()` - never `$: padMap = readPadMap(localStorage)`. Made
    * reactive, that statement would recompute on the very write it triggers
-   * (`writePadScheme` touches `localStorage`) and overwrite the assignment
+   * (`writePadMap` touches `localStorage`) and overwrite the assignment
    * before the panel ever repaints with it - the button would appear to do
    * nothing.
    */
-  let padScheme: VrPadScheme = 'letters';
+  let padMap: VrPadMap = LETTERS_MAP;
+
+  /**
+   * Whether the curved screen is carrying the remap panel.
+   *
+   * Mutually exclusive with `launchFor`: one surface, one content. Whoever
+   * opens one clears the other, and `closeRemap` hands the screen back to
+   * whatever it was showing.
+   */
+  let remapOpen = false;
+  /** The button waiting for its new input, or null. */
+  let listeningFor: VrButton | null = null;
+  /**
+   * The same gate the flat controls screen uses.
+   *
+   * Its rule is the one this needs: an input already consumed cannot be
+   * consumed again until it has been let go. The trigger that clicked a row is
+   * held at that instant, and without the gate it would bind itself to the row
+   * it just opened.
+   */
+  const captureGate = new CaptureGate();
 
   /** Who is in a running game, from the rooms the socket already publishes -
    *  the same source `TopBar` hands `FriendsList`. */
@@ -193,7 +222,16 @@
    * the lectern only ever offers what `resolvableHere` returned - so it is the
    * path that earns the `rom-missing` refusal.
    */
-  $: if ($myRoom?.gameCrc32 && $myRoom.gameCrc32 !== launchFor && $myRoom.status === 'waiting') {
+  /*
+   * `!remapOpen` is the guard that keeps a rebinding from being interrupted.
+   *
+   * A friend choosing a game would otherwise take the curved screen out from
+   * under a player halfway through binding a button - and with `listeningFor`
+   * still set, the next press would land on a panel nobody is looking at.
+   * `closeRemap` runs `backToLaunchScreen`, which picks this up on the way
+   * out, so nothing is lost by waiting.
+   */
+  $: if (!remapOpen && $myRoom?.gameCrc32 && $myRoom.gameCrc32 !== launchFor && $myRoom.status === 'waiting') {
     launchFor = $myRoom.gameCrc32;
     stagedSaveId = null;
     repaintLaunch();
@@ -296,7 +334,7 @@
     if (!profilePanel) return;
     const state = {
       pseudo: $user?.pseudo ?? '',
-      scheme: padScheme,
+      map: padMap,
       language: $language,
       playing: engine !== null
     };
@@ -310,6 +348,7 @@
           quit: t($language, 'vrQuit'),
           resume: t($language, 'vrResume'),
           stopGame: t($language, 'vrStopGame'),
+          remap: t($language, 'vrRemap'),
           controls: t($language, 'controls'),
           gripLeft: t($language, 'vrGripLeft'),
           gripRight: t($language, 'vrGripRight'),
@@ -402,6 +441,80 @@
     };
   }
 
+  function repaintControls(): void {
+    if (!scene || !remapOpen) return;
+    const state = { map: padMap, listeningFor };
+    const regions = layoutControlsPanel(state);
+    // Replaced in place: `scene.aimedAt` holds this same array.
+    scene.screen.regions.length = 0;
+    scene.screen.regions.push(...regions);
+    scene.screen.paintPanel(CONTROLS_PANEL_SIZE, (ctx) =>
+      drawControlsPanel(ctx, state, regions, {
+        labels: controlsLabels(),
+        hoverId: hovered?.panel === 'screen' ? hovered.region.id : null
+      })
+    );
+  }
+
+  function controlsLabels(): ControlsLabels {
+    return {
+      heading: t($language, 'vrRemapHeading'),
+      press: t($language, 'vrRemapPress'),
+      presetLetters: t($language, 'vrPresetLetters'),
+      presetThumb: t($language, 'vrPresetThumb'),
+      done: t($language, 'vrRemapDone'),
+      fixedDpad: t($language, 'vrFixedDpad'),
+      fixedMenu: t($language, 'vrFixedMenu'),
+      // Literals, not translation keys: "A" and "START" are silkscreened on
+      // the cartridge pad and identical in both languages. Translating them
+      // would invent a divergence between the screen and the plastic.
+      button: {
+        a: 'A', b: 'B', x: 'X', y: 'Y',
+        l: 'L', r: 'R',
+        start: 'START', select: 'SELECT'
+      },
+      input: {
+        XrLeftTrigger: t($language, 'vrXrLeftTrigger'),
+        XrRightTrigger: t($language, 'vrXrRightTrigger'),
+        XrLeftSqueeze: t($language, 'vrXrLeftSqueeze'),
+        XrRightSqueeze: t($language, 'vrXrRightSqueeze'),
+        XrLeftFaceUpper: t($language, 'vrXrLeftFaceUpper'),
+        XrRightFaceUpper: t($language, 'vrXrRightFaceUpper'),
+        XrLeftFaceLower: t($language, 'vrXrLeftFaceLower'),
+        XrRightFaceLower: t($language, 'vrXrRightFaceLower'),
+        XrLeftStickClick: t($language, 'vrXrLeftStickClick')
+      }
+    };
+  }
+
+  /** Opens the remap panel, taking the curved screen from whatever held it. */
+  function openRemap(): void {
+    launchFor = null;
+    remapOpen = true;
+    listeningFor = null;
+    captureGate.reset();
+    repaintControls();
+  }
+
+  /**
+   * Closes the remap panel and gives the screen back.
+   *
+   * Back to the game's picture while one is running, and to the launch options
+   * otherwise - the same two states the screen has when nothing opened this
+   * panel in the first place.
+   */
+  function closeRemap(): void {
+    remapOpen = false;
+    listeningFor = null;
+    captureGate.reset();
+    if (scene) scene.screen.regions.length = 0;
+    if (engine) {
+      scene?.screen.showPicture();
+    } else {
+      backToLaunchScreen();
+    }
+  }
+
   function loadCovers(list: typeof $games): void {
     for (const game of list) {
       if (!game.coverUrl || covers.has(game.id)) continue;
@@ -440,6 +553,11 @@
       if (target.region.id.startsWith('game:')) {
         const gameId = target.region.id.slice('game:'.length);
         const game = libraryState.games.find((candidate) => candidate.id === gameId);
+        // Picking a game hands the curved screen to the launch options, so the
+        // remap panel stands down rather than leaving its regions behind on a
+        // mesh that is drawing something else.
+        remapOpen = false;
+        listeningFor = null;
         // Stages the launch screen instead of launching straight away: the
         // screen is the only place a save can be chosen or a friend seen.
         /*
@@ -492,23 +610,27 @@
       // way back to the library: a player who had simply finished had to take
       // the headset off and put it back on.
       if (id === 'stop') { void stopTogether(); return; }
+      if (id === 'remap') { openRemap(); return; }
       if (id === 'resume') {
         // Back to the game, so the game gets its screen back. The launch
         // screen is abandoned rather than kept: `launchFor` surviving here
-        // would leave regions on a mesh that is a picture again.
+        // would leave regions on a mesh that is a picture again. Same for the
+        // remap panel, which lives on that same mesh.
         launchFor = null;
+        remapOpen = false;
+        listeningFor = null;
+        captureGate.reset();
         if (scene) scene.screen.regions.length = 0;
         scene?.screen.showPicture();
         scene?.panelsVisible(false);
         return;
       }
       if (id === 'scheme:letters' || id === 'scheme:thumb') {
-        const next = id === 'scheme:thumb' ? 'thumb' : 'letters';
-        writePadScheme(localStorage, next);
-        // Read back rather than assumed: `readPadScheme` is the only thing
-        // that decides, and a preset written and not stored (the default is
+        writePadMap(localStorage, id === 'scheme:thumb' ? THUMB_MAP : LETTERS_MAP);
+        // Read back rather than assumed: `readPadMap` is the only thing that
+        // decides, and a preset written and not stored (the default is
         // removed, not stored) must still read back correctly.
-        padScheme = readPadScheme(localStorage);
+        padMap = readPadMap(localStorage);
         repaintProfile();
         return;
       }
@@ -520,6 +642,37 @@
         repaintProfile();
         return;
       }
+    }
+
+    // Before the launch screen's own branch: both live on `scene.screen.regions`,
+    // and only one of them owns the mesh at a time.
+    if (target.panel === 'screen' && remapOpen) {
+      const id = target.region.id;
+      if (id.startsWith('bind:')) {
+        listeningFor = id.slice('bind:'.length) as VrButton;
+        /*
+         * Offer the gate what is held RIGHT NOW, and throw the answer away.
+         *
+         * The trigger that just clicked this row is still down. Without this
+         * priming call the gate's next tick would see it as a fresh press and
+         * bind the trigger to the row the player only meant to select.
+         */
+        captureGate.reset();
+        captureGate.tick(activeXrInputs(scene?.inputSources() ?? []));
+        repaintControls();
+        return;
+      }
+      if (id === 'preset:letters' || id === 'preset:thumb') {
+        writePadMap(localStorage, id === 'preset:thumb' ? THUMB_MAP : LETTERS_MAP);
+        // Read back rather than assumed, the same rule the profile band's own
+        // preset buttons follow.
+        padMap = readPadMap(localStorage);
+        repaintControls();
+        repaintProfile();
+        return;
+      }
+      if (id === 'close') { closeRemap(); return; }
+      return;
     }
 
     if (target.panel === 'screen') {
@@ -691,7 +844,7 @@
             // and letting both read it at once would make a menu press also
             // register as SNES R.
             pad1: scene && !scene.arePanelsVisible()
-              ? readVrPad(scene.inputSources(), padScheme, sessionVisibility())
+              ? readVrPad(scene.inputSources(), padMap, sessionVisibility())
               : 0,
             pad2: 0
           }),
@@ -1011,7 +1164,7 @@
         // here, because the other pad arrives over the transport.
         readLocalInput: () =>
           scene && !scene.arePanelsVisible()
-            ? readVrPad(scene.inputSources(), padScheme, sessionVisibility())
+            ? readVrPad(scene.inputSources(), padMap, sessionVisibility())
             : 0,
         onEvent: onSessionEvent,
         onFrame: (c) => scene?.screen.upload(c.videoSurface()),
@@ -1141,6 +1294,11 @@
    * as `repaintLaunch` itself does when a dump leaves the library mid-session.
    */
   function backToLaunchScreen(): void {
+    // The screen carries one thing. Whoever asks for the launch options gets
+    // them, and the remap panel stands down rather than leaving its regions on
+    // a mesh that is drawing something else.
+    remapOpen = false;
+    listeningFor = null;
     const crc32 = $myRoom?.gameCrc32 ?? null;
     if (crc32 && entryFor(crc32)) {
       launchFor = crc32;
@@ -1310,6 +1468,48 @@
   function frame(): void {
     if (!scene) return;
 
+    /*
+     * A capture in progress owns the controllers, and owns them first.
+     *
+     * The right stick click CANCELS here instead of recalling the panels: it
+     * is the one input outside the model, so it is the only recall a player
+     * can have while every other button is capturable. `activeXrInputs`
+     * deliberately never reports it, so cancelling cannot also be captured.
+     *
+     * Nothing else runs this frame - no pointer, no hover - because the panel
+     * carries no regions while it listens.
+     */
+    if (remapOpen && listeningFor) {
+      const sources = scene.inputSources();
+      if (menuPressed(sources)) {
+        listeningFor = null;
+        captureGate.reset();
+        repaintControls();
+        return;
+      }
+      /*
+       * The cast is sound, and narrow.
+       *
+       * `CaptureGate` speaks plain strings - it is shared with the flat
+       * screen, whose codes are keyboard and standard-pad codes. The only
+       * thing this call ever hands it is `activeXrInputs`' output, so the only
+       * thing it can hand back is one of those.
+       */
+      const taken = captureGate.tick(activeXrInputs(sources)) as XrInput | null;
+      if (taken) {
+        padMap = assignInput(padMap, listeningFor, taken);
+        writePadMap(localStorage, padMap);
+        // Read back for the same reason the presets are: `readPadMap` is the
+        // only thing that decides, and the default is removed rather than
+        // stored - so a map that happens to equal it must still read back.
+        padMap = readPadMap(localStorage);
+        listeningFor = null;
+        repaintControls();
+        repaintProfile();
+      }
+      return;
+    }
+
     if (menuPressed(scene.inputSources())) scene.panelsVisible(true);
 
     /*
@@ -1331,7 +1531,10 @@
         if (panel === 'library') repaintLibrary();
         if (panel === 'friends') repaintFriends();
         if (panel === 'profile') repaintProfile();
-        if (panel === 'screen') repaintLaunch();
+        if (panel === 'screen') {
+          if (remapOpen) repaintControls();
+          else repaintLaunch();
+        }
       }
     }
     if (tick.activated) activate(tick.activated);
@@ -1367,7 +1570,7 @@
     try {
       // Read once per session, into the plain `let` above - see its comment
       // for why this cannot be a reactive statement.
-      padScheme = readPadScheme(localStorage);
+      padMap = readPadMap(localStorage);
 
       scene = createVrScene({
         aspect: readAspectPreference(localStorage),
@@ -1627,6 +1830,9 @@
     profilePanel = null;
     covers.clear();
     saveShots.clear();
+    remapOpen = false;
+    listeningFor = null;
+    captureGate.reset();
     hovered = null;
     pointer = createPointer();
     launchNotice = null;
