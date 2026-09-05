@@ -220,6 +220,18 @@
    */
   const covers = new Map<string, CanvasImageSource>();
 
+  /**
+   * Save thumbnails, keyed by save id, and the reason they need none of the
+   * care above.
+   *
+   * `Save.screenshot` is a PNG `data:` URL served inline by `/api/games`, not
+   * a URL to anybody's host. A `data:` image cannot taint a canvas, so there
+   * is no `crossOrigin` to set and no host that can refuse - the only failure
+   * left is a malformed payload, which lands in `onerror` and leaves the row
+   * with its two lines of text.
+   */
+  const saveShots = new Map<string, CanvasImageSource>();
+
   /** Whether a cover lives on somebody else's host, and so needs CORS. */
   function isForeign(url: string): boolean {
     try {
@@ -297,6 +309,7 @@
           thumb: t($language, 'vrPresetThumb'),
           quit: t($language, 'vrQuit'),
           resume: t($language, 'vrResume'),
+          stopGame: t($language, 'vrStopGame'),
           controls: t($language, 'controls'),
           gripLeft: t($language, 'vrGripLeft'),
           gripRight: t($language, 'vrGripRight'),
@@ -317,7 +330,12 @@
       room: $myRoom ?? null,
       me: $user?.id ?? '',
       openable: new Set(resolvable ?? []),
-      stagedSaveId
+      stagedSaveId,
+      // What a save is CALLED, decided by the same `saveIdentity` the flat
+      // grid uses. Without these two the headset prints the stored name, and
+      // the quick save's stored name is the sentinel `__quick__`.
+      locale: $language,
+      quickSaveLabel: t($language, 'quickSave')
     });
     // The dump left the library while its screen was up - a folder sync can do
     // that. Back to the test pattern rather than a half-drawn screen.
@@ -333,12 +351,37 @@
     // Replaced in place: `scene.aimedAt` holds this same array.
     scene.screen.regions.length = 0;
     scene.screen.regions.push(...regions);
+    // Before the paint, so a thumbnail already decoded from an earlier visit
+    // to this screen is in the map by the time the row is drawn.
+    loadSaveShots(options.saves);
     scene.screen.paintPanel(LAUNCH_PANEL_SIZE, (ctx) =>
       drawLaunchPanel(ctx, options, regions, {
         labels,
-        hoverId: hovered?.panel === 'screen' ? hovered.region.id : null
+        hoverId: hovered?.panel === 'screen' ? hovered.region.id : null,
+        covers,
+        shots: saveShots
       })
     );
+  }
+
+  /**
+   * Decodes the save thumbnails this screen is about to draw.
+   *
+   * Keyed by save id and never evicted while the session lasts: a player moves
+   * between the launch screen and a game repeatedly, and re-decoding the same
+   * five PNGs each time is work with no visible result. `teardown` clears it
+   * with everything else.
+   */
+  function loadSaveShots(saves: readonly { id: string; screenshot: string | null }[]): void {
+    for (const save of saves) {
+      if (!save.screenshot || saveShots.has(save.id)) continue;
+      const image = new Image();
+      image.onload = () => { saveShots.set(save.id, image); repaintLaunch(); };
+      // A payload that will not decode. The row keeps its name and its date,
+      // which is what identifies it anyway - the picture only ever confirmed.
+      image.onerror = () => logger.warn('save thumbnail unreadable in VR', save.id);
+      image.src = save.screenshot;
+    }
   }
 
   function launchLabels(): LaunchLabels {
@@ -366,7 +409,15 @@
       // Before `src`, or the attribute does not apply to the request. See the
       // note on `covers` for why this is per-URL rather than always or never.
       if (isForeign(game.coverUrl)) image.crossOrigin = 'anonymous';
-      image.onload = () => { covers.set(game.id, image); repaintLibrary(); };
+      // Both surfaces: the lectern's grid AND the launch screen's jaquette.
+      // Repainting only the library is what left the curved screen showing its
+      // placeholder rectangle for the whole session - the cover had loaded,
+      // nothing asked for it to be drawn again.
+      image.onload = () => {
+        covers.set(game.id, image);
+        repaintLibrary();
+        repaintLaunch();
+      };
       // A host that sends no CORS headers lands here. Nothing to do: the game
       // keeps its title, and never entering `covers` is what stops a tainted
       // image from reaching the canvas.
@@ -436,6 +487,11 @@
     if (target.panel === 'profile') {
       const id = target.region.id;
       if (id === 'quit') { void leave(); return; }
+      // Ends the GAME and stays in the headset. `quit` above ends the session
+      // itself, which was the only way out of a running game and so the only
+      // way back to the library: a player who had simply finished had to take
+      // the headset off and put it back on.
+      if (id === 'stop') { void stopTogether(); return; }
       if (id === 'resume') {
         // Back to the game, so the game gets its screen back. The launch
         // screen is abandoned rather than kept: `launchFor` surviving here
@@ -1181,8 +1237,19 @@
   }
 
   /**
-   * Tears the lockstep engine down after `onSessionEvent` reports `error`, and
-   * gives the room back the same way every other end-of-game path does.
+   * Ends the game and stays in VR.
+   *
+   * Two callers, and they are not the same kind of event. `onSessionEvent`
+   * reaches here after reporting `error`, and the profile band's `stop` button
+   * reaches here because the player asked. The work is identical either way -
+   * release the engine, give the room its game back, raise the panels, put the
+   * curved screen back on the launch options - so it is one function rather
+   * than two that must be kept in step.
+   *
+   * Deliberately NOT `leave()`: that ends the `XRSession` and drops the player
+   * out of the headset. Until this button existed that was the only way out of
+   * a running game, because the launch screen only exists while no game holds
+   * the screen - so choosing a second game meant leaving VR and coming back.
    *
    * Raises the panels, because the library's notice band that carries the
    * error message is invisible while `panelsVisible` is false, and puts the
@@ -1191,7 +1258,12 @@
    * A session-level `error` is treated as fatal to the game for both
    * players, not just this one: the same lockstep session is what just broke,
    * so `giveUpRoom` releases the room's game rather than only this seat - see
-   * its own header for the full reasoning.
+   * its own header for the full reasoning. A deliberate stop wants the same
+   * thing for a different reason: the player leaving is one of the two the
+   * game needs, so there is no game left to hand back to.
+   *
+   * Safe in solo, where `giveUpRoom` emits nothing: it is guarded on a room
+   * with two players in `playing` status, and solo has no room at all.
    */
   async function stopTogether(): Promise<void> {
     await engine?.stop();
@@ -1554,6 +1626,7 @@
     onlineFriends = new Map();
     profilePanel = null;
     covers.clear();
+    saveShots.clear();
     hovered = null;
     pointer = createPointer();
     launchNotice = null;

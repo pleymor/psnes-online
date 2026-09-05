@@ -54,6 +54,8 @@ export interface ProfileLabels {
   thumb: string;
   quit: string;
   resume: string;
+  /** Ends the GAME, not the session. See `layoutProfilePanel`. */
+  stopGame: string;
   controls: string;
   /* The four rows below the cards. Kept short on purpose: `fixedMapRows`
    * renders each as `<hardware> -> <SNES>` inside FIXED_COL_W, and a long
@@ -132,6 +134,24 @@ export function layoutProfilePanel(state: ProfileState): Region[] {
       id: 'resume',
       x: right - SMALL_W - 8,
       y: CARD_Y + (SMALL_H + 12) * 2,
+      w: SMALL_W * 2 + 8,
+      h: SMALL_H
+    });
+    /*
+     * Ends the game and stays in VR - which `quit` above does not.
+     *
+     * `quit` ends the `XRSession` and drops the player back to the Quest's
+     * shell. That was the only way out of a running game, because the launch
+     * screen only exists while no game holds the curved screen: finishing one
+     * game and choosing another meant taking the headset off and putting it
+     * back on. The two are drawn as separate buttons rather than one that
+     * changes meaning, because a control whose effect depends on state is the
+     * one a player presses by mistake.
+     */
+    regions.push({
+      id: 'stop',
+      x: right - SMALL_W - 8,
+      y: CARD_Y + (SMALL_H + 12) * 3,
       w: SMALL_W * 2 + 8,
       h: SMALL_H
     });
@@ -269,6 +289,9 @@ export function drawProfilePanel(
         break;
       case 'resume':
         drawButton(ctx, region, opts.labels.resume, false, hovered);
+        break;
+      case 'stop':
+        drawButton(ctx, region, opts.labels.stopGame, false, hovered);
         break;
     }
   }

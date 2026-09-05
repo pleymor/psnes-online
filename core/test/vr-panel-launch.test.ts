@@ -49,14 +49,19 @@ const LABELS: LaunchLabels = {
   friendAwayBlocked: 'A player is away. Wait for them to come back before starting.'
 };
 
+const SHOT = 'data:image/png;base64,iVBORw0KGgo=';
+
 const SAVES = [
-  { id: 's1', name: 'Before the boss', slotNumber: 1 },
-  { id: 's2', name: 'Chapter two', slotNumber: 2 }
+  { id: 's1', primary: 'Before the boss', secondary: '03/09/2026 18:44', slotNumber: 1, screenshot: SHOT },
+  { id: 's2', primary: 'Chapter two', secondary: '02/09/2026 09:12', slotNumber: 2, screenshot: SHOT }
 ];
+
+/** A stand-in for a loaded `HTMLImageElement`; the painter only draws it. */
+const IMAGE = { width: 320, height: 240 } as unknown as CanvasImageSource;
 
 function options(over: Partial<LaunchOptions> = {}): LaunchOptions {
   return {
-    game: { title: 'Super Mario World', crc32: 'aaaa1111' },
+    game: { id: 'mine', title: 'Super Mario World', crc32: 'aaaa1111' },
     saves: SAVES,
     chosenSaveId: null,
     mayChooseSave: true,
@@ -71,29 +76,50 @@ function options(over: Partial<LaunchOptions> = {}): LaunchOptions {
 function recordingContext() {
   const texts: string[] = [];
   const calls: string[] = [];
-  const placed: Array<{ text: string; x: number }> = [];
+  const placed: Array<{ text: string; x: number; y: number }> = [];
+  const images: Array<{ x: number; y: number; w: number; h: number }> = [];
   return {
     texts,
     calls,
     placed,
+    images,
     font: '', fillStyle: '', strokeStyle: '', lineWidth: 0,
     textAlign: 'left', textBaseline: 'alphabetic',
     save() {}, restore() {}, clearRect() {}, fillRect() { calls.push('fillRect'); },
     strokeRect() { calls.push('strokeRect'); },
     beginPath() {}, arc() { calls.push('arc'); }, fill() {}, stroke() {},
-    drawImage() { calls.push('drawImage'); },
-    fillText(text: string, x: number) { texts.push(text); placed.push({ text, x }); },
+    drawImage(_img: unknown, x: number, y: number, w: number, h: number) {
+      calls.push('drawImage');
+      images.push({ x, y, w, h });
+    },
+    fillText(text: string, x: number, y: number) {
+      texts.push(text);
+      placed.push({ text, x, y });
+    },
     measureText(text: string) { return { width: text.length * 9 }; }
   } as unknown as CanvasRenderingContext2D & {
     texts: string[];
     calls: string[];
-    placed: Array<{ text: string; x: number }>;
+    placed: Array<{ text: string; x: number; y: number }>;
+    images: Array<{ x: number; y: number; w: number; h: number }>;
   };
 }
 
-function draw(o: LaunchOptions, hoverId: string | null = null) {
+function draw(
+  o: LaunchOptions,
+  hoverId: string | null = null,
+  pictures: {
+    covers?: Map<string, CanvasImageSource>;
+    shots?: Map<string, CanvasImageSource>;
+  } = {}
+) {
   const ctx = recordingContext();
-  drawLaunchPanel(ctx, o, layoutLaunchPanel(o, LABELS), { labels: LABELS, hoverId });
+  drawLaunchPanel(ctx, o, layoutLaunchPanel(o, LABELS), {
+    labels: LABELS,
+    hoverId,
+    covers: pictures.covers ?? new Map(),
+    shots: pictures.shots ?? new Map()
+  });
   return ctx;
 }
 
@@ -183,8 +209,10 @@ test('no arrangement puts a region off the panel or on top of another', () => {
           const o = options({
             saves: Array.from({ length: count }, (_, i) => ({
               id: `s${i}`,
-              name: `Save ${i}`,
-              slotNumber: i + 1
+              primary: `Save ${i}`,
+              secondary: '01/09/2026 20:30',
+              slotNumber: i + 1,
+              screenshot: SHOT
             })),
             friend,
             blocked,
@@ -246,8 +274,10 @@ test('the locked-save banner stays clear of the friend line', () => {
 test('the save list is capped, not merely offered', () => {
   const many = Array.from({ length: 8 }, (_, i) => ({
     id: `s${i}`,
-    name: `Save ${i}`,
-    slotNumber: i + 1
+    primary: `Save ${i}`,
+    secondary: null,
+    slotNumber: i + 1,
+    screenshot: null
   }));
   const o = options({ saves: many });
   const ids = layoutLaunchPanel(o, LABELS)
@@ -319,7 +349,12 @@ test('a banner too long for its column is cut to it, not to the panel', () => {
     friend: { pseudo: 'Bob', online: true, port: 2, isReady: true }
   });
   const ctx = recordingContext();
-  drawLaunchPanel(ctx, o, layoutLaunchPanel(o, long), { labels: long, hoverId: null });
+  drawLaunchPanel(ctx, o, layoutLaunchPanel(o, long), {
+    labels: long,
+    hoverId: null,
+    covers: new Map(),
+    shots: new Map()
+  });
 
   const banner = ctx.placed.find((p) => p.text.startsWith('X'));
   const friendLine = ctx.placed.find((p) => p.text.includes('Bob'));
@@ -332,7 +367,15 @@ test('a banner too long for its column is cut to it, not to the panel', () => {
 
 test('a long save name is truncated rather than run into the ports', () => {
   const o = options({
-    saves: [{ id: 's1', name: 'A'.repeat(200), slotNumber: 1 }],
+    saves: [
+      {
+        id: 's1',
+        primary: 'A'.repeat(200),
+        secondary: '03/09/2026 18:44',
+        slotNumber: 1,
+        screenshot: SHOT
+      }
+    ],
     friend: { pseudo: 'Bob', online: true, port: 2, isReady: true }
   });
   const region = layoutLaunchPanel(o, LABELS).find((r) => r.id === 'save:s1');
@@ -343,5 +386,116 @@ test('a long save name is truncated rather than run into the ports', () => {
   assert.ok(
     drawn.x + drawn.text.length * 9 <= region.x + region.w,
     'a long name escaped its row'
+  );
+});
+
+/*
+ * The pictures, and why they were absent rather than broken.
+ *
+ * This panel shipped drawing a grey rectangle where the cover belongs, with a
+ * comment saying a real one would mean handing this module the same `covers`
+ * map and the same per-URL CORS handling `VrShell` already has. It would not:
+ * `VrShell` resolves CORS at LOAD time and a tainting image never enters the
+ * map at all, so what reaches here is always safe to draw. The map is now
+ * simply passed, and the placeholder stays underneath for a game with no art.
+ *
+ * Save thumbnails are `data:` URLs and cannot taint anything, so they had no
+ * excuse in the first place.
+ */
+
+test('the cover is drawn when it has loaded, and the placeholder when it has not', () => {
+  const withArt = draw(options(), null, { covers: new Map([['mine', IMAGE]]) });
+  assert.ok(withArt.calls.includes('drawImage'), 'the cover never reached the canvas');
+
+  const without = draw(options());
+  assert.ok(
+    !without.images.some((i) => i.y < 264),
+    'nothing should be drawn in the cover box before the image loads'
+  );
+});
+
+test('the cover is looked up by game id, not by title', () => {
+  // `VrShell` keys `covers` by `game.id`. A lookup by anything else finds
+  // nothing and silently falls back to the placeholder - the exact failure
+  // this whole change exists to end.
+  const wrongKey = draw(options(), null, { covers: new Map([['Super Mario World', IMAGE]]) });
+  assert.ok(!wrongKey.calls.includes('drawImage'), 'the cover was found under the wrong key');
+});
+
+test('each save row draws its thumbnail and both of its lines', () => {
+  const ctx = draw(options(), null, {
+    shots: new Map([
+      ['s1', IMAGE],
+      ['s2', IMAGE]
+    ])
+  });
+
+  const drawn = ctx.texts.join('\n');
+  assert.ok(drawn.includes('Before the boss'), 'the name is missing');
+  assert.ok(drawn.includes('03/09/2026 18:44'), 'the moment is missing');
+  assert.equal(ctx.images.length, 2, 'one thumbnail per save that has one');
+});
+
+test('a save with no thumbnail still draws its lines', () => {
+  const ctx = draw(
+    options({
+      saves: [{ id: 's1', primary: 'Before the boss', secondary: null, slotNumber: 1, screenshot: null }]
+    })
+  );
+  assert.ok(ctx.texts.join('\n').includes('Before the boss'));
+  assert.equal(ctx.images.length, 0);
+});
+
+test('"start fresh" has no thumbnail, because there is nothing to depict', () => {
+  const ctx = draw(options({ saves: [] }), null, { shots: new Map([['none', IMAGE]]) });
+  assert.ok(ctx.texts.join('\n').includes(LABELS.newGame));
+  assert.equal(ctx.images.length, 0, 'a new game was given a picture of something');
+});
+
+test('a thumbnail stays inside the row it belongs to', () => {
+  /*
+   * Geometry, not appearance. A thumbnail that overflows its row lands on the
+   * neighbouring row's text on a curved texture with no layout engine to
+   * notice - the same class of bug as the launch button that used to cross
+   * the save column, which no test saw because no fixture built the case.
+   */
+  const regions = layoutLaunchPanel(options(), LABELS);
+  const ctx = draw(options(), null, {
+    shots: new Map([
+      ['s1', IMAGE],
+      ['s2', IMAGE]
+    ])
+  });
+
+  for (const image of ctx.images) {
+    const row = regions.find(
+      (r) => r.id.startsWith('save:') && image.y >= r.y && image.y < r.y + r.h
+    );
+    assert.ok(row, `a thumbnail at y=${image.y} belongs to no row`);
+    assert.ok(
+      image.x >= row.x && image.x + image.w <= row.x + row.w,
+      `the thumbnail runs out of ${row.id} horizontally`
+    );
+    assert.ok(
+      image.y + image.h <= row.y + row.h,
+      `the thumbnail runs out of ${row.id} vertically`
+    );
+  }
+});
+
+test('a row s text clears its thumbnail instead of being drawn over it', () => {
+  const ctx = draw(options(), null, {
+    shots: new Map([
+      ['s1', IMAGE],
+      ['s2', IMAGE]
+    ])
+  });
+
+  const name = ctx.placed.find((p) => p.text === 'Before the boss');
+  const shot = ctx.images[0];
+  assert.ok(name && shot, 'both must be drawn in this state');
+  assert.ok(
+    name.x >= shot.x + shot.w,
+    `the name starts at ${name.x}px, over a thumbnail ending at ${shot.x + shot.w}px`
   );
 });

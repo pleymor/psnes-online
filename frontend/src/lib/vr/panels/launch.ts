@@ -27,16 +27,41 @@ export const LAUNCH_PANEL_SIZE: PanelSize = { width: 1024, height: 768 };
 
 const PAD = 40;
 const TITLE_Y = 56;
-const COVER = { x: PAD, y: 96, w: 240, h: 168 };
+/*
+ * 160x112, down from 240x168, and the 56 pixels that buys are spent below.
+ *
+ * A row now carries a thumbnail and two lines of text where it used to carry
+ * one line, so it needs 68px rather than 56. Six rows at 68 do not fit under a
+ * cover of the old size, and the choice was between a smaller cover and fewer
+ * saves. The cover is one picture of a game whose title is printed beside it;
+ * a save row is the only thing on this screen that says what the player is
+ * about to resume.
+ */
+const COVER = { x: PAD, y: 96, w: 160, h: 112 };
 
 /** The save list: left column, clear of the ports on the right. */
 const SAVE_X = PAD;
-const SAVE_Y = 312;
+const SAVE_Y = 264;
 const SAVE_W = 470;
-const SAVE_H = 56;
+const SAVE_H = 68;
 const SAVE_GAP = 12;
 /** Beyond this the list scrolls nowhere: it is simply capped. */
 const SAVE_LIMIT = 5;
+
+/*
+ * The thumbnail column, reserved whether or not a picture is in it.
+ *
+ * Text sits at a fixed offset rather than one that depends on whether the
+ * image has loaded: thumbnails arrive one `onload` at a time, and a text
+ * origin computed from what is present would make every row jump sideways as
+ * they land.
+ */
+const SHOT_MARGIN = 4;
+const SHOT_W = 88;
+const SHOT_H = 60;
+const TEXT_X = SHOT_MARGIN + SHOT_W + 12;
+/** Room for the chosen-save glyph on the right. */
+const TEXT_RIGHT_GUTTER = 44;
 
 const PORT_X = 560;
 const PORT_Y = 312;
@@ -137,16 +162,44 @@ function truncate(ctx: CanvasRenderingContext2D, text: string, width: number): s
 	return `${cut}…`;
 }
 
+/**
+ * One save row: a thumbnail, a name, and the moment underneath.
+ *
+ * `primary` and `secondary` arrive already decided by `launchOptions`, through
+ * the same `saveIdentity` the flat grid uses. This function must not fall back
+ * to a stored name of its own: that is how `__quick__` came to be printed on a
+ * curved screen in a headset.
+ */
 function drawRow(
 	ctx: CanvasRenderingContext2D,
 	region: Region,
-	text: string,
+	lines: { primary: string; secondary: string | null },
 	chosen: boolean,
 	live: boolean,
-	hovered: boolean
+	hovered: boolean,
+	shot: { image: CanvasImageSource | undefined; reserved: boolean }
 ): void {
 	ctx.fillStyle = chosen ? '#232a44' : '#1c1c26';
 	ctx.fillRect(region.x, region.y, region.w, region.h);
+
+	// The column is reserved for every save, drawn or not - see `SHOT_MARGIN`.
+	// "Start fresh" is the one row that reserves nothing, because there is no
+	// moment for it to depict.
+	if (shot.reserved) {
+		const x = region.x + SHOT_MARGIN;
+		const y = region.y + (region.h - SHOT_H) / 2;
+		if (shot.image) {
+			ctx.drawImage(shot.image, x, y, SHOT_W, SHOT_H);
+		} else {
+			// A well before the picture lands, rather than the row's own fill:
+			// the alternative is a row that visibly changes shape on `onload`.
+			ctx.fillStyle = '#141420';
+			ctx.fillRect(x, y, SHOT_W, SHOT_H);
+		}
+	}
+
+	const textX = region.x + TEXT_X;
+	const textW = region.w - TEXT_X - TEXT_RIGHT_GUTTER;
 
 	ctx.font = '22px system-ui, sans-serif';
 	ctx.textAlign = 'left';
@@ -154,11 +207,21 @@ function drawRow(
 	// Dimmed when the row cannot be acted on, so "drawn but inert" is visible
 	// rather than only true.
 	ctx.fillStyle = live ? '#e8e8f0' : '#79798a';
+	// Centred when it is the whole of what the row says, raised when a moment
+	// sits under it. `saveIdentity` returns no second line precisely when the
+	// name already IS the moment, so this is the one-line case being honoured
+	// rather than a blank line being reserved for nothing.
 	ctx.fillText(
-		truncate(ctx, text, region.w - 64),
-		region.x + 16,
-		region.y + region.h / 2
+		truncate(ctx, lines.primary, textW),
+		textX,
+		region.y + (lines.secondary ? 24 : region.h / 2)
 	);
+
+	if (lines.secondary) {
+		ctx.font = '16px system-ui, sans-serif';
+		ctx.fillStyle = live ? '#9a9aac' : '#6a6a78';
+		ctx.fillText(truncate(ctx, lines.secondary, textW), textX, region.y + 48);
+	}
 
 	if (chosen) {
 		// A glyph, not just the fill. See the header.
@@ -222,7 +285,23 @@ export function drawLaunchPanel(
 	ctx: CanvasRenderingContext2D,
 	options: LaunchOptions,
 	regions: readonly Region[],
-	opts: { labels: LaunchLabels; hoverId: string | null }
+	opts: {
+		labels: LaunchLabels;
+		hoverId: string | null;
+		/**
+		 * Loaded cover art, keyed by GAME id - the same map `VrShell` fills for
+		 * the library lectern, passed rather than rebuilt.
+		 *
+		 * Cross-origin handling belongs to the loader, not here. `VrShell` sets
+		 * `crossOrigin` per URL before `src` and drops on `onerror`, so an image
+		 * that would taint the canvas never enters the map. Everything that
+		 * arrives here is safe to draw.
+		 */
+		covers: ReadonlyMap<string, CanvasImageSource>;
+		/** Loaded save thumbnails, keyed by SAVE id. `data:` URLs; they cannot
+		 *  taint anything. */
+		shots: ReadonlyMap<string, CanvasImageSource>;
+	}
 ): void {
 	const { width, height } = LAUNCH_PANEL_SIZE;
 	const { labels } = opts;
@@ -238,18 +317,15 @@ export function drawLaunchPanel(
 	ctx.textBaseline = 'middle';
 	ctx.fillText(truncate(ctx, options.game.title, width - PAD * 2), PAD, TITLE_Y);
 
-	// A placeholder rectangle, always - no caller passes this function an
-	// actual cover image today, so the reason a fetch belongs to a caller
-	// rather than to this module still applies but is not yet exercised:
-	// `VrShell`'s library panel already draws its own covers into a canvas
-	// through `<img crossOrigin>`, and a cross-origin one drawn without that
-	// taints the whole texture, which WebGL then refuses to upload. Wiring an
-	// actual cover through here would mean passing this module the same
-	// `covers` map and the same per-URL CORS handling `VrShell` already has -
-	// left undone rather than duplicated, so the title is what identifies the
-	// game on this screen for now.
+	// The placeholder first, then the art over it. Drawn in that order rather
+	// than as a branch so that a game with no cover, and a game whose cover has
+	// not landed yet, are the same rectangle instead of a hole in the panel.
 	ctx.fillStyle = '#1c1c26';
 	ctx.fillRect(COVER.x, COVER.y, COVER.w, COVER.h);
+	const cover = opts.covers.get(options.game.id);
+	if (cover) {
+		ctx.drawImage(cover, COVER.x, COVER.y, COVER.w, COVER.h);
+	}
 
 	const byId = new Map(regions.map((region) => [region.id, region]));
 
@@ -266,10 +342,16 @@ export function drawLaunchPanel(
 		drawRow(
 			ctx,
 			region,
-			row.save ? row.save.name : labels.newGame,
+			row.save
+				? { primary: row.save.primary, secondary: row.save.secondary }
+				: { primary: labels.newGame, secondary: null },
 			options.chosenSaveId === (row.save?.id ?? null),
 			options.mayChooseSave,
-			opts.hoverId === row.id
+			opts.hoverId === row.id,
+			{
+				image: row.save ? opts.shots.get(row.save.id) : undefined,
+				reserved: row.save !== null
+			}
 		);
 	});
 

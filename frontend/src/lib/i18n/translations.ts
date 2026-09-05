@@ -482,6 +482,7 @@ export const translations = {
     vrPresetThumb: 'Thumb comfort',
     vrQuit: 'Leave VR',
     vrResume: 'Back to the game',
+    vrStopGame: 'Stop the game',
     // Kept short: `vr/panels/profile.ts` draws these as `<this> -> <SNES>`
     // inside a 228px column and does not wrap.
     vrGripLeft: 'Left grip',
@@ -980,6 +981,7 @@ export const translations = {
     vrPresetThumb: 'Confort du pouce',
     vrQuit: 'Quitter la VR',
     vrResume: 'Retour au jeu',
+    vrStopGame: 'Quitter le jeu',
     vrGripLeft: 'Grip gauche',
     vrGripRight: 'Grip droit',
     vrTriggers: 'Gâchettes',

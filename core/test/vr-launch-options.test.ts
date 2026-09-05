@@ -24,8 +24,32 @@ import {
   type LaunchRoom,
   type LibraryGame
 } from '../../frontend/src/lib/vr/launch-options.js';
+import { autoSaveName } from '../../frontend/src/lib/saves/api.js';
+import { QUICK_SAVE_NAME } from '../../frontend/src/lib/saves/quick.js';
 
-const SAVE = { id: 's1', name: 'Before the boss', slotNumber: 1 };
+/*
+ * A full `SaveSummary`, because the screen now shows what the flat page shows.
+ *
+ * The three fields this fixture gained - `screenshot`, `createdAt`,
+ * `updatedAt` - are not decoration: `saveIdentity` reads `createdAt` to decide
+ * whether a name was generated, `updatedAt` for the moment it prints, and the
+ * headset draws the thumbnail. `/api/games` has always served all three
+ * (`db/games.ts:127`); only the VR types dropped them.
+ */
+const SAVE = {
+  id: 's1',
+  name: 'Before the boss',
+  slotNumber: 1,
+  screenshot: 'data:image/png;base64,iVBORw0KGgo=',
+  createdAt: '2026-09-03T18:44:00.000Z',
+  updatedAt: '2026-09-03T18:44:00.000Z'
+};
+
+const LOCALE = 'fr';
+const QUICK_LABEL = 'Sauvegarde rapide';
+
+/** The two fields every call below needs and no test varies. */
+const NAMING = { locale: LOCALE, quickSaveLabel: QUICK_LABEL };
 
 function library(over: Partial<LibraryGame> = {}): LibraryGame[] {
   return [
@@ -53,6 +77,7 @@ test('the dump is found by CRC32, not by game id', () => {
   // The room carries the friend's game id for the same cartridge. Looking that
   // up here would find nothing and the screen would have no game to draw.
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({ gameCrc32: 'aaaa1111' }),
@@ -66,6 +91,7 @@ test('the dump is found by CRC32, not by game id', () => {
 
 test('a dump that is in no library entry has nothing to show', () => {
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'ffff9999',
     room: null,
@@ -77,17 +103,19 @@ test('a dump that is in no library entry has nothing to show', () => {
 
 test('the saves come from the library entry, never from a request', () => {
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: null,
     me: 'me',
     openable: OPENABLE
   });
-  assert.deepEqual(options!.saves, [SAVE]);
+  assert.deepEqual(options!.saves.map((s) => s.id), ['s1']);
 });
 
 test('the save may be chosen in solo, because the room does not exist yet', () => {
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: null,
@@ -101,6 +129,7 @@ test('the save may not be chosen when somebody else opened the room', () => {
   // Not a preference: the server refuses, and the refusal is invisible in a
   // headset. Where the game starts is not a private choice.
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({ createdBy: 'you' }),
@@ -112,6 +141,7 @@ test('the save may not be chosen when somebody else opened the room', () => {
 
 test('the chosen save comes from the room in a group, and from the staged value in solo', () => {
   const inGroup = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({ resumeSaveId: 's1' }),
@@ -122,6 +152,7 @@ test('the chosen save comes from the room in a group, and from the staged value 
   assert.equal(inGroup!.chosenSaveId, 's1', 'the room is the truth once it exists');
 
   const alone = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: null,
@@ -143,6 +174,7 @@ test('the save may be chosen alone, even in a room somebody else created', () =>
    * accepted whole.
    */
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({
@@ -160,6 +192,7 @@ test('the chosen save is the staged one alone, even over a stale resumeSaveId', 
   // friend left. A room holding only me is not the group truth that field
   // belongs to - the locally staged choice is, exactly as in solo.
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({
@@ -175,6 +208,7 @@ test('the chosen save is the staged one alone, even over a stale resumeSaveId', 
 
 test('there is no friend when there is no group', () => {
   const alone = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: null,
@@ -184,6 +218,7 @@ test('there is no friend when there is no group', () => {
   assert.equal(alone!.friend, null);
 
   const oneSeat = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({ players: [{ userId: 'me', pseudo: 'Ada', port: 1, isReady: true, online: true }] }),
@@ -203,6 +238,7 @@ test('a lone player who is not me is still not a group', () => {
    * the mutation probe on 2026-09-04, in the plan's own test code.
    */
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({ players: [{ userId: 'you', pseudo: 'Bob', port: 1, isReady: true, online: true }] }),
@@ -214,6 +250,7 @@ test('a lone player who is not me is still not a group', () => {
 
 test('the friend is named with the state that decides whether the game can start', () => {
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({
@@ -231,11 +268,13 @@ test('the friend is named with the state that decides whether the game can start
 
 test('my port is read from my own row, and is null before I sit', () => {
   const seated = launchOptions({
+    ...NAMING,
     library: library(), crc32: 'aaaa1111', room: room(), me: 'me', openable: OPENABLE
   });
   assert.equal(seated!.myPort, 1);
 
   const standing = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({
@@ -258,6 +297,7 @@ test('my row is found by id, not by position', () => {
    * would hand me my friend's port and my friend my own.
    */
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({
@@ -282,6 +322,7 @@ test('a device that can open other games still cannot open this one', () => {
    * the silent black screen this whole module exists to prevent.
    */
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room(),
@@ -295,6 +336,7 @@ test('a device that can open other games still cannot open this one', () => {
 
 test('a ROM this device cannot read blocks the launch and says so', () => {
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room(),
@@ -308,6 +350,7 @@ test('a ROM this device cannot read blocks the launch and says so', () => {
 
 test('a room already playing blocks the launch', () => {
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({ status: 'playing' }),
@@ -321,6 +364,7 @@ test('a group with nobody seated blocks the launch, mirroring the server', () =>
   // `game:start` refuses when no player has a port and is ready. Offering the
   // button anyway would earn an error nothing in here displays.
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({
@@ -338,6 +382,7 @@ test('a group with nobody seated blocks the launch, mirroring the server', () =>
 test('solo needs no seat', () => {
   // There is no port to pick alone, so the server's seating rule cannot apply.
   const options = launchOptions({
+    ...NAMING,
     library: library(), crc32: 'aaaa1111', room: null, me: 'me', openable: OPENABLE
   });
   assert.equal(options!.blocked, null);
@@ -347,6 +392,7 @@ test('a missing ROM outranks a missing seat', () => {
   // The player can do something about a seat from in here. They cannot do
   // anything about a ROM that is not on the device, so that is what to say.
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({
@@ -369,6 +415,7 @@ test('a friend who has gone away blocks the launch, mirroring the server', () =>
    * headset draws.
    */
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({
@@ -392,6 +439,7 @@ test('an away friend who never took a seat does not block the launch', () => {
    * player blocks" would fail this where the real guard does not.
    */
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({
@@ -410,6 +458,7 @@ test('a missing ROM outranks an away friend', () => {
   // Same ranking as the missing seat above: nothing in here fixes a ROM
   // that is not on the device, so that is the reason to lead with.
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({
@@ -434,6 +483,7 @@ test('a room that no longer holds this game refuses the launch', async () => {
    * `game:start` refused it with an `error` nothing in a headset draws.
    */
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({ gameCrc32: 'bbbb2222' }),
@@ -447,6 +497,7 @@ test('a room holding no game at all does not refuse a solo-shaped launch', async
   // `gameCrc32` undefined is the ordinary state of a group that has not
   // chosen yet; only a DIFFERENT game is a refusal.
   const options = launchOptions({
+    ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
     room: room({ gameCrc32: undefined }),
@@ -454,4 +505,143 @@ test('a room holding no game at all does not refuse a solo-shaped launch', async
     openable: OPENABLE
   });
   assert.notEqual(options!.blocked, 'game-changed');
+});
+
+/*
+ * The three tests below are the headset catching up with the flat page.
+ *
+ * `drawRow` printed `save.name` raw, which is not what a save is called: the
+ * quick save is stored under the sentinel `__quick__` (`saves/quick.ts:18`),
+ * chosen precisely so that no player could ever type it, and an ordinary save
+ * is named by `autoSaveName` - a date string that says nothing extra once the
+ * moment is printed beside it. `saveIdentity` is what the flat grid has always
+ * used to turn one into the other, and reusing it rather than writing a second
+ * one is the whole point: two implementations of "what is this save called"
+ * would drift apart the first time either changed.
+ */
+
+test('the quick save is named, never shown under its sentinel', () => {
+  const options = launchOptions({
+    ...NAMING,
+    library: library({ saves: [{ ...SAVE, id: 'q', name: QUICK_SAVE_NAME }] }),
+    crc32: 'aaaa1111',
+    room: null,
+    me: 'me',
+    openable: OPENABLE
+  });
+
+  const row = options!.saves.find((s) => s.id === 'q');
+  assert.ok(row, 'the quick save vanished from the list');
+  assert.equal(row.primary, QUICK_LABEL);
+  assert.ok(
+    !JSON.stringify(options!.saves).includes(QUICK_SAVE_NAME),
+    'an internal sentinel reached the screen'
+  );
+});
+
+test('an auto-named save prints its moment once, not twice', () => {
+  // `autoSaveName` builds the name out of the date, so name and date are the
+  // same fact. The flat tile drops the second line; so must this one.
+  const created = new Date('2026-09-04T21:07:00.000Z');
+  const options = launchOptions({
+    ...NAMING,
+    library: library({
+      saves: [
+        {
+          ...SAVE,
+          id: 'auto',
+          name: autoSaveName(LOCALE, created),
+          createdAt: created.toISOString(),
+          updatedAt: created.toISOString()
+        }
+      ]
+    }),
+    crc32: 'aaaa1111',
+    room: null,
+    me: 'me',
+    openable: OPENABLE
+  });
+
+  const row = options!.saves.find((s) => s.id === 'auto');
+  assert.ok(row, 'the auto-named save vanished from the list');
+  assert.equal(row.secondary, null, 'the date was printed twice');
+});
+
+test('a named save keeps its name and gains the moment underneath', () => {
+  const options = launchOptions({
+    ...NAMING,
+    library: library(),
+    crc32: 'aaaa1111',
+    room: null,
+    me: 'me',
+    openable: OPENABLE
+  });
+
+  const row = options!.saves[0];
+  assert.equal(row.primary, 'Before the boss');
+  assert.ok(row.secondary, 'a save the player named says nothing about when it was taken');
+});
+
+/*
+ * The cap is five, and which five was never decided.
+ *
+ * `options.saves.slice(0, 5)` took the first five in store order - the order
+ * `/api/games`' SQL happened to return, which is neither newest nor oldest.
+ * With six saves the headset therefore hid an arbitrary one, while the flat
+ * grid (`byNewest`, `saves/api.ts:85`) showed them most recent first. A cap is
+ * defensible; an arbitrary cap is not.
+ */
+test('the list is ordered newest first, so the cap drops the oldest', () => {
+  const at = (day: number) => `2026-09-0${day}T12:00:00.000Z`;
+  const options = launchOptions({
+    ...NAMING,
+    library: library({
+      saves: [3, 1, 5, 2, 4].map((day) => ({
+        ...SAVE,
+        id: `d${day}`,
+        name: `Day ${day}`,
+        createdAt: at(day),
+        updatedAt: at(day)
+      }))
+    }),
+    crc32: 'aaaa1111',
+    room: null,
+    me: 'me',
+    openable: OPENABLE
+  });
+
+  assert.deepEqual(
+    options!.saves.map((s) => s.id),
+    ['d5', 'd4', 'd3', 'd2', 'd1'],
+    'the screen showed them in whatever order the store held'
+  );
+});
+
+test('a save carries its thumbnail through to the screen', () => {
+  const options = launchOptions({
+    ...NAMING,
+    library: library(),
+    crc32: 'aaaa1111',
+    room: null,
+    me: 'me',
+    openable: OPENABLE
+  });
+
+  assert.equal(options!.saves[0].screenshot, SAVE.screenshot);
+});
+
+test('the game carries its id, which is how a cover is found', () => {
+  // `VrShell` keys its `covers` map by game id, so an id that stops here is a
+  // jaquette that can never be drawn - the placeholder rectangle this screen
+  // shipped with.
+  const options = launchOptions({
+    ...NAMING,
+    library: library(),
+    crc32: 'aaaa1111',
+    room: null,
+    me: 'me',
+    openable: OPENABLE
+  });
+
+  assert.equal(options!.game.id, 'mine');
 });

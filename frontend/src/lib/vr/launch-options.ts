@@ -3,8 +3,9 @@
  *
  * The same shape as `rooms/game-click.ts`: a pure function over the little a
  * decision needs to know, gathered here rather than spread through a painter
- * where a reader would see two branches out of five. It imports nothing - no
- * `three`, no Svelte, no store - so every rule below is testable under Bun.
+ * where a reader would see two branches out of five. It imports no `three`, no
+ * Svelte and no store - only the two save modules below, which are themselves
+ * type-only and alias-free - so every rule below is testable under Bun.
  *
  * Three of those rules exist because the alternative was measured and cost a
  * session:
@@ -16,13 +17,37 @@
  *   - A launch that cannot succeed says which of its reasons stopped it,
  *     because a headset has no console and its logs are unreadable from
  *     inside.
+ *
+ * What a save is CALLED is decided here too, through `saveIdentity` - the same
+ * function the flat grid uses, imported rather than reimplemented. The headset
+ * used to print `save.name` raw, which is not a name: the quick save is stored
+ * under the sentinel `__quick__` so that no player can type it, and an
+ * ordinary save is named by `autoSaveName` with the very date that would be
+ * printed underneath. Two answers to "what is this save called" would drift
+ * apart the first time either changed, and the headset is the copy nobody
+ * would notice drifting.
  */
 
-/** One save, as the library store already holds it. */
+import type { SaveSummary } from '../saves/api';
+import { byNewest } from '../saves/api';
+import { saveIdentity } from '../saves/identity';
+
+/**
+ * One save, as the screen will draw it: two lines and a picture.
+ *
+ * `name` is deliberately absent. It is an input to the decision, not an
+ * output of it, and leaving it here would let a painter print the sentinel
+ * again.
+ */
 export interface LaunchSave {
 	id: string;
-	name: string;
 	slotNumber: number;
+	/** What the row calls this save. Never the raw stored name. */
+	primary: string;
+	/** The moment underneath, or null when `primary` already is the moment. */
+	secondary: string | null;
+	/** A PNG data URL, or null when the capture failed. */
+	screenshot: string | null;
 }
 
 /** The little this needs from `stores/games`' `Game`. */
@@ -31,7 +56,8 @@ export interface LibraryGame {
 	title: string;
 	coverUrl?: string;
 	crc32?: string | null;
-	saves: readonly LaunchSave[];
+	/** Straight from `/api/games`, summaries only - never the savestates. */
+	saves: readonly SaveSummary[];
 }
 
 /** The little this needs from a room. */
@@ -68,7 +94,9 @@ export type LaunchBlock =
 	| 'game-changed';
 
 export interface LaunchOptions {
-	game: { title: string; coverUrl?: string; crc32: string };
+	/** `id` is what `VrShell` keys its loaded covers by; without it the
+	 *  jaquette can only ever be the placeholder rectangle. */
+	game: { id: string; title: string; coverUrl?: string; crc32: string };
 	/** Empty when nothing has ever been saved for this dump. */
 	saves: readonly LaunchSave[];
 	/** The save this launch will start on, or null for a fresh game. */
@@ -107,6 +135,17 @@ export interface LaunchInput {
 	 * resolves.
 	 */
 	stagedSaveId?: string | null;
+	/** The player's own locale, for the moment a row prints. */
+	locale: string;
+	/**
+	 * The translated wording for the quick save.
+	 *
+	 * Passed in rather than translated here, for the same reason
+	 * `saveIdentity` takes it: this module is exercised from `core/test` under
+	 * plain Bun, which cannot resolve the `$lib` alias the translations live
+	 * behind.
+	 */
+	quickSaveLabel: string;
 }
 
 /** null when the dump is in no library entry: there is nothing to draw. */
@@ -124,8 +163,22 @@ export function launchOptions(input: LaunchInput): LaunchOptions | null {
 	const romHere = input.openable.has(input.crc32);
 
 	return {
-		game: { title: entry.title, coverUrl: entry.coverUrl, crc32: input.crc32 },
-		saves: entry.saves,
+		game: {
+			id: entry.id,
+			title: entry.title,
+			coverUrl: entry.coverUrl,
+			crc32: input.crc32
+		},
+		saves: byNewest([...entry.saves]).map((save) => {
+			const identity = saveIdentity(save, input.locale, input.quickSaveLabel);
+			return {
+				id: save.id,
+				slotNumber: save.slotNumber,
+				primary: identity.primary,
+				secondary: identity.secondary ?? null,
+				screenshot: save.screenshot
+			};
+		}),
 		/*
 		 * Keyed on being a group, not on a room existing.
 		 *

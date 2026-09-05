@@ -29,6 +29,7 @@ const LABELS = {
   thumb: 'Thumb',
   quit: 'Leave VR',
   resume: 'Back to the game',
+  stopGame: 'Stop the game',
   controls: 'Controls',
   // The shipped English, not placeholders: two of the tests below measure
   // these strings, and a short stand-in would pass a width check the real
@@ -216,4 +217,55 @@ test('the mapping rows clear the buttons on the right', () => {
       `"${line}" reaches ${drawn!.x + width}px and the buttons start at ${quit!.x}px`
     );
   }
+});
+
+/*
+ * Leaving the game and leaving VR were the same button, and they are not the
+ * same thing.
+ *
+ * `quit` ends the `XRSession`: the headset drops back to the Quest's own
+ * shell. A player who has simply finished a game and wants to pick another
+ * one had no way to say so - the launch screen is reachable only when no game
+ * holds the curved screen, so the only route from a running game back to the
+ * library was out of VR entirely and in again.
+ *
+ * `stopTogether()` in `VrShell` already does exactly this and has since the
+ * lockstep session gained an error path; it was simply unreachable on purpose.
+ */
+
+test('stopping the game is offered only while one is running', () => {
+  assert.ok(
+    !layoutProfilePanel(IDLE).map((r) => r.id).includes('stop'),
+    'there is no game to stop from the launch screen'
+  );
+  assert.ok(
+    layoutProfilePanel({ ...IDLE, playing: true }).map((r) => r.id).includes('stop'),
+    'a finished game leaves the player no way back to the library'
+  );
+});
+
+test('stopping the game is a different region from leaving VR', () => {
+  // The two used to be one button, and conflating them is the bug: a player
+  // who wants another game should not have to take the headset off.
+  const regions = layoutProfilePanel({ ...IDLE, playing: true });
+  const stop = regions.find((r) => r.id === 'stop');
+  const quit = regions.find((r) => r.id === 'quit');
+  assert.ok(stop && quit, 'both must exist while a game is running');
+  assert.notDeepEqual(
+    { x: stop.x, y: stop.y },
+    { x: quit.x, y: quit.y },
+    'one press cannot mean two things'
+  );
+});
+
+test('stopping the game says so, in words that are not the ones for leaving VR', () => {
+  const ctx = recordingContext();
+  const state = { ...IDLE, playing: true };
+  drawProfilePanel(ctx, state, layoutProfilePanel(state), {
+    labels: LABELS,
+    hoverId: null
+  });
+  const drawn = ctx.texts.join('\n');
+  assert.ok(drawn.includes(LABELS.stopGame), 'the button is unlabelled');
+  assert.ok(drawn.includes(LABELS.quit), 'leaving VR lost its own label');
 });
