@@ -31,7 +31,7 @@
  * diamond has to fold onto two vertical pairs and no folding is free.
  */
 
-import type { PanelSize, Region } from '../panel';
+import { truncate, type PanelSize, type Region } from '../panel';
 import { LETTERS_MAP, THUMB_MAP, VR_BUTTONS, type VrPadMap } from '../pad-map';
 
 export const PROFILE_PANEL_SIZE: PanelSize = { width: 900, height: 300 };
@@ -270,15 +270,6 @@ function drawCard(
 }
 
 /** Cuts a string to fit `width` at the current font, with an ellipsis. */
-function truncate(ctx: CanvasRenderingContext2D, text: string, width: number): string {
-  if (ctx.measureText(text).width <= width) return text;
-  let cut = text;
-  while (cut.length > 1 && ctx.measureText(`${cut}…`).width > width) {
-    cut = cut.slice(0, -1);
-  }
-  return `${cut}…`;
-}
-
 function drawButton(
   ctx: CanvasRenderingContext2D,
   region: Region,

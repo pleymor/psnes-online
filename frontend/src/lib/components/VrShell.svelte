@@ -45,7 +45,7 @@
     libraryRows, clampScroll, type LibraryState
   } from '$lib/vr/panels/library';
   import {
-    FRIENDS_PANEL_SIZE, friendRows, layoutFriendsPanel, drawFriendsPanel
+    FRIENDS_PANEL_SIZE, friendRows, layoutFriendsPanel, drawFriendsPanel, friendsVisibleRows
   } from '$lib/vr/panels/friends';
   import {
     PROFILE_PANEL_SIZE, layoutProfilePanel, drawProfilePanel
@@ -74,7 +74,14 @@
   import { loadCore, AudioSink, SocketTransport, UpgradingTransport, type SessionEvent, type Transport } from '$lib/znet';
   import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
   import { createLockstepEngine, type LockstepEngine } from '$lib/rooms/lockstep-engine';
-  import { createRoom, leaveGroup, chooseGameForGroup } from '$lib/rooms/actions';
+  import { createRoom, leaveGroup, chooseGameForGroup, inviteToGroup, cancelGroupInvitation } from '$lib/rooms/actions';
+  /*
+   * Module-scope stores, which is what makes this reachable from in here at
+   * all: `lobby/invitations.ts` attaches its listeners to the socket itself
+   * rather than from a component's `onMount`, so the invitations addressed to
+   * this player stay current while only the headset is mounted.
+   */
+  import { invitations, acceptInvitation, declineInvitation } from '$lib/lobby/invitations';
   import { gameClick } from '$lib/rooms/game-click';
   import { resumeSaveToRequest } from '$lib/rooms/resume-save';
   import { decodeSram } from '$lib/rooms/sram';
@@ -199,6 +206,19 @@
   // reference would make the statement run once and never again.
   $: if (friendsPanel && playingByUserId) repaintFriends();
 
+  /*
+   * The invitations, named here for exactly the reason above.
+   *
+   * Both stores are read inside `repaintFriends()`, so naming them in this
+   * statement is the whole of what makes the lectern follow them: an
+   * invitation arriving, being answered, expiring, or being taken back has to
+   * repaint the panel, and a statement that mentioned only `friendsPanel`
+   * would run once at mount and never again. `$myRoom` is already a dependency
+   * of the statement below, but of that one - and it is the `.invitation`
+   * field that matters here, which is why it is spelt out.
+   */
+  $: if (friendsPanel && ($invitations || $myRoom?.invitation)) repaintFriends();
+
   // The room decides half of what this screen shows - the friend's readiness,
   // the staged save, whether the game changed under us. Not the save itself:
   // that is resolved once at launch, never reactively, or a `room:updated`
@@ -319,16 +339,46 @@
 
   function repaintFriends(): void {
     if (!friendsPanel) return;
-    const rows = friendRows(friendEntries, onlineFriends, playingByUserId);
-    friendsPanel.regions = layoutFriendsPanel(rows);
+
+    const asking = $invitations[0] ?? null;
+    const pending = $myRoom?.invitation
+      ? { id: $myRoom.invitation.id, toUserId: $myRoom.invitation.toUserId }
+      : null;
+
+    /*
+     * The cap and the pinned friend both come from the same two facts, so they
+     * are computed together: a band costs the list a row, and the friend we
+     * have asked is kept at the top because their row carries the only way to
+     * take the invitation back (`panels/friends.ts` has the long version).
+     */
+    const rows = friendRows(
+      friendEntries,
+      onlineFriends,
+      playingByUserId,
+      friendsVisibleRows(!!asking),
+      pending?.toUserId
+    );
+
+    const state = { rows, pending, incoming: asking ? [asking] : [] };
+    friendsPanel.regions = layoutFriendsPanel(state);
+    const regions = friendsPanel.regions;
+    const hoverId = hovered?.panel === 'friends' ? hovered.region.id : null;
+
     friendsPanel.paint((ctx) =>
-      drawFriendsPanel(ctx, rows, [], {
+      drawFriendsPanel(ctx, state, regions, {
         heading: t($language, 'friends'),
         online: t($language, 'online'),
         offline: t($language, 'offline'),
         nobody: t($language, 'vrNoFriends'),
-        readOnly: t($language, 'vrFriendsReadOnly')
-      })
+        invite: t($language, 'vrInvite'),
+        invited: t($language, 'vrInvited'),
+        cancel: t($language, 'vrCancelInvite'),
+        accept: t($language, 'vrAcceptInvite'),
+        decline: t($language, 'vrDeclineInvite'),
+        incomingFrom: asking
+          ? t($language, 'vrInvitesYou', { pseudo: asking.fromPseudo })
+          : ''
+      }, hoverId)
     );
   }
 
@@ -542,6 +592,47 @@
   }
 
   function activate(target: PointerTarget): void {
+    /*
+     * The friends lectern, which used to have nothing to activate.
+     *
+     * Every branch here delegates: `rooms/actions.ts` opens the group's room
+     * if there is not one yet and sends the invitation,
+     * `lobby/invitations.ts` answers the ones addressed to us. No socket
+     * traffic is composed in this component, and no invitation state is held
+     * here - the repaint reads both stores, so the panel follows the server
+     * rather than an optimistic guess that a refusal would leave stranded.
+     */
+    if (target.panel === 'friends') {
+      const id = target.region.id;
+      if (id.startsWith('invite:')) {
+        // Fire and forget: `inviteToGroup` may have to open a room first, and
+        // the panel is repainted by the store update that follows either way.
+        void inviteToGroup(id.slice('invite:'.length));
+        return;
+      }
+      if (id.startsWith('cancel-invite:')) {
+        cancelGroupInvitation(id.slice('cancel-invite:'.length));
+        return;
+      }
+      if (id.startsWith('accept:')) {
+        /*
+         * Accepting does not navigate, and must not. The group forms and both
+         * players stay where they are - and the `vrActive` guard at
+         * `+layout.svelte:62` is what stops `room:opened` from mounting a
+         * second emulator underneath this session if the room already has a
+         * game. What reaches us instead is `myRoom`, which the launch screen
+         * already watches.
+         */
+        acceptInvitation(id.slice('accept:'.length));
+        return;
+      }
+      if (id.startsWith('decline:')) {
+        declineInvitation(id.slice('decline:'.length));
+        return;
+      }
+      return;
+    }
+
     if (target.panel === 'library') {
       if (target.region.id === 'scroll:up' || target.region.id === 'scroll:down') {
         const step = target.region.id === 'scroll:down' ? 1 : -1;

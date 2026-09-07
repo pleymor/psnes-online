@@ -22,7 +22,7 @@
  *     `PROMPT_Y`.
  */
 
-import type { PanelSize, Region } from '../panel';
+import { truncate, type PanelSize, type Region } from '../panel';
 import { VR_BUTTONS, type VrButton, type VrPadMap, type XrInput } from '../pad-map';
 
 /** La surface de l'écran courbe, la même que l'écran de lancement. */
@@ -132,15 +132,6 @@ export function layoutControlsPanel(state: ControlsState): Region[] {
 }
 
 /** Cuts a string to fit `width` at the current font, with an ellipsis. */
-function truncate(ctx: CanvasRenderingContext2D, text: string, width: number): string {
-  if (ctx.measureText(text).width <= width) return text;
-  let cut = text;
-  while (cut.length > 1 && ctx.measureText(`${cut}…`).width > width) {
-    cut = cut.slice(0, -1);
-  }
-  return `${cut}…`;
-}
-
 function drawPresetButton(
   ctx: CanvasRenderingContext2D,
   region: Region,

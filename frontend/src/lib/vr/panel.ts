@@ -153,3 +153,33 @@ export function fitContain(source: PanelSize, box: Rect): Rect {
     h
   };
 }
+
+/**
+ * `text`, shortened with an ellipsis until it fits `width`.
+ *
+ * Every panel had its own byte-identical copy of this before it moved here,
+ * and they all had one for the same reason: a canvas drawn by hand has no
+ * layout engine, so text that does not fit neither wraps nor clips - it runs
+ * out over whatever sits beside it, on a curved texture with nothing to
+ * complain. `profile.ts` carries the note about a long translation spilling
+ * out of its button and onto its neighbour.
+ *
+ * It measures rather than draws, which is why it can live in this module at
+ * all: the caller's context is used for `measureText` and nothing else.
+ *
+ * The loop stops at one character instead of emptying the string. A row with
+ * no text left is unpressable in practice - nobody presses what they cannot
+ * read - so one letter and an ellipsis beats nothing.
+ */
+export function truncate(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  width: number
+): string {
+  if (ctx.measureText(text).width <= width) return text;
+  let cut = text;
+  while (cut.length > 1 && ctx.measureText(`${cut}…`).width > width) {
+    cut = cut.slice(0, -1);
+  }
+  return `${cut}…`;
+}

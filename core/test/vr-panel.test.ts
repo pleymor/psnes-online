@@ -18,7 +18,7 @@
 
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { hit, uvToCanvas, fitContain, intrinsicSize, type Region } from '../../frontend/src/lib/vr/panel.js';
+import { hit, uvToCanvas, fitContain, intrinsicSize, truncate, type Region } from '../../frontend/src/lib/vr/panel.js';
 
 const SIZE = { width: 800, height: 400 };
 
@@ -199,4 +199,50 @@ test('a source whose dimensions are not numbers is treated as having none', () =
     height: 0
   });
   assert.deepEqual(source({}), { width: 0, height: 0 });
+});
+
+/*
+ * Truncation, which every panel had its own copy of.
+ *
+ * Four byte-identical copies - `library.ts`, `launch.ts`, `profile.ts`,
+ * `controls.ts` - and no test between them, until a fifth was about to be
+ * written for the friends lectern. The reason they all have one is worth
+ * keeping in view: these canvases have no layout engine, so text that does not
+ * fit does not wrap or clip, it runs out over whatever sits beside it on a
+ * curved texture. `profile.ts` already carries the note about a long
+ * translation spilling out of its button.
+ */
+
+/** Nine pixels a character, which is what the panel tests' fake context does. */
+function measuring(): CanvasRenderingContext2D {
+  return {
+    measureText: (text: string) => ({ width: text.length * 9 })
+  } as unknown as CanvasRenderingContext2D;
+}
+
+test('text that fits is returned untouched', () => {
+  assert.equal(truncate(measuring(), 'Zelda', 900), 'Zelda');
+});
+
+test('text that does not fit comes back shortened and marked', () => {
+  const cut = truncate(measuring(), 'Super Mario World', 90);
+  assert.ok(cut.endsWith('…'), 'a silent cut reads as a wrong title rather than a long one');
+  assert.ok(cut.length * 9 <= 90);
+  assert.ok('Super Mario World'.startsWith(cut.slice(0, -1)));
+});
+
+test('a width too small for anything still leaves one character', () => {
+  // The loop stops at one character rather than emptying the string: a row
+  // with no text at all is unpressable in practice, because nobody presses
+  // what they cannot read.
+  const cut = truncate(measuring(), 'Zelda', 1);
+  assert.equal(cut, 'Z…');
+});
+
+test('an empty string is not padded with an ellipsis', () => {
+  assert.equal(truncate(measuring(), '', 100), '');
+});
+
+test('the exact fit is a fit, not a truncation', () => {
+  assert.equal(truncate(measuring(), 'abc', 27), 'abc');
 });

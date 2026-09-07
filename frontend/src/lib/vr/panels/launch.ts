@@ -20,7 +20,7 @@
  *     test for "the choice is visible" would have nothing to compare.
  */
 
-import { fitContain, intrinsicSize, type PanelSize, type Region } from '../panel';
+import { fitContain, intrinsicSize, truncate, type PanelSize, type Region } from '../panel';
 import type { LaunchOptions, LaunchSave } from '../launch-options';
 
 export const LAUNCH_PANEL_SIZE: PanelSize = { width: 1024, height: 768 };
@@ -153,15 +153,6 @@ export function layoutLaunchPanel(options: LaunchOptions, _labels: LaunchLabels)
 }
 
 /** Cuts a string to fit `width` at the current font, with an ellipsis. */
-function truncate(ctx: CanvasRenderingContext2D, text: string, width: number): string {
-	if (ctx.measureText(text).width <= width) return text;
-	let cut = text;
-	while (cut.length > 1 && ctx.measureText(`${cut}…`).width > width) {
-		cut = cut.slice(0, -1);
-	}
-	return `${cut}…`;
-}
-
 /**
  * One save row: a thumbnail, a name, and the moment underneath.
  *

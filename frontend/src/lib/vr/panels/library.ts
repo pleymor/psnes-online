@@ -16,7 +16,7 @@
  * `panel.ts` exists for, and it is why everything above is checkable under Bun.
  */
 
-import { fitContain, intrinsicSize, type PanelSize, type Region } from '../panel';
+import { fitContain, intrinsicSize, truncate, type PanelSize, type Region } from '../panel';
 import type { Game } from '$lib/stores/games';
 
 /** Canvas pixels. Mapped onto the 0.7 x 0.5 m lectern `layout.ts` places. */
@@ -147,15 +147,6 @@ export function layoutLibraryPanel(state: LibraryState): Region[] {
   }
 
   return regions;
-}
-
-function truncate(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
-  if (ctx.measureText(text).width <= maxWidth) return text;
-  let cut = text;
-  while (cut.length > 1 && ctx.measureText(`${cut}…`).width > maxWidth) {
-    cut = cut.slice(0, -1);
-  }
-  return `${cut}…`;
 }
 
 export function drawLibraryPanel(
