@@ -85,6 +85,7 @@ function recordingContext() {
     images,
     font: '', fillStyle: '', strokeStyle: '', lineWidth: 0,
     textAlign: 'left', textBaseline: 'alphabetic',
+    imageSmoothingEnabled: false, imageSmoothingQuality: 'low',
     save() {}, restore() {}, clearRect() {}, fillRect() { calls.push('fillRect'); },
     strokeRect() { calls.push('strokeRect'); },
     beginPath() {}, arc() { calls.push('arc'); }, fill() {}, stroke() {},
@@ -102,6 +103,8 @@ function recordingContext() {
     calls: string[];
     placed: Array<{ text: string; x: number; y: number }>;
     images: Array<{ x: number; y: number; w: number; h: number }>;
+    imageSmoothingEnabled: boolean;
+    imageSmoothingQuality: string;
   };
 }
 
@@ -498,4 +501,60 @@ test('a row s text clears its thumbnail instead of being drawn over it', () => {
     name.x >= shot.x + shot.w,
     `the name starts at ${name.x}px, over a thumbnail ending at ${shot.x + shot.w}px`
   );
+});
+
+/*
+ * The launch screen's cover had the lectern's two faults, from the same line.
+ *
+ * `COVER` is 160 x 112 - landscape - and box art is portrait, so handing
+ * `drawImage` the box's own width and height squashed it. And this is the
+ * BIGGEST the art ever gets in a session, on the curved screen the player is
+ * looking straight at, so it is the copy where both faults show most.
+ */
+
+/** Box art proportions, unlike `IMAGE` above, which is a 4:3 screenshot. */
+const PORTRAIT_COVER = { naturalWidth: 350, naturalHeight: 500 } as unknown as CanvasImageSource;
+
+test('the launch cover keeps its own proportions inside the cover box', () => {
+  const ctx = draw(options(), null, { covers: new Map([['mine', PORTRAIT_COVER]]) });
+
+  const cover = ctx.images.find((i) => i.y < 264);
+  assert.ok(cover, 'the cover never reached the canvas');
+  assert.equal(cover.h, 112, 'the box constrains the tall axis');
+  assert.equal(cover.w, 350 * (112 / 500), 'not the box 160, which is the squash');
+  // The cover box is at the panel's own 40px pad, 160 wide.
+  assert.equal(cover.x, 40 + (160 - 350 * (112 / 500)) / 2, 'centred in the slack');
+});
+
+test('the launch screen downscales its pictures with the good filter', () => {
+  const ctx = draw(options(), null, { covers: new Map([['mine', PORTRAIT_COVER]]) });
+  assert.equal(ctx.imageSmoothingEnabled, true);
+  assert.equal(
+    ctx.imageSmoothingQuality,
+    'high',
+    'the default skips source pixels, which bakes shimmer into the canvas'
+  );
+});
+
+/*
+ * The save thumbnails had the same stretch, from a different line.
+ *
+ * The reserved column is 88 x 60, which is 1.47, and a SNES frame is 256 x 224,
+ * which is 1.14 - so every thumbnail was 28 per cent too wide. A picture of the
+ * game, visibly the wrong shape, sitting next to a cover that is now the right
+ * one. Not box art, which is why it was left out of the first pass, but the
+ * same defect and the same one-line fix.
+ */
+
+/** A SNES frame's own proportions, unlike `IMAGE`'s 4:3. */
+const SNES_FRAME = { naturalWidth: 256, naturalHeight: 224 } as unknown as CanvasImageSource;
+
+test('a save thumbnail keeps the shape of the frame it captured', () => {
+  const ctx = draw(options(), null, { shots: new Map([['s1', SNES_FRAME]]) });
+
+  assert.equal(ctx.images.length, 1, 'the thumbnail never reached the canvas');
+  const [shot] = ctx.images;
+  // The reserved column is 88 x 60.
+  assert.equal(shot.h, 60, 'the column constrains the tall axis');
+  assert.equal(shot.w, 256 * (60 / 224), 'not the column 88, which is the stretch');
 });

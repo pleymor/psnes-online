@@ -23,7 +23,8 @@ import {
   libraryEmptiness,
   libraryRows,
   clampScroll,
-  LIBRARY_PANEL_SIZE
+  LIBRARY_PANEL_SIZE,
+  COVER_H
 } from '../../frontend/src/lib/vr/panels/library.js';
 import type { Game } from '../../frontend/src/lib/stores/games.js';
 
@@ -48,9 +49,13 @@ const LABELS = {
 function recordingContext() {
   const texts: string[] = [];
   const calls: string[] = [];
+  const images: unknown[][] = [];
   const ctx = {
     texts,
     calls,
+    images,
+    imageSmoothingEnabled: false,
+    imageSmoothingQuality: 'low',
     canvas: { width: LIBRARY_PANEL_SIZE.width, height: LIBRARY_PANEL_SIZE.height },
     font: '',
     fillStyle: '',
@@ -64,11 +69,12 @@ function recordingContext() {
     fillRect() { calls.push('fillRect'); },
     strokeRect() { calls.push('strokeRect'); },
     beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {}, stroke() {},
-    drawImage() { calls.push('drawImage'); },
+    drawImage(...args: unknown[]) { calls.push('drawImage'); images.push(args); },
     fillText(text: string) { texts.push(text); },
     measureText(text: string) { return { width: text.length * 10 }; }
   };
-  return ctx as unknown as CanvasRenderingContext2D & { texts: string[]; calls: string[] };
+  return ctx as unknown as CanvasRenderingContext2D &
+    { texts: string[]; calls: string[]; images: unknown[][] };
 }
 
 test('an account with nothing is told its library is empty', () => {
@@ -219,4 +225,95 @@ test('the hovered tile is outlined', () => {
   const strokes = (c: typeof plain) => (c as unknown as { calls: string[] }).calls
     .filter((k) => k === 'strokeRect').length;
   assert.ok(strokes(hovered) > strokes(plain), 'a player needs to see what they are pointing at');
+});
+
+/*
+ * The two things that were wrong with every cover in the headset.
+ *
+ * The tile's cover slot is 216 x 150 - landscape - and box art is almost always
+ * portrait, so passing the slot's own width and height to `drawImage` squashed
+ * the art by about a third. And the browser's default downscale quality skips
+ * source pixels rather than averaging them, which bakes aliasing into the
+ * canvas BEFORE three ever sees it: the covers then shimmer with every small
+ * movement of the head, and no amount of texture filtering downstream can
+ * recover detail that the 2D context already threw away.
+ */
+
+/** Box art proportions: taller than it is wide, like almost every SNES cover. */
+const PORTRAIT_COVER = { naturalWidth: 350, naturalHeight: 500 } as unknown as CanvasImageSource;
+
+test('a cover is drawn in its own proportions, not stretched to the slot', () => {
+  const state = { games: games(1), ownedTotal: 1, scroll: 0 };
+  const ctx = recordingContext();
+  drawLibraryPanel(ctx, state, layoutLibraryPanel(state), {
+    labels: LABELS, hoverId: null, covers: new Map([['g0', PORTRAIT_COVER]])
+  });
+
+  const [args] = ctx.images;
+  assert.ok(args, 'the cover should have been drawn at all');
+  const [, , , w, h] = args as [unknown, number, number, number, number];
+  assert.equal(h, COVER_H, 'the slot constrains the tall axis');
+  assert.equal(w, 350 * (COVER_H / 500), 'the source ratio - not the slot width, which is the squash');
+  assert.ok(
+    Math.abs(w / h - 350 / 500) < 1e-9,
+    'the drawn rectangle must carry the source aspect ratio'
+  );
+});
+
+test('the cover is centred in the slack rather than pinned left', () => {
+  const state = { games: games(1), ownedTotal: 1, scroll: 0 };
+  const ctx = recordingContext();
+  const regions = layoutLibraryPanel(state);
+  drawLibraryPanel(ctx, state, regions, {
+    labels: LABELS, hoverId: null, covers: new Map([['g0', PORTRAIT_COVER]])
+  });
+
+  const tile = regions.find((r) => r.id === 'game:g0');
+  assert.ok(tile);
+  const [x] = (ctx.images[0] as [unknown, number]).slice(1) as [number];
+  assert.equal(x, tile.x + (tile.w - 350 * (COVER_H / 500)) / 2);
+});
+
+test('covers are downscaled with the good filter, not the default one', () => {
+  const state = { games: games(1), ownedTotal: 1, scroll: 0 };
+  const ctx = recordingContext();
+  drawLibraryPanel(ctx, state, layoutLibraryPanel(state), {
+    labels: LABELS, hoverId: null, covers: new Map([['g0', PORTRAIT_COVER]])
+  });
+
+  assert.equal(ctx.imageSmoothingEnabled, true);
+  assert.equal(
+    ctx.imageSmoothingQuality,
+    'high',
+    'the default skips source pixels, which bakes shimmer into the canvas'
+  );
+});
+
+/*
+ * How many games fit, which is the constraint that chose `COVER_H`.
+ *
+ * The covers were too small, and the free lever was the slot's height rather
+ * than the column count: two columns would widen the tile without making a
+ * PORTRAIT cover any bigger, because height is what binds it. So `COVER_H`
+ * went to the largest value that still leaves two rows under the header -
+ * 520 usable pixels over (COVER_H + TITLE_H + GAP) - which is 212. One pixel
+ * more and the grid silently drops to a single row of three, and the player
+ * loses half their library to a scroll they did not need before.
+ *
+ * That is what this test is for. It is not about the number; it is about the
+ * number never being raised without noticing the cost.
+ */
+test('the enlarged covers still leave six games visible', () => {
+  const state = { games: games(30), ownedTotal: 30, scroll: 0 };
+  const tiles = layoutLibraryPanel(state).filter((r) => r.id.startsWith('game:'));
+  assert.equal(tiles.length, 6, 'three columns, two rows');
+});
+
+test('a portrait cover is limited by the slot height, not its width', () => {
+  // If this ever inverts, `COVER_H` has outgrown the tile and the covers stop
+  // getting bigger however much taller the slot is made.
+  const state = { games: games(1), ownedTotal: 1, scroll: 0 };
+  const tile = layoutLibraryPanel(state).find((r) => r.id === 'game:g0');
+  assert.ok(tile);
+  assert.ok(350 * (COVER_H / 500) <= tile.w, 'a 0.7 cover no longer fits the tile width');
 });

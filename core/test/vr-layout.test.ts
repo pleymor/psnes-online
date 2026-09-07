@@ -19,6 +19,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sceneLayout } from '../../frontend/src/lib/vr/layout.js';
+import { LIBRARY_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/library.js';
+import { FRIENDS_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/friends.js';
+import { PROFILE_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/profile.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -123,6 +126,39 @@ test('every height is measured from the eyes, never from a floor', () => {
     assert.ok(
       placement.position[1] > -1.2,
       `${name} is down where a floor would be, which is what this change removed`
+    );
+  }
+});
+
+/*
+ * A panel's metres and its canvas pixels have to be the same shape.
+ *
+ * `panel-mesh.ts` maps each canvas onto its plane with uv 0..1 on both axes,
+ * so the two aspect ratios multiply: a 0.7 x 0.5 m lectern carrying an
+ * 800 x 600 canvas stretches every glyph horizontally by 1.4 / 1.3333, which
+ * is five per cent. Small, invisible as a defect, and it makes all the text
+ * very slightly wrong everywhere - which is the sort of thing that reads as
+ * "the fonts look off in VR" and never gets diagnosed.
+ *
+ * The band was already exact. The lecterns were not, and this test is what
+ * keeps the next edit to either number honest, since nothing else connects
+ * `layout.ts` to the panel modules' canvas sizes.
+ */
+test('every panel is shaped like its own canvas, or its text is stretched', () => {
+  const { library, friends, profile } = sceneLayout('crt');
+
+  const pairs = [
+    ['library', library, LIBRARY_PANEL_SIZE],
+    ['friends', friends, FRIENDS_PANEL_SIZE],
+    ['profile', profile, PROFILE_PANEL_SIZE]
+  ] as const;
+
+  for (const [name, placement, canvas] of pairs) {
+    const metres = placement.width / placement.height;
+    const pixels = canvas.width / canvas.height;
+    assert.ok(
+      Math.abs(metres / pixels - 1) < 0.002,
+      `${name} is ${(metres / pixels).toFixed(4)}x wider in metres than in pixels`
     );
   }
 });

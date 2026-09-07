@@ -69,7 +69,18 @@ const LECTERN_DROP = 0.45;
 /** 40 degrees, tipped back so a lowered panel faces raised eyes. */
 const LECTERN_PITCH = -(Math.PI * 40) / 180;
 const LECTERN_WIDTH = 0.7;
-const LECTERN_HEIGHT = 0.5;
+/**
+ * 0.7 / (800 / 600), and the division is the point.
+ *
+ * `panel-mesh.ts` maps the whole canvas onto the whole plane, uv 0..1 on both
+ * axes, so a lectern whose metres are not the shape of its canvas stretches
+ * every glyph on it. This was 0.5 against an 800 x 600 canvas, which is 1.40
+ * over 1.3333: five per cent too wide, everywhere, invisible as a defect and
+ * quietly wrong. Corrected upward rather than by narrowing the panel, so the
+ * lectern gains a little area instead of losing some. `vr-layout.test.ts`
+ * holds the two numbers together from now on.
+ */
+const LECTERN_HEIGHT = 0.525;
 
 const BAND_DISTANCE = 1.0;
 const BAND_DROP = 0.75;

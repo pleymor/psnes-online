@@ -20,7 +20,7 @@
  *     test for "the choice is visible" would have nothing to compare.
  */
 
-import type { PanelSize, Region } from '../panel';
+import { fitContain, intrinsicSize, type PanelSize, type Region } from '../panel';
 import type { LaunchOptions, LaunchSave } from '../launch-options';
 
 export const LAUNCH_PANEL_SIZE: PanelSize = { width: 1024, height: 768 };
@@ -189,7 +189,11 @@ function drawRow(
 		const x = region.x + SHOT_MARGIN;
 		const y = region.y + (region.h - SHOT_H) / 2;
 		if (shot.image) {
-			ctx.drawImage(shot.image, x, y, SHOT_W, SHOT_H);
+			// The frame's own proportions inside the reserved column, not the
+			// column's: a SNES frame is 256 x 224 and the column is 88 x 60, so
+			// passing the column's pair stretched every thumbnail by 28 per cent.
+			const fitted = fitContain(intrinsicSize(shot.image), { x, y, w: SHOT_W, h: SHOT_H });
+			ctx.drawImage(shot.image, fitted.x, fitted.y, fitted.w, fitted.h);
 		} else {
 			// A well before the picture lands, rather than the row's own fill:
 			// the alternative is a row that visibly changes shape on `onload`.
@@ -307,6 +311,16 @@ export function drawLaunchPanel(
 	const { labels } = opts;
 
 	ctx.save();
+	/*
+	 * The good downscale filter. Same reason as the lectern's
+	 * (`panels/library.ts`): at the default quality the browser point-samples a
+	 * reduction instead of averaging it, so the aliasing is baked into the canvas
+	 * before three uploads it, and no texture filtering downstream can undo that.
+	 * It matters most here - this is the biggest the box art ever gets, on the
+	 * screen the player is looking straight at.
+	 */
+	ctx.imageSmoothingEnabled = true;
+	ctx.imageSmoothingQuality = 'high';
 	ctx.clearRect(0, 0, width, height);
 	ctx.fillStyle = '#101018';
 	ctx.fillRect(0, 0, width, height);
@@ -324,7 +338,10 @@ export function drawLaunchPanel(
 	ctx.fillRect(COVER.x, COVER.y, COVER.w, COVER.h);
 	const cover = opts.covers.get(options.game.id);
 	if (cover) {
-		ctx.drawImage(cover, COVER.x, COVER.y, COVER.w, COVER.h);
+		// Its own proportions inside the box, not the box's: `COVER` is landscape
+		// and box art is portrait. `panel.ts` carries the why.
+		const fitted = fitContain(intrinsicSize(cover), COVER);
+		ctx.drawImage(cover, fitted.x, fitted.y, fitted.w, fitted.h);
 	}
 
 	const byId = new Map(regions.map((region) => [region.id, region]));

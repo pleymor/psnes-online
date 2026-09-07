@@ -16,7 +16,7 @@
  * `panel.ts` exists for, and it is why everything above is checkable under Bun.
  */
 
-import type { PanelSize, Region } from '../panel';
+import { fitContain, intrinsicSize, type PanelSize, type Region } from '../panel';
 import type { Game } from '$lib/stores/games';
 
 /** Canvas pixels. Mapped onto the 0.7 x 0.5 m lectern `layout.ts` places. */
@@ -40,7 +40,25 @@ const GUTTER = SCROLL_W + GAP;
 const TILE_W = Math.floor(
   (LIBRARY_PANEL_SIZE.width - PAD * 2 - GUTTER - GAP * (COLUMNS - 1)) / COLUMNS
 );
-const COVER_H = 150;
+/**
+ * The cover slot's height, and the largest it can be.
+ *
+ * It was 150. The covers were too small in the headset, and the lever is this
+ * number rather than `COLUMNS`: box art is portrait, so its height is what
+ * binds it, and widening the tile to two columns would have made a portrait
+ * cover no bigger at all while halving how many games fit.
+ *
+ * 212 is the ceiling. `VISIBLE_ROWS` below divides the 520 usable pixels by
+ * `COVER_H + TITLE_H + GAP`, so 212 is the last value that still leaves two
+ * rows: one pixel more drops the grid to a single row of three and costs the
+ * player half their library to a scroll they did not need. So this buys 41 per
+ * cent more cover for nothing, and there is no more to be had here -
+ * `vr-panel-library.test.ts` pins both ends of that.
+ *
+ * Exported because the tests derive the drawn rectangle from it rather than
+ * restating it, which is what stops them going stale the next time it moves.
+ */
+export const COVER_H = 212;
 const TITLE_H = 32;
 const TILE_H = COVER_H + TITLE_H;
 
@@ -154,6 +172,19 @@ export function drawLibraryPanel(
   const { width, height } = LIBRARY_PANEL_SIZE;
 
   ctx.save();
+  /*
+   * The good downscale filter, and why it is not cosmetic.
+   *
+   * The covers arrive at full size (`/api/covers/<id>`, or a libretro
+   * thumbnail) and land in a 216 x 150 slot, so every one of them is minified
+   * several times over. At the default quality the browser point-samples that
+   * reduction - it skips source pixels rather than averaging them - which
+   * bakes aliasing into the canvas before three ever uploads it. In a headset
+   * that reads as covers that shimmer whenever the head moves, and no texture
+   * filtering downstream can recover detail the 2D context already discarded.
+   */
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = '#14141c';
   ctx.fillRect(0, 0, width, height);
@@ -207,7 +238,16 @@ export function drawLibraryPanel(
 
     const cover = opts.covers.get(game.id);
     if (cover) {
-      ctx.drawImage(cover, region.x, region.y, region.w, COVER_H);
+      // Its own proportions inside the slot, not the slot's. The slot is
+      // landscape and box art is portrait, so the old `region.w, COVER_H` pair
+      // squashed every cover by about a third. `panel.ts` carries the why.
+      const fitted = fitContain(intrinsicSize(cover), {
+        x: region.x,
+        y: region.y,
+        w: region.w,
+        h: COVER_H
+      });
+      ctx.drawImage(cover, fitted.x, fitted.y, fitted.w, fitted.h);
     }
 
     // The title is drawn whether or not the cover loaded: an unidentified game

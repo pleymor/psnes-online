@@ -18,7 +18,7 @@
 
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { hit, uvToCanvas, type Region } from '../../frontend/src/lib/vr/panel.js';
+import { hit, uvToCanvas, fitContain, intrinsicSize, type Region } from '../../frontend/src/lib/vr/panel.js';
 
 const SIZE = { width: 800, height: 400 };
 
@@ -81,4 +81,122 @@ test('a uv outside the mesh hits nothing rather than clamping', () => {
 
 test('an empty region list is simply no hit', () => {
   assert.equal(hit([], { x: 0.5, y: 0.5 }, SIZE), null);
+});
+
+/*
+ * Fitting box art into a slot that is not its shape.
+ *
+ * Both cover call sites (`panels/library.ts`, `panels/launch.ts`) used to hand
+ * `drawImage` the slot's own width AND height, which stretches whatever
+ * arrives to whatever the slot happens to be. The slots are landscape - 216 x
+ * 150 on the lectern, 160 x 112 on the launch screen - and box art is almost
+ * always portrait, so every cover in the headset was squashed by about a third.
+ *
+ * Contain, not cover: cropping a portrait cover to a landscape slot would keep
+ * only a horizontal band through its middle, which on box art is the half with
+ * no title on it.
+ */
+
+test('a portrait cover in a landscape slot keeps its shape and centres', () => {
+  const box = { x: 10, y: 20, w: 216, h: 150 };
+  const fitted = fitContain({ width: 350, height: 500 }, box);
+
+  assert.equal(fitted.h, 150, 'the tall axis is what the slot constrains');
+  assert.equal(fitted.w, 105, '350/500 of 150');
+  assert.equal(fitted.y, 20, 'no vertical slack to share');
+  assert.equal(fitted.x, 10 + (216 - 105) / 2, 'the horizontal slack is split evenly');
+});
+
+test('a landscape cover in a portrait slot fills the width instead', () => {
+  const fitted = fitContain({ width: 400, height: 200 }, { x: 0, y: 0, w: 100, h: 300 });
+
+  assert.equal(fitted.w, 100);
+  assert.equal(fitted.h, 50);
+  assert.equal(fitted.x, 0);
+  assert.equal(fitted.y, 125, 'centred in the 300 it does not need');
+});
+
+test('a source already the slot shape is left exactly alone', () => {
+  const box = { x: 5, y: 7, w: 160, h: 112 };
+  assert.deepEqual(fitContain({ width: 320, height: 224 }, box), box);
+});
+
+test('the fitted rectangle never leaves the slot', () => {
+  const box = { x: 0, y: 0, w: 216, h: 150 };
+  for (const source of [
+    { width: 1, height: 1000 },
+    { width: 1000, height: 1 },
+    { width: 3, height: 4 },
+    { width: 1920, height: 1080 }
+  ]) {
+    const fitted = fitContain(source, box);
+    assert.ok(fitted.w <= box.w + 1e-9 && fitted.h <= box.h + 1e-9, `${source.width}x${source.height} overflowed`);
+    assert.ok(fitted.x >= box.x - 1e-9 && fitted.y >= box.y - 1e-9);
+  }
+});
+
+/*
+ * A cover whose dimensions are not known fills the slot rather than vanishing.
+ *
+ * Same reasoning as `screen-geometry.ts`'s `visibleU`: a degenerate input that
+ * samples everything looks like a stretched picture, which is at least
+ * recognisable, whereas a zero-width or NaN rectangle draws nothing at all and
+ * is indistinguishable from a cover that never loaded.
+ */
+test('a source with no usable size falls back to filling the slot', () => {
+  const box = { x: 1, y: 2, w: 216, h: 150 };
+  assert.deepEqual(fitContain({ width: 0, height: 500 }, box), box);
+  assert.deepEqual(fitContain({ width: 350, height: 0 }, box), box);
+  assert.deepEqual(fitContain({ width: NaN, height: 500 }, box), box);
+});
+
+/*
+ * `naturalWidth` before `width`, and this is the trap worth a test.
+ *
+ * The covers are `new Image()` elements (`VrShell.svelte:522`). `width` on an
+ * HTMLImageElement reflects the layout/attribute size, so an image carrying a
+ * `width` attribute - or one read before layout - reports something that is not
+ * its intrinsic shape, and the aspect ratio computed from it is wrong in a way
+ * that looks exactly like the squash this fix removes.
+ */
+/** `CanvasImageSource` is a union of DOM types Bun has none of. */
+function source(fake: object) {
+  return intrinsicSize(fake as CanvasImageSource);
+}
+
+test('intrinsic size prefers naturalWidth over the layout width', () => {
+  assert.deepEqual(
+    source({ naturalWidth: 350, naturalHeight: 500, width: 40, height: 40 }),
+    { width: 350, height: 500 }
+  );
+});
+
+test('intrinsic size falls back to width for sources that have no natural one', () => {
+  // An ImageBitmap or a canvas: width/height ARE the intrinsic dimensions.
+  assert.deepEqual(source({ width: 256, height: 224 }), { width: 256, height: 224 });
+});
+
+test('an image that has not loaded yet reports nothing rather than zero-by-zero', () => {
+  // A fresh `new Image()`: naturalWidth is 0 until `onload`. Falling back to
+  // `width` is what stops a 0 propagating into the aspect ratio.
+  assert.deepEqual(source({ naturalWidth: 0, naturalHeight: 0, width: 320, height: 240 }), {
+    width: 320,
+    height: 240
+  });
+});
+
+/*
+ * An `SVGImageElement` is in `CanvasImageSource`, and its `width` is an
+ * `SVGAnimatedLength` object rather than a number - svelte-check refused the
+ * first version of this function over exactly that. Reading it blind would put
+ * an object into the aspect arithmetic and produce a NaN rectangle, which draws
+ * nothing: a cover that silently disappears. It falls through to filling the
+ * slot instead, which is the same answer as any other unusable size.
+ */
+test('a source whose dimensions are not numbers is treated as having none', () => {
+  assert.deepEqual(source({ width: { value: 100 }, height: { value: 50 } }), {
+    width: 0,
+    height: 0
+  });
+  assert.deepEqual(source({}), { width: 0, height: 0 });
 });

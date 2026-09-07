@@ -16,6 +16,7 @@
 
 import * as THREE from 'three';
 import { createFramePump } from './frame-pump';
+import { framebufferScale } from './framebuffer-scale';
 import { createVrScreen, type VrScreen } from './screen';
 import { sceneLayout, type SceneLayout, type Placement } from './layout';
 import type { PixelAspect } from '$lib/znet/fit';
@@ -234,6 +235,35 @@ export function createVrScene(opts: {
       // its default is `local-floor`, so setting this afterwards would ask
       // for a space the session was never granted.
       renderer.xr.setReferenceSpaceType('local');
+
+      /*
+       * Foveation off, and this is a correction rather than a preference.
+       *
+       * three's default is MAXIMUM foveation - `WebXRManager.js:46` says so in
+       * as many words, and `:506` applies it on every session - so the edges
+       * of the view have been rendering at reduced resolution without anything
+       * here asking for that. It is the wrong default for this scene twice
+       * over. The screen spans 60 degrees, so most of the picture IS the
+       * periphery; and the compositor's resolution zones are fixed to the
+       * display rather than to the world, so world content crosses a zone
+       * boundary whenever the head turns - which is seen as the picture
+       * crawling, not as a soft edge.
+       *
+       * What it buys back is fill rate, and there is nothing here to spend it
+       * on: four unlit quads, two lines, no lights and no shadows.
+       */
+      renderer.xr.setFoveation(0);
+
+      /*
+       * And the resolution to render them at. BEFORE `setSession`, like the
+       * reference space above and for the same reason: three reads this while
+       * creating the layer (`WebXRManager.js:435`/`:476`), so afterwards it
+       * would apply to the next session rather than this one.
+       *
+       * Asked of the runtime rather than hardcoded - see `framebuffer-scale.ts`.
+       */
+      renderer.xr.setFramebufferScaleFactor(framebufferScale(session));
+
       await renderer.xr.setSession(session);
       renderer.setAnimationLoop(() => {
         // Order matters: the governor may run a frame, and the render should

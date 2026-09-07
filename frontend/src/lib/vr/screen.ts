@@ -14,6 +14,11 @@
 
 import * as THREE from 'three';
 import { curvedScreenGeometry, visibleU } from './screen-geometry';
+import {
+  pictureUniforms,
+  PICTURE_VERTEX_SHADER,
+  PICTURE_FRAGMENT_SHADER
+} from './picture-filter';
 import type { ScreenPlacement } from './layout';
 import type { VideoSurface } from '$lib/znet/core';
 import type { PanelSize, Region } from './panel';
@@ -45,13 +50,74 @@ export interface VrScreen {
   dispose(): void;
 }
 
+/**
+ * The texture behind a screen-sized panel, configured once for both callers.
+ *
+ * Linear rather than nearest, unlike the picture: this is text and box art on
+ * a two-and-a-half-metre screen, and nearest-neighbour text at an angle is
+ * unreadable.
+ *
+ * Mipmapped, which the picture is not, because a panel drawn at 1024 canvas
+ * pixels across a 60 degree arc is MINIFIED at the arc's edges - and a plain
+ * `LinearFilter` answers a footprint wider than a texel with one bilinear tap,
+ * so it skips texels, and which ones it skips changes with every small
+ * movement of the head. That is seen as the panel shimmering rather than as
+ * anything to do with sharpness. `panel-mesh.ts` carries the longer version of
+ * this note for the lecterns, where the effect is stronger.
+ *
+ * The anisotropy is deliberately generous: three clamps it to what the device
+ * supports (`WebGLTextures.js:702`), so no renderer has to reach this file.
+ *
+ * It costs a `generateMipmap` per upload, which a panel pays when its data or
+ * its hover changes - not per frame. The picture's own texture is left
+ * untouched by all of this: see `rebuildPicture`.
+ */
+function panelTextureFor(canvas: HTMLCanvasElement): THREE.CanvasTexture {
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = 8;
+  return texture;
+}
+
 export function createVrScreen(placement: ScreenPlacement): VrScreen {
-  const material = new THREE.MeshBasicMaterial({
+  /*
+   * Two materials now, swapped on the mesh, where there used to be one with
+   * its `map` reassigned.
+   *
+   * They want genuinely different filtering and can no longer share. The
+   * picture needs the pixel-art filter in `picture-filter.ts`, which is a
+   * shader; a launch screen is text and box art and wants three's ordinary
+   * bilinear path with the mipmaps `panelTextureFor` sets up. Trying to serve
+   * both from one material is what forced the picture to choose between
+   * nearest and blur in the first place.
+   */
+  const pictureMaterial = new THREE.ShaderMaterial({
+    vertexShader: PICTURE_VERTEX_SHADER,
+    fragmentShader: PICTURE_FRAGMENT_SHADER,
+    // Replaced wholesale by `rebuildPicture`; these are only shapes so the
+    // uniforms exist before the first frame.
+    uniforms: {
+      map: { value: null },
+      texSize: { value: new THREE.Vector2(1, 1) },
+      uMax: { value: 1 }
+    }
+  });
+  const panelMaterial = new THREE.MeshBasicMaterial({
     // The SNES palette is already the picture; three's tone mapping would
-    // crush it toward grey.
+    // crush it toward grey. The picture's shader says the same thing by
+    // leaving `tonemapping_fragment` out.
     toneMapped: false
   });
-  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+  // The material parameter is widened on purpose: it is inferred from the
+  // constructor argument, so without this the mesh is typed as taking only a
+  // `ShaderMaterial` and swapping in the panel's is a type error.
+  const mesh = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(
+    new THREE.BufferGeometry(),
+    pictureMaterial
+  );
   mesh.position.set(0, placement.centerY, 0);
 
   let texture: THREE.DataTexture | null = null;
@@ -93,19 +159,38 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
       height,
       THREE.RGBAFormat
     );
-    // Nearest both ways: this is a 256-wide picture on a two-metre screen, and
-    // smoothing it is the opposite of what anyone came for. No mipmaps either
-    // - the screen never recedes, so they would be generated and never read.
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
+    /*
+     * LINEAR, where this said nearest for the whole of the project's life.
+     *
+     * The old comment was "smoothing it is the opposite of what anyone came
+     * for", and that is still true - this is not smoothing. The filter in
+     * `picture-filter.ts` computes a sample coordinate that sits exactly on a
+     * texel centre everywhere except within one display pixel of a texel
+     * boundary, and it needs the hardware's bilinear tap to do the blending
+     * across that boundary. Left on `NearestFilter` the GPU would snap the
+     * coordinate straight back to a centre, the shader would compute its
+     * sub-texel offsets for nothing, and the picture would boil exactly as
+     * before. These two lines are what make the shader mean anything.
+     *
+     * Still no mipmaps: the screen never recedes, so they would be generated
+     * and never read.
+     */
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearFilter;
     texture.generateMipmaps = false;
     texture.colorSpace = THREE.SRGBColorSpace;
     // The core's first row is the top of the frame; a DataTexture's is the
     // bottom. Flipping here is the same single reversal `webgl-renderer.ts`
     // does with its two quads.
     texture.flipY = true;
-    material.map = texture;
-    material.needsUpdate = true;
+
+    // The shader indexes the padded texture and stops at `uMax`; both come
+    // from one place so they cannot disagree.
+    const { texSize, uMax } = pictureUniforms(width, height, stride);
+    pictureMaterial.uniforms.map.value = texture;
+    pictureMaterial.uniforms.texSize.value.set(texSize[0], texSize[1]);
+    pictureMaterial.uniforms.uMax.value = uMax;
+    mesh.material = pictureMaterial;
 
     builtFor = { width, height, stride };
     mode = 'picture';
@@ -197,13 +282,7 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
         panelCanvas.height = size.height;
         panelCtx = panelCanvas.getContext('2d');
         if (!panelCtx) throw new Error('no 2d context for the screen panel');
-        panelTexture = new THREE.CanvasTexture(panelCanvas);
-        panelTexture.colorSpace = THREE.SRGBColorSpace;
-        // Linear, unlike the picture: this is text on a two-and-a-half-metre
-        // screen, and nearest-neighbour text at an angle is unreadable.
-        panelTexture.minFilter = THREE.LinearFilter;
-        panelTexture.magFilter = THREE.LinearFilter;
-        panelTexture.generateMipmaps = false;
+        panelTexture = panelTextureFor(panelCanvas);
         panelAt = size;
       } else if (panelAt && (panelAt.width !== size.width || panelAt.height !== size.height)) {
         /*
@@ -223,13 +302,9 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
         // The canvas element is the texture's source; resizing it blanks the
         // pixels, so three has to be told the source changed shape.
         panelTexture!.dispose();
-        panelTexture = new THREE.CanvasTexture(panelCanvas);
-        panelTexture.colorSpace = THREE.SRGBColorSpace;
-        panelTexture.minFilter = THREE.LinearFilter;
-        panelTexture.magFilter = THREE.LinearFilter;
-        panelTexture.generateMipmaps = false;
-        material.map = panelTexture;
-        material.needsUpdate = true;
+        panelTexture = panelTextureFor(panelCanvas);
+        panelMaterial.map = panelTexture;
+        panelMaterial.needsUpdate = true;
       }
 
       if (mode !== 'panel') {
@@ -237,8 +312,9 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
         // half way across the texture, and reusing it would show the player
         // the left half of a launch screen with no clue why.
         rebuildGeometry(1);
-        material.map = panelTexture;
-        material.needsUpdate = true;
+        panelMaterial.map = panelTexture;
+        panelMaterial.needsUpdate = true;
+        mesh.material = panelMaterial;
         mode = 'panel';
       }
 
@@ -271,7 +347,8 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
       mesh.geometry.dispose();
       texture?.dispose();
       panelTexture?.dispose();
-      material.dispose();
+      pictureMaterial.dispose();
+      panelMaterial.dispose();
     }
   };
 }
