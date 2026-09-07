@@ -65,6 +65,9 @@
     TABLET_PANEL_SIZE, layoutControlsPanel, drawControlsPanel,
     type ControlsLabels
   } from '$lib/vr/panels/controls';
+  // La séquence appartient au dessin, pas au panneau : c'est son ordre de
+  // lecture que « tout configurer » parcourt.
+  import { BIND_SEQUENCE, nextInSequence } from '$lib/vr/panels/pad-art';
   import { CaptureGate } from '$lib/controls/capture-gate';
   import { user } from '$lib/stores/user';
   import { games } from '$lib/stores/games';
@@ -248,6 +251,14 @@
   let tabletOpen = false;
   /** The tablet's panel, created in `enter()`. Hidden unless `tabletOpen`. */
   let tabletPanel: PanelMesh | null = null;
+  /**
+   * Where « configure every button » has got to, or null outside a sequence.
+   *
+   * An index into `BIND_SEQUENCE` rather than a copy of the remaining
+   * buttons: the order belongs to the drawing (`pad-art.ts`), which is what
+   * the player is reading, and one number cannot fall out of step with it.
+   */
+  let bindSequence: number | null = null;
   /** The button waiting for its new input, or null. */
   let listeningFor: VrButton | null = null;
   /**
@@ -598,6 +609,7 @@
       presetLetters: t($language, 'vrPresetLetters'),
       presetThumb: t($language, 'vrPresetThumb'),
       done: t($language, 'vrRemapDone'),
+      bindAll: t($language, 'vrRemapBindAll'),
       fixedDpad: t($language, 'vrFixedDpad'),
       fixedMenu: t($language, 'vrFixedMenu'),
       // Each language named in ITSELF, not in the current one: somebody who
@@ -664,6 +676,7 @@
    */
   function closeTablet(): void {
     tabletOpen = false;
+    bindSequence = null;
     listeningFor = null;
     captureGate.reset();
     if (tabletPanel) {
@@ -905,6 +918,22 @@
         padMap = readPadMap(localStorage);
         // Only this panel: the band stopped showing the map when it became a
         // launcher, so there is nothing of the map left there to refresh.
+        repaintControls();
+        return;
+      }
+      if (id === 'bind-all') {
+        /*
+         * The whole drawing, in the order it is read.
+         *
+         * The gate is primed the same way a single row's is, and for the same
+         * reason: the trigger that just pressed this button is still down, so
+         * without a throwaway tick the next one would bind the trigger to the
+         * first button of the sequence.
+         */
+        bindSequence = 0;
+        listeningFor = BIND_SEQUENCE[0];
+        captureGate.reset();
+        captureGate.tick(activeXrInputs(scene?.inputSources() ?? []));
         repaintControls();
         return;
       }
@@ -1733,6 +1762,16 @@
     if (tabletOpen && listeningFor) {
       const sources = scene.inputSources();
       if (menuPressed(sources)) {
+        /*
+         * The whole sequence, not just this button.
+         *
+         * Cancelling and then jumping to the next button would be baffling -
+         * the player asked to stop, not to skip - and it is what Escape does
+         * on the flat page (`PlayerControls.svelte`'s `cancelSequence`).
+         * Somebody who wants one button left alone can end the sequence and
+         * point at the others on the drawing.
+         */
+        bindSequence = null;
         listeningFor = null;
         captureGate.reset();
         repaintControls();
@@ -1754,7 +1793,28 @@
         // only thing that decides, and the default is removed rather than
         // stored - so a map that happens to equal it must still read back.
         padMap = readPadMap(localStorage);
-        listeningFor = null;
+
+        /*
+         * Advance, or hand the pointer back.
+         *
+         * `nextInSequence` returns null past the last button rather than an
+         * index that does not exist, which is what stops the capture staying
+         * armed on nothing - a player pressing into the void with nothing on
+         * screen to say so.
+         */
+        if (bindSequence === null) {
+          listeningFor = null;
+        } else {
+          const next = nextInSequence(bindSequence);
+          bindSequence = next;
+          listeningFor = next === null ? null : BIND_SEQUENCE[next];
+          // Primed again for the press that has not been released yet.
+          if (next !== null) {
+            captureGate.reset();
+            captureGate.tick(activeXrInputs(sources));
+          }
+        }
+
         repaintControls();
         repaintProfile();
       }

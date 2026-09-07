@@ -24,6 +24,7 @@
 
 import { truncate, type PanelSize, type Region } from '../panel';
 import { VR_BUTTONS, type VrButton, type VrPadMap, type XrInput } from '../pad-map';
+import { drawPadArt, padRegions, PAD_ART_ASPECT } from './pad-art';
 
 /** La surface de l'écran courbe, la même que l'écran de lancement. */
 export const CONTROLS_PANEL_SIZE: PanelSize = { width: 1024, height: 768 };
@@ -42,13 +43,35 @@ export const TABLET_PANEL_SIZE = CONTROLS_PANEL_SIZE;
 const PAD = 40;
 const TITLE_Y = 56;
 
-const ROW_X = PAD;
-const ROW_Y = 112;
-const ROW_W = 640;
-const ROW_H = 64;
-const ROW_GAP = 8;
-/** Où commence la colonne de droite d'une ligne : le nom de l'entrée. */
-const INPUT_X = 200;
+/*
+ * Deux colonnes : le dessin à gauche, la légende à droite.
+ *
+ * Le dessin remplace les huit lignes comme surface de visée - « le dessin est
+ * la config », ce que `SnesPad.svelte` dit de son propre pad. La légende reste
+ * parce qu'en VR elle n'est pas facultative : une entrée s'appelle « Droite —
+ * gâchette », et il n'existe aucune forme en trois caractères comme le « B14 »
+ * du hors-VR à écrire sur un bouton de 24 px. Inventer des abréviations aurait
+ * été plus court et plus cryptique.
+ */
+const ART_X = PAD;
+const ART_Y = 112;
+/*
+ * 596 et non 640 : la colonne de légende doit contenir le plus long libellé
+ * d'entrée expédié - « Gauche — clic du stick » - en entier. Une légende
+ * tronquée est vide de sens, puisqu'elle n'existe que parce que ces noms ne
+ * tiennent pas sur un bouton de la manette dessinée. Le dessin prend ce qui
+ * reste, et `vr-panel-controls.test.ts` mesure les deux.
+ */
+const ART_W = 596;
+const ART_H = ART_W / PAD_ART_ASPECT;
+const ART = { x: ART_X, y: ART_Y, w: ART_W, h: ART_H };
+
+const LEGEND_X = ART_X + ART_W + 20;
+const LEGEND_W = CONTROLS_PANEL_SIZE.width - PAD - LEGEND_X;
+const LEGEND_Y = ART_Y;
+const LEGEND_LINE_H = 34;
+/** Où commence le nom de l'entrée sur une ligne de légende. */
+const LEGEND_INPUT_X = 88;
 
 /*
  * L'invite de capture est une BANNIÈRE pleine largeur, pas la colonne droite
@@ -62,11 +85,16 @@ const INPUT_X = 200;
  */
 const PROMPT_Y = 88;
 
-const PRESET_X = 720;
-const PRESET_W = 264;
-const PRESET_H = 72;
-const PRESET_Y = 112;
-const PRESET_GAP = 16;
+/*
+ * Les boutons, sous les deux colonnes.
+ *
+ * « Tout configurer » prend la largeur du dessin parce que c'est l'action qui
+ * lui appartient : elle parcourt ses huit boutons dans l'ordre où on les voit.
+ */
+const BIND_ALL_Y = 400;
+const BTN_H = 64;
+const PRESET_Y = BIND_ALL_Y + BTN_H + 16;
+const PRESET_W = (ART_W - 20) / 2;
 
 /*
  * Le rappel des entrées hors modèle : pleine largeur, sous les lignes.
@@ -87,8 +115,7 @@ const FIXED_GAP = 30;
  * running had no route back to the launch options at all - the curved screen
  * kept the remap for the rest of the session.
  */
-const DONE_Y = PRESET_Y + (PRESET_H + PRESET_GAP) * 2 + 24;
-const DONE_H = 72;
+const CLOSE_Y = PRESET_Y;
 
 /*
  * La langue, arrivée du bandeau.
@@ -100,10 +127,9 @@ const DONE_H = 72;
  * déjà à ses presets : il y a exactement deux langues, et une bascule
  * obligerait le joueur à deviner laquelle est active.
  */
-const LANG_Y = DONE_Y + DONE_H + 24;
-const LANG_H = 56;
+const LANG_Y = BIND_ALL_Y;
 const LANG_GAP = 16;
-const LANG_W = (PRESET_W - LANG_GAP) / 2;
+const LANG_W = (LEGEND_W - LANG_GAP) / 2;
 
 export interface ControlsState {
   map: VrPadMap;
@@ -120,6 +146,8 @@ export interface ControlsLabels {
   press: string;
   /** The way out. Without it the panel is a dead end - see `layoutControlsPanel`. */
   done: string;
+  /** Démarre la séquence : les huit boutons, dans l'ordre du dessin. */
+  bindAll: string;
   presetLetters: string;
   presetThumb: string;
   fixedDpad: string;
@@ -130,41 +158,32 @@ export interface ControlsLabels {
   input: Record<XrInput, string>;
 }
 
-/** Où tombe la ligne d'un bouton, région ou pas. */
-function rowAt(index: number): Region {
-  return {
-    id: `bind:${VR_BUTTONS[index]}`,
-    x: ROW_X,
-    y: ROW_Y + index * (ROW_H + ROW_GAP),
-    w: ROW_W,
-    h: ROW_H
-  };
-}
-
 export function layoutControlsPanel(state: ControlsState): Region[] {
   // Rien n'est cliquable pendant une capture. Voir l'en-tête.
   if (state.listeningFor) return [];
 
-  const regions: Region[] = VR_BUTTONS.map((_, index) => rowAt(index));
+  // Les huit `bind:` viennent du dessin maintenant, pas de huit lignes.
+  const regions: Region[] = padRegions(ART);
 
-  regions.push({ id: 'preset:letters', x: PRESET_X, y: PRESET_Y, w: PRESET_W, h: PRESET_H });
+  regions.push({ id: 'bind-all', x: ART_X, y: BIND_ALL_Y, w: ART_W, h: BTN_H });
+  regions.push({ id: 'preset:letters', x: ART_X, y: PRESET_Y, w: PRESET_W, h: BTN_H });
   regions.push({
     id: 'preset:thumb',
-    x: PRESET_X,
-    y: PRESET_Y + PRESET_H + PRESET_GAP,
+    x: ART_X + PRESET_W + 20,
+    y: PRESET_Y,
     w: PRESET_W,
-    h: PRESET_H
+    h: BTN_H
   });
-  regions.push({ id: 'close', x: PRESET_X, y: DONE_Y, w: PRESET_W, h: DONE_H });
 
-  regions.push({ id: 'lang:en', x: PRESET_X, y: LANG_Y, w: LANG_W, h: LANG_H });
+  regions.push({ id: 'lang:en', x: LEGEND_X, y: LANG_Y, w: LANG_W, h: BTN_H });
   regions.push({
     id: 'lang:fr',
-    x: PRESET_X + LANG_W + LANG_GAP,
+    x: LEGEND_X + LANG_W + LANG_GAP,
     y: LANG_Y,
     w: LANG_W,
-    h: LANG_H
+    h: BTN_H
   });
+  regions.push({ id: 'close', x: LEGEND_X, y: CLOSE_Y, w: LEGEND_W, h: BTN_H });
 
   return regions;
 }
@@ -224,46 +243,51 @@ export function drawControlsPanel(
 
   const byId = new Map(regions.map((region) => [region.id, region]));
 
-  // Dessinées depuis les boutons, pas depuis les régions : les lignes existent
-  // pendant la capture, où il n'y a aucune région.
-  VR_BUTTONS.forEach((button, index) => {
-    const region = byId.get(`bind:${button}`) ?? rowAt(index);
-    const listening = state.listeningFor === button;
+  /*
+   * Le dessin d'abord, la légende ensuite.
+   *
+   * Les deux sont dessinés depuis l'état et non depuis les régions, parce
+   * qu'il n'y a aucune région pendant une capture - et c'est précisément
+   * pendant une capture qu'il faut voir QUEL bouton attend.
+   */
+  drawPadArt(ctx, ART, {
+    listeningFor: state.listeningFor,
+    hovered: opts.hoverId?.startsWith('bind:')
+      ? (opts.hoverId.slice('bind:'.length) as VrButton)
+      : null
+  });
 
-    ctx.fillStyle = listening ? '#232a44' : '#1c1c26';
-    ctx.fillRect(region.x, region.y, region.w, region.h);
+  VR_BUTTONS.forEach((button, index) => {
+    const y = LEGEND_Y + index * LEGEND_LINE_H + LEGEND_LINE_H / 2;
+    const listening = state.listeningFor === button;
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    const middle = region.y + region.h / 2;
 
-    ctx.font = '600 24px system-ui, sans-serif';
-    ctx.fillStyle = '#e8e8f0';
-    ctx.fillText(labels.button[button], region.x + 16, middle);
+    ctx.font = '600 22px system-ui, sans-serif';
+    ctx.fillStyle = listening ? '#7aa2ff' : '#e8e8f0';
+    ctx.fillText(labels.button[button], LEGEND_X, y);
 
-    if (listening) {
-      // Le glyphe dit QUELLE ligne écoute ; la bannière en haut dit quoi
-      // faire. Deux états ne différant que par un fond dessinent le même jeu
-      // de `fillText` - voir l'en-tête.
-      ctx.font = '22px system-ui, sans-serif';
-      ctx.fillStyle = '#7aa2ff';
-      ctx.fillText('◀', region.x + INPUT_X, middle);
-    } else {
-      ctx.font = '22px system-ui, sans-serif';
-      ctx.fillStyle = '#9a9aac';
-      ctx.fillText(
-        truncate(ctx, labels.input[state.map[button]], region.w - INPUT_X - 16),
-        region.x + INPUT_X,
-        middle
-      );
-    }
-
-    if (opts.hoverId === `bind:${button}`) {
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(region.x - 3, region.y - 3, region.w + 6, region.h + 6);
-    }
+    /*
+     * Le glyphe dit QUELLE entrée on attend ; la bannière en haut dit quoi
+     * faire. Deux états qui ne différeraient que par une couleur dessineraient
+     * le même jeu de `fillText`, et le test ne pourrait pas les distinguer.
+     */
+    ctx.font = '20px system-ui, sans-serif';
+    ctx.fillStyle = listening ? '#7aa2ff' : '#9a9aac';
+    ctx.fillText(
+      listening
+        ? '◀'
+        : truncate(ctx, labels.input[state.map[button]], LEGEND_W - LEGEND_INPUT_X),
+      LEGEND_X + LEGEND_INPUT_X,
+      y
+    );
   });
+
+  const bindAll = byId.get('bind-all');
+  if (bindAll) {
+    drawPresetButton(ctx, bindAll, labels.bindAll, opts.hoverId === 'bind-all');
+  }
 
   const letters = byId.get('preset:letters');
   const thumb = byId.get('preset:thumb');

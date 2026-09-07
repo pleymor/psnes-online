@@ -23,7 +23,7 @@ import {
   type ControlsLabels,
   type ControlsState
 } from '../../frontend/src/lib/vr/panels/controls.js';
-import { LETTERS_MAP, assignInput } from '../../frontend/src/lib/vr/pad-map.js';
+import { VR_BUTTONS, LETTERS_MAP, assignInput } from '../../frontend/src/lib/vr/pad-map.js';
 
 const LABELS: ControlsLabels = {
   heading: 'Contrôles',
@@ -32,6 +32,7 @@ const LABELS: ControlsLabels = {
   // le vrai libellé pourrait échouer.
   press: 'Pressez un bouton — clic du stick droit pour annuler',
   done: 'Retour',
+  bindAll: 'Tout configurer',
   presetLetters: 'Preset lettres',
   presetThumb: 'Preset pouce',
   fixedDpad: 'Croix directionnelle : les deux sticks',
@@ -73,7 +74,9 @@ function recordingContext() {
       fills.push({ style: String(this.fillStyle), x, y });
     },
     strokeRect() { calls.push('strokeRect'); },
-    beginPath() {}, arc() { calls.push('arc'); }, fill() {}, stroke() {},
+    beginPath() {}, arc() { calls.push('arc'); }, fill() { calls.push('fill'); }, stroke() { calls.push('stroke'); },
+    // Le dessin de la manette trace des rectangles arrondis.
+    moveTo() {}, lineTo() {}, arcTo() {}, closePath() {},
     drawImage() { calls.push('drawImage'); },
     fillText(text: string, x: number, y: number) {
       texts.push(text);
@@ -157,36 +160,94 @@ test('une map remappée est ce qui est dessiné, pas le preset', () => {
   assert.ok(drawn.includes(LABELS.input.XrLeftStickClick), "le remap n'est pas montré");
 });
 
-test('une ligne survolée est entourée, une autre non', () => {
-  // Sans ce test, tout le bloc de survol pourrait être supprimé sans que rien
-  // ne le remarque.
-  const plain = draw(state()).calls.filter((c) => c === 'strokeRect').length;
-  const hovered = draw(state(), 'bind:a').calls.filter((c) => c === 'strokeRect').length;
-  assert.ok(hovered > plain, 'le survol ne se voit pas');
+/*
+ * Le survol se voit sur le dessin, pas sur une ligne.
+ *
+ * Les huit lignes cliquables sont devenues la manette, et le survol y trace un
+ * contour - un cercle pour les boutons de face, un rectangle pour les
+ * gâchettes et les pastilles. Sans ce test, tout le bloc de survol de
+ * `pad-art.ts` pourrait disparaître sans que rien ne le remarque.
+ */
+test('un bouton survole sur le dessin est entoure', () => {
+  const plain = draw(state()).calls;
+  const onFace = draw(state(), 'bind:a').calls;
+  const onShoulder = draw(state(), 'bind:l').calls;
+
+  const strokes = (calls: string[]) => calls.filter((c) => c === 'strokeRect').length;
+  assert.ok(
+    strokes(onShoulder) > strokes(plain),
+    'le survol d une gachette ne se voit pas'
+  );
+  // Un bouton de face est un cercle : son contour passe par stroke(), pas par
+  // strokeRect(), donc c'est le nombre d'appels total qui bouge.
+  assert.ok(onFace.length > plain.length, 'le survol d un bouton de face ne se voit pas');
 });
 
-test('aucun texte de ligne ne déborde de sa ligne', () => {
-  // La mesure du faux contexte, la même que les autres tests de largeur.
-  const regions = layoutControlsPanel(state());
+/*
+ * La légende contient le plus long libellé expédié, en entier.
+ *
+ * Elle n'existe que parce que les noms d'entrées ne tiennent pas sur un bouton
+ * de la manette dessinée - « Droite — gâchette » sur 24 px de cercle. Une
+ * légende tronquée aurait donc perdu sa seule raison d'être, et la colonne a
+ * été élargie contre le dessin plutôt que l'inverse.
+ *
+ * Ne mesure que les textes de la légende, alignés à gauche : les boutons de
+ * langue à côté sont centrés et déjà bornés par leur propre région, et les
+ * confondre faisait échouer ce test sur un libellé parfaitement placé.
+ */
+test('la legende contient le plus long libelle d entree sans le couper', () => {
+  const longest = Object.values(LABELS.input).reduce((a, b) => (a.length > b.length ? a : b));
+  const custom = assignInput(
+    LETTERS_MAP,
+    'a',
+    (Object.keys(LABELS.input) as Array<keyof typeof LABELS.input>).find(
+      (k) => LABELS.input[k] === longest
+    )!
+  );
+  const ctx = draw(state({ map: custom }));
+  assert.ok(
+    ctx.texts.includes(longest),
+    `"${longest}" est coupe dans la legende - elargir la colonne, pas raccourcir le nom`
+  );
+});
+
+test('aucun texte de la legende ne deborde du panneau', () => {
+  const RIGHT_EDGE = 1024 - 40;
+  // Les deux colonnes de la légende, alignées à gauche.
+  const LEGEND_COLUMNS = [656, 656 + 88];
   for (const listeningFor of [null, 'a'] as const) {
     const ctx = draw(state({ listeningFor }));
     for (const drawn of ctx.placed) {
-      // Par x ET par y : les boutons de preset partagent la bande verticale des
-      // deux premières lignes sans être dedans, et les attribuer à une ligne
-      // faisait échouer ce test sur un texte parfaitement placé.
-      const row = regions.find(
-        (r) =>
-          r.id.startsWith('bind:') &&
-          drawn.y >= r.y && drawn.y < r.y + r.h &&
-          drawn.x >= r.x && drawn.x < r.x + r.w
-      );
-      if (!row) continue;
+      if (!LEGEND_COLUMNS.includes(drawn.x)) continue;
       assert.ok(
-        drawn.x + drawn.text.length * 9 <= row.x + row.w,
-        `"${drawn.text}" atteint ${drawn.x + drawn.text.length * 9}px, la ligne finit à ${row.x + row.w}px`
+        drawn.x + drawn.text.length * 9 <= RIGHT_EDGE,
+        `"${drawn.text}" atteint ${drawn.x + drawn.text.length * 9}px, le panneau finit a ${RIGHT_EDGE}px`
       );
     }
   }
+});
+
+test('le dessin porte les huit boutons, et la legende les nomme tous', () => {
+  const ctx = draw(state());
+  for (const button of VR_BUTTONS) {
+    assert.ok(
+      ctx.texts.includes(LABELS.button[button]),
+      `${button} n est nomme nulle part dans la legende`
+    );
+  }
+});
+
+test('tout configurer est offert, et nomme', () => {
+  const ids = layoutControlsPanel(state()).map((r) => r.id);
+  assert.ok(ids.includes('bind-all'));
+  assert.ok(draw(state()).texts.includes(LABELS.bindAll));
+});
+
+test('tout configurer disparait pendant une capture, comme le reste', () => {
+  // Une capture attend une pression physique : toute région encore là la
+  // volerait.
+  const ids = layoutControlsPanel(state({ listeningFor: 'a' })).map((r) => r.id);
+  assert.equal(ids.length, 0);
 });
 
 test('aucune région ne sort du panneau ni n en chevauche une autre', () => {
