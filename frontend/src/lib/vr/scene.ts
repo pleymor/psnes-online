@@ -22,7 +22,7 @@ import { createVrScreen, type VrScreen } from './screen';
 import { sceneLayout, type SceneLayout, type Placement } from './layout';
 import type { PixelAspect } from '$lib/znet/fit';
 import { createPanelMesh, type PanelMesh } from './panel-mesh';
-import { hit, type PanelSize } from './panel';
+import { aimable, hit, type PanelSize } from './panel';
 import type { PointerTarget } from './pointer';
 import { TRIGGER } from './pad';
 
@@ -151,15 +151,17 @@ export function createVrScene(opts: {
     opts.onFrameError(err);
   }
 
+  /*
+   * The panels, and no parallel array of their meshes any more.
+   *
+   * There used to be a `panelMeshes` alongside this, pushed to only in
+   * `addPanel`, to keep an allocation out of `aimedAt`. It cannot serve that
+   * purpose now: which panels are targets depends on each one's own
+   * `mesh.visible`, so the list has to be filtered per call whatever it is
+   * built from. `aimable` allocates exactly the array the old `targets` did,
+   * so nothing regresses and there is one fewer thing to keep in step.
+   */
   const panels: PanelMesh[] = [];
-  // Pushed to only in `addPanel`, never inside `aimedAt`. `aimedAt` itself is
-  // no longer allocation-free, though: it now builds a small per-call
-  // `targets` list, because which meshes count as a target depends on
-  // `screen.isPanel()` too (see the comment inside `aimedAt` for why). What
-  // this array buys is narrower than it used to be - `panelMeshes.push` never
-  // running inside that hot loop, same as the raycaster scratch objects
-  // below - not that the loop allocates nothing at all.
-  const panelMeshes: THREE.Mesh[] = [];
   const panelGroup = new THREE.Group();
   world.add(panelGroup);
 
@@ -213,8 +215,12 @@ export function createVrScene(opts: {
      * launch screen, so the shorthand stopped being true - the rule below is
      * the one that was always meant.
      */
-    const targets: THREE.Object3D[] = [];
-    if (panelGroup.visible) targets.push(...panelMeshes);
+    // `panels` rather than a parallel mesh array: the rule lives in `panel.ts`
+    // now, and it has to see each mesh's own visibility - a panel that is
+    // hidden must stop being a target, which `Raycaster` will not do for us.
+    const targets: THREE.Object3D[] = aimable(panels, panelGroup.visible).map(
+      (panel) => panel.mesh
+    );
     if (screen.isPanel()) targets.push(screen.mesh);
     if (targets.length === 0) return null;
 
@@ -373,7 +379,6 @@ export function createVrScene(opts: {
     addPanel(id: string, placement: Placement, size: PanelSize): PanelMesh {
       const panel = createPanelMesh(id, placement, size);
       panels.push(panel);
-      panelMeshes.push(panel.mesh);
       panelGroup.add(panel.mesh);
       return panel;
     },

@@ -18,7 +18,7 @@
 
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { hit, uvToCanvas, fitContain, intrinsicSize, truncate, type Region } from '../../frontend/src/lib/vr/panel.js';
+import { hit, uvToCanvas, fitContain, intrinsicSize, truncate, aimable, type Region } from '../../frontend/src/lib/vr/panel.js';
 
 const SIZE = { width: 800, height: 400 };
 
@@ -245,4 +245,35 @@ test('an empty string is not padded with an ellipsis', () => {
 
 test('the exact fit is a fit, not a truncation', () => {
   assert.equal(truncate(measuring(), 'abc', 27), 'abc');
+});
+
+/*
+ * Quels panneaux sont visables, et pourquoi c'est une fonction.
+ *
+ * three's `Raycaster` only tests layers, never visibility
+ * (`Raycaster.js:240`), so a mesh that is merely hidden is still hit by a ray.
+ * The failure mode is the worst of its class - presses swallowed by a surface
+ * the player cannot see, on whatever sits behind it - and the floating options
+ * tablet is precisely a panel that spends most of its life hidden.
+ */
+const aimablePanel = (id: string, visible: boolean) => ({ id, mesh: { visible } });
+
+test('a hidden panel is not a target', () => {
+  const panels = [aimablePanel('library', true), aimablePanel('tablet', false)];
+  assert.deepEqual(aimable(panels, true).map((p) => p.id), ['library']);
+});
+
+test('nothing is a target while the panels are dismissed', () => {
+  // The trigger is the SNES pad then, not a pointer.
+  assert.deepEqual(aimable([aimablePanel('library', true)], false), []);
+});
+
+test('everything visible is a target', () => {
+  const panels = [aimablePanel('a', true), aimablePanel('b', true)];
+  assert.equal(aimable(panels, true).length, 2);
+});
+
+test('the order survives, because hit() takes the first match', () => {
+  const panels = [aimablePanel('first', true), aimablePanel('second', true)];
+  assert.deepEqual(aimable(panels, true).map((p) => p.id), ['first', 'second']);
 });

@@ -183,3 +183,25 @@ export function truncate(
   }
   return `${cut}…`;
 }
+
+/**
+ * The panels a ray should be able to hit.
+ *
+ * Two rules, and the second is a trap in three. The first: nothing is a target
+ * while the panels are dismissed, because the trigger is then the SNES pad
+ * rather than a pointer. The second: a hidden panel is not a target - and that
+ * has to be said HERE, because `Raycaster` only tests layers and never
+ * `visible` (`Raycaster.js:240`), so a hidden mesh is still hit by a ray. A
+ * closed tablet would swallow the presses meant for the lecterns behind it,
+ * invisibly, which is the worst shape this can fail in.
+ *
+ * The order survives: `hit()` returns the first match, so the array's order is
+ * its z-order.
+ */
+export function aimable<T extends { mesh: { visible: boolean } }>(
+  panels: readonly T[],
+  panelsVisible: boolean
+): T[] {
+  if (!panelsVisible) return [];
+  return panels.filter((panel) => panel.mesh.visible);
+}
