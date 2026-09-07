@@ -31,7 +31,7 @@ const LABELS: ControlsLabels = {
   // mesure cette chaîne, et un remplaçant court passerait une vérification que
   // le vrai libellé pourrait échouer.
   press: 'Pressez un bouton — clic du stick droit pour annuler',
-  done: 'Terminé',
+  done: 'Retour',
   presetLetters: 'Preset lettres',
   presetThumb: 'Preset pouce',
   fixedDpad: 'Croix directionnelle : les deux sticks',

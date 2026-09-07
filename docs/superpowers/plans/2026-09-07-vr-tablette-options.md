@@ -31,7 +31,7 @@
 - Consumes: `Placement`, `eyeDistance`, `angularWidth`, `pixelsPerDegree`, `QUEST_3_PIXELS_PER_DEGREE` — déjà exportés par `layout.ts`.
 - Produces: `SceneLayout.tablet: Placement` ; `verticalSpan(placement: Placement): { top: number; bottom: number }` en degrés, positif vers le haut.
 
-- [ ] **Step 1: écrire le test qui échoue**
+- [x] **Step 1: écrire le test qui échoue**
 
 Ajouter à la fin de `core/test/vr-layout.test.ts` :
 
@@ -152,12 +152,12 @@ Et ajouter la tablette aux deux tests d'invariants existants, dans leurs tableau
     ['tablet', layout.tablet, TABLET_PANEL_SIZE],
 ```
 
-- [ ] **Step 2: lancer le test pour vérifier qu'il échoue**
+- [x] **Step 2: lancer le test pour vérifier qu'il échoue**
 
 Run: `bun test core/test/vr-layout.test.ts`
 Expected: FAIL — `Export named 'verticalSpan' not found`.
 
-- [ ] **Step 3: implémenter**
+- [x] **Step 3: implémenter**
 
 Dans `frontend/src/lib/vr/layout.ts`, ajouter les constantes près de celles du bandeau :
 
@@ -260,12 +260,12 @@ export function verticalSpan(placement: Placement): { top: number; bottom: numbe
 }
 ```
 
-- [ ] **Step 4: lancer les tests**
+- [x] **Step 4: lancer les tests**
 
 Run: `bun test core/test/vr-layout.test.ts`
 Expected: PASS, tous.
 
-- [ ] **Step 5: commit**
+- [x] **Step 5: commit**
 
 ```bash
 git add frontend/src/lib/vr/layout.ts core/test/vr-layout.test.ts
@@ -284,7 +284,7 @@ git commit -m "Give the options tablet a place, and measure what it must not cov
 **Interfaces:**
 - Produces: `aimable<T extends { mesh: { visible: boolean } }>(panels: readonly T[], panelsVisible: boolean): T[]`
 
-- [ ] **Step 1: écrire le test qui échoue**
+- [x] **Step 1: écrire le test qui échoue**
 
 Ajouter à la fin de `core/test/vr-panel.test.ts` :
 
@@ -324,12 +324,12 @@ test('l ordre est conserve, parce que hit() prend la premiere correspondance', (
 
 Ajouter `aimable` aux imports du fichier.
 
-- [ ] **Step 2: lancer le test pour vérifier qu'il échoue**
+- [x] **Step 2: lancer le test pour vérifier qu'il échoue**
 
 Run: `bun test core/test/vr-panel.test.ts`
 Expected: FAIL — `Export named 'aimable' not found`.
 
-- [ ] **Step 3: implémenter la fonction pure**
+- [x] **Step 3: implémenter la fonction pure**
 
 À la fin de `frontend/src/lib/vr/panel.ts` :
 
@@ -357,12 +357,12 @@ export function aimable<T extends { mesh: { visible: boolean } }>(
 }
 ```
 
-- [ ] **Step 4: lancer les tests**
+- [x] **Step 4: lancer les tests**
 
 Run: `bun test core/test/vr-panel.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: la brancher dans `scene.ts`**
+- [x] **Step 5: la brancher dans `scene.ts`**
 
 Dans `frontend/src/lib/vr/scene.ts`, remplacer dans `aimedAt` :
 
@@ -385,7 +385,7 @@ par :
 
 Ajouter `aimable` à l'import depuis `./panel`, et supprimer le tableau `panelMeshes` ainsi que le `panelMeshes.push` de `addPanel` — il n'a plus de lecteur. Son commentaire d'origine expliquait qu'il évitait une allocation dans la boucle chaude ; `aimable` en fait une par appel, exactement comme le `targets` qu'il remplace, donc rien ne régresse.
 
-- [ ] **Step 6: vérifier les types et la suite**
+- [x] **Step 6: vérifier les types et la suite**
 
 Run depuis `frontend/` : `PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH" npx svelte-check --tsconfig ./tsconfig.json --threshold error`
 Expected: 0 errors.
@@ -393,7 +393,7 @@ Expected: 0 errors.
 Run: `bun run test:ui`
 Expected: 0 fail.
 
-- [ ] **Step 7: commit**
+- [x] **Step 7: commit**
 
 ```bash
 git add frontend/src/lib/vr/panel.ts frontend/src/lib/vr/scene.ts core/test/vr-panel.test.ts
@@ -414,7 +414,7 @@ git commit -m "Stop a hidden panel from swallowing presses meant for what is beh
 - Consumes: `SceneLayout.tablet` (Task 1), `aimable` (Task 2).
 - Produces: rien pour un lot ultérieur.
 
-- [ ] **Step 1: nommer la taille de la tablette**
+- [x] **Step 1: nommer la taille de la tablette**
 
 Dans `frontend/src/lib/vr/panels/controls.ts`, sous `CONTROLS_PANEL_SIZE` :
 
@@ -431,7 +431,7 @@ Dans `frontend/src/lib/vr/panels/controls.ts`, sous `CONTROLS_PANEL_SIZE` :
 export const TABLET_PANEL_SIZE = CONTROLS_PANEL_SIZE;
 ```
 
-- [ ] **Step 2: le libellé de sortie devient un retour**
+- [x] **Step 2: le libellé de sortie devient un retour**
 
 Dans `frontend/src/lib/i18n/translations.ts`, remplacer les deux valeurs de `vrRemapDone` :
 
@@ -444,14 +444,14 @@ Dans `frontend/src/lib/i18n/translations.ts`, remplacer les deux valeurs de `vrR
 
 Le demandeur a demandé « un bouton de retour pour naviguer vers le menu principal d'options ». Ce bouton existait déjà sous le nom « Terminé », qui dit qu'on a fini un réglage plutôt qu'on remonte d'un cran — et ce qu'il ramène est le bandeau, qui *est* ce menu principal.
 
-- [ ] **Step 3: adapter le test des contrôles**
+- [x] **Step 3: adapter le test des contrôles**
 
 Dans `core/test/vr-panel-controls.test.ts`, la valeur de `done` dans `LABELS` passe de `'Terminé'` à `'Retour'`. Le fichier commente déjà pourquoi ses libellés sont les formulations expédiées : le test de largeur les mesure.
 
 Run: `bun test core/test/vr-panel-controls.test.ts`
 Expected: PASS.
 
-- [ ] **Step 4: la tablette dans VrShell**
+- [x] **Step 4: la tablette dans VrShell**
 
 Déclarer le panneau à côté des autres :
 
@@ -471,7 +471,7 @@ L'ajouter dans `enter()`, après `profilePanel` :
 
 Renommer `remapOpen` en `tabletOpen` partout dans le fichier.
 
-- [ ] **Step 5: `repaintControls` peint la tablette**
+- [x] **Step 5: `repaintControls` peint la tablette**
 
 Remplacer le corps de `repaintControls` :
 
@@ -490,7 +490,7 @@ Remplacer le corps de `repaintControls` :
   }
 ```
 
-- [ ] **Step 6: ouvrir et fermer**
+- [x] **Step 6: ouvrir et fermer**
 
 ```ts
   /**
@@ -523,7 +523,7 @@ Remplacer le corps de `repaintControls` :
 
 Remplacer les appels à `openRemap()` / `closeRemap()` et supprimer les deux anciennes fonctions.
 
-- [ ] **Step 7: le dispatch écoute la tablette**
+- [x] **Step 7: le dispatch écoute la tablette**
 
 La branche `if (target.panel === 'screen' && tabletOpen) {` devient `if (target.panel === 'tablet') {`, et son `if (id === 'close') { closeRemap(); return; }` devient `closeTablet()`.
 
@@ -531,7 +531,7 @@ Retirer de la branche `screen` la garde qui l'ouvrait, et le commentaire « Befo
 
 Dans le rafraîchissement de survol, ajouter `if (panel === 'tablet') repaintControls();` et retirer le `if (remapOpen) repaintControls(); else repaintLaunch();` de la branche `screen`, qui n'a plus de raison de choisir.
 
-- [ ] **Step 8: vérifier**
+- [x] **Step 8: vérifier**
 
 Run depuis `frontend/` : `PATH="$HOME/.nvm/versions/node/v20.19.6/bin:$PATH" npx svelte-check --tsconfig ./tsconfig.json --threshold error`
 Expected: 0 errors.
@@ -539,7 +539,7 @@ Expected: 0 errors.
 Run: `bun run test:ui && bun run test:backend && bun run test:netplay`
 Expected: 0 fail partout.
 
-- [ ] **Step 9: commit**
+- [x] **Step 9: commit**
 
 ```bash
 git add frontend/src/lib/vr/panels/controls.ts frontend/src/lib/components/VrShell.svelte frontend/src/lib/i18n/translations.ts core/test/vr-panel-controls.test.ts

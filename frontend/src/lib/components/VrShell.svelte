@@ -62,7 +62,7 @@
     type VrPadMap, type VrButton, type XrInput
   } from '$lib/vr/pad-map';
   import {
-    CONTROLS_PANEL_SIZE, layoutControlsPanel, drawControlsPanel,
+    TABLET_PANEL_SIZE, layoutControlsPanel, drawControlsPanel,
     type ControlsLabels
   } from '$lib/vr/panels/controls';
   import { CaptureGate } from '$lib/controls/capture-gate';
@@ -233,13 +233,21 @@
   let padMap: VrPadMap = LETTERS_MAP;
 
   /**
-   * Whether the curved screen is carrying the remap panel.
+   * Whether the floating tablet is up.
    *
-   * Mutually exclusive with `launchFor`: one surface, one content. Whoever
-   * opens one clears the other, and `closeRemap` hands the screen back to
-   * whatever it was showing.
+   * It used to be `tabletOpen`, and it used to be mutually exclusive with
+   * `launchFor` because both contents shared the curved screen - "one surface,
+   * one content". They share nothing now: the tablet is its own panel at its
+   * own depth, so a launch screen and a rebinding can both be true at once,
+   * and three guards that existed only to arbitrate that contention go with
+   * this rename.
+   *
+   * Still a boolean rather than a screen union: with one option screen there
+   * is nothing to distinguish. A union arrives with a second one.
    */
-  let remapOpen = false;
+  let tabletOpen = false;
+  /** The tablet's panel, created in `enter()`. Hidden unless `tabletOpen`. */
+  let tabletPanel: PanelMesh | null = null;
   /** The button waiting for its new input, or null. */
   let listeningFor: VrButton | null = null;
   /**
@@ -330,15 +338,15 @@
    * path that earns the `rom-missing` refusal.
    */
   /*
-   * `!remapOpen` is the guard that keeps a rebinding from being interrupted.
+   * No `!tabletOpen` guard any more, and that is the tablet paying for itself.
    *
-   * A friend choosing a game would otherwise take the curved screen out from
-   * under a player halfway through binding a button - and with `listeningFor`
-   * still set, the next press would land on a panel nobody is looking at.
-   * `closeRemap` runs `backToLaunchScreen`, which picks this up on the way
-   * out, so nothing is lost by waiting.
+   * This used to wait for a rebinding to finish: a friend choosing a game
+   * would take the curved screen out from under a player halfway through
+   * binding a button, leaving `listeningFor` set on a panel nobody was looking
+   * at. The two contents sit on different surfaces now, so a friend's choice
+   * repaints the screen while the rebinding carries on untouched.
    */
-  $: if (!remapOpen && $myRoom?.gameCrc32 && $myRoom.gameCrc32 !== launchFor && $myRoom.status === 'waiting') {
+  $: if ($myRoom?.gameCrc32 && $myRoom.gameCrc32 !== launchFor && $myRoom.status === 'waiting') {
     launchFor = $myRoom.gameCrc32;
     stagedSaveId = null;
     repaintLaunch();
@@ -571,16 +579,14 @@
   }
 
   function repaintControls(): void {
-    if (!scene || !remapOpen) return;
+    if (!tabletPanel || !tabletOpen) return;
     const state = { map: padMap, listeningFor, language: $language };
-    const regions = layoutControlsPanel(state);
-    // Replaced in place: `scene.aimedAt` holds this same array.
-    scene.screen.regions.length = 0;
-    scene.screen.regions.push(...regions);
-    scene.screen.paintPanel(CONTROLS_PANEL_SIZE, (ctx) =>
+    tabletPanel.regions = layoutControlsPanel(state);
+    const regions = tabletPanel.regions;
+    tabletPanel.paint((ctx) =>
       drawControlsPanel(ctx, state, regions, {
         labels: controlsLabels(),
-        hoverId: hovered?.panel === 'screen' ? hovered.region.id : null
+        hoverId: hovered?.panel === 'tablet' ? hovered.region.id : null
       })
     );
   }
@@ -621,11 +627,19 @@
   }
 
   /** Opens the remap panel, taking the curved screen from whatever held it. */
-  function openRemap(): void {
-    launchFor = null;
-    remapOpen = true;
+  /**
+   * Raises the tablet. The curved screen does not move.
+   *
+   * The `launchFor = null` this function opened with is gone: opening the
+   * controls used to abandon the launch screen, because the two fought over
+   * one surface. They do not any more, so the game keeps playing and a launch
+   * screen keeps its place behind the tablet.
+   */
+  function openTablet(): void {
+    tabletOpen = true;
     listeningFor = null;
     captureGate.reset();
+    if (tabletPanel) tabletPanel.mesh.visible = true;
     repaintControls();
   }
 
@@ -636,15 +650,25 @@
    * otherwise - the same two states the screen has when nothing opened this
    * panel in the first place.
    */
-  function closeRemap(): void {
-    remapOpen = false;
+  /**
+   * Lowers the tablet. There is nothing to hand back.
+   *
+   * This function used to restore the curved screen - the game's picture if
+   * one was running, the launch screen otherwise - because opening the panel
+   * had taken it. It never takes it now, so all that remains is to hide the
+   * panel and drop its regions.
+   *
+   * `mesh.visible` is what makes it stop being a pointer target, and only
+   * because `aimable` (`panel.ts`) says so: three's raycaster would happily go
+   * on hitting a hidden mesh.
+   */
+  function closeTablet(): void {
+    tabletOpen = false;
     listeningFor = null;
     captureGate.reset();
-    if (scene) scene.screen.regions.length = 0;
-    if (engine) {
-      scene?.screen.showPicture();
-    } else {
-      backToLaunchScreen();
+    if (tabletPanel) {
+      tabletPanel.regions.length = 0;
+      tabletPanel.mesh.visible = false;
     }
   }
 
@@ -727,11 +751,9 @@
       if (target.region.id.startsWith('game:')) {
         const gameId = target.region.id.slice('game:'.length);
         const game = libraryState.games.find((candidate) => candidate.id === gameId);
-        // Picking a game hands the curved screen to the launch options, so the
-        // remap panel stands down rather than leaving its regions behind on a
-        // mesh that is drawing something else.
-        remapOpen = false;
-        listeningFor = null;
+        // The remap panel used to stand down here, because picking a game
+        // handed it the curved screen it was drawn on. It is on the tablet
+        // now and keeps whatever it was doing.
         // Stages the launch screen instead of launching straight away: the
         // screen is the only place a save can be chosen or a friend seen.
         /*
@@ -784,7 +806,7 @@
       // way back to the library: a player who had simply finished had to take
       // the headset off and put it back on.
       if (id === 'stop') { void stopTogether(); return; }
-      if (id === 'controls') { openRemap(); return; }
+      if (id === 'controls') { openTablet(); return; }
       /*
        * Puts the room back in front of the player.
        *
@@ -834,9 +856,11 @@
         // would leave regions on a mesh that is a picture again. Same for the
         // remap panel, which lives on that same mesh.
         launchFor = null;
-        remapOpen = false;
-        listeningFor = null;
-        captureGate.reset();
+        // `closeTablet()`, not `tabletOpen = false`: hiding the panel group
+        // makes the tablet invisible for now, but its own `mesh.visible` would
+        // stay true and it would reappear the next time the panels are
+        // recalled - carrying regions for a rebinding nobody started.
+        closeTablet();
         if (scene) scene.screen.regions.length = 0;
         scene?.screen.showPicture();
         scene?.panelsVisible(false);
@@ -846,9 +870,9 @@
       // the remap panel now - `panels/profile.ts`' header says why.
     }
 
-    // Before the launch screen's own branch: both live on `scene.screen.regions`,
-    // and only one of them owns the mesh at a time.
-    if (target.panel === 'screen' && remapOpen) {
+    // Its own panel now, so no ordering against the launch screen's branch is
+    // needed: they no longer share `scene.screen.regions`.
+    if (target.panel === 'tablet') {
       const id = target.region.id;
       if (id === 'lang:en' || id === 'lang:fr') {
         language.set(id === 'lang:en' ? 'en' : 'fr');
@@ -884,7 +908,7 @@
         repaintControls();
         return;
       }
-      if (id === 'close') { closeRemap(); return; }
+      if (id === 'close') { closeTablet(); return; }
       return;
     }
 
@@ -1521,11 +1545,10 @@
    * as `repaintLaunch` itself does when a dump leaves the library mid-session.
    */
   function backToLaunchScreen(): void {
-    // The screen carries one thing. Whoever asks for the launch options gets
-    // them, and the remap panel stands down rather than leaving its regions on
-    // a mesh that is drawing something else.
-    remapOpen = false;
-    listeningFor = null;
+    // The remap panel used to be lowered here, because the screen carried one
+    // thing at a time and whoever asked for the launch options took it. The
+    // tablet is a surface of its own, so a rebinding survives a return to the
+    // launch screen - and the player who opened both meant to have both.
     const crc32 = $myRoom?.gameCrc32 ?? null;
     if (crc32 && entryFor(crc32)) {
       launchFor = crc32;
@@ -1707,7 +1730,7 @@
      * Nothing else runs this frame - no pointer, no hover - because the panel
      * carries no regions while it listens.
      */
-    if (remapOpen && listeningFor) {
+    if (tabletOpen && listeningFor) {
       const sources = scene.inputSources();
       if (menuPressed(sources)) {
         listeningFor = null;
@@ -1759,10 +1782,10 @@
         if (panel === 'library') repaintLibrary();
         if (panel === 'friends') repaintFriends();
         if (panel === 'profile') repaintProfile();
-        if (panel === 'screen') {
-          if (remapOpen) repaintControls();
-          else repaintLaunch();
-        }
+        if (panel === 'tablet') repaintControls();
+        // The screen carries only the launch options now, so there is nothing
+        // left to choose between here.
+        if (panel === 'screen') repaintLaunch();
       }
     }
     if (tick.activated) activate(tick.activated);
@@ -1933,6 +1956,17 @@
       $socket?.on('connect', rejoinRoom);
 
       profilePanel = scene.addPanel('profile', scene.layout.profile, PROFILE_PANEL_SIZE);
+
+      /*
+       * The tablet, raised only when asked for.
+       *
+       * Hidden at session start, and `aimable` (`panel.ts`) is what makes
+       * "hidden" mean "not a target" as well as "not drawn" - three's
+       * raycaster tests only layers, so without that rule a closed tablet
+       * would swallow the presses meant for the lecterns behind it.
+       */
+      tabletPanel = scene.addPanel('tablet', scene.layout.tablet, TABLET_PANEL_SIZE);
+      tabletPanel.mesh.visible = false;
       repaintProfile();
     } catch (err) {
       logger.error('entering VR failed', err);
@@ -2057,9 +2091,10 @@
     friendEntries = [];
     onlineFriends = new Map();
     profilePanel = null;
+    tabletPanel = null;
     covers.clear();
     saveShots.clear();
-    remapOpen = false;
+    tabletOpen = false;
     listeningFor = null;
     captureGate.reset();
     hovered = null;
