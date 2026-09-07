@@ -25,6 +25,7 @@
 import { truncate, type PanelSize, type Region } from '../panel';
 import { VR_BUTTONS, type VrButton, type VrPadMap, type XrInput } from '../pad-map';
 import { drawPadArt, padRegions, PAD_ART_ASPECT } from './pad-art';
+import { SMW, drawField, statusBox, chromeButton } from './chrome';
 
 /** La surface de l'écran courbe, la même que l'écran de lancement. */
 export const CONTROLS_PANEL_SIZE: PanelSize = { width: 1024, height: 768 };
@@ -56,13 +57,20 @@ const TITLE_Y = 56;
 const ART_X = PAD;
 const ART_Y = 112;
 /*
- * 596 et non 640 : la colonne de légende doit contenir le plus long libellé
- * d'entrée expédié - « Gauche — clic du stick » - en entier. Une légende
- * tronquée est vide de sens, puisqu'elle n'existe que parce que ces noms ne
- * tiennent pas sur un bouton de la manette dessinée. Le dessin prend ce qui
- * reste, et `vr-panel-controls.test.ts` mesure les deux.
+ * 552, et le chiffre a été descendu deux fois en regardant des rendus.
+ *
+ * La colonne de légende doit contenir le plus long libellé d'entrée expédié -
+ * « Gauche — clic du stick » - ET le plus long nom de bouton - « SELECT » -
+ * sans que l'un percute l'autre. Une légende tronquée est vide de sens :
+ * elle n'existe que parce que ces noms ne tiennent pas sur un bouton de la
+ * manette dessinée.
+ *
+ * Le test de largeur mesure à neuf pixels par caractère, ce qui est optimiste
+ * pour du 20 px réel - il passait pendant que le rendu coupait. C'est le rendu
+ * qui a tranché les deux fois, et la marge retenue est d'environ vingt pour
+ * cent au-dessus de ce que le test exige.
  */
-const ART_W = 596;
+const ART_W = 552;
 const ART_H = ART_W / PAD_ART_ASPECT;
 const ART = { x: ART_X, y: ART_Y, w: ART_W, h: ART_H };
 
@@ -71,7 +79,12 @@ const LEGEND_W = CONTROLS_PANEL_SIZE.width - PAD - LEGEND_X;
 const LEGEND_Y = ART_Y;
 const LEGEND_LINE_H = 34;
 /** Où commence le nom de l'entrée sur une ligne de légende. */
-const LEGEND_INPUT_X = 88;
+/*
+ * 118 et non 88 : « SELECT » en semi-gras 22 px percutait « Gauche — grip »
+ * sur la même ligne. C'est le plus long des huit noms de boutons, donc c'est
+ * lui qui décide de cette colonne.
+ */
+const LEGEND_INPUT_X = 118;
 
 /*
  * L'invite de capture est une BANNIÈRE pleine largeur, pas la colonne droite
@@ -195,31 +208,6 @@ export function layoutControlsPanel(state: ControlsState): Region[] {
   return regions;
 }
 
-/** Cuts a string to fit `width` at the current font, with an ellipsis. */
-function drawPresetButton(
-  ctx: CanvasRenderingContext2D,
-  region: Region,
-  label: string,
-  hovered: boolean
-): void {
-  ctx.fillStyle = '#1c1c26';
-  ctx.fillRect(region.x, region.y, region.w, region.h);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '600 22px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(
-    truncate(ctx, label, region.w - 24),
-    region.x + region.w / 2,
-    region.y + region.h / 2
-  );
-  if (hovered) {
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(region.x - 3, region.y - 3, region.w + 6, region.h + 6);
-  }
-}
-
 export function drawControlsPanel(
   ctx: CanvasRenderingContext2D,
   state: ControlsState,
@@ -231,19 +219,21 @@ export function drawControlsPanel(
 
   ctx.save();
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#101018';
-  ctx.fillRect(0, 0, width, height);
+  // Du verre : ce panneau vit sur la tablette, devant l'écran de jeu. Voir
+  // `chrome.ts` sur pourquoi le chrome garde ses cadres et change son fond.
+  drawField(ctx, width, height, 'glass');
 
-  ctx.fillStyle = '#ffffff';
+  statusBox(ctx, PAD - 14, 12, width - (PAD - 14) * 2, 68);
+  ctx.fillStyle = SMW.ink;
   ctx.font = '600 34px system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(labels.heading, PAD, TITLE_Y);
+  ctx.fillText(labels.heading, PAD + 8, 46);
 
   // Pleine largeur, et seulement pendant la capture. Voir `PROMPT_Y`.
   if (state.listeningFor) {
-    ctx.font = '22px system-ui, sans-serif';
-    ctx.fillStyle = '#7aa2ff';
+    ctx.font = '600 22px system-ui, sans-serif';
+    ctx.fillStyle = SMW.accent;
     ctx.textAlign = 'left';
     ctx.fillText(truncate(ctx, labels.press, width - PAD * 2), PAD, PROMPT_Y);
   }
@@ -272,7 +262,7 @@ export function drawControlsPanel(
     ctx.textBaseline = 'middle';
 
     ctx.font = '600 22px system-ui, sans-serif';
-    ctx.fillStyle = listening ? '#7aa2ff' : '#e8e8f0';
+    ctx.fillStyle = listening ? SMW.accent : '#e8e8f0';
     ctx.fillText(labels.button[button], LEGEND_X, y);
 
     /*
@@ -281,7 +271,7 @@ export function drawControlsPanel(
      * le même jeu de `fillText`, et le test ne pourrait pas les distinguer.
      */
     ctx.font = '20px system-ui, sans-serif';
-    ctx.fillStyle = listening ? '#7aa2ff' : '#9a9aac';
+    ctx.fillStyle = listening ? SMW.accent : '#b8b8c8';
     ctx.fillText(
       listening
         ? '◀'
@@ -292,23 +282,19 @@ export function drawControlsPanel(
   });
 
   const bindAll = byId.get('bind-all');
-  if (bindAll) {
-    drawPresetButton(ctx, bindAll, labels.bindAll, opts.hoverId === 'bind-all');
-  }
+  if (bindAll) chromeButton(ctx, bindAll, labels.bindAll, 'loud', opts.hoverId === 'bind-all');
 
   const restore = byId.get('restore-defaults');
   if (restore) {
-    drawPresetButton(ctx, restore, labels.restoreDefaults, opts.hoverId === 'restore-defaults');
+    chromeButton(ctx, restore, labels.restoreDefaults, 'quiet', opts.hoverId === 'restore-defaults');
   }
   const close = byId.get('close');
-  if (close) {
-    drawPresetButton(ctx, close, labels.done, opts.hoverId === 'close');
-  }
+  if (close) chromeButton(ctx, close, labels.done, 'quiet', opts.hoverId === 'close');
 
   // Hors modèle, donc nommées : un joueur qui ne les voit nulle part les croit
   // mangées par le remap.
   ctx.font = '20px system-ui, sans-serif';
-  ctx.fillStyle = '#79798a';
+  ctx.fillStyle = '#b8b8c8';
   ctx.textAlign = 'left';
   const fixedW = width - PAD * 2;
   for (const [id, label, active] of [
@@ -319,22 +305,9 @@ export function drawControlsPanel(
     if (!region) continue;
     // Le marquage est un fond, pas un texte : les deux états doivent dessiner
     // les mêmes `fillText`, sinon c'est le libellé qui change de sens.
-    ctx.fillStyle = active ? '#2f3a5c' : '#1c1c26';
-    ctx.fillRect(region.x, region.y, region.w, region.h);
-    ctx.fillStyle = active ? '#ffffff' : '#9a9aac';
-    ctx.font = '600 22px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(
-      truncate(ctx, label, region.w - 16),
-      region.x + region.w / 2,
-      region.y + region.h / 2
-    );
-    if (opts.hoverId === id) {
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(region.x - 3, region.y - 3, region.w + 6, region.h + 6);
-    }
+    // Le marquage passe par le ton du bouton, donc par son fond : les deux
+    // états doivent dessiner les mêmes `fillText`.
+    chromeButton(ctx, region, label, active ? 'loud' : 'quiet', opts.hoverId === id, 22);
   }
 
   ctx.textAlign = 'left';

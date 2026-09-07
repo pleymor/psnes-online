@@ -23,6 +23,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
+  COVER_INSET,
   LAUNCH_PANEL_SIZE,
   layoutLaunchPanel,
   drawLaunchPanel,
@@ -520,10 +521,18 @@ test('the launch cover keeps its own proportions inside the cover box', () => {
 
   const cover = ctx.images.find((i) => i.y < 264);
   assert.ok(cover, 'the cover never reached the canvas');
-  assert.equal(cover.h, 112, 'the box constrains the tall axis');
-  assert.equal(cover.w, 350 * (112 / 500), 'not the box 160, which is the squash');
+  // `COVER_INSET` de chaque côté : le cadre du logement n'est pas de la place
+  // perdue, il EST le style.
+  const innerH = 112 - COVER_INSET * 2;
+  const innerW = 160 - COVER_INSET * 2;
+  assert.equal(cover.h, innerH, 'the box constrains the tall axis');
+  assert.equal(cover.w, 350 * (innerH / 500), 'not the box width, which is the squash');
   // The cover box is at the panel's own 40px pad, 160 wide.
-  assert.equal(cover.x, 40 + (160 - 350 * (112 / 500)) / 2, 'centred in the slack');
+  assert.equal(
+    cover.x,
+    40 + COVER_INSET + (innerW - 350 * (innerH / 500)) / 2,
+    'centred in the slack'
+  );
 });
 
 test('the launch screen downscales its pictures with the good filter', () => {

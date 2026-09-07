@@ -21,6 +21,7 @@
  */
 
 import { fitContain, intrinsicSize, truncate, type PanelSize, type Region } from '../panel';
+import { SMW, EDGE, LINER, drawField, statusBox, slot, chromeButton } from './chrome';
 import type { LaunchOptions, LaunchSave } from '../launch-options';
 
 export const LAUNCH_PANEL_SIZE: PanelSize = { width: 1024, height: 768 };
@@ -38,6 +39,15 @@ const TITLE_Y = 56;
  * about to resume.
  */
 const COVER = { x: PAD, y: 96, w: 160, h: 112 };
+
+/**
+ * Ce que le cadre du logement prend à la jaquette, de chaque côté.
+ *
+ * Contour et liseré du chrome : une jaquette qui recouvrirait le cadre
+ * effacerait ce qui fait le style. Exporté pour que le test dérive le
+ * rectangle dessiné au lieu de le restater, comme `library.ts` le fait.
+ */
+export const COVER_INSET = EDGE + LINER;
 
 /** The save list: left column, clear of the ports on the right. */
 const SAVE_X = PAD;
@@ -313,8 +323,12 @@ export function drawLaunchPanel(
 	ctx.imageSmoothingEnabled = true;
 	ctx.imageSmoothingQuality = 'high';
 	ctx.clearRect(0, 0, width, height);
-	ctx.fillStyle = '#101018';
-	ctx.fillRect(0, 0, width, height);
+	/*
+	 * De l'herbe, pas du verre : quand cet écran est là, aucun jeu ne tourne
+	 * derrière lui - c'est le moment où on en choisit un. La règle est dans
+	 * `chrome.ts`, la transparence ne sert que là où il y a quelque chose.
+	 */
+	drawField(ctx, width, height, 'grass');
 
 	ctx.fillStyle = '#ffffff';
 	ctx.font = '600 34px system-ui, sans-serif';
@@ -325,13 +339,15 @@ export function drawLaunchPanel(
 	// The placeholder first, then the art over it. Drawn in that order rather
 	// than as a branch so that a game with no cover, and a game whose cover has
 	// not landed yet, are the same rectangle instead of a hole in the panel.
-	ctx.fillStyle = '#1c1c26';
-	ctx.fillRect(COVER.x, COVER.y, COVER.w, COVER.h);
+	slot(ctx, COVER.x, COVER.y, COVER.w, COVER.h);
 	const cover = opts.covers.get(options.game.id);
 	if (cover) {
 		// Its own proportions inside the box, not the box's: `COVER` is landscape
 		// and box art is portrait. `panel.ts` carries the why.
-		const fitted = fitContain(intrinsicSize(cover), COVER);
+		const fitted = fitContain(intrinsicSize(cover), {
+			x: COVER.x + COVER_INSET, y: COVER.y + COVER_INSET,
+			w: COVER.w - COVER_INSET * 2, h: COVER.h - COVER_INSET * 2
+		});
 		ctx.drawImage(cover, fitted.x, fitted.y, fitted.w, fitted.h);
 	}
 

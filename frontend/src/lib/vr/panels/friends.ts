@@ -28,6 +28,7 @@
  */
 
 import { truncate, type PanelSize, type Region } from '../panel';
+import { SMW, EDGE, LINER, drawField, statusBox, ribbon, chromeButton } from './chrome';
 
 export const FRIENDS_PANEL_SIZE: PanelSize = { width: 1120, height: 840 };
 
@@ -52,7 +53,12 @@ const BUTTON_GAP = 22;
 const BAND_H = ROW_H;
 
 /** The button column, shared by every row and by the band. */
-const BUTTON_X = FRIENDS_PANEL_SIZE.width - PAD - BUTTON_W;
+/*
+ * Reculé de la largeur du cadre : les lignes et le bandeau d'invitation sont
+ * des boîtes encadrées maintenant, et rendu, « Accepter » venait butter contre
+ * le cadre de la sienne - ce qui se lit comme un bouton rogné.
+ */
+const BUTTON_X = FRIENDS_PANEL_SIZE.width - PAD - BUTTON_W - EDGE - LINER;
 /** Where a row's status text stops, so it never runs under a button. */
 const STATUS_RIGHT = BUTTON_X - BUTTON_GAP;
 /** Reserved for the status, so the pseudonym has a budget that does not move. */
@@ -211,36 +217,6 @@ export function layoutFriendsPanel(state: FriendsState): Region[] {
   return regions;
 }
 
-/**
- * One button. Local, like `profile.ts`' and `launch.ts`': each panel styles
- * its own, and centralising them would mean parameterising three different
- * fonts and colour schemes to save nine lines.
- */
-function drawButton(
-  ctx: CanvasRenderingContext2D,
-  region: Region,
-  label: string,
-  tone: 'quiet' | 'loud',
-  hovered: boolean
-): void {
-  ctx.fillStyle = tone === 'loud' ? '#2f5c3a' : '#22222e';
-  ctx.fillRect(region.x, region.y, region.w, region.h);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '600 28px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(
-    truncate(ctx, label, region.w - 20),
-    region.x + region.w / 2,
-    region.y + region.h / 2
-  );
-  if (hovered) {
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(region.x - 4, region.y - 4, region.w + 8, region.h + 8);
-  }
-}
-
 export function drawFriendsPanel(
   ctx: CanvasRenderingContext2D,
   state: FriendsState,
@@ -254,14 +230,14 @@ export function drawFriendsPanel(
 
   ctx.save();
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#14141c';
-  ctx.fillRect(0, 0, width, height);
+  drawField(ctx, width, height, 'grass');
 
-  ctx.fillStyle = '#ffffff';
+  statusBox(ctx, PAD - 14, 12, width - (PAD - 14) * 2, HEADER - 24);
+  ctx.fillStyle = SMW.ink;
   ctx.font = '600 42px system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(labels.heading, PAD, HEADER / 2);
+  ctx.fillText(labels.heading, PAD + 8, 12 + (HEADER - 24) / 2);
 
   /*
    * The band before the empty check, not after.
@@ -272,26 +248,28 @@ export function drawFriendsPanel(
    * waiting on an answer to. Cheap insurance against a state nobody planned.
    */
   if (asking) {
-    ctx.fillStyle = '#1d2a3a';
-    ctx.fillRect(0, HEADER, width, BAND_H);
-    ctx.fillStyle = '#ffffff';
+    statusBox(ctx, PAD - 14, HEADER, width - (PAD - 14) * 2, BAND_H);
+    ctx.fillStyle = SMW.accent;
     ctx.font = '600 31px system-ui, sans-serif';
     ctx.textAlign = 'left';
     const decline = byId.get(`decline:${asking.id}`);
     const room = (decline ? decline.x : STATUS_RIGHT) - BUTTON_GAP - PAD;
     ctx.fillText(truncate(ctx, labels.incomingFrom, room), PAD, HEADER + BAND_H / 2);
 
-    if (decline) drawButton(ctx, decline, labels.decline, 'quiet', hoverId === decline.id);
+    if (decline) chromeButton(ctx, decline, labels.decline, 'warn', hoverId === decline.id, 28);
     const accept = byId.get(`accept:${asking.id}`);
-    if (accept) drawButton(ctx, accept, labels.accept, 'loud', hoverId === accept.id);
+    if (accept) chromeButton(ctx, accept, labels.accept, 'loud', hoverId === accept.id, 28);
   }
 
   if (state.rows.length === 0) {
     // A blank panel reads as one that failed to load.
+    // Sur une boîte, sinon le texte se perd dans l'herbe.
+    const boxW = width - PAD * 2;
+    statusBox(ctx, PAD, height / 2 - 50, boxW, 100);
     ctx.textAlign = 'center';
     ctx.font = '28px system-ui, sans-serif';
-    ctx.fillStyle = '#a0a0b0';
-    ctx.fillText(labels.nobody, width / 2, height / 2);
+    ctx.fillStyle = SMW.ink;
+    ctx.fillText(truncate(ctx, labels.nobody, boxW - 60), width / 2, height / 2);
     ctx.restore();
     return;
   }
@@ -302,13 +280,16 @@ export function drawFriendsPanel(
     const y = top + index * ROW_H + ROW_H / 2;
     const invited = state.pending?.toUserId === row.id;
 
+    // Un ruban par ligne : sur l'herbe, du texte nu ne se lit pas.
+    ribbon(ctx, PAD - 14, top + index * ROW_H + 4, width - (PAD - 14) * 2, ROW_H - 8);
+
     ctx.beginPath();
-    ctx.fillStyle = row.online ? '#3ddc84' : '#4a4a58';
-    ctx.arc(PAD + 8, y, 7, 0, Math.PI * 2);
+    ctx.fillStyle = row.online ? '#2fa34a' : '#8a8a98';
+    ctx.arc(PSEUDO_X - 22, y, 8, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.textAlign = 'left';
-    ctx.fillStyle = row.online ? '#ffffff' : '#8a8a98';
+    ctx.fillStyle = row.online ? SMW.dark : '#6a6a70';
     ctx.font = '31px system-ui, sans-serif';
     ctx.fillText(
       truncate(ctx, row.pseudo, STATUS_RIGHT - STATUS_W - PSEUDO_X - BUTTON_GAP),
@@ -324,7 +305,7 @@ export function drawFriendsPanel(
      * act on. `library.ts` makes the same call with its empty-library
      * messages: one line that is true beats two that compete.
      */
-    ctx.fillStyle = invited ? '#c8d4ff' : '#8a8a98';
+    ctx.fillStyle = invited ? '#1a3a8a' : '#6a6a70';
     ctx.font = '25px system-ui, sans-serif';
     ctx.textAlign = 'right';
     const status = invited
@@ -334,11 +315,11 @@ export function drawFriendsPanel(
 
     const cancel = state.pending && invited ? byId.get(`cancel-invite:${state.pending.id}`) : null;
     if (cancel) {
-      drawButton(ctx, cancel, labels.cancel, 'quiet', hoverId === cancel.id);
+      chromeButton(ctx, cancel, labels.cancel, 'quiet', hoverId === cancel.id, 28);
       return;
     }
     const invite = byId.get(`invite:${row.id}`);
-    if (invite) drawButton(ctx, invite, labels.invite, 'loud', hoverId === invite.id);
+    if (invite) chromeButton(ctx, invite, labels.invite, 'loud', hoverId === invite.id, 28);
   });
 
   ctx.restore();

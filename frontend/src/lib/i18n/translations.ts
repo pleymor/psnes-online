@@ -996,7 +996,7 @@ export const translations = {
     vrNoFriends: 'Pas encore d\'amis',
     vrRecenter: 'Recentrer',
     vrSaves: 'Sauvegardes',
-    vrNewSave: 'Nouvelle sauvegarde',
+    vrNewSave: 'Nouvelle',
     vrNoSaves: 'Aucune sauvegarde pour ce jeu',
     vrRestoreDefaults: 'Restaurer les boutons par défaut',
     vrInvite: 'Inviter',

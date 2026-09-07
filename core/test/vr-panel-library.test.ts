@@ -24,7 +24,8 @@ import {
   libraryRows,
   clampScroll,
   LIBRARY_PANEL_SIZE,
-  COVER_H
+  COVER_H,
+  COVER_INSET
 } from '../../frontend/src/lib/vr/panels/library.js';
 import type { Game } from '../../frontend/src/lib/stores/games.js';
 
@@ -252,8 +253,11 @@ test('a cover is drawn in its own proportions, not stretched to the slot', () =>
   const [args] = ctx.images;
   assert.ok(args, 'the cover should have been drawn at all');
   const [, , , w, h] = args as [unknown, number, number, number, number];
-  assert.equal(h, COVER_H, 'the slot constrains the tall axis');
-  assert.equal(w, 350 * (COVER_H / 500), 'the source ratio - not the slot width, which is the squash');
+  // `COVER_INSET` de chaque côté : le cadre du logement n'est pas de la place
+  // pour la jaquette, il EST le style.
+  const inner = COVER_H - COVER_INSET * 2;
+  assert.equal(h, inner, 'the slot constrains the tall axis');
+  assert.equal(w, 350 * (inner / 500), 'the source ratio - not the slot width, which is the squash');
   assert.ok(
     Math.abs(w / h - 350 / 500) < 1e-9,
     'the drawn rectangle must carry the source aspect ratio'
@@ -271,7 +275,8 @@ test('the cover is centred in the slack rather than pinned left', () => {
   const tile = regions.find((r) => r.id === 'game:g0');
   assert.ok(tile);
   const [x] = (ctx.images[0] as [unknown, number]).slice(1) as [number];
-  assert.equal(x, tile.x + (tile.w - 350 * (COVER_H / 500)) / 2);
+  const drawnW = 350 * ((COVER_H - COVER_INSET * 2) / 500);
+  assert.equal(x, tile.x + COVER_INSET + (tile.w - COVER_INSET * 2 - drawnW) / 2);
 });
 
 test('covers are downscaled with the good filter, not the default one', () => {
@@ -315,5 +320,5 @@ test('a portrait cover is limited by the slot height, not its width', () => {
   const state = { games: games(1), ownedTotal: 1, scroll: 0 };
   const tile = layoutLibraryPanel(state).find((r) => r.id === 'game:g0');
   assert.ok(tile);
-  assert.ok(350 * (COVER_H / 500) <= tile.w, 'a 0.7 cover no longer fits the tile width');
+  assert.ok(350 * ((COVER_H - COVER_INSET * 2) / 500) <= tile.w, 'a 0.7 cover no longer fits the tile width');
 });

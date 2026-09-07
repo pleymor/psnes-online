@@ -43,6 +43,7 @@
  */
 
 import { truncate, type PanelSize, type Region } from '../panel';
+import { SMW, drawField, statusBox, chromeButton, type Tone } from './chrome';
 
 export const PROFILE_PANEL_SIZE: PanelSize = { width: 900, height: 300 };
 
@@ -62,7 +63,19 @@ const BTN_GAP = 20;
  * the narrowing costs nothing in aim. `vr-layout.test.ts` is what keeps that
  * angular figure honest.
  */
-const COLUMNS_N = 4;
+/*
+ * Trois colonnes, et c'est le chrome qui l'a décidé.
+ *
+ * Il y en avait quatre. Le cadre Super Mario World prend vingt-deux pixels de
+ * largeur sur chaque bouton, et à 147 px il ne restait que neuf caractères -
+ * rendu, « Contrôles », « Recentrer », « Sauvegardes » et « Reprendre » se
+ * faisaient tous couper. Élargir plutôt que raccourcir les mots fait passer la
+ * cible de 5,7 à 8 degrés dans le casque, donc c'est un gain deux fois.
+ *
+ * Trois par deux fait exactement six emplacements, soit le nombre de boutons
+ * en jeu - et la sortie n'a plus besoin d'être double pour porter son libellé.
+ */
+const COLUMNS_N = 3;
 const FIRST_X = PAD + IDENTITY_W + 10;
 const BTN_W = Math.floor(
   (PROFILE_PANEL_SIZE.width - PAD - FIRST_X - BTN_GAP * (COLUMNS_N - 1)) / COLUMNS_N
@@ -113,15 +126,13 @@ export function layoutProfilePanel(state: ProfileState): Region[] {
    * The exit first, and twice as wide as anything else.
    *
    * First so its rectangle is decided before anything conditional can shift it
-   * - see the header. Wide because it is the only way out this app has, so it
-   * should be the easiest thing on the band to hit; the four-column grid left
-   * a slot spare beside it and there is nothing better to spend it on. It also
-   * happens to be what lets the label stay "Leave VR" instead of being
-   * shortened to fit, which for the one region a stuck player needs to read is
-   * the right way round.
+   * - see the header. It used to be double-width, on a four-column grid, to
+   * carry its own label; three columns give every button that width, so the
+   * special case is gone and the exit is simply one slot like the others - in
+   * the same place whether or not a game is running, which is what matters.
    */
   const regions: Region[] = [
-    { id: 'quit', ...slot(2, 0), w: BTN_W * 2 + BTN_GAP },
+    { id: 'quit', ...slot(2, 0) },
     { id: 'controls', ...slot(0, 0) },
     { id: 'recenter', ...slot(1, 0) }
   ];
@@ -136,43 +147,11 @@ export function layoutProfilePanel(state: ProfileState): Region[] {
      * d'être rempli pour être rempli.
      */
     regions.push({ id: 'saves', ...slot(0, 1) });
-    regions.push({ id: 'resume', ...slot(2, 1) });
-    regions.push({ id: 'stop', ...slot(3, 1) });
+    regions.push({ id: 'resume', ...slot(1, 1) });
+    regions.push({ id: 'stop', ...slot(2, 1) });
   }
 
   return regions;
-}
-
-/**
- * One button.
- *
- * Truncated rather than left to run: a long translation used to spill out of
- * its button onto whatever sat beside it, on a curved texture with no layout
- * engine to complain - and on this band the neighbour can be the exit.
- */
-function drawButton(
-  ctx: CanvasRenderingContext2D,
-  region: Region,
-  label: string,
-  tone: 'quiet' | 'warn',
-  hovered: boolean
-): void {
-  ctx.fillStyle = tone === 'warn' ? '#3a2230' : '#22222e';
-  ctx.fillRect(region.x, region.y, region.w, region.h);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '600 24px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(
-    truncate(ctx, label, region.w - 20),
-    region.x + region.w / 2,
-    region.y + region.h / 2
-  );
-  if (hovered) {
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(region.x - 4, region.y - 4, region.w + 8, region.h + 8);
-  }
 }
 
 export function drawProfilePanel(
@@ -186,14 +165,16 @@ export function drawProfilePanel(
 
   ctx.save();
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#14141c';
-  ctx.fillRect(0, 0, width, height);
+  drawField(ctx, width, height, 'grass');
 
-  ctx.fillStyle = '#ffffff';
+  // Le pseudo dans sa propre boîte : c'est le nom du joueur, et le HUD de la
+  // carte du monde met le sien exactement là, à gauche.
+  statusBox(ctx, PAD - 12, height / 2 - 44, IDENTITY_W - PAD + 4, 88);
+  ctx.fillStyle = SMW.ink;
   ctx.font = '600 30px system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(truncate(ctx, state.pseudo, IDENTITY_W - PAD), PAD, height / 2);
+  ctx.fillText(truncate(ctx, state.pseudo, IDENTITY_W - PAD - 40), PAD + 6, height / 2);
 
   const label: Record<string, string> = {
     quit: labels.quit,
@@ -208,19 +189,14 @@ export function drawProfilePanel(
   const warn = new Set(['quit', 'stop']);
 
   for (const region of regions) {
-    drawButton(
-      ctx,
-      region,
-      label[region.id] ?? region.id,
-      warn.has(region.id) ? 'warn' : 'quiet',
-      opts.hoverId === region.id
-    );
+    const tone: Tone = warn.has(region.id) ? 'warn' : 'quiet';
+    chromeButton(ctx, region, label[region.id] ?? region.id, tone, opts.hoverId === region.id, 22);
   }
 
   // Below the second row, and only when there is something to say: an empty
   // line drawn every frame would read as a message that failed to load.
   if (state.notice) {
-    ctx.fillStyle = '#c8d4ff';
+    ctx.fillStyle = SMW.accent;
     ctx.font = '20px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

@@ -17,6 +17,7 @@
  */
 
 import { fitContain, intrinsicSize, truncate, type PanelSize, type Region } from '../panel';
+import { SMW, EDGE, LINER, drawField, statusBox, slot, ribbon, chromeButton } from './chrome';
 import type { Game } from '$lib/stores/games';
 
 /** Canvas pixels. Mapped onto the 0.7 x 0.5 m lectern `layout.ts` places. */
@@ -59,6 +60,16 @@ const TILE_W = Math.floor(
  * restating it, which is what stops them going stale the next time it moves.
  */
 export const COVER_H = 297;
+
+/**
+ * Ce que le cadre du logement prend à la jaquette, de chaque côté.
+ *
+ * Contour, liseré, et trois pixels d'air : une jaquette qui recouvrirait le
+ * cadre effacerait précisément ce qui fait le style. Exporté pour que le test
+ * dérive le rectangle dessiné au lieu de le restater - ce qui l'a déjà rendu
+ * périmé une fois quand `COVER_H` a bougé.
+ */
+export const COVER_INSET = EDGE + LINER + 3;
 const TITLE_H = 45;
 const TILE_H = COVER_H + TITLE_H;
 
@@ -177,13 +188,22 @@ export function drawLibraryPanel(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#14141c';
-  ctx.fillRect(0, 0, width, height);
+  drawField(ctx, width, height, 'grass');
 
-  ctx.fillStyle = '#ffffff';
+  // L'en-tête est la boîte de statut du HUD, et elle porte son compte à droite
+  // comme le compteur de pièces porte le sien.
+  statusBox(ctx, PAD - 14, 12, width - (PAD - 14) * 2, HEADER - 24);
+  ctx.fillStyle = SMW.ink;
   ctx.font = '600 42px system-ui, sans-serif';
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(opts.labels.heading, PAD, HEADER / 2);
+  ctx.fillText(opts.labels.heading, PAD + 8, 12 + (HEADER - 24) / 2);
+  if (state.games.length > 0) {
+    ctx.fillStyle = SMW.accent;
+    ctx.font = '600 28px system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(state.games.length), width - PAD - 22, 12 + (HEADER - 24) / 2);
+  }
 
   const emptiness = libraryEmptiness(state);
   if (emptiness !== 'has-games') {
@@ -192,13 +212,16 @@ export function drawLibraryPanel(
     const hint =
       emptiness === 'library-empty' ? opts.labels.emptyLibraryHint : opts.labels.noneHereHint;
 
+    // Sur une boîte, sinon le texte se perd dans l'herbe.
+    const boxW = width - PAD * 2;
+    statusBox(ctx, PAD, height / 2 - 78, boxW, 156);
     ctx.textAlign = 'center';
     ctx.font = '600 39px system-ui, sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(heading, width / 2, height / 2 - 20);
+    ctx.fillStyle = SMW.ink;
+    ctx.fillText(truncate(ctx, heading, boxW - 60), width / 2, height / 2 - 20);
     ctx.font = '28px system-ui, sans-serif';
-    ctx.fillStyle = '#a0a0b0';
-    ctx.fillText(hint, width / 2, height / 2 + 20);
+    ctx.fillStyle = '#b8b8f8';
+    ctx.fillText(truncate(ctx, hint, boxW - 60), width / 2, height / 2 + 22);
     ctx.restore();
     return;
   }
@@ -207,16 +230,9 @@ export function drawLibraryPanel(
 
   for (const region of regions) {
     if (region.id === 'scroll:up' || region.id === 'scroll:down') {
-      ctx.fillStyle = opts.hoverId === region.id ? '#3a3a52' : '#22222e';
-      ctx.fillRect(region.x, region.y, region.w, region.h);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '600 39px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(
-        region.id === 'scroll:up' ? '▲' : '▼',
-        region.x + region.w / 2,
-        region.y + region.h / 2
+      chromeButton(
+        ctx, region, region.id === 'scroll:up' ? '▲' : '▼',
+        'quiet', opts.hoverId === region.id, 39
       );
       continue;
     }
@@ -224,8 +240,7 @@ export function drawLibraryPanel(
     const game = byId.get(region.id);
     if (!game) continue;
 
-    ctx.fillStyle = '#1e1e2a';
-    ctx.fillRect(region.x, region.y, region.w, COVER_H);
+    slot(ctx, region.x, region.y, region.w, COVER_H);
 
     const cover = opts.covers.get(game.id);
     if (cover) {
@@ -233,10 +248,10 @@ export function drawLibraryPanel(
       // landscape and box art is portrait, so the old `region.w, COVER_H` pair
       // squashed every cover by about a third. `panel.ts` carries the why.
       const fitted = fitContain(intrinsicSize(cover), {
-        x: region.x,
-        y: region.y,
-        w: region.w,
-        h: COVER_H
+        x: region.x + COVER_INSET,
+        y: region.y + COVER_INSET,
+        w: region.w - COVER_INSET * 2,
+        h: COVER_H - COVER_INSET * 2
       });
       ctx.drawImage(cover, fitted.x, fitted.y, fitted.w, fitted.h);
     }
@@ -244,20 +259,26 @@ export function drawLibraryPanel(
     // The title is drawn whether or not the cover loaded: an unidentified game
     // is still a game the player owns, and a blank tile is unlaunchable in
     // practice because nobody presses what they cannot read.
-    ctx.fillStyle = '#ffffff';
+    // Le titre dans un ruban clair, comme le nom d'un niveau.
+    ribbon(ctx, region.x, region.y + COVER_H + 4, region.w, TITLE_H - 8);
+    ctx.fillStyle = SMW.dark;
+    // Regular, pas semi-gras : le semi-gras coupait « The Legend of Zelda »
+    // dans son ruban, et le contraste sombre sur blanc porte sans lui.
     ctx.font = '25px system-ui, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(
-      truncate(ctx, game.title, region.w - 8),
-      region.x + 4,
-      region.y + COVER_H + TITLE_H / 2
+      truncate(ctx, game.title, region.w - EDGE * 2 - 16),
+      region.x + EDGE + 8,
+      region.y + COVER_H + 4 + (TITLE_H - 8) / 2
     );
 
     if (opts.hoverId === region.id) {
-      ctx.strokeStyle = '#7aa2ff';
-      ctx.lineWidth = 4;
-      ctx.strokeRect(region.x - 2, region.y - 2, region.w + 4, TILE_H + 4);
+      // Le jaune du curseur de la carte, et épais : un liseré fin ne se voit
+      // pas à 25 pixels par degré.
+      ctx.strokeStyle = SMW.accent;
+      ctx.lineWidth = 6;
+      ctx.strokeRect(region.x - 4, region.y - 4, region.w + 8, TILE_H + 8);
     }
   }
 

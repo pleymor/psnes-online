@@ -22,6 +22,7 @@
 import { fitContain, intrinsicSize, truncate, type PanelSize, type Region } from '../panel';
 import { byNewest, type SaveSummary } from '$lib/saves/api';
 import { saveIdentity } from '$lib/saves/identity';
+import { SMW, EDGE, LINER, drawField, statusBox, slot, chromeButton } from './chrome';
 
 export const SAVES_PANEL_SIZE: PanelSize = { width: 1024, height: 768 };
 
@@ -124,30 +125,6 @@ export function layoutSavesPanel(state: SavesState): Region[] {
   return regions;
 }
 
-function drawButton(
-  ctx: CanvasRenderingContext2D,
-  region: Region,
-  label: string,
-  hovered: boolean
-): void {
-  ctx.fillStyle = '#22222e';
-  ctx.fillRect(region.x, region.y, region.w, region.h);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '600 24px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(
-    truncate(ctx, label, region.w - 20),
-    region.x + region.w / 2,
-    region.y + region.h / 2
-  );
-  if (hovered) {
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(region.x - 4, region.y - 4, region.w + 8, region.h + 8);
-  }
-}
-
 export function drawSavesPanel(
   ctx: CanvasRenderingContext2D,
   state: SavesState,
@@ -168,23 +145,32 @@ export function drawSavesPanel(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#101018';
-  ctx.fillRect(0, 0, width, height);
+  /*
+   * Du verre, pas de l'herbe.
+   *
+   * Ce panneau vit sur la tablette, qui flotte devant l'écran de jeu - la
+   * partie doit rester visible à travers lui. Un champ d'herbe translucide
+   * par-dessus une image serait boueux, donc le chrome garde ses cadres et
+   * échange son fond. Voir `chrome.ts`.
+   */
+  drawField(ctx, width, height, 'glass');
 
-  ctx.fillStyle = '#ffffff';
+  statusBox(ctx, PAD - 14, 12, width - (PAD - 14) * 2, 68);
+  ctx.fillStyle = SMW.ink;
   ctx.font = '600 34px system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(labels.heading, PAD, TITLE_Y);
+  ctx.fillText(labels.heading, PAD + 8, 46);
 
   const rows = savesRows({ ...state, quickSave: labels.quickSave });
 
   if (rows.length === 0) {
     // Un panneau vide se lit comme un panneau qui n'a pas chargé.
+    statusBox(ctx, ROW_X, ROW_Y, ROW_W, ROW_H);
     ctx.textAlign = 'left';
     ctx.font = '24px system-ui, sans-serif';
-    ctx.fillStyle = '#a0a0b0';
-    ctx.fillText(truncate(ctx, labels.empty, ROW_W), ROW_X, ROW_Y + ROW_H / 2);
+    ctx.fillStyle = SMW.ink;
+    ctx.fillText(truncate(ctx, labels.empty, ROW_W - 60), ROW_X + 24, ROW_Y + ROW_H / 2);
   }
 
   // Dessinées depuis les lignes et non depuis les régions : il n'y a aucune
@@ -193,8 +179,7 @@ export function drawSavesPanel(
   rows.forEach((row, index) => {
     const region = byId.get(`load:${row.id}`) ?? { id: '', ...rowAt(index) };
 
-    ctx.fillStyle = '#1c1c26';
-    ctx.fillRect(region.x, region.y, region.w, region.h);
+    statusBox(ctx, region.x, region.y, region.w, region.h);
 
     const shotBox = {
       x: region.x + SHOT_MARGIN,
@@ -204,14 +189,17 @@ export function drawSavesPanel(
     };
     // Le puits est dessiné avant l'image, comme sur l'écran de lancement :
     // sinon la ligne change de forme quand la vignette arrive.
-    ctx.fillStyle = '#141420';
-    ctx.fillRect(shotBox.x, shotBox.y, shotBox.w, shotBox.h);
+    slot(ctx, shotBox.x, shotBox.y, shotBox.w, shotBox.h);
 
     const shot = state.shots.get(row.id);
     if (shot) {
       // Ses propres proportions dans le puits : une image SNES fait 256 x 224
       // et le puits est plus large, donc lui passer le puits l'étirerait.
-      const fitted = fitContain(intrinsicSize(shot), shotBox);
+      const inset = EDGE + LINER;
+      const fitted = fitContain(intrinsicSize(shot), {
+        x: shotBox.x + inset, y: shotBox.y + inset,
+        w: shotBox.w - inset * 2, h: shotBox.h - inset * 2
+      });
       ctx.drawImage(shot, fitted.x, fitted.y, fitted.w, fitted.h);
     }
 
@@ -229,22 +217,22 @@ export function drawSavesPanel(
     );
 
     if (row.secondary !== null) {
-      ctx.fillStyle = '#9a9aac';
+      ctx.fillStyle = '#b8b8f8';
       ctx.font = '20px system-ui, sans-serif';
       ctx.fillText(truncate(ctx, row.secondary, textW), region.x + TEXT_X, region.y + region.h / 2 + 16);
     }
 
     if (hoverId === `load:${row.id}`) {
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(region.x - 3, region.y - 3, region.w + 6, region.h + 6);
+      ctx.strokeStyle = SMW.accent;
+      ctx.lineWidth = 6;
+      ctx.strokeRect(region.x - 4, region.y - 4, region.w + 8, region.h + 8);
     }
   });
 
   const newSave = byId.get('new-save');
-  if (newSave) drawButton(ctx, newSave, labels.newSave, hoverId === 'new-save');
+  if (newSave) chromeButton(ctx, newSave, labels.newSave, 'loud', hoverId === 'new-save');
   const close = byId.get('close');
-  if (close) drawButton(ctx, close, labels.close, hoverId === 'close');
+  if (close) chromeButton(ctx, close, labels.close, 'quiet', hoverId === 'close');
 
   ctx.restore();
 }

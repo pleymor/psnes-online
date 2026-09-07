@@ -24,6 +24,7 @@
 
 import type { Region } from '../panel';
 import type { VrButton } from '../pad-map';
+import { SMW, EDGE } from './chrome';
 
 /** La boîte de référence : tout ci-dessous est exprimé dedans. */
 const VIEW_W = 520;
@@ -174,6 +175,19 @@ const FACE_PAINT: Record<'x' | 'y' | 'a' | 'b', string> = {
   b: '#e0b325'
 };
 
+/*
+ * Le boîtier, dans la palette de la Super Famicom.
+ *
+ * Gris clair, et non le gris sombre de la première version : sur le champ de
+ * verre de la tablette, un boîtier sombre se fondait dans le fond et la
+ * manette se lisait comme un aplat. Ce que le rendu a montré, et ce que le
+ * contour noir épais ci-dessous corrige avec lui - c'est ce contour qui fait
+ * lire du plastique moulé plutôt qu'un rectangle arrondi.
+ */
+const SHELL = '#cfc7bd';
+const SHELL_SHADE = '#a49c92';
+const DPAD_PAINT = '#4a4a52';
+
 function rounded(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -206,12 +220,25 @@ export function drawPadArt(
 ): void {
   const s = scaler(box);
 
-  ctx.fillStyle = '#3a3a48';
+  /*
+   * Contour d'abord, forme ensuite, pour chaque pièce.
+   *
+   * Un contour noir épais est ce qui fait lire cette manette comme du
+   * plastique moulé et non comme des rectangles arrondis - et c'est aussi ce
+   * qui survit à 25 pixels par degré, où un trait fin disparaît. `EDGE` vient
+   * de `chrome.ts` pour que tout le style ait la même épaisseur.
+   */
+  const o = s.r(EDGE);
   for (const x of [SHOULDER.lx, SHOULDER.rx]) {
+    ctx.fillStyle = SMW.outline;
+    rounded(ctx, s.x(x) - o, s.y(SHOULDER.y) - o, s.w(SHOULDER.w) + o * 2, s.h(SHOULDER.h) + o * 2, s.r(12));
+    ctx.fillStyle = SHELL_SHADE;
     rounded(ctx, s.x(x), s.y(SHOULDER.y), s.w(SHOULDER.w), s.h(SHOULDER.h), s.r(10));
   }
 
-  ctx.fillStyle = '#2a2a34';
+  ctx.fillStyle = SMW.outline;
+  rounded(ctx, s.x(BODY.x) - o, s.y(BODY.y) - o, s.w(BODY.w) + o * 2, s.h(BODY.h) + o * 2, s.r(BODY.r + 6));
+  ctx.fillStyle = SHELL;
   rounded(ctx, s.x(BODY.x), s.y(BODY.y), s.w(BODY.w), s.h(BODY.h), s.r(BODY.r));
 
   /*
@@ -221,19 +248,21 @@ export function drawPadArt(
    * preset ne la déplace. `panels/controls.ts` porte la phrase complète à
    * côté du dessin, parce qu'une couleur seule n'apprend rien.
    */
-  ctx.fillStyle = '#4a4a58';
-  ctx.fillRect(
-    s.x(DPAD.cx - DPAD.thickness / 2),
-    s.y(DPAD.cy - DPAD.arm),
-    s.w(DPAD.thickness),
-    s.h(DPAD.arm * 2)
-  );
-  ctx.fillRect(
-    s.x(DPAD.cx - DPAD.arm),
-    s.y(DPAD.cy - DPAD.thickness / 2),
-    s.w(DPAD.arm * 2),
-    s.h(DPAD.thickness)
-  );
+  for (const [paint, pad] of [[SMW.outline, o], [DPAD_PAINT, 0]] as const) {
+    ctx.fillStyle = paint;
+    ctx.fillRect(
+      s.x(DPAD.cx - DPAD.thickness / 2) - pad,
+      s.y(DPAD.cy - DPAD.arm) - pad,
+      s.w(DPAD.thickness) + pad * 2,
+      s.h(DPAD.arm * 2) + pad * 2
+    );
+    ctx.fillRect(
+      s.x(DPAD.cx - DPAD.arm) - pad,
+      s.y(DPAD.cy - DPAD.thickness / 2) - pad,
+      s.w(DPAD.arm * 2) + pad * 2,
+      s.h(DPAD.thickness) + pad * 2
+    );
+  }
 
   for (const shape of SHAPES) {
     const listening = state.listeningFor === shape.id;
@@ -243,12 +272,18 @@ export function drawPadArt(
       const cx = s.x(shape.x + shape.w / 2);
       const cy = s.y(shape.y + shape.h / 2);
       ctx.beginPath();
+      ctx.arc(cx, cy, s.r(FACE.drawn) + o, 0, Math.PI * 2);
+      ctx.fillStyle = SMW.outline;
+      ctx.fill();
+      ctx.beginPath();
       ctx.arc(cx, cy, s.r(FACE.drawn), 0, Math.PI * 2);
-      ctx.fillStyle = listening ? '#ffffff' : FACE_PAINT[shape.id];
+      ctx.fillStyle = listening ? SMW.ink : FACE_PAINT[shape.id];
       ctx.fill();
       if (hovered) {
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = Math.max(2, s.r(3));
+        ctx.beginPath();
+        ctx.arc(cx, cy, s.r(FACE.drawn) + o, 0, Math.PI * 2);
+        ctx.strokeStyle = SMW.accent;
+        ctx.lineWidth = Math.max(3, s.r(5));
         ctx.stroke();
       }
       ctx.fillStyle = listening ? '#101018' : '#ffffff';
@@ -262,14 +297,16 @@ export function drawPadArt(
     // Gâchettes et pastilles : le TRACÉ, pas la cible - elles diffèrent, et
     // c'est ce qui les rend visables sans les rendre grotesques.
     const art = DRAWN[shape.id] ?? shape;
-    ctx.fillStyle = listening ? '#ffffff' : '#4a4a58';
+    ctx.fillStyle = SMW.outline;
+    rounded(ctx, s.x(art.x) - o, s.y(art.y) - o, s.w(art.w) + o * 2, s.h(art.h) + o * 2, s.r(12));
+    ctx.fillStyle = listening ? SMW.ink : SHELL_SHADE;
     rounded(ctx, s.x(art.x), s.y(art.y), s.w(art.w), s.h(art.h), s.r(10));
     if (hovered) {
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = Math.max(2, s.r(3));
-      ctx.strokeRect(s.x(art.x), s.y(art.y), s.w(art.w), s.h(art.h));
+      ctx.strokeStyle = SMW.accent;
+      ctx.lineWidth = Math.max(3, s.r(5));
+      ctx.strokeRect(s.x(art.x) - o, s.y(art.y) - o, s.w(art.w) + o * 2, s.h(art.h) + o * 2);
     }
-    ctx.fillStyle = listening ? '#101018' : '#e8e8f0';
+    ctx.fillStyle = listening ? SMW.outline : SMW.dark;
     ctx.font = `600 ${Math.round(s.r(shape.id === 'l' || shape.id === 'r' ? 20 : 14))}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
