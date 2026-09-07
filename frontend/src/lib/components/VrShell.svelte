@@ -73,7 +73,7 @@
   import { BIND_SEQUENCE, nextInSequence } from '$lib/vr/panels/pad-art';
   import { CaptureGate } from '$lib/controls/capture-gate';
   import { user } from '$lib/stores/user';
-  import { games } from '$lib/stores/games';
+  import { games, loadGames } from '$lib/stores/games';
   import { deviceLibrary } from '$lib/roms/device-library';
   import { resolvableHere, resolveQuietly, type MissReason } from '$lib/roms/provider';
   import type { PanelMesh } from '$lib/vr/panel-mesh';
@@ -658,6 +658,15 @@
     const listed = await fetchSaves(ctx.gameId);
     if (!listed.ok) {
       notifications.show(t($language, listed.reason), 'error');
+      /*
+       * Repeindre quand même, et c'est le point.
+       *
+       * L'appelant a posé `busy` avant d'appeler, donc la dernière image du
+       * panneau est son état inerte - sans régions. Retourner sans repeindre
+       * le laisserait figé et muet pour le reste de la session, et le seul
+       * signe serait une notice sur le bandeau, derrière la tablette.
+       */
+      repaintSaves();
       return;
     }
     savesList = listed.saves;
@@ -913,18 +922,42 @@
       if (id === 'recenter') { scene?.recenter(); return; }
 
       /*
-       * The quick slot, exactly as F2 and F4 use it.
+       * Back to the game, so the game gets its screen back.
        *
-       * `quick-actions.ts` is reused rather than reimplemented, sentinel and
-       * all, so a save made in the headset and one made at the keyboard are
-       * the same save instead of two competing ones. Loading needs no
-       * adapter: `game:load` is broadcast to the whole room by the server,
-       * which is what makes it safe mid-lockstep - that file's header says so.
+       * This branch was DELETED by a range replacement that swapped the band's
+       * two quick-slot buttons for one, and took the handler sitting between
+       * them with it. The region kept being drawn and aimed at, and did
+       * nothing: a player had to quit the game and relaunch it. Nothing could
+       * see that - the panel tests check the region exists, and the dispatch
+       * lives in a component they cannot reach - so
+       * `vr-regions-handled.test.ts` now reads both sources and refuses an
+       * orphan.
+       *
+       * The launch screen is abandoned rather than kept: `launchFor`
+       * surviving here would leave regions on a mesh that is a picture again.
+       */
+      if (id === 'resume') {
+        launchFor = null;
+        // `closeTablet()`, not the flag alone: hiding the panel group makes
+        // the tablet invisible for now, but its own `mesh.visible` would stay
+        // true and it would reappear the next time the panels are recalled.
+        closeTablet();
+        if (scene) scene.screen.regions.length = 0;
+        scene?.screen.showPicture();
+        scene?.panelsVisible(false);
+        return;
+      }
+
+      /*
+       * The list, not a quick slot.
+       *
+       * The band had Save and Load acting on a single overwritten slot, and
+       * Load did not work at all - it went through the flat page's
+       * `quickLoad`, which emits `game:load` with no listener. The tablet's
+       * panel lists, writes and loads through this component's own
+       * `awaitSave`.
        */
       if (id === 'saves') {
-        // La liste, pas un emplacement rapide. Les deux boutons d'avant
-        // écrivaient et lisaient un unique emplacement, et le lecteur ne
-        // marchait pas du tout - voir la note sur `quick-actions`.
         if (!saveable()) {
           notifications.show(t($language, 'failedToSave'), 'error');
           return;
@@ -1415,6 +1448,17 @@
       // La liste, pas une insertion à la main : le serveur décide de l'id et
       // de la date, et deviner l'un des deux les ferait diverger.
       void refreshSaves();
+      /*
+       * Et le store des jeux, sans quoi la sauvegarde n'existe qu'ici.
+       *
+       * `$games` est rempli une seule fois, par la page d'accueil, et jamais
+       * pendant une session VR. Or l'écran de lancement construit sa liste de
+       * sauvegardes depuis ce store : une sauvegarde écrite en VR était donc
+       * absente de l'endroit où le joueur va naturellement la chercher, tout
+       * en existant en base. C'est ce qui a été rapporté comme « je ne la vois
+       * plus nulle part ».
+       */
+      void loadGames();
     };
     const failed = () => {
       sock.off('game:saved', done);
