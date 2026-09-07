@@ -33,12 +33,24 @@ import {
   type ProfileState
 } from '../../frontend/src/lib/vr/panels/profile.js';
 
+/*
+ * Les formulations expédiées, pas des bouchons.
+ *
+ * Le test de largeur en bas mesure ces chaînes, et un remplaçant court
+ * passerait une vérification que le vrai libellé pourrait échouer - ce qui est
+ * arrivé : la bande est passée à quatre colonnes pour faire tenir Sauver et
+ * Charger, et « Back to the game » a cessé de tenir dans son bouton. Il a été
+ * raccourci plutôt que coupé, et « Arrêter » face à « Quitter la VR » lève au
+ * passage la collision des deux « Quitter » que ce fichier surveille déjà.
+ */
 const LABELS = {
-  controls: 'Controls',
-  recenter: 'Recentre',
-  quit: 'Leave VR',
-  resume: 'Back to the game',
-  stopGame: 'End the game'
+  controls: 'Contrôles',
+  recenter: 'Recentrer',
+  save: 'Sauver',
+  load: 'Charger',
+  quit: 'Quitter la VR',
+  resume: 'Reprendre',
+  stopGame: 'Arrêter'
 };
 
 function recordingContext() {
@@ -63,7 +75,7 @@ function recordingContext() {
 }
 
 function state(over: Partial<ProfileState> = {}): ProfileState {
-  return { pseudo: 'Ada', playing: false, ...over };
+  return { pseudo: 'Ada', playing: false, notice: null, ...over };
 }
 
 const ids = (s: ProfileState) => layoutProfilePanel(s).map((r) => r.id);
@@ -203,4 +215,98 @@ test('a label that fits is not cut', () => {
   drawProfilePanel(ctx, s, layoutProfilePanel(s), { labels: LABELS, hoverId: null });
   assert.ok(ctx.texts.includes(LABELS.recenter));
   assert.ok(!ctx.texts.includes(`${LABELS.recenter}…`));
+});
+
+/*
+ * Saving and loading, which the headset had no way to reach.
+ *
+ * Only the launch screen listed a game's saves, and only before launching it -
+ * so a player mid-game could neither save nor reload. These two buttons are
+ * `saves/quick-actions.ts` exactly as F2 and F4 use it: one slot, overwritten,
+ * sharing the `QUICK_SAVE_NAME` sentinel with the flat page so a headset save
+ * and a keyboard save are the same save rather than two competing ones.
+ *
+ * Both exist only while something is running. There is nothing to write when
+ * no game is loaded, and reloading into no game is not a thing either.
+ */
+test('saving and loading are offered only while a game is running', () => {
+  for (const id of ['save', 'load']) {
+    assert.ok(!ids(state()).includes(id), `${id} has nothing to act on when idle`);
+    assert.ok(ids(state({ playing: true })).includes(id));
+  }
+});
+
+test('the two of them are named', () => {
+  const ctx = recordingContext();
+  const s = state({ playing: true });
+  drawProfilePanel(ctx, s, layoutProfilePanel(s), { labels: LABELS, hoverId: null });
+  assert.ok(ctx.texts.includes(LABELS.save));
+  assert.ok(ctx.texts.includes(LABELS.load));
+});
+
+/*
+ * The notice, without which the feature is unusable even when it works.
+ *
+ * `quickSave` reports through `notifications.show`, and those are DOM toasts:
+ * a headset presenting an immersive session cannot see one. Pressing Save
+ * would produce no confirmation at all, which is indistinguishable from a
+ * button that does nothing. `VrShell` mirrors the newest notification into
+ * this field, so any of them raised during a session becomes visible - not
+ * only the ones about saves.
+ */
+test('a notice is drawn when there is one', () => {
+  const ctx = recordingContext();
+  const s = state({ playing: true, notice: 'Saved' });
+  drawProfilePanel(ctx, s, layoutProfilePanel(s), { labels: LABELS, hoverId: null });
+  assert.ok(ctx.texts.includes('Saved'));
+});
+
+test('no notice draws no line, rather than an empty one', () => {
+  const ctx = recordingContext();
+  const s = state({ playing: true });
+  drawProfilePanel(ctx, s, layoutProfilePanel(s), { labels: LABELS, hoverId: null });
+  assert.ok(!ctx.texts.includes(''), 'an empty string was drawn as if it were a message');
+});
+
+test('a long notice is truncated rather than run off the band', () => {
+  const ctx = recordingContext();
+  const long = 'La sauvegarde a échoué parce que la liste des sauvegardes du jeu était illisible';
+  const s = state({ playing: true, notice: long });
+  drawProfilePanel(ctx, s, layoutProfilePanel(s), { labels: LABELS, hoverId: null });
+  assert.ok(!ctx.texts.includes(long));
+  assert.ok(ctx.texts.some((tx) => tx.endsWith('…')));
+});
+
+test('the notice does not sit under a button', () => {
+  const ctx = recordingContext();
+  const s = state({ playing: true, notice: 'Saved' });
+  drawProfilePanel(ctx, s, layoutProfilePanel(s), { labels: LABELS, hoverId: null });
+  const line = ctx.placed.find((pl) => pl.text === 'Saved');
+  assert.ok(line);
+  for (const r of layoutProfilePanel(s)) {
+    const inside =
+      line.x >= r.x && line.x <= r.x + r.w && line.y >= r.y && line.y <= r.y + r.h;
+    assert.ok(!inside, `the notice is drawn inside the ${r.id} button`);
+  }
+});
+
+/*
+ * Chaque libellé expédié tient dans son bouton sans être coupé.
+ *
+ * C'est le test que la bande n'avait pas quand elle est passée de trois
+ * colonnes à quatre : les boutons ont rétréci de 200 à 147 px et deux
+ * libellés ont silencieusement commencé à finir par une ellipse. Une ellipse
+ * sur « Reprendre » n'est pas grave ; sur la sortie, c'est le seul chemin hors
+ * de la session qui devient illisible.
+ */
+test('aucun libellé expédié ne se fait couper', () => {
+  const ctx = recordingContext();
+  const s = state({ playing: true });
+  drawProfilePanel(ctx, s, layoutProfilePanel(s), { labels: LABELS, hoverId: null });
+  for (const label of Object.values(LABELS)) {
+    assert.ok(
+      ctx.texts.includes(label),
+      `"${label}" a été coupé - raccourcir la formulation ou élargir le bouton`
+    );
+  }
 });

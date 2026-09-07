@@ -82,6 +82,7 @@
    * this player stay current while only the headset is mounted.
    */
   import { invitations, acceptInvitation, declineInvitation } from '$lib/lobby/invitations';
+  import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import { gameClick } from '$lib/rooms/game-click';
   import { resumeSaveToRequest } from '$lib/rooms/resume-save';
   import { decodeSram } from '$lib/rooms/sram';
@@ -113,6 +114,68 @@
   let resolvable: string[] = [];
 
   let engine: SoloEngine | LockstepEngine | null = null;
+
+  /*
+   * What saving a game needs, gathered where a game is launched.
+   *
+   * `core` used to be a local of the launch functions, under a comment saying
+   * "nothing outside this function ever reads `core` again once
+   * `createSoloEngine` has it - this component's own copy was write-only".
+   * That was true until the band gained a Save button: `core.saveState()` is
+   * the state, and `core.videoFrame()` is the only way to a thumbnail in a
+   * session with no canvas. So the decision is reversed, with a reason.
+   *
+   * Correctness rests on `engine`, not on clearing this. Every read goes
+   * through `saveable()`, which refuses when no engine is running - the same
+   * condition that decides whether the buttons exist at all. Clearing it in
+   * the teardown paths below is hygiene, not the invariant.
+   */
+  let saveContext: { roomId: string; gameId: string; core: PsnesCore } | null = null;
+
+  /** Reused: a capture allocates nothing but the pixels it copies. */
+  let shotCanvas: HTMLCanvasElement | null = null;
+
+  /**
+   * The last emulated frame as a canvas, or null.
+   *
+   * `captureShot` wants a canvas and an immersive session has none - the
+   * picture goes straight from `videoSurface()` into a WebGL texture. But
+   * `core.videoFrame()` repacks the same frame tightly, which is exactly an
+   * `ImageData`, so a save made in the headset gets a real thumbnail rather
+   * than the empty well `panels/launch.ts` draws for a save that has none.
+   */
+  function frameCanvas(): HTMLCanvasElement | null {
+    const ctx = saveable();
+    if (!ctx) return null;
+    const frame = ctx.core.videoFrame();
+    if (!shotCanvas) shotCanvas = document.createElement('canvas');
+    if (shotCanvas.width !== frame.width || shotCanvas.height !== frame.height) {
+      shotCanvas.width = frame.width;
+      shotCanvas.height = frame.height;
+    }
+    const paint = shotCanvas.getContext('2d');
+    if (!paint) return null;
+    /*
+     * Through `createImageData` rather than the `ImageData` constructor.
+     *
+     * The constructor's typing insists on a `Uint8ClampedArray<ArrayBuffer>`
+     * and `videoFrame()` hands back an `ArrayBufferLike` one, which could in
+     * principle be shared - so it needs a cast to compile. Asking the context
+     * for the buffer and copying into it needs none, and is the canvas's own
+     * way of doing this.
+     *
+     * The copy is required either way: `videoFrame` reuses its scratch array.
+     */
+    const image = paint.createImageData(frame.width, frame.height);
+    image.data.set(frame.data);
+    paint.putImageData(image, 0, 0);
+    return shotCanvas;
+  }
+
+  /** The save context, but only while there is actually a game to save. */
+  function saveable(): { roomId: string; gameId: string; core: PsnesCore } | null {
+    return engine && saveContext ? saveContext : null;
+  }
   let audio: AudioSink | null = null;
   /**
    * The room this shell created and therefore owes the server.
@@ -218,6 +281,30 @@
    * field that matters here, which is why it is spelt out.
    */
   $: if (friendsPanel && ($invitations || $myRoom?.invitation)) repaintFriends();
+
+  /*
+   * The newest notification, mirrored where a headset can see it.
+   *
+   * `notifications.show` draws DOM toasts, and the page's DOM is not rendered
+   * during an immersive session - so `quickSave`'s confirmation reached
+   * nobody, which is indistinguishable from a Save button that does nothing.
+   * Mirroring the store rather than inventing a second channel means
+   * `quick-actions.ts` is untouched, the store's own auto-dismiss provides the
+   * lifetime, and anything else raised mid-session becomes visible too.
+   */
+  $: vrNotice = $notifications.at(-1)?.message ?? null;
+
+  /*
+   * `vrNotice` named in the statement, not merely read inside
+   * `repaintProfile()` - the same Svelte 4 trap the note above
+   * `playingByUserId` spells out.
+   *
+   * Compared against `undefined` rather than tested for truth, and that is
+   * deliberate: `null` is a real value here. A plain `&& vrNotice` would skip
+   * the repaint that CLEARS the line, leaving the last message on the band for
+   * the rest of the session.
+   */
+  $: if (profilePanel && vrNotice !== undefined) repaintProfile();
 
   // The room decides half of what this screen shows - the friend's readiness,
   // the staged save, whether the game changed under us. Not the save itself:
@@ -384,7 +471,7 @@
 
   function repaintProfile(): void {
     if (!profilePanel) return;
-    const state = { pseudo: $user?.pseudo ?? '', playing: engine !== null };
+    const state = { pseudo: $user?.pseudo ?? '', playing: engine !== null, notice: vrNotice };
     profilePanel.regions = layoutProfilePanel(state);
     const regions = profilePanel.regions;
     profilePanel.paint((ctx) =>
@@ -392,6 +479,8 @@
         labels: {
           controls: t($language, 'controls'),
           recenter: t($language, 'vrRecenter'),
+          save: t($language, 'vrSave'),
+          load: t($language, 'vrLoad'),
           quit: t($language, 'vrQuit'),
           resume: t($language, 'vrResume'),
           stopGame: t($language, 'vrStopGame')
@@ -707,6 +796,38 @@
        * that has happened. See `vr/anchor.ts`.
        */
       if (id === 'recenter') { scene?.recenter(); return; }
+
+      /*
+       * The quick slot, exactly as F2 and F4 use it.
+       *
+       * `quick-actions.ts` is reused rather than reimplemented, sentinel and
+       * all, so a save made in the headset and one made at the keyboard are
+       * the same save instead of two competing ones. Loading needs no
+       * adapter: `game:load` is broadcast to the whole room by the server,
+       * which is what makes it safe mid-lockstep - that file's header says so.
+       */
+      if (id === 'save' || id === 'load') {
+        const ctx = saveable();
+        if (!ctx) {
+          // Said rather than swallowed: a button that does nothing is
+          // indistinguishable from a broken one, and the notice reaches the
+          // band now (see `vrNotice`).
+          notifications.show(t($language, 'failedToSave'), 'error');
+          return;
+        }
+        const common = {
+          socket: $socket,
+          roomId: ctx.roomId,
+          gameId: ctx.gameId,
+          locale: $language
+        };
+        if (id === 'save') void quickSave({ ...common, emulator: {
+          saveState: async () => ctx.core.saveState(),
+          getCanvas: frameCanvas
+        } });
+        else void quickLoad(common);
+        return;
+      }
       if (id === 'resume') {
         // Back to the game, so the game gets its screen back. The launch
         // screen is abandoned rather than kept: `launchFor` surviving here
@@ -922,6 +1043,10 @@
           audio = null;
           return;
         }
+
+        // Gathered here because here is where all three exist at once. See
+        // `saveContext`'s own note for why `core` stopped being write-only.
+        saveContext = { roomId, gameId: game.id, core };
 
         engine = await createSoloEngine({
           core,
@@ -1241,6 +1366,16 @@
       groupIsHost = isHost;
       pendingResumeSaveId = resumeSaveToRequest($myRoom, $myRoom?.createdBy === $user?.id, null);
 
+      /*
+       * The group's game id comes from the room, which is the only place it
+       * exists on this path: `launchTogether` is handed a crc32, not an id,
+       * because the ROM is what it needs to boot. Left null if the room has
+       * no game id, and the press then says so rather than doing nothing -
+       * see the `save`/`load` branch.
+       */
+      const groupGameId = $myRoom?.gameId ?? null;
+      saveContext = groupGameId ? { roomId, gameId: groupGameId, core } : null;
+
       engine = await createLockstepEngine({
         core,
         rom,
@@ -1518,6 +1653,7 @@
   async function stopTogether(): Promise<void> {
     await engine?.stop();
     engine = null;
+    saveContext = null;
     void audio?.stop();
     audio = null;
     groupRoomId = null;
@@ -1894,6 +2030,7 @@
     // already released.
     await engine?.stop();
     engine = null;
+    saveContext = null;
     groupRoomId = null;
     groupIsHost = false;
     pendingResumeSaveId = null;

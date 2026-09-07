@@ -50,12 +50,24 @@ const PAD = 20;
 /** The identity's column, which the buttons start clear of. */
 const IDENTITY_W = 200;
 
-const BTN_W = 200;
 const BTN_H = 72;
 const BTN_GAP = 20;
 
-/** Three columns, starting clear of the identity and ending inside the pad. */
-const COLUMNS = [0, 1, 2].map((i) => PAD + IDENTITY_W + 10 + i * (BTN_W + BTN_GAP));
+/*
+ * Four columns rather than three, which is what made room for saving and
+ * loading without a third row.
+ *
+ * 147px on a 900px canvas across the band's 39.6 degrees is about 6.5 degrees
+ * of view per button - a large target by any measure a headset cares about, so
+ * the narrowing costs nothing in aim. `vr-layout.test.ts` is what keeps that
+ * angular figure honest.
+ */
+const COLUMNS_N = 4;
+const FIRST_X = PAD + IDENTITY_W + 10;
+const BTN_W = Math.floor(
+  (PROFILE_PANEL_SIZE.width - PAD - FIRST_X - BTN_GAP * (COLUMNS_N - 1)) / COLUMNS_N
+);
+const COLUMNS = Array.from({ length: COLUMNS_N }, (_, i) => FIRST_X + i * (BTN_W + BTN_GAP));
 /** Two rows, centred in what is left of the band's height. */
 const ROWS = [0, 1].map(
   (i) => (PROFILE_PANEL_SIZE.height - (BTN_H * 2 + BTN_GAP)) / 2 + i * (BTN_H + BTN_GAP)
@@ -69,11 +81,24 @@ export interface ProfileState {
   pseudo: string;
   /** Whether a game is running behind the panels. */
   playing: boolean;
+  /**
+   * The newest thing the app has to say, or null.
+   *
+   * It exists because `notifications.show` draws DOM toasts, and a headset
+   * presenting an immersive session cannot see one. Without this, pressing
+   * Save produced no confirmation at all - which is indistinguishable from a
+   * button that does nothing. `VrShell` mirrors the notification store here,
+   * so anything raised during a session lands somewhere visible.
+   */
+  notice: string | null;
 }
 
 export interface ProfileLabels {
   /** Opens the rebinding panel on the curved screen. */
   controls: string;
+  /** The quick slot, shared with the flat page's F2 and F4. */
+  save: string;
+  load: string;
   /** Puts the room back in front of the player. See `vr/anchor.ts`. */
   recenter: string;
   quit: string;
@@ -85,15 +110,30 @@ export interface ProfileLabels {
 export function layoutProfilePanel(state: ProfileState): Region[] {
   // The exit first, so its rectangle is decided before anything conditional
   // can shift it - see the header.
+  /*
+   * The exit first, and twice as wide as anything else.
+   *
+   * First so its rectangle is decided before anything conditional can shift it
+   * - see the header. Wide because it is the only way out this app has, so it
+   * should be the easiest thing on the band to hit; the four-column grid left
+   * a slot spare beside it and there is nothing better to spend it on. It also
+   * happens to be what lets the label stay "Leave VR" instead of being
+   * shortened to fit, which for the one region a stuck player needs to read is
+   * the right way round.
+   */
   const regions: Region[] = [
-    { id: 'quit', ...slot(2, 0) },
+    { id: 'quit', ...slot(2, 0), w: BTN_W * 2 + BTN_GAP },
     { id: 'controls', ...slot(0, 0) },
     { id: 'recenter', ...slot(1, 0) }
   ];
 
   if (state.playing) {
-    regions.push({ id: 'resume', ...slot(0, 1) });
-    regions.push({ id: 'stop', ...slot(1, 1) });
+    // The two that act on the game come first, then the two that end it -
+    // reading left to right in order of how much they cost to press.
+    regions.push({ id: 'save', ...slot(0, 1) });
+    regions.push({ id: 'load', ...slot(1, 1) });
+    regions.push({ id: 'resume', ...slot(2, 1) });
+    regions.push({ id: 'stop', ...slot(3, 1) });
   }
 
   return regions;
@@ -155,6 +195,8 @@ export function drawProfilePanel(
     quit: labels.quit,
     controls: labels.controls,
     recenter: labels.recenter,
+    save: labels.save,
+    load: labels.load,
     resume: labels.resume,
     stop: labels.stopGame
   };
@@ -170,6 +212,16 @@ export function drawProfilePanel(
       warn.has(region.id) ? 'warn' : 'quiet',
       opts.hoverId === region.id
     );
+  }
+
+  // Below the second row, and only when there is something to say: an empty
+  // line drawn every frame would read as a message that failed to load.
+  if (state.notice) {
+    ctx.fillStyle = '#c8d4ff';
+    ctx.font = '20px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(truncate(ctx, state.notice, width - PAD * 2), width / 2, height - PAD - 10);
   }
 
   ctx.restore();
