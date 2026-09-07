@@ -17,6 +17,7 @@
 import * as THREE from 'three';
 import { createFramePump } from './frame-pump';
 import { framebufferScale } from './framebuffer-scale';
+import { anchorFrom } from './anchor';
 import { createVrScreen, type VrScreen } from './screen';
 import { sceneLayout, type SceneLayout, type Placement } from './layout';
 import type { PixelAspect } from '$lib/znet/fit';
@@ -35,6 +36,15 @@ export interface VrScene {
   onFrame: (fn: () => void) => void;
   attach(session: XRSession): Promise<void>;
   addPanel(id: string, placement: Placement, size: PanelSize): PanelMesh;
+  /**
+   * Re-places the scene in front of the player, at the next frame.
+   *
+   * Deferred rather than immediate because the viewer's pose only exists
+   * inside an XR frame, and two of the three callers are outside one - the
+   * reference space's `reset` event, and a button press. See `anchor.ts` for
+   * why this is a decision the app has to make at all.
+   */
+  recenter(): void;
   panelsVisible(visible: boolean): void;
   arePanelsVisible(): boolean;
   aimedAt(): PointerTarget | null;
@@ -77,8 +87,39 @@ export function createVrScene(opts: {
 
   const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 50);
 
+  /*
+   * Everything the player looks at, on one group that can be moved.
+   *
+   * The controllers are deliberately NOT in here. They are driven from the
+   * reference space by `renderer.xr.getController`, so they have to stay in
+   * it: putting them on this group would move the player's hands whenever the
+   * room was re-anchored, which is the one thing in the scene that must never
+   * move relative to their body. `aimedAt` already reads world matrices - the
+   * comment inside it warns about exactly this - so the rays keep hitting a
+   * group that has been transformed.
+   */
+  const world = new THREE.Group();
+  scene.add(world);
+
   const screen = createVrScreen(layout.screen);
-  scene.add(screen.mesh);
+  world.add(screen.mesh);
+
+  /*
+   * The anchor, and the one automatic application of it.
+   *
+   * `anchored` is what makes the first one happen exactly once. The session is
+   * granted while the Quest's boundary dialog is up, so the `local` origin -
+   * and with it this whole scene - is fixed to wherever the head was during a
+   * dialog the page cannot see or place. Re-anchoring on the first frame that
+   * is genuinely `visible` moves that decision to after the dialog, which is
+   * the whole of the fix; everything after that is the player's to ask for.
+   *
+   * Not repeated on every return to `visible`: a player who opens the system
+   * menu mid-game and comes back has not asked for the room to move, and
+   * having it jump would be worse than whatever made them open the menu.
+   */
+  let anchored = false;
+  let recenterPending = false;
 
   const pump = createFramePump();
   const perFrame: Array<() => void> = [];
@@ -120,7 +161,7 @@ export function createVrScene(opts: {
   // below - not that the loop allocates nothing at all.
   const panelMeshes: THREE.Mesh[] = [];
   const panelGroup = new THREE.Group();
-  scene.add(panelGroup);
+  world.add(panelGroup);
 
   /**
    * The two controllers as scene objects, with a ray drawn down each.
@@ -265,7 +306,58 @@ export function createVrScene(opts: {
       renderer.xr.setFramebufferScaleFactor(framebufferScale(session));
 
       await renderer.xr.setSession(session);
+      /*
+       * The runtime moved the origin, so the room has to be re-placed.
+       *
+       * Nobody listened for this before, and three does not either - it only
+       * reads poses (`WebXRManager.js:918`). A `reset` is what a system
+       * recenter raises, and after one the scene is still sitting at
+       * coordinates that meant something in the old space.
+       *
+       * On three's OWN reference space, not the one `xr-session.ts` holds:
+       * three requests its own (`:509`), and that is the one every pose in
+       * this loop is expressed in.
+       */
+      const space = renderer.xr.getReferenceSpace() as
+        | (EventTarget & { addEventListener(type: string, fn: () => void): void })
+        | null;
+      space?.addEventListener('reset', () => void (recenterPending = true));
+
       renderer.setAnimationLoop(() => {
+        /*
+         * The anchor before anything else, so the frame that applies it also
+         * draws with it - a render at the old anchor followed by a move is one
+         * visible jump, at 72 Hz, for no reason.
+         *
+         * `visible-blurred` is the state the boundary dialog puts the session
+         * in. Waiting for plain `visible` is what makes the first anchor land
+         * after the dialog rather than during it.
+         */
+        if (!anchored && session.visibilityState === 'visible') {
+          anchored = true;
+          recenterPending = true;
+        }
+        if (recenterPending) {
+          const frame = renderer.xr.getFrame();
+          const referenceSpace = renderer.xr.getReferenceSpace();
+          // The viewer pose read from WebXR itself rather than from three's
+          // camera: it is unambiguously the head in the reference space, with
+          // no question of what the camera happens to be parented to.
+          const pose = referenceSpace ? frame?.getViewerPose(referenceSpace) : null;
+          if (pose) {
+            const { position, orientation } = pose.transform;
+            const anchor = anchorFrom(
+              [position.x, position.y, position.z],
+              [orientation.x, orientation.y, orientation.z, orientation.w]
+            );
+            world.position.set(...anchor.position);
+            world.rotation.set(0, anchor.yaw, 0);
+            recenterPending = false;
+          }
+          // Left pending when there is no pose yet: tracking that is not ready
+          // is a reason to wait a frame, not to anchor to nothing.
+        }
+
         // Order matters: the governor may run a frame, and the render should
         // show that frame rather than the previous one.
         try {
@@ -285,6 +377,7 @@ export function createVrScene(opts: {
       panelGroup.add(panel.mesh);
       return panel;
     },
+    recenter: () => void (recenterPending = true),
     panelsVisible: (visible: boolean) => void (panelGroup.visible = visible),
     arePanelsVisible: () => panelGroup.visible,
     aimedAt,

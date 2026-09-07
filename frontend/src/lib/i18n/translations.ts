@@ -477,6 +477,7 @@ export const translations = {
     vrPrepareFailed: '{count} game(s) could not be read from the folder.',
     vrLaunchFailed: 'The game could not be started.',
     vrNoFriends: 'No friends yet',
+    vrRecenter: 'Recentre',
     vrInvite: 'Invite',
     vrInvited: 'Invited',
     vrCancelInvite: 'Cancel',
@@ -488,7 +489,6 @@ export const translations = {
     vrQuit: 'Leave VR',
     vrResume: 'Back to the game',
     vrStopGame: 'Stop the game',
-    vrRemap: 'Rebind',
     vrRemapHeading: 'Controls',
     vrRemapPress: 'Press a button — right stick click to cancel',
     vrRemapDone: 'Done',
@@ -505,17 +505,12 @@ export const translations = {
     vrXrLeftStickClick: 'Left — stick click',
     // Kept short: `vr/panels/profile.ts` draws these as `<this> -> <SNES>`
     // inside a 228px column and does not wrap.
-    vrGripLeft: 'Left grip',
-    vrGripRight: 'Right grip',
-    vrTriggers: 'Triggers',
-    vrSticks: 'Either stick',
     // Shown beside the VR button, for the reason WebXR cannot help with: the
     // standard gives a page no way to keep a player in their chair, so saying
     // so is the only thing that works.
     vrSeatedHint: 'Played seated or standing still',
     vrSeatedTitle:
       'This experience is designed to be played seated or standing still, so a stationary boundary is enough.',
-    vrDpad: 'D-pad',
     vrNewGame: 'New game',
     vrSaveLockedByCreator: 'Your friend chooses where this starts.',
     vrLaunch: 'Launch',
@@ -996,6 +991,7 @@ export const translations = {
     vrPrepareFailed: '{count} jeu(x) n\'ont pas pu être lus depuis le dossier.',
     vrLaunchFailed: 'Le jeu n\'a pas pu démarrer.',
     vrNoFriends: 'Pas encore d\'amis',
+    vrRecenter: 'Recentrer',
     vrInvite: 'Inviter',
     vrInvited: 'Invité',
     vrCancelInvite: 'Annuler',
@@ -1007,7 +1003,6 @@ export const translations = {
     vrQuit: 'Quitter la VR',
     vrResume: 'Retour au jeu',
     vrStopGame: 'Quitter le jeu',
-    vrRemap: 'Réassigner',
     vrRemapHeading: 'Contrôles',
     vrRemapPress: 'Pressez un bouton — clic du stick droit pour annuler',
     vrRemapDone: 'Terminé',
@@ -1022,14 +1017,9 @@ export const translations = {
     vrXrLeftFaceLower: 'Gauche — bouton bas',
     vrXrRightFaceLower: 'Droite — bouton bas',
     vrXrLeftStickClick: 'Gauche — clic du stick',
-    vrGripLeft: 'Grip gauche',
-    vrGripRight: 'Grip droit',
-    vrTriggers: 'Gâchettes',
-    vrSticks: 'Un des sticks',
     vrSeatedHint: 'Se joue assis ou sur place',
     vrSeatedTitle:
       'Cette expérience est conçue pour être jouée assis ou sur place : une limite stationnaire suffit.',
-    vrDpad: 'Croix',
     vrNewGame: 'Nouvelle partie',
     vrSaveLockedByCreator: 'Ton ami choisit le point de départ.',
     vrLaunch: 'Lancer',

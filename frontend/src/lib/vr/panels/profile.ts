@@ -1,317 +1,134 @@
 /**
- * The low band: who you are, one setting, and the only way out.
+ * The low band: who you are, and the way to everything else.
+ *
+ * It was a settings surface - two preset cards with controller diagrams, a
+ * language pair, and four rows naming the mappings no preset changes. It is a
+ * launcher now, and everything it stopped showing is somewhere better rather
+ * than gone. That distinction is the whole of what made the removal
+ * defensible, so it is written down here:
+ *
+ * The four fixed rows existed for a real reason. START sits on the right grip,
+ * the one button nobody thinks to squeeze, and a whole hardware test session
+ * went into concluding the controls were dead when they were merely
+ * unlabelled. `panels/controls.ts` now names it better than this band ever
+ * did: it draws all eight buttons against the human name of the input each one
+ * CURRENTLY carries, so START names its grip from the real map instead of from
+ * a static picture of a default. The two mappings that belong to no button -
+ * the d-pad on the sticks, the system menu - have their own lines there too.
+ *
+ * The preset cards went the same way and for the same reason. Their diagram
+ * was a compressed preview of two defaults, built for a panel that had no
+ * per-button rows; the remap panel's eight rows are that diagram in full. The
+ * language pair went with them because it is a setting, and settings now live
+ * on the panel that has room for them.
+ *
+ * One small thing fell out of that. This band's `remap` label was
+ * "deliberately NOT `controls`, which titles the fixed-map strip on this same
+ * panel: one word naming both a heading and a button identifies neither." The
+ * strip is gone, so the button can have the obvious word back.
  *
  * The quit region exists in every state and that is not a nicety. The Quest's
  * menu button is reserved by the system and delivers nothing to the page, so
  * there is no hardware button this app can read for "leave" - this region is
  * the only exit it can offer, and a state without it is a state somebody is
- * stuck in.
- *
- * The controller diagram beside each preset is the answer to the honest
- * objection against `thumb`: that the printed letters stop matching what the
- * game asks for. Showing which Quest button carries which SNES button, at the
- * moment of choosing, is what makes that a trade rather than a trick. The
- * canvas is already being drawn, so it is nearly free - which is exactly why
- * the spec chose to do it here rather than in a help page nobody opens.
- *
- * Below the cards sit the four mappings no preset changes - START, SELECT,
- * the shoulders and the d-pad. They are here because they are the only ones a
- * player cannot guess: the face buttons have their letter printed under the
- * thumb, and these have nothing printed anywhere. See `fixedMapRows`.
+ * stuck in. It is also laid out FIRST, so that gaining the two in-game regions
+ * cannot move it: a button that shifts under the pointer at the moment it is
+ * most wanted is not the same button.
  *
  * What is deliberately absent: the ROM source (there is no file picker in an
  * immersive session), the portable config (files), and account deletion (a
- * destructive action behind a confirmation).
- *
- * Per-button rebinding used to be on that list, with the two presets as "the
- * whole of the rectification". It is not any more - `panels/controls.ts` binds
- * all eight buttons, from a panel this band's `remap` button opens on the
- * curved screen. The presets did not become pointless: they are the two
- * starting points, and the reasoning that produced them still holds. The SNES
- * diamond has to fold onto two vertical pairs and no folding is free.
+ * destructive action behind a confirmation). Save management is absent too,
+ * for now, and for a different reason - it wants a panel of its own that does
+ * not exist yet, and a button that opens nothing is worse than no button.
  */
 
 import { truncate, type PanelSize, type Region } from '../panel';
-import { LETTERS_MAP, THUMB_MAP, VR_BUTTONS, type VrPadMap } from '../pad-map';
 
 export const PROFILE_PANEL_SIZE: PanelSize = { width: 900, height: 300 };
 
 const PAD = 20;
+/** The identity's column, which the buttons start clear of. */
 const IDENTITY_W = 200;
-// 220, not 240: at PROFILE_PANEL_SIZE.width the two cards plus the 16px gap
-// between them must clear the language buttons on the right, and 240 ran
-// the second card 24px into `lang:en` (caught by the no-overlap test).
-const CARD_W = 220;
-const CARD_H = 150;
-const CARD_Y = 60;
-const SMALL_W = 90;
-const SMALL_H = 48;
+
+const BTN_W = 200;
+const BTN_H = 72;
+const BTN_GAP = 20;
+
+/** Three columns, starting clear of the identity and ending inside the pad. */
+const COLUMNS = [0, 1, 2].map((i) => PAD + IDENTITY_W + 10 + i * (BTN_W + BTN_GAP));
+/** Two rows, centred in what is left of the band's height. */
+const ROWS = [0, 1].map(
+  (i) => (PROFILE_PANEL_SIZE.height - (BTN_H * 2 + BTN_GAP)) / 2 + i * (BTN_H + BTN_GAP)
+);
+
+function slot(column: number, row: number): Omit<Region, 'id'> {
+  return { x: COLUMNS[column], y: ROWS[row], w: BTN_W, h: BTN_H };
+}
 
 export interface ProfileState {
   pseudo: string;
-  /**
-   * Le mapping courant.
-   *
-   * Une carte de preset est « active » quand la map lui est égale - et une map
-   * remappée n'égale aucun des deux, ce qui est la vérité à montrer plutôt
-   * qu'un preset coché par défaut qui ferait croire au joueur que son réglage
-   * a été perdu.
-   */
-  map: VrPadMap;
-  language: 'en' | 'fr';
   /** Whether a game is running behind the panels. */
   playing: boolean;
 }
 
 export interface ProfileLabels {
-  letters: string;
-  thumb: string;
+  /** Opens the rebinding panel on the curved screen. */
+  controls: string;
+  /** Puts the room back in front of the player. See `vr/anchor.ts`. */
+  recenter: string;
   quit: string;
   resume: string;
-  /** Ends the GAME, not the session. See `layoutProfilePanel`. */
+  /** Ends the GAME, not the session. */
   stopGame: string;
-  /** Opens the rebinding panel on the curved screen. Deliberately NOT
-   *  `controls`, which titles the fixed-map strip on this same panel: one word
-   *  naming both a heading and a button identifies neither. */
-  remap: string;
-  controls: string;
-  /* The four rows below the cards. Kept short on purpose: `fixedMapRows`
-   * renders each as `<hardware> -> <SNES>` inside FIXED_COL_W, and a long
-   * translation runs into the quit button rather than wrapping. */
-  gripLeft: string;
-  gripRight: string;
-  triggers: string;
-  sticks: string;
-  dpad: string;
-}
-
-/**
- * What each preset puts on the four Touch face buttons, for the diagram.
- *
- * Keyed by the two preset NAMES rather than by anything map-shaped, because
- * that is what it depicts: the two starting points, drawn on the two cards. A
- * player who has remapped a button matches neither card, and neither is marked
- * active - which is why this staying a picture of the presets is correct
- * rather than incomplete.
- *
- * The single source of truth for the mappings themselves is `vr/pad-map.ts`;
- * this is their picture, and the test that the two presets draw differently is
- * what keeps the picture from drifting into fiction.
- */
-const DIAGRAM: Record<'letters' | 'thumb', Array<[string, string]>> = {
-  // [what is printed on the Touch, what the SNES calls it]
-  letters: [['Y', 'Y'], ['X', 'X'], ['B', 'B'], ['A', 'A']],
-  thumb: [['Y', 'X'], ['X', 'Y'], ['B', 'A'], ['A', 'B']]
-};
-
-/** The strip under the two cards, clear of the buttons on the right. */
-const FIXED_Y = CARD_Y + CARD_H + 26;
-const FIXED_ROW_H = 30;
-export const FIXED_COL_W = 228;
-
-/**
- * The mappings no preset changes - and the ones that actually needed showing.
- *
- * The two cards draw the four face buttons, which are the mappings a player
- * can already guess, because the letter is printed on the controller under
- * their thumb. START, SELECT, the shoulders and the d-pad have nothing
- * printed anywhere and no preset moves them, so before this block the headset
- * named them nowhere at all. That is not hypothetical: START sits on the
- * right grip, the one button nobody thinks to squeeze, and a whole hardware
- * test session was spent concluding the controls were dead when they were
- * merely unlabelled.
- *
- * `vr/pad.ts` remains the single source of truth for every mapping here; this
- * is its picture. Exported so the test can measure the rows against
- * FIXED_COL_W, which is how the cards' own overlap bug was caught.
- */
-export function fixedMapRows(labels: ProfileLabels): Array<[string, string]> {
-  return [
-    [labels.gripRight, 'START'],
-    [labels.gripLeft, 'SELECT'],
-    [labels.triggers, 'L / R'],
-    [labels.sticks, labels.dpad]
-  ];
 }
 
 export function layoutProfilePanel(state: ProfileState): Region[] {
-  const regions: Region[] = [];
-  const left = PAD + IDENTITY_W;
-
-  regions.push({ id: 'scheme:letters', x: left, y: CARD_Y, w: CARD_W, h: CARD_H });
-  regions.push({ id: 'scheme:thumb', x: left + CARD_W + 16, y: CARD_Y, w: CARD_W, h: CARD_H });
-
-  const right = PROFILE_PANEL_SIZE.width - PAD - SMALL_W;
-  regions.push({ id: 'lang:en', x: right - SMALL_W - 8, y: CARD_Y, w: SMALL_W, h: SMALL_H });
-  regions.push({ id: 'lang:fr', x: right, y: CARD_Y, w: SMALL_W, h: SMALL_H });
-
-  /*
-   * Always, like `quit` - and for a related reason.
-   *
-   * A mapping is discovered to be wrong while playing, not before, and the
-   * curved screen can hold a panel against a running game (the launch screen
-   * already does). Offering this only from the idle state would mean taking
-   * the headset off to fix the thing that made you want to.
-   */
-  regions.push({
-    id: 'remap',
-    /*
-     * Bottom LEFT, under the pseudo, and that is a correction rather than a
-     * preference.
-     *
-     * At `PAD + IDENTITY_W` it spanned x 220..440, y 232..280 - straight over
-     * the fixed-map strip, whose first column is drawn at x 220, y 236 and
-     * 266. Two things in the same place, one a region and one only text, so
-     * the no-overlap test could not see it: it compares regions to regions.
-     * The strip has its own test now.
-     *
-     * The left block under the pseudo is the one space this band has left.
-     */
-    x: PAD,
-    y: PROFILE_PANEL_SIZE.height - PAD - SMALL_H,
-    w: IDENTITY_W - PAD,
-    h: SMALL_H
-  });
-
-  // Always. See the header.
-  regions.push({
-    id: 'quit',
-    x: right - SMALL_W - 8,
-    y: CARD_Y + SMALL_H + 12,
-    w: SMALL_W * 2 + 8,
-    h: SMALL_H
-  });
+  // The exit first, so its rectangle is decided before anything conditional
+  // can shift it - see the header.
+  const regions: Region[] = [
+    { id: 'quit', ...slot(2, 0) },
+    { id: 'controls', ...slot(0, 0) },
+    { id: 'recenter', ...slot(1, 0) }
+  ];
 
   if (state.playing) {
-    // The right stick click does this too, but a player who has not
-    // discovered that is otherwise looking at their game through a menu.
-    regions.push({
-      id: 'resume',
-      x: right - SMALL_W - 8,
-      y: CARD_Y + (SMALL_H + 12) * 2,
-      w: SMALL_W * 2 + 8,
-      h: SMALL_H
-    });
-    /*
-     * Ends the game and stays in VR - which `quit` above does not.
-     *
-     * `quit` ends the `XRSession` and drops the player back to the Quest's
-     * shell. That was the only way out of a running game, because the launch
-     * screen only exists while no game holds the curved screen: finishing one
-     * game and choosing another meant taking the headset off and putting it
-     * back on. The two are drawn as separate buttons rather than one that
-     * changes meaning, because a control whose effect depends on state is the
-     * one a player presses by mistake.
-     */
-    regions.push({
-      id: 'stop',
-      x: right - SMALL_W - 8,
-      y: CARD_Y + (SMALL_H + 12) * 3,
-      w: SMALL_W * 2 + 8,
-      h: SMALL_H
-    });
+    regions.push({ id: 'resume', ...slot(0, 1) });
+    regions.push({ id: 'stop', ...slot(1, 1) });
   }
 
   return regions;
 }
 
-/** Deux maps portent-elles exactement les mêmes assignations ? */
-function sameAs(map: VrPadMap, preset: VrPadMap): boolean {
-  return VR_BUTTONS.every((button) => map[button] === preset[button]);
-}
-
-function drawCard(
-  ctx: CanvasRenderingContext2D,
-  region: Region,
-  title: string,
-  rows: Array<[string, string]>,
-  active: boolean,
-  hovered: boolean
-): void {
-  ctx.fillStyle = active ? '#232a44' : '#1c1c26';
-  ctx.fillRect(region.x, region.y, region.w, region.h);
-
-  ctx.fillStyle = active ? '#ffffff' : '#a0a0b0';
-  ctx.font = '600 20px system-ui, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(title, region.x + 12, region.y + 22);
-
-  ctx.font = '17px system-ui, sans-serif';
-  rows.forEach(([touch, snes], index) => {
-    const column = index % 2;
-    const row = Math.floor(index / 2);
-    ctx.fillStyle = active ? '#d8d8e8' : '#7a7a88';
-    ctx.fillText(
-      `${touch} → ${snes}`,
-      region.x + 12 + column * 110,
-      region.y + 60 + row * 34
-    );
-  });
-
-  if (active) {
-    ctx.strokeStyle = '#7aa2ff';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(region.x, region.y, region.w, region.h);
-    // A glyph, not just the border colour: two presets whose only difference
-    // was a stroke colour would draw the identical set of fillText calls
-    // regardless of which is active, and "the two presets draw different
-    // mappings" would have nothing to tell them apart by.
-    ctx.fillStyle = '#7aa2ff';
-    ctx.textAlign = 'right';
-    ctx.fillText('●', region.x + region.w - 12, region.y + 22);
-    ctx.textAlign = 'left';
-  }
-  if (hovered) {
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(region.x - 3, region.y - 3, region.w + 6, region.h + 6);
-  }
-}
-
-/** Cuts a string to fit `width` at the current font, with an ellipsis. */
+/**
+ * One button.
+ *
+ * Truncated rather than left to run: a long translation used to spill out of
+ * its button onto whatever sat beside it, on a curved texture with no layout
+ * engine to complain - and on this band the neighbour can be the exit.
+ */
 function drawButton(
   ctx: CanvasRenderingContext2D,
   region: Region,
   label: string,
-  active: boolean,
+  tone: 'quiet' | 'warn',
   hovered: boolean
 ): void {
-  ctx.fillStyle = active ? '#2f3a5c' : '#1c1c26';
+  ctx.fillStyle = tone === 'warn' ? '#3a2230' : '#22222e';
   ctx.fillRect(region.x, region.y, region.w, region.h);
   ctx.fillStyle = '#ffffff';
-  ctx.font = '18px system-ui, sans-serif';
+  ctx.font = '600 24px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // Truncated rather than left to run: a long translation used to spill out of
-  // its button onto whatever sat beside it, on a curved texture with no layout
-  // engine to complain. Every other text on this panel was already bounded.
   ctx.fillText(
-    truncate(ctx, label, region.w - 12),
+    truncate(ctx, label, region.w - 20),
     region.x + region.w / 2,
     region.y + region.h / 2
   );
   if (hovered) {
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(region.x - 3, region.y - 3, region.w + 6, region.h + 6);
+    ctx.lineWidth = 3;
+    ctx.strokeRect(region.x - 4, region.y - 4, region.w + 8, region.h + 8);
   }
-}
-
-function drawFixedMap(ctx: CanvasRenderingContext2D, labels: ProfileLabels): void {
-  ctx.font = '17px system-ui, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  fixedMapRows(labels).forEach(([hardware, snes], index) => {
-    const column = index % 2;
-    const row = Math.floor(index / 2);
-    ctx.fillStyle = '#c2c2d2';
-    ctx.fillText(
-      `${hardware} → ${snes}`,
-      PAD + IDENTITY_W + column * FIXED_COL_W,
-      FIXED_Y + row * FIXED_ROW_H
-    );
-  });
 }
 
 export function drawProfilePanel(
@@ -321,6 +138,7 @@ export function drawProfilePanel(
   opts: { labels: ProfileLabels; hoverId: string | null }
 ): void {
   const { width, height } = PROFILE_PANEL_SIZE;
+  const { labels } = opts;
 
   ctx.save();
   ctx.clearRect(0, 0, width, height);
@@ -328,46 +146,31 @@ export function drawProfilePanel(
   ctx.fillRect(0, 0, width, height);
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = '600 26px system-ui, sans-serif';
+  ctx.font = '600 30px system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(state.pseudo, PAD, 44);
+  ctx.fillText(truncate(ctx, state.pseudo, IDENTITY_W - PAD), PAD, height / 2);
 
-  ctx.fillStyle = '#8a8a98';
-  ctx.font = '17px system-ui, sans-serif';
-  ctx.fillText(opts.labels.controls, PAD + IDENTITY_W, 34);
+  const label: Record<string, string> = {
+    quit: labels.quit,
+    controls: labels.controls,
+    recenter: labels.recenter,
+    resume: labels.resume,
+    stop: labels.stopGame
+  };
+  // Leaving the session and ending the game are the two that cannot be undone
+  // by pressing again, so they are the two that read as consequential.
+  const warn = new Set(['quit', 'stop']);
 
   for (const region of regions) {
-    const hovered = opts.hoverId === region.id;
-    switch (region.id) {
-      case 'scheme:letters':
-        drawCard(ctx, region, opts.labels.letters, DIAGRAM.letters, sameAs(state.map, LETTERS_MAP), hovered);
-        break;
-      case 'scheme:thumb':
-        drawCard(ctx, region, opts.labels.thumb, DIAGRAM.thumb, sameAs(state.map, THUMB_MAP), hovered);
-        break;
-      case 'lang:en':
-        drawButton(ctx, region, 'EN', state.language === 'en', hovered);
-        break;
-      case 'lang:fr':
-        drawButton(ctx, region, 'FR', state.language === 'fr', hovered);
-        break;
-      case 'quit':
-        drawButton(ctx, region, opts.labels.quit, false, hovered);
-        break;
-      case 'resume':
-        drawButton(ctx, region, opts.labels.resume, false, hovered);
-        break;
-      case 'stop':
-        drawButton(ctx, region, opts.labels.stopGame, false, hovered);
-        break;
-      case 'remap':
-        drawButton(ctx, region, opts.labels.remap, false, hovered);
-        break;
-    }
+    drawButton(
+      ctx,
+      region,
+      label[region.id] ?? region.id,
+      warn.has(region.id) ? 'warn' : 'quiet',
+      opts.hoverId === region.id
+    );
   }
-
-  drawFixedMap(ctx, opts.labels);
 
   ctx.restore();
 }

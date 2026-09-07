@@ -36,6 +36,8 @@ const LABELS: ControlsLabels = {
   presetThumb: 'Preset pouce',
   fixedDpad: 'Croix directionnelle : les deux sticks',
   fixedMenu: 'Menu : clic du stick droit',
+  langEn: 'English',
+  langFr: 'Français',
   button: { a: 'A', b: 'B', x: 'X', y: 'Y', l: 'L', r: 'R', start: 'START', select: 'SELECT' },
   input: {
     XrLeftTrigger: 'Gauche — gâchette',
@@ -51,19 +53,25 @@ const LABELS: ControlsLabels = {
 };
 
 function state(over: Partial<ControlsState> = {}): ControlsState {
-  return { map: LETTERS_MAP, listeningFor: null, ...over };
+  return { map: LETTERS_MAP, listeningFor: null, language: 'fr', ...over };
 }
 
 function recordingContext() {
   const texts: string[] = [];
   const calls: string[] = [];
   const placed: Array<{ text: string; x: number; y: number }> = [];
+  /** Le fond de chaque rectangle : c'est par là que passe tout marquage
+   *  d'état, donc c'est ce qu'un test de marquage doit regarder. */
+  const fills: Array<{ style: string; x: number; y: number }> = [];
   return {
-    texts, calls, placed,
+    texts, calls, placed, fills,
     font: '', fillStyle: '', strokeStyle: '', lineWidth: 0,
     textAlign: 'left', textBaseline: 'alphabetic',
     save() {}, restore() {}, clearRect() {},
-    fillRect() { calls.push('fillRect'); },
+    fillRect(x: number, y: number) {
+      calls.push('fillRect');
+      fills.push({ style: String(this.fillStyle), x, y });
+    },
     strokeRect() { calls.push('strokeRect'); },
     beginPath() {}, arc() { calls.push('arc'); }, fill() {}, stroke() {},
     drawImage() { calls.push('drawImage'); },
@@ -77,6 +85,7 @@ function recordingContext() {
     texts: string[];
     calls: string[];
     placed: Array<{ text: string; x: number; y: number }>;
+    fills: Array<{ style: string; x: number; y: number }>;
   };
 }
 
@@ -223,4 +232,40 @@ test('la sortie disparaît pendant une capture, comme tout le reste', () => {
   // pendant l'écoute ferait d'une pression un clic autant qu'une liaison.
   const ids = layoutControlsPanel(state({ listeningFor: 'a' })).map((r) => r.id);
   assert.ok(!ids.includes('close'));
+});
+
+/*
+ * La langue, arrivée du bandeau.
+ *
+ * `panels/profile.ts` était un mélange de réglages et de raccourcis ; il est
+ * devenu un lanceur, et les réglages sont montés ici, sur le panneau qui a la
+ * place. Deux boutons plutôt qu'une bascule : il y a exactement deux langues,
+ * et une bascule demanderait au joueur de deviner laquelle est active.
+ */
+test('les deux langues sont offertes, et il y en a exactement deux', () => {
+  const ids = layoutControlsPanel(state()).map((r) => r.id);
+  assert.ok(ids.includes('lang:en'));
+  assert.ok(ids.includes('lang:fr'));
+  assert.equal(ids.filter((id) => id.startsWith('lang:')).length, 2);
+});
+
+test('la langue courante est marquée, sinon le joueur ne sait pas laquelle il a', () => {
+  const en = draw(state({ language: 'en' }));
+  const fr = draw(state({ language: 'fr' }));
+  // Le marquage passe par un fond, pas par un texte : ce qui doit différer,
+  // c'est le dessin, et les deux états dessinent les mêmes `fillText`.
+  assert.notDeepEqual(en.fills, fr.fills, 'les deux langues se dessinent à l identique');
+});
+
+test('les deux langues sont nommées', () => {
+  const ctx = draw(state());
+  assert.ok(ctx.texts.includes(LABELS.langEn));
+  assert.ok(ctx.texts.includes(LABELS.langFr));
+});
+
+test('les langues disparaissent pendant une capture, comme tout le reste', () => {
+  // Une capture attend une pression physique : toute région encore présente
+  // volerait celle-là.
+  const ids = layoutControlsPanel(state({ listeningFor: 'a' })).map((r) => r.id);
+  assert.equal(ids.filter((id) => id.startsWith('lang:')).length, 0);
 });

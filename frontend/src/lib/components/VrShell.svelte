@@ -384,29 +384,17 @@
 
   function repaintProfile(): void {
     if (!profilePanel) return;
-    const state = {
-      pseudo: $user?.pseudo ?? '',
-      map: padMap,
-      language: $language,
-      playing: engine !== null
-    };
+    const state = { pseudo: $user?.pseudo ?? '', playing: engine !== null };
     profilePanel.regions = layoutProfilePanel(state);
     const regions = profilePanel.regions;
     profilePanel.paint((ctx) =>
       drawProfilePanel(ctx, state, regions, {
         labels: {
-          letters: t($language, 'vrPresetLetters'),
-          thumb: t($language, 'vrPresetThumb'),
+          controls: t($language, 'controls'),
+          recenter: t($language, 'vrRecenter'),
           quit: t($language, 'vrQuit'),
           resume: t($language, 'vrResume'),
-          stopGame: t($language, 'vrStopGame'),
-          remap: t($language, 'vrRemap'),
-          controls: t($language, 'controls'),
-          gripLeft: t($language, 'vrGripLeft'),
-          gripRight: t($language, 'vrGripRight'),
-          triggers: t($language, 'vrTriggers'),
-          sticks: t($language, 'vrSticks'),
-          dpad: t($language, 'vrDpad')
+          stopGame: t($language, 'vrStopGame')
         },
         hoverId: hovered?.panel === 'profile' ? hovered.region.id : null
       })
@@ -495,7 +483,7 @@
 
   function repaintControls(): void {
     if (!scene || !remapOpen) return;
-    const state = { map: padMap, listeningFor };
+    const state = { map: padMap, listeningFor, language: $language };
     const regions = layoutControlsPanel(state);
     // Replaced in place: `scene.aimedAt` holds this same array.
     scene.screen.regions.length = 0;
@@ -517,6 +505,10 @@
       done: t($language, 'vrRemapDone'),
       fixedDpad: t($language, 'vrFixedDpad'),
       fixedMenu: t($language, 'vrFixedMenu'),
+      // Each language named in ITSELF, not in the current one: somebody who
+      // has landed in the wrong language has to be able to read their way out.
+      langEn: 'English',
+      langFr: 'Français',
       // Literals, not translation keys: "A" and "START" are silkscreened on
       // the cartridge pad and identical in both languages. Translating them
       // would invent a divergence between the screen and the plastic.
@@ -703,7 +695,18 @@
       // way back to the library: a player who had simply finished had to take
       // the headset off and put it back on.
       if (id === 'stop') { void stopTogether(); return; }
-      if (id === 'remap') { openRemap(); return; }
+      if (id === 'controls') { openRemap(); return; }
+      /*
+       * Puts the room back in front of the player.
+       *
+       * Deliberately manual as well as automatic. `scene.recenter()` already
+       * runs once when the session first becomes genuinely visible - which is
+       * what stops the Quest's boundary dialog deciding where the room goes -
+       * and again if the runtime moves the origin. Neither covers a player who
+       * has simply turned or shifted in their chair, and only they know when
+       * that has happened. See `vr/anchor.ts`.
+       */
+      if (id === 'recenter') { scene?.recenter(); return; }
       if (id === 'resume') {
         // Back to the game, so the game gets its screen back. The launch
         // screen is abandoned rather than kept: `launchFor` surviving here
@@ -718,29 +721,23 @@
         scene?.panelsVisible(false);
         return;
       }
-      if (id === 'scheme:letters' || id === 'scheme:thumb') {
-        writePadMap(localStorage, id === 'scheme:thumb' ? THUMB_MAP : LETTERS_MAP);
-        // Read back rather than assumed: `readPadMap` is the only thing that
-        // decides, and a preset written and not stored (the default is
-        // removed, not stored) must still read back correctly.
-        padMap = readPadMap(localStorage);
-        repaintProfile();
-        return;
-      }
-      if (id === 'lang:en' || id === 'lang:fr') {
-        language.set(id === 'lang:en' ? 'en' : 'fr');
-        // Every panel carries text.
-        repaintLibrary();
-        repaintFriends();
-        repaintProfile();
-        return;
-      }
+      // The presets and the language used to be answered here. They live on
+      // the remap panel now - `panels/profile.ts`' header says why.
     }
 
     // Before the launch screen's own branch: both live on `scene.screen.regions`,
     // and only one of them owns the mesh at a time.
     if (target.panel === 'screen' && remapOpen) {
       const id = target.region.id;
+      if (id === 'lang:en' || id === 'lang:fr') {
+        language.set(id === 'lang:en' ? 'en' : 'fr');
+        // Every panel carries text.
+        repaintLibrary();
+        repaintFriends();
+        repaintProfile();
+        repaintControls();
+        return;
+      }
       if (id.startsWith('bind:')) {
         listeningFor = id.slice('bind:'.length) as VrButton;
         /*
@@ -757,11 +754,13 @@
       }
       if (id === 'preset:letters' || id === 'preset:thumb') {
         writePadMap(localStorage, id === 'preset:thumb' ? THUMB_MAP : LETTERS_MAP);
-        // Read back rather than assumed, the same rule the profile band's own
-        // preset buttons follow.
+        // Read back rather than assumed: `readPadMap` is the only thing that
+        // decides, and a preset written and not stored - the default is
+        // removed, not stored - must still read back correctly.
         padMap = readPadMap(localStorage);
+        // Only this panel: the band stopped showing the map when it became a
+        // launcher, so there is nothing of the map left there to refresh.
         repaintControls();
-        repaintProfile();
         return;
       }
       if (id === 'close') { closeRemap(); return; }

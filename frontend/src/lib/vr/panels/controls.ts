@@ -79,10 +79,26 @@ const FIXED_GAP = 30;
 const DONE_Y = PRESET_Y + (PRESET_H + PRESET_GAP) * 2 + 24;
 const DONE_H = 72;
 
+/*
+ * La langue, arrivée du bandeau.
+ *
+ * `panels/profile.ts` mélangeait réglages et raccourcis ; il est devenu un
+ * lanceur et ses réglages sont montés ici, sur le panneau qui a la place.
+ *
+ * Deux boutons plutôt qu'une bascule, pour la raison que ce panneau applique
+ * déjà à ses presets : il y a exactement deux langues, et une bascule
+ * obligerait le joueur à deviner laquelle est active.
+ */
+const LANG_Y = DONE_Y + DONE_H + 24;
+const LANG_H = 56;
+const LANG_GAP = 16;
+const LANG_W = (PRESET_W - LANG_GAP) / 2;
+
 export interface ControlsState {
   map: VrPadMap;
   /** Le bouton dont on attend la nouvelle entrée, ou null. */
   listeningFor: VrButton | null;
+  language: 'en' | 'fr';
 }
 
 export interface ControlsLabels {
@@ -97,6 +113,8 @@ export interface ControlsLabels {
   presetThumb: string;
   fixedDpad: string;
   fixedMenu: string;
+  langEn: string;
+  langFr: string;
   button: Record<VrButton, string>;
   input: Record<XrInput, string>;
 }
@@ -127,6 +145,15 @@ export function layoutControlsPanel(state: ControlsState): Region[] {
     h: PRESET_H
   });
   regions.push({ id: 'close', x: PRESET_X, y: DONE_Y, w: PRESET_W, h: DONE_H });
+
+  regions.push({ id: 'lang:en', x: PRESET_X, y: LANG_Y, w: LANG_W, h: LANG_H });
+  regions.push({
+    id: 'lang:fr',
+    x: PRESET_X + LANG_W + LANG_GAP,
+    y: LANG_Y,
+    w: LANG_W,
+    h: LANG_H
+  });
 
   return regions;
 }
@@ -246,6 +273,35 @@ export function drawControlsPanel(
   ctx.fillStyle = '#79798a';
   ctx.textAlign = 'left';
   const fixedW = width - PAD * 2;
+  for (const [id, label, active] of [
+    ['lang:en', labels.langEn, state.language === 'en'],
+    ['lang:fr', labels.langFr, state.language === 'fr']
+  ] as const) {
+    const region = byId.get(id);
+    if (!region) continue;
+    // Le marquage est un fond, pas un texte : les deux états doivent dessiner
+    // les mêmes `fillText`, sinon c'est le libellé qui change de sens.
+    ctx.fillStyle = active ? '#2f3a5c' : '#1c1c26';
+    ctx.fillRect(region.x, region.y, region.w, region.h);
+    ctx.fillStyle = active ? '#ffffff' : '#9a9aac';
+    ctx.font = '600 22px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(
+      truncate(ctx, label, region.w - 16),
+      region.x + region.w / 2,
+      region.y + region.h / 2
+    );
+    if (opts.hoverId === id) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(region.x - 3, region.y - 3, region.w + 6, region.h + 6);
+    }
+  }
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#6a6a78';
+  ctx.font = '20px system-ui, sans-serif';
   ctx.fillText(truncate(ctx, labels.fixedDpad, fixedW), PAD, FIXED_Y);
   ctx.fillText(truncate(ctx, labels.fixedMenu, fixedW), PAD, FIXED_Y + FIXED_GAP);
 
