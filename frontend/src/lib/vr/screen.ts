@@ -53,32 +53,20 @@ export interface VrScreen {
 /**
  * The texture behind a screen-sized panel, configured once for both callers.
  *
- * Linear rather than nearest, unlike the picture: this is text and box art on
- * a two-and-a-half-metre screen, and nearest-neighbour text at an angle is
- * unreadable.
- *
- * Mipmapped, which the picture is not, because a panel drawn at 1024 canvas
- * pixels across a 60 degree arc is MINIFIED at the arc's edges - and a plain
- * `LinearFilter` answers a footprint wider than a texel with one bilinear tap,
- * so it skips texels, and which ones it skips changes with every small
- * movement of the head. That is seen as the panel shimmering rather than as
- * anything to do with sharpness. `panel-mesh.ts` carries the longer version of
- * this note for the lecterns, where the effect is stronger.
- *
- * The anisotropy is deliberately generous: three clamps it to what the device
- * supports (`WebGLTextures.js:702`), so no renderer has to reach this file.
- *
- * It costs a `generateMipmap` per upload, which a panel pays when its data or
- * its hover changes - not per frame. The picture's own texture is left
- * untouched by all of this: see `rebuildPicture`.
+ * Linear both ways and no mipmaps. Nearest is wrong here - this is text and
+ * box art on a two-and-a-half-metre screen, and nearest-neighbour text at an
+ * angle is unreadable - but so is trilinear, for the reason `panel-mesh.ts`
+ * sets out at length: mipmaps were added against a shimmer whose real cause
+ * was an aliased canvas, and once that was fixed at source they only softened
+ * the text. The picture next door gets the pixel-art filter instead, which is
+ * a different problem with a different answer (`picture-filter.ts`).
  */
 function panelTextureFor(canvas: HTMLCanvasElement): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.magFilter = THREE.LinearFilter;
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.generateMipmaps = true;
-  texture.anisotropy = 8;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
   return texture;
 }
 

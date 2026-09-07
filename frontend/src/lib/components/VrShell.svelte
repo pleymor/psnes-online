@@ -304,12 +304,14 @@
       if (notice) {
         ctx.save();
         ctx.fillStyle = '#7a2222';
-        ctx.fillRect(0, 0, LIBRARY_PANEL_SIZE.width, 40);
+        // 56 and 28 rather than 40 and 20: these are canvas pixels, and the
+        // lectern's canvas grew with everything drawn on it.
+        ctx.fillRect(0, 0, LIBRARY_PANEL_SIZE.width, 56);
         ctx.fillStyle = '#ffffff';
-        ctx.font = '18px system-ui, sans-serif';
+        ctx.font = '25px system-ui, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(notice, LIBRARY_PANEL_SIZE.width / 2, 20);
+        ctx.fillText(notice, LIBRARY_PANEL_SIZE.width / 2, 28);
         ctx.restore();
       }
     });

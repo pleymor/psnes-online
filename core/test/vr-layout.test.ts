@@ -18,7 +18,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sceneLayout } from '../../frontend/src/lib/vr/layout.js';
+import {
+  sceneLayout,
+  eyeDistance,
+  angularWidth,
+  pixelsPerDegree,
+  QUEST_3_PIXELS_PER_DEGREE
+} from '../../frontend/src/lib/vr/layout.js';
 import { LIBRARY_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/library.js';
 import { FRIENDS_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/friends.js';
 import { PROFILE_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/profile.js';
@@ -159,6 +165,75 @@ test('every panel is shaped like its own canvas, or its text is stretched', () =
     assert.ok(
       Math.abs(metres / pixels - 1) < 0.002,
       `${name} is ${(metres / pixels).toFixed(4)}x wider in metres than in pixels`
+    );
+  }
+});
+
+/*
+ * Angular size, which is the only thing legibility answers to.
+ *
+ * This file's header already says it - "legibility follows angular distance,
+ * which is what ruled out putting all three on one 3 m arc" - but nothing
+ * measured it, and the lecterns were reported from inside a headset as too
+ * small to read without leaning in. At 30 degrees of view an 18px title on an
+ * 800px canvas lands around ten display pixels of cap height on a Quest 3,
+ * and ten is not enough. Hence a floor on the angle.
+ *
+ * `eyeDistance` gets its own test because getting it wrong is easy and I did:
+ * `LECTERN_DISTANCE` is the HORIZONTAL radius, and the drop is the other leg
+ * of the triangle, so the panel is further from the eyes than that constant
+ * says. Every angle computed from the radius alone is overstated.
+ */
+test('the distance to a panel counts the drop, not just the radius', () => {
+  const { library, profile } = sceneLayout('crt');
+
+  // A lectern 1.06 out and 0.45 down is 1.15 away, not 1.06.
+  const [x, y, z] = library.position;
+  assert.ok(Math.abs(eyeDistance(library) - Math.hypot(x, y, z)) < 1e-9);
+  assert.ok(
+    eyeDistance(library) > Math.hypot(x, z),
+    'a panel below eye level is further away than its radius'
+  );
+
+  // The band is straight ahead and well below, so its drop dominates even more.
+  assert.ok(eyeDistance(profile) > 1.2);
+});
+
+test('the lecterns are wide enough in view to be read from where they sit', () => {
+  const { library, friends } = sceneLayout('crt');
+
+  for (const [name, panel] of [['library', library], ['friends', friends]] as const) {
+    assert.ok(
+      angularWidth(panel) >= 40,
+      `${name} spans only ${angularWidth(panel).toFixed(1)} degrees, which reads as too small`
+    );
+  }
+});
+
+/*
+ * And the canvas has to match the headset, in both directions.
+ *
+ * Under the display's own figure and the canvas is the limit: the text is
+ * magnified and soft, which is the trap in enlarging a panel's metres without
+ * enlarging its canvas. Far over it and the pixels are drawn and thrown away -
+ * which is also what made mipmaps on these panels a pure loss, since there was
+ * no detail below the display's reach for them to protect.
+ *
+ * A band rather than a target, because neither end is a cliff.
+ */
+test('every panel carries about as many canvas pixels as the headset can show', () => {
+  const layout = sceneLayout('crt');
+  const pairs = [
+    ['library', layout.library, LIBRARY_PANEL_SIZE],
+    ['friends', layout.friends, FRIENDS_PANEL_SIZE],
+    ['profile', layout.profile, PROFILE_PANEL_SIZE]
+  ] as const;
+
+  for (const [name, placement, canvas] of pairs) {
+    const ratio = pixelsPerDegree(placement, canvas) / QUEST_3_PIXELS_PER_DEGREE;
+    assert.ok(
+      ratio > 0.85 && ratio < 1.15,
+      `${name} carries ${ratio.toFixed(3)}x the headset's pixels per degree`
     );
   }
 });

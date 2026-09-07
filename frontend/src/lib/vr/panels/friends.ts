@@ -19,12 +19,12 @@
 
 import type { PanelSize, Region } from '../panel';
 
-export const FRIENDS_PANEL_SIZE: PanelSize = { width: 800, height: 600 };
+export const FRIENDS_PANEL_SIZE: PanelSize = { width: 1120, height: 840 };
 
-const PAD = 24;
-const HEADER = 56;
-const ROW_H = 56;
-const FOOTER = 44;
+const PAD = 34;
+const HEADER = 78;
+const ROW_H = 78;
+const FOOTER = 62;
 
 /** No scrolling here - there is nothing to press, so a cap is honest. */
 export const FRIENDS_VISIBLE_ROWS = Math.floor(
@@ -90,7 +90,7 @@ export function drawFriendsPanel(
   ctx.fillRect(0, 0, width, height);
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = '600 30px system-ui, sans-serif';
+  ctx.font = '600 42px system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText(labels.heading, PAD, HEADER / 2);
@@ -98,7 +98,7 @@ export function drawFriendsPanel(
   if (rows.length === 0) {
     // A blank panel reads as one that failed to load.
     ctx.textAlign = 'center';
-    ctx.font = '20px system-ui, sans-serif';
+    ctx.font = '28px system-ui, sans-serif';
     ctx.fillStyle = '#a0a0b0';
     ctx.fillText(labels.nobody, width / 2, height / 2);
     ctx.restore();
@@ -115,13 +115,13 @@ export function drawFriendsPanel(
 
     ctx.textAlign = 'left';
     ctx.fillStyle = row.online ? '#ffffff' : '#8a8a98';
-    ctx.font = '22px system-ui, sans-serif';
+    ctx.font = '31px system-ui, sans-serif';
     ctx.fillText(row.pseudo, PAD + 30, y);
 
     // The game rather than a bare dot: "online" tells you nothing you would
     // act on, "playing Zelda" is the thing worth looking over for.
     ctx.fillStyle = '#8a8a98';
-    ctx.font = '18px system-ui, sans-serif';
+    ctx.font = '25px system-ui, sans-serif';
     ctx.textAlign = 'right';
     ctx.fillText(
       row.playing ?? (row.online ? labels.online : labels.offline),
@@ -132,7 +132,7 @@ export function drawFriendsPanel(
 
   ctx.textAlign = 'center';
   ctx.fillStyle = '#6a6a78';
-  ctx.font = 'italic 17px system-ui, sans-serif';
+  ctx.font = 'italic 24px system-ui, sans-serif';
   ctx.fillText(labels.readOnly, width / 2, height - FOOTER / 2);
 
   ctx.restore();

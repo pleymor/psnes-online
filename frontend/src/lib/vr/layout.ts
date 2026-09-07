@@ -16,6 +16,7 @@
  */
 
 import { aspectRatioOf, type PixelAspect } from '$lib/znet/fit';
+import type { PanelSize } from './panel';
 
 export interface Placement {
   position: [number, number, number];
@@ -60,7 +61,17 @@ const SCREEN_RADIUS = 2.5;
  * not behind the player's cheekbones. */
 const SCREEN_ARC = Math.PI / 3;
 
-const LECTERN_DISTANCE = 1.2;
+/**
+ * The horizontal radius, not the distance - `eyeDistance` is the distance.
+ *
+ * Brought in from 1.2 with the width taken up to 0.95 at the same time. The
+ * two together are what carried the lecterns from 30.5 degrees of view to
+ * 44.8, because 30.5 was measured and reported as too small to read without
+ * leaning in. Neither constant alone gets there without going somewhere
+ * uncomfortable: the panel would have to reach 1.0 m across to do it from
+ * 1.2 m, or sit at 0.8 m to do it at its old size.
+ */
+const LECTERN_DISTANCE = 1.06;
 /** 60 degrees off centre: peripheral, so it is not in the way, but reachable by
  * a glance rather than a turn of the whole body. */
 const LECTERN_AZIMUTH = Math.PI / 3;
@@ -68,19 +79,18 @@ const LECTERN_AZIMUTH = Math.PI / 3;
 const LECTERN_DROP = 0.45;
 /** 40 degrees, tipped back so a lowered panel faces raised eyes. */
 const LECTERN_PITCH = -(Math.PI * 40) / 180;
-const LECTERN_WIDTH = 0.7;
+const LECTERN_WIDTH = 0.95;
 /**
- * 0.7 / (800 / 600), and the division is the point.
+ * 0.95 / (1120 / 840), and the division is the point.
  *
  * `panel-mesh.ts` maps the whole canvas onto the whole plane, uv 0..1 on both
  * axes, so a lectern whose metres are not the shape of its canvas stretches
- * every glyph on it. This was 0.5 against an 800 x 600 canvas, which is 1.40
- * over 1.3333: five per cent too wide, everywhere, invisible as a defect and
- * quietly wrong. Corrected upward rather than by narrowing the panel, so the
- * lectern gains a little area instead of losing some. `vr-layout.test.ts`
- * holds the two numbers together from now on.
+ * every glyph on it. It was once 0.5 against an 800 x 600 canvas, which is
+ * 1.40 over 1.3333: five per cent too wide, everywhere, invisible as a defect
+ * and quietly wrong. `vr-layout.test.ts` holds the two numbers together from
+ * now on, which is what makes changing either safe.
  */
-const LECTERN_HEIGHT = 0.525;
+const LECTERN_HEIGHT = 0.7125;
 
 const BAND_DISTANCE = 1.0;
 const BAND_DROP = 0.75;
@@ -132,4 +142,54 @@ export function sceneLayout(aspect: PixelAspect): SceneLayout {
       height: BAND_HEIGHT
     }
   };
+}
+
+/**
+ * What a Quest 3 can actually show, in pixels per degree of view.
+ *
+ * 2064 x 2208 per eye behind a lens that puts roughly 25 pixels into each
+ * central degree. It is a device figure, not a measurement of ours, and it is
+ * here rather than inline because it is the yardstick every panel's canvas is
+ * sized against - see `pixelsPerDegree`.
+ */
+export const QUEST_3_PIXELS_PER_DEGREE = 25;
+
+/**
+ * Metres from the eyes to a panel's centre.
+ *
+ * NOT `LECTERN_DISTANCE`. That constant is the horizontal radius, and the drop
+ * below eye level is the other leg of the triangle: a lectern 1.06 out and
+ * 0.45 down is 1.15 away. Computing an angle from the radius alone overstates
+ * it by that ratio, which is a mistake already made once on this file.
+ */
+export function eyeDistance(placement: Placement): number {
+  const [x, y, z] = placement.position;
+  return Math.hypot(x, y, z);
+}
+
+/**
+ * How much of the view a panel takes up, in degrees.
+ *
+ * This is the number legibility answers to, and the reason this module's
+ * header calls the cockpit layout the one that won: a panel's size in metres
+ * means nothing on its own. Measured across the width, which is the axis the
+ * canvases are widest on and the one the text runs along.
+ */
+export function angularWidth(placement: Placement): number {
+  return (2 * Math.atan(placement.width / 2 / eyeDistance(placement)) * 180) / Math.PI;
+}
+
+/**
+ * A panel's canvas resolution expressed in the same units as the headset's.
+ *
+ * The two want to be about equal, and both directions of mismatch cost
+ * something. Below the display's figure the canvas is the limit: its pixels
+ * are magnified, so the text is soft - which is the trap in enlarging a
+ * panel's metres and leaving its canvas alone. Far above it the extra pixels
+ * are drawn and then thrown away, and they were worse than useless while
+ * these textures had mipmaps, because there was no detail beneath the
+ * display's reach for a mip level to protect.
+ */
+export function pixelsPerDegree(placement: Placement, canvas: PanelSize): number {
+  return canvas.width / angularWidth(placement);
 }

@@ -39,36 +39,28 @@ export function createPanelMesh(
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  // Linear here, unlike the screen: this is text and box art, not a 256-wide
-  // pixel picture, and nearest-neighbour text at an angle is unreadable.
+  // Linear both ways, and no mipmaps. This is text and box art, not a
+  // 256-wide pixel picture, so nearest is out - but trilinear is out too, and
+  // that took a headset to establish.
+  //
+  // Mipmaps lived here briefly, added because the covers shimmered. They did
+  // stop it, and they were still the wrong fix: the shimmer was aliasing that
+  // `panels/library.ts` had already baked into the canvas by point-sampling
+  // its downscale, and once that was corrected at source the shimmer went
+  // with it. What the mipmaps then did was soften the whole texture for
+  // nothing. The lectern is minified about 1.2x horizontally and 1.6x
+  // vertically once `layout.ts` tips it back, so the GPU was blending in a
+  // half-resolution level - and it blurs the TEXT, which never shimmered and
+  // had nothing to gain. Reported from inside the headset as the panel being
+  // blurry until you lean into it, which is exactly what a positive mip bias
+  // looks like.
+  //
+  // The anisotropy went with them rather than separately: `WebGLTextures.js:695`
+  // ignores it unless the minFilter is mipmap-linear, so it would have been a
+  // line that reads as doing something and does nothing.
   texture.magFilter = THREE.LinearFilter;
-  /*
-   * Mipmapped, because these panels are MINIFIED, which is not obvious and is
-   * what made the covers shimmer.
-   *
-   * The lectern is 800 canvas pixels across 0.7 m at 1.2 m, which is 32.5
-   * degrees, so it carries about 24.6 canvas pixels per degree against roughly
-   * 20 the headset can show - and `layout.ts` tips it back 40 degrees, so
-   * vertically the figure is nearer 1.6 canvas pixels per rendered pixel. A
-   * plain `LinearFilter` answers that with ONE bilinear tap, which cannot see
-   * the texels its footprint covers: it skips some, and which ones it skips
-   * changes with every small movement of the head. That is the shimmer, and it
-   * is minification aliasing rather than anything to do with sharpness.
-   *
-   * Trilinear alone would then over-blur a panel seen this obliquely, so the
-   * anisotropy pays that back. The number is generous on purpose - three
-   * clamps it to whatever the device actually supports
-   * (`WebGLTextures.js:702`), which is why this file still needs no renderer.
-   *
-   * The cost is a `generateMipmap` per upload. Affordable for exactly the
-   * reason in this file's header: a panel redraws when its data or its hover
-   * changes, never per frame. The canvas is not a power of two, which is fine
-   * - three has been WebGL2-only since r163 (`WebGLCapabilities.js:119`), and
-   * WebGL2 mipmaps NPOT textures without complaint.
-   */
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.generateMipmaps = true;
-  texture.anisotropy = 8;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
 
   const material = new THREE.MeshBasicMaterial({
     map: texture,

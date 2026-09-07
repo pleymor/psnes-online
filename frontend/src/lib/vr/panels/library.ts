@@ -20,13 +20,13 @@ import { fitContain, intrinsicSize, type PanelSize, type Region } from '../panel
 import type { Game } from '$lib/stores/games';
 
 /** Canvas pixels. Mapped onto the 0.7 x 0.5 m lectern `layout.ts` places. */
-export const LIBRARY_PANEL_SIZE: PanelSize = { width: 800, height: 600 };
+export const LIBRARY_PANEL_SIZE: PanelSize = { width: 1120, height: 840 };
 
-const PAD = 24;
-const HEADER = 56;
+const PAD = 34;
+const HEADER = 78;
 const COLUMNS = 3;
-const GAP = 16;
-const SCROLL_W = 56;
+const GAP = 22;
+const SCROLL_W = 78;
 /*
  * The scroll buttons get a gutter of their own rather than floating over the
  * grid's right-hand column.
@@ -58,8 +58,8 @@ const TILE_W = Math.floor(
  * Exported because the tests derive the drawn rectangle from it rather than
  * restating it, which is what stops them going stale the next time it moves.
  */
-export const COVER_H = 212;
-const TITLE_H = 32;
+export const COVER_H = 297;
+const TITLE_H = 45;
 const TILE_H = COVER_H + TITLE_H;
 
 /** Rows that fit under the header. */
@@ -190,7 +190,7 @@ export function drawLibraryPanel(
   ctx.fillRect(0, 0, width, height);
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = '600 30px system-ui, sans-serif';
+  ctx.font = '600 42px system-ui, sans-serif';
   ctx.textBaseline = 'middle';
   ctx.fillText(opts.labels.heading, PAD, HEADER / 2);
 
@@ -202,10 +202,10 @@ export function drawLibraryPanel(
       emptiness === 'library-empty' ? opts.labels.emptyLibraryHint : opts.labels.noneHereHint;
 
     ctx.textAlign = 'center';
-    ctx.font = '600 28px system-ui, sans-serif';
+    ctx.font = '600 39px system-ui, sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.fillText(heading, width / 2, height / 2 - 20);
-    ctx.font = '20px system-ui, sans-serif';
+    ctx.font = '28px system-ui, sans-serif';
     ctx.fillStyle = '#a0a0b0';
     ctx.fillText(hint, width / 2, height / 2 + 20);
     ctx.restore();
@@ -219,7 +219,7 @@ export function drawLibraryPanel(
       ctx.fillStyle = opts.hoverId === region.id ? '#3a3a52' : '#22222e';
       ctx.fillRect(region.x, region.y, region.w, region.h);
       ctx.fillStyle = '#ffffff';
-      ctx.font = '600 28px system-ui, sans-serif';
+      ctx.font = '600 39px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(
@@ -254,7 +254,7 @@ export function drawLibraryPanel(
     // is still a game the player owns, and a blank tile is unlaunchable in
     // practice because nobody presses what they cannot read.
     ctx.fillStyle = '#ffffff';
-    ctx.font = '18px system-ui, sans-serif';
+    ctx.font = '25px system-ui, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(
