@@ -33,13 +33,6 @@
   import { get } from 'svelte/store';
   import { vrRequested, vrActive } from '$lib/vr/entry';
   import { openVrSession, type VrSession } from '$lib/vr/xr-session';
-  /*
-   * Temporaire, et il part quand la question est réglée : pourquoi la session
-   * bascule en room zone une fraction de seconde après l'entrée. Voir son
-   * en-tête pour l'énumération de ce que la page demande à WebXR - qui ne
-   * contient aucune limite.
-   */
-  import { probeBoundary } from '$lib/vr/boundary-probe';
   import { createVrScene, type VrScene } from '$lib/vr/scene';
   import { readAspectPreference } from '$lib/stores/aspect-preference';
   import { notifications } from '$lib/services/notification';
@@ -2094,17 +2087,6 @@
       scene.onFrame(frame);
       vrActive.set(true);
 
-      /*
-       * Le diagnostic de la bascule, lancé sans être attendu.
-       *
-       * `void` et non `await` : il observe pendant trois secondes, et attendre
-       * son rapport retarderait d'autant les panneaux et la bibliothèque -
-       * exactement le défaut que le commentaire ci-dessus décrit à propos d'un
-       * `fetch` sans plafond. Son écriture arrive quand elle arrive.
-       */
-      void probeBoundary(session.session as unknown as { visibilityState: string; requestReferenceSpace(t: string): Promise<unknown> })
-        .then((report) => logger.info('vr boundary probe', report))
-        .catch((err) => logger.warn('vr boundary probe failed', err));
 
       // Until a game is launched, this is what the screen carries - and what
       // makes a wrong distance or height obvious.
