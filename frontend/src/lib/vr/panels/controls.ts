@@ -28,6 +28,17 @@ import { VR_BUTTONS, type VrButton, type VrPadMap, type XrInput } from '../pad-m
 /** La surface de l'écran courbe, la même que l'écran de lancement. */
 export const CONTROLS_PANEL_SIZE: PanelSize = { width: 1024, height: 768 };
 
+/**
+ * Le même canvas, sous le nom de la surface qui le porte.
+ *
+ * `layout.ts` a besoin de cette taille pour vérifier que la tablette a la
+ * forme de son canvas, et il ne peut pas dépendre du panneau des contrôles en
+ * particulier : c'est la tablette qui est mesurée, pas son contenu du jour. Le
+ * lot 2 remplacera ce contenu par la manette dessinée sans toucher à la
+ * surface.
+ */
+export const TABLET_PANEL_SIZE = CONTROLS_PANEL_SIZE;
+
 const PAD = 40;
 const TITLE_Y = 56;
 

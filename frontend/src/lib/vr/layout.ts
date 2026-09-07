@@ -41,6 +41,8 @@ export interface SceneLayout {
   library: Placement;
   friends: Placement;
   profile: Placement;
+  /** Les menus d'options, devant l'écran. Voir les constantes ci-dessus. */
+  tablet: Placement;
 }
 
 /*
@@ -95,6 +97,37 @@ const LECTERN_HEIGHT = 0.7125;
 const BAND_DISTANCE = 1.0;
 const BAND_DROP = 0.75;
 const BAND_PITCH = -(Math.PI * 55) / 180;
+/*
+ * La tablette : les menus d'options, à leur propre profondeur.
+ *
+ * Chaque nombre est déduit, pas choisi. 1,12 / 0,84 = 4/3 parce que c'est la
+ * forme du canvas de `panels/controls.ts` (1024 x 768), et un panneau qui n'a
+ * pas la forme de son canvas étire tout son texte. 1,5 m parce que son centre
+ * est alors à 1,540 m des yeux, qu'elle occupe 40,0 degrés, et que 1024/40,0
+ * donne 25,6 pixels de canvas par degré contre les 25 du Quest 3.
+ *
+ * L'écran est à 2,5 m : il reste un mètre franc entre les deux surfaces, et
+ * c'est cette séparation qui fait que « flottant devant l'écran » veut dire
+ * quelque chose.
+ *
+ * La descente de 0,35 m est un arbitrage chiffré, et choisi contre deux
+ * autres. L'image du jeu occupe -21,4 à +21,4 degrés et la tablette -28,4 à
+ * +2,1 : elle couvre 55 % de l'image et en laisse 45 % au-dessus d'elle. Plus
+ * bas elle couvrirait moins - 42 % à 0,50 m - mais son bord bas passerait
+ * derrière le bandeau, qui est plus proche. Plus haut elle dégagerait le
+ * bandeau et mangerait l'image : 64 % à 0,25 m. 0,35 m est le premier cran où
+ * la marge au-dessus du bandeau est réelle plutôt que rasante.
+ *
+ * Flotter devant l'écran implique d'en masquer une part. La demande était que
+ * le jeu reste SUR l'écran de jeu, pas qu'on le voie entièrement.
+ */
+const TABLET_DISTANCE = 1.5;
+const TABLET_DROP = 0.35;
+const TABLET_WIDTH = 1.12;
+const TABLET_HEIGHT = TABLET_WIDTH / (1024 / 768);
+/** L'élévation de son propre centre, donc elle fait face au regard. */
+const TABLET_PITCH = -Math.atan(TABLET_DROP / TABLET_DISTANCE);
+
 const BAND_WIDTH = 0.9;
 const BAND_HEIGHT = 0.3;
 
@@ -140,6 +173,12 @@ export function sceneLayout(aspect: PixelAspect): SceneLayout {
       rotation: [BAND_PITCH, 0, 0],
       width: BAND_WIDTH,
       height: BAND_HEIGHT
+    },
+    tablet: {
+      position: [0, -TABLET_DROP, -TABLET_DISTANCE],
+      rotation: [TABLET_PITCH, 0, 0],
+      width: TABLET_WIDTH,
+      height: TABLET_HEIGHT
     }
   };
 }
@@ -192,4 +231,42 @@ export function angularWidth(placement: Placement): number {
  */
 export function pixelsPerDegree(placement: Placement, canvas: PanelSize): number {
   return canvas.width / angularWidth(placement);
+}
+
+/**
+ * Le haut et le bas d'un panneau, en degrés au-dessus de l'horizon.
+ *
+ * Le tangage compte, et c'est tout l'intérêt : il fait pivoter les deux bords
+ * autour du centre, donc un tangage arrière rapproche le bord bas du joueur en
+ * même temps qu'il le descend. Deux estimations successives de la marge entre
+ * la tablette et le bandeau se sont trouvées fausses pour avoir sauté cette
+ * étape, dont une avec le signe inversé - d'où le cas de contrôle du panneau à
+ * plat dans `vr-layout.test.ts`, qui est la seule assertion qu'une version
+ * signée à l'envers échoue.
+ *
+ * Seul le tangage est lu. Un lacet ne change rien à une étendue verticale, et
+ * aucun panneau de cette scène n'a de roulis - `panel-mesh.ts` explique
+ * pourquoi son ordre de rotation est `YXZ` précisément pour qu'il n'y en ait
+ * pas.
+ */
+export function verticalSpan(placement: Placement): { top: number; bottom: number } {
+  const [, y, z] = placement.position;
+  const [pitch] = placement.rotation;
+  const half = placement.height / 2;
+
+  /*
+   * Le vecteur « haut » du panneau après son tangage.
+   *
+   * Une rotation d'angle p autour de X envoie (0,1,0) sur (0, cos p, sin p).
+   * Le signe de la composante z est ce qui s'est trompé une fois : avec p
+   * négatif elle est négative, donc le bord haut s'ÉLOIGNE du joueur, ce que
+   * le cas du panneau à plat face au ciel vérifie sans ambiguïté.
+   */
+  const upY = half * Math.cos(pitch);
+  const upZ = half * Math.sin(pitch);
+
+  const angle = (dy: number, dz: number) =>
+    (Math.atan2(y + dy, -(z + dz)) * 180) / Math.PI;
+
+  return { top: angle(upY, upZ), bottom: angle(-upY, -upZ) };
 }

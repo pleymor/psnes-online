@@ -88,10 +88,10 @@ du casque. Les chiffres de la section 3 en sont **déduits**, pas choisis.
 
 ```
 TABLET_DISTANCE = 1.5   // rayon horizontal, droit devant
-TABLET_DROP     = 0.50  // sous les yeux
+TABLET_DROP     = 0.35  // sous les yeux
 TABLET_WIDTH    = 1.12
 TABLET_HEIGHT   = 0.84
-TABLET_PITCH    = -atan(0.50 / 1.5) = -18.4 degrés
+TABLET_PITCH    = -atan(0.35 / 1.5) = -13.1 degrés
 ```
 
 Chaque nombre a une raison :
@@ -99,25 +99,34 @@ Chaque nombre a une raison :
 - **1,12 × 0,84** parce que 1,12/0,84 = 4/3 = 1024/768, la taille du canvas du
   panneau des contrôles. Le test d'aspect refuse tout autre couple : un
   panneau qui n'a pas la forme de son canvas étire tout son texte.
-- **1,5 m** parce que son centre est alors à 1,581 m des yeux (le rayon n'est
-  pas la distance — voir `eyeDistance`), qu'elle occupe **39,0°**, et que
-  1024/39,0 = **26,3 px de canvas par degré** contre les 25 du Quest 3 : dans
-  la bande de ±15 % que le test exige. Plus près elle gaspillerait des pixels,
-  plus loin elle serait molle.
+- **1,5 m** parce que son centre est alors à 1,540 m des yeux (le rayon n'est
+  pas la distance — voir `eyeDistance`), qu'elle occupe **40,0°**, et que
+  1024/40,0 = **25,6 px de canvas par degré** contre les 25 du Quest 3 : à
+  2,5 % près, bien dans la bande de ±15 % que le test exige. Plus près elle
+  gaspillerait des pixels, plus loin elle serait molle.
 - **L'écran est à 2,5 m**, donc il reste **un mètre franc** entre les deux
   surfaces. C'est cette séparation qui produit la parallaxe demandée, et c'est
   la seule raison pour laquelle « flottant devant l'écran » veut dire quelque
   chose plutôt que « collé dessus ».
-- **Le tangage de −18,4°** est exactement l'élévation de son centre vu des
+- **Le tangage de −13,1°** est exactement l'élévation de son centre vu des
   yeux, donc la tablette fait face au regard plutôt que de le prendre de
   biais. C'est le même calcul que le −40° des pupitres à 0,45 m de descente.
   `rotation.order = 'YXZ'` s'applique comme pour eux — `panel-mesh.ts` explique
   pourquoi l'ordre par défaut donnerait un roulis.
-- **La descente de 0,50 m** est un arbitrage, et il est chiffré. L'image du
-  jeu occupe −21,4° à +21,4° ; la tablette occupe −28,8° à −4,2°. Elle couvre
-  donc l'écran de −21,4° à −4,2°, soit **les 40 % du bas de l'image**, et
-  laisse les 60 % du haut libres. À hauteur d'yeux elle aurait masqué le
-  centre, et garder le jeu derrière n'aurait alors rien voulu dire.
+- **La descente de 0,35 m** est un arbitrage, et il est chiffré. L'image du
+  jeu occupe −21,4° à +21,4° ; la tablette occupe **−28,4° à +2,1°**. Elle
+  couvre donc **55 % de l'image** et en laisse **45 % au-dessus d'elle**.
+
+  Ce nombre a été choisi contre un autre. Descendre la tablette la fait couvrir
+  moins de jeu — 42 % à 0,50 m — mais son bord bas passe alors derrière le
+  bandeau, qui est plus près. La remonter dégage le bandeau mais mange l'image :
+  64 % à 0,25 m. 0,35 m est le premier cran où la marge au-dessus du bandeau
+  est réelle (2,2°) plutôt que rasante.
+
+  Et « flotter devant l'écran » implique mécaniquement d'en masquer une partie.
+  La demande était que le jeu **reste sur l'écran de jeu**, pas qu'on le voie
+  entièrement : il continue de tourner et garde sa surface, la tablette flotte
+  devant une part de lui. Aucune position ne supprime ce coût.
 
 ## 4. L'état : il n'y en a pas de nouveau
 
@@ -156,22 +165,34 @@ que le joueur ne voit pas, sur les pupitres qui se trouvent derrière elle.
 elle fait de `mesh.visible` un contrôle réel pour **tout** panneau plutôt qu'un
 cas particulier pour celui-ci.
 
-## 6. L'occultation de la sortie
+## 6. Qui occulte qui
 
 La tablette est à 1,5 m et le bandeau à 1,0 m. Elles peuvent donc se
-**chevaucher en angle sans se toucher dans l'espace**, et la tablette
-occulterait alors le bandeau — qui porte le seul chemin hors de la session.
+**chevaucher en angle sans se toucher dans l'espace**, et le plus proche gagne.
 
-Avec les chiffres de la section 3 : le bas de la tablette est à **−28,8°** et
-le haut du bandeau à **−37,1°**, soit **8,3° de marge**. Confortable.
+**Le bandeau est le plus proche.** La sortie n'est donc jamais masquée — c'est
+le bas de la tablette qui passerait derrière le bandeau. L'enjeu est la
+lisibilité du contenu de la tablette, pas la sûreté de la sortie.
 
-Une première estimation à la main donnait 3,4°, et elle était fausse : elle
-traitait la tablette comme si elle n'était pas inclinée. Le tangage remonte son
-bord bas de quatre degrés et demi, parce qu'il le ramène vers le joueur en même
-temps qu'il le descend. C'est précisément pour ça qu'un test calcule la marge
-au lieu qu'un commentaire l'affirme — et c'est le genre de défaut qu'on ne
-découvrirait autrement que le casque sur la tête, en voyant la sortie
-disparaître derrière une tablette.
+Avec les chiffres de la section 3 : le bas de la tablette est à **−28,4°** et
+le haut du bandeau à **−30,6°**, soit **2,2° de marge** en faveur de la
+tablette. Rien de son contenu ne passe derrière.
+
+Deux erreurs de ma part ont mené à ces nombres, et elles restent écrites ici
+parce que la seconde a invalidé un invariant que j'avais déjà conçu.
+
+La première était arithmétique : une estimation à la main donnait 3,4° de
+marge, puis un premier script en donnait 8,3°, et les deux étaient fausses. Le
+script avait le **signe du tangage inversé**. Un cas de contrôle le tranche
+sans ambiguïté : un panneau basculé de −90° est à plat face au ciel, donc son
+bord « haut » doit être le plus **éloigné** du joueur. C'est ce que donne
+`up = (0, cos φ, sin φ)`, et non ce que donnait la version signée à l'envers.
+
+La seconde était conceptuelle : j'avais écrit que la tablette occulterait le
+bandeau, sans regarder laquelle des deux surfaces était la plus proche. Le test
+survit, retourné — il protège la lisibilité de la tablette au lieu de la
+sûreté de la sortie. C'est précisément pour ça qu'une marge se calcule au lieu
+de s'affirmer dans un commentaire.
 
 ## 7. Hors périmètre
 
@@ -192,12 +213,16 @@ disparaître derrière une tablette.
 ## 8. Comment c'est vérifié
 
 Sous Bun, donc sans casque : la forme de la tablette contre son canvas (4/3),
-ses pixels par degré contre ceux du casque (26,3 contre 25), l'absence de
-chevauchement angulaire avec le bandeau (8,3° de marge), et le fait qu'un
-panneau invisible ne soit plus une cible.
+ses pixels par degré contre ceux du casque (25,6 contre 25), le fait que son
+bord bas reste au-dessus du bandeau (2,2° de marge), et le fait qu'un panneau
+invisible ne soit plus une cible.
+
+Le test d'étendue verticale porte un **cas de contrôle** en plus de ses
+assertions — le panneau à plat face au ciel — parce que c'est ce qui a manqué
+la première fois.
 
 **Ce que seul un casque peut trancher :** que le mètre de séparation se lise
 comme de la profondeur plutôt que comme deux surfaces à la même distance, que
 la moitié haute du jeu restée visible serve réellement à quelque chose pendant
-un réglage, et que la tablette ne gêne pas la lecture du bandeau malgré ses
-8,3° de marge.
+un réglage, et que 45 % de l'image au-dessus de la tablette soient assez pour
+que « garder le jeu sur l'écran de jeu » ait le sens que le demandeur voulait.

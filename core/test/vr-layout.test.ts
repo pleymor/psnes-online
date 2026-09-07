@@ -23,8 +23,10 @@ import {
   eyeDistance,
   angularWidth,
   pixelsPerDegree,
+  verticalSpan,
   QUEST_3_PIXELS_PER_DEGREE
 } from '../../frontend/src/lib/vr/layout.js';
+import { TABLET_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/controls.js';
 import { LIBRARY_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/library.js';
 import { FRIENDS_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/friends.js';
 import { PROFILE_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/profile.js';
@@ -151,12 +153,13 @@ test('every height is measured from the eyes, never from a floor', () => {
  * `layout.ts` to the panel modules' canvas sizes.
  */
 test('every panel is shaped like its own canvas, or its text is stretched', () => {
-  const { library, friends, profile } = sceneLayout('crt');
+  const { library, friends, profile, tablet } = sceneLayout('crt');
 
   const pairs = [
     ['library', library, LIBRARY_PANEL_SIZE],
     ['friends', friends, FRIENDS_PANEL_SIZE],
-    ['profile', profile, PROFILE_PANEL_SIZE]
+    ['profile', profile, PROFILE_PANEL_SIZE],
+    ['tablet', tablet, TABLET_PANEL_SIZE]
   ] as const;
 
   for (const [name, placement, canvas] of pairs) {
@@ -226,7 +229,8 @@ test('every panel carries about as many canvas pixels as the headset can show', 
   const pairs = [
     ['library', layout.library, LIBRARY_PANEL_SIZE],
     ['friends', layout.friends, FRIENDS_PANEL_SIZE],
-    ['profile', layout.profile, PROFILE_PANEL_SIZE]
+    ['profile', layout.profile, PROFILE_PANEL_SIZE],
+    ['tablet', layout.tablet, TABLET_PANEL_SIZE]
   ] as const;
 
   for (const [name, placement, canvas] of pairs) {
@@ -236,4 +240,98 @@ test('every panel carries about as many canvas pixels as the headset can show', 
       `${name} carries ${ratio.toFixed(3)}x the headset's pixels per degree`
     );
   }
+});
+
+/*
+ * L'étendue verticale d'un panneau, tangage compris.
+ *
+ * Le cas de contrôle en premier, parce que c'est ce qui a manqué la première
+ * fois : un panneau basculé de -90 degrés est à plat, face au ciel, donc son
+ * bord « haut » est le plus ÉLOIGNÉ du joueur et se lit près de l'horizon. Une
+ * version signée à l'envers passe toutes les assertions symétriques et échoue
+ * uniquement celle-là - elle avait produit une marge de 8,3 degrés là où la
+ * vérité est un chevauchement.
+ */
+test('un panneau a plat face au ciel a son bord haut au loin', () => {
+  const flat = {
+    position: [0, 0, -1] as [number, number, number],
+    rotation: [-Math.PI / 2, 0, 0] as [number, number, number],
+    width: 1,
+    height: 1
+  };
+  const span = verticalSpan(flat);
+  assert.ok(Math.abs(span.top) < 0.001, `bord haut a ${span.top.toFixed(2)} deg, attendu ~0`);
+  assert.ok(Math.abs(span.bottom) < 0.001, `bord bas a ${span.bottom.toFixed(2)} deg, attendu ~0`);
+});
+
+test('sans tangage l etendue est symetrique', () => {
+  const span = verticalSpan({
+    position: [0, 0, -1],
+    rotation: [0, 0, 0],
+    width: 1,
+    height: 1
+  });
+  assert.ok(Math.abs(span.top - 26.565) < 0.01);
+  assert.ok(Math.abs(span.bottom + 26.565) < 0.01);
+});
+
+test('un tangage arriere descend le bord bas, parce qu il le rapproche', () => {
+  const base = {
+    position: [0, 0, -1] as [number, number, number],
+    rotation: [0, 0, 0] as [number, number, number],
+    width: 1,
+    height: 1
+  };
+  const tipped = { ...base, rotation: [-Math.PI / 6, 0, 0] as [number, number, number] };
+  assert.ok(
+    verticalSpan(tipped).bottom < verticalSpan(base).bottom,
+    'le bord bas se rapproche du joueur, donc son elevation descend'
+  );
+});
+
+/*
+ * Qui occulte qui, et pourquoi ce test a changé de sujet.
+ *
+ * La tablette est à 1,5 m et le bandeau à 1,0 m : ils peuvent se chevaucher en
+ * angle sans se toucher, et le plus proche gagne. Le plus proche est le
+ * BANDEAU - donc la sortie n'est jamais masquée, contrairement à ce que la
+ * première version de cette conception affirmait. Ce qui est en jeu est la
+ * lisibilité du bas de la tablette, où le panneau des contrôles dessine sa
+ * bande de mapping fixe.
+ */
+test('le bandeau ne mange pas le bas de la tablette', () => {
+  const { tablet, profile } = sceneLayout('crt');
+
+  assert.ok(
+    eyeDistance(profile) < eyeDistance(tablet),
+    'si le bandeau cessait d etre le plus proche, ce test protegerait le mauvais bord'
+  );
+
+  const marge = verticalSpan(tablet).bottom - verticalSpan(profile).top;
+  assert.ok(
+    marge > 1,
+    `le bas de la tablette est a ${marge.toFixed(1)} deg du haut du bandeau, donc derriere lui`
+  );
+});
+
+test('la tablette flotte devant l ecran, pas dessus', () => {
+  const { tablet, screen } = sceneLayout('crt');
+  assert.ok(
+    eyeDistance(tablet) < screen.radius - 0.8,
+    'sans separation il n y a pas de parallaxe, donc pas d effet flottant'
+  );
+});
+
+test('une part utile de l image du jeu reste au-dessus de la tablette', () => {
+  const { tablet, screen } = sceneLayout('crt');
+  const image = verticalSpan({
+    position: [0, screen.centerY, -screen.radius],
+    rotation: [0, 0, 0],
+    width: screen.radius * screen.arc,
+    height: screen.height
+  });
+  const reste = (image.top - verticalSpan(tablet).top) / (image.top - image.bottom);
+  // 45 % avec les chiffres retenus. Flotter devant l ecran implique d en
+  // masquer une part : ce test borne cette part, il ne la supprime pas.
+  assert.ok(reste > 0.35, `il ne reste que ${(reste * 100).toFixed(0)}% de l image au-dessus`);
 });
