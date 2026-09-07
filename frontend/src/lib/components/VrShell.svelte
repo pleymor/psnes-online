@@ -58,7 +58,10 @@
   import { menuPressed, readVrPad, activeXrInputs } from '$lib/vr/pad';
   import {
     readPadMap, writePadMap, assignInput,
-    LETTERS_MAP, THUMB_MAP,
+    // `THUMB_MAP` n'est plus importé : son bouton a disparu avec le second
+    // préréglage, mais `readPadMap` honore encore la valeur stockée `'thumb'`
+    // pour ne reprendre son réglage à personne.
+    LETTERS_MAP,
     type VrPadMap, type VrButton, type XrInput
   } from '$lib/vr/pad-map';
   import {
@@ -85,7 +88,21 @@
    * this player stay current while only the headset is mounted.
    */
   import { invitations, acceptInvitation, declineInvitation } from '$lib/lobby/invitations';
-  import { quickSave, quickLoad } from '$lib/saves/quick-actions';
+  /*
+   * Plus de `quick-actions` ici.
+   *
+   * `quickLoad` émettait `game:load` sans écouteur, alors que ce composant a
+   * son propre chemin - `awaitSave` - qui attache un écouteur cadré, pose un
+   * timeout et applique l'état différemment en solo et en lockstep. La réponse
+   * du serveur arrivait donc sans personne pour l'appliquer, et le bouton
+   * Charger ne faisait rien. Les deux fonctions restent pour le F2/F4 de la
+   * page plate, qui a les composants qui écoutent.
+   */
+  import { fetchSaves, autoSaveName, type SaveSummary } from '$lib/saves/api';
+  import { captureState } from '$lib/saves/capture';
+  import {
+    SAVES_PANEL_SIZE, layoutSavesPanel, drawSavesPanel
+  } from '$lib/vr/panels/saves';
   import { gameClick } from '$lib/rooms/game-click';
   import { resumeSaveToRequest } from '$lib/rooms/resume-save';
   import { decodeSram } from '$lib/rooms/sram';
@@ -245,11 +262,12 @@
    * and three guards that existed only to arbitrate that contention go with
    * this rename.
    *
-   * Still a boolean rather than a screen union: with one option screen there
-   * is nothing to distinguish. A union arrives with a second one.
+   * A union rather than a boolean now, which is what the second option screen
+   * was always going to introduce - the note here used to say so. `null` is
+   * lowered.
    */
-  let tabletOpen = false;
-  /** The tablet's panel, created in `enter()`. Hidden unless `tabletOpen`. */
+  let tabletScreen: 'controls' | 'saves' | null = null;
+  /** The tablet's panel, created in `enter()`. Hidden unless a screen is up. */
   let tabletPanel: PanelMesh | null = null;
   /**
    * Where « configure every button » has got to, or null outside a sequence.
@@ -259,6 +277,16 @@
    * the player is reading, and one number cannot fall out of step with it.
    */
   let bindSequence: number | null = null;
+  /** Ce que l'API a répondu pour le jeu courant, le plus récent d'abord. */
+  let savesList: SaveSummary[] = [];
+  /**
+   * Une écriture ou un chargement est en vol.
+   *
+   * `awaitSave` n'attend qu'une réponse à la fois - un deuxième appel dépose
+   * l'écouteur du premier - donc le panneau se fait inerte le temps de l'aller
+   * -retour plutôt que de laisser une deuxième pression perdre la première.
+   */
+  let savesBusy = false;
   /** The button waiting for its new input, or null. */
   let listeningFor: VrButton | null = null;
   /**
@@ -498,8 +526,7 @@
         labels: {
           controls: t($language, 'controls'),
           recenter: t($language, 'vrRecenter'),
-          save: t($language, 'vrSave'),
-          load: t($language, 'vrLoad'),
+          saves: t($language, 'vrSaves'),
           quit: t($language, 'vrQuit'),
           resume: t($language, 'vrResume'),
           stopGame: t($language, 'vrStopGame')
@@ -563,7 +590,13 @@
     for (const save of saves) {
       if (!save.screenshot || saveShots.has(save.id)) continue;
       const image = new Image();
-      image.onload = () => { saveShots.set(save.id, image); repaintLaunch(); };
+      image.onload = () => {
+        saveShots.set(save.id, image);
+        // Les deux surfaces : l'écran de lancement ET le panneau de la
+        // tablette. Chacune se garde elle-même, donc appeler les deux est sûr.
+        repaintLaunch();
+        repaintSaves();
+      };
       // A payload that will not decode. The row keeps its name and its date,
       // which is what identifies it anyway - the picture only ever confirmed.
       image.onerror = () => logger.warn('save thumbnail unreadable in VR', save.id);
@@ -589,8 +622,51 @@
     };
   }
 
+  /** Repeint la tablette, quel que soit l'écran qu'elle porte. */
+  function repaintTablet(): void {
+    if (tabletScreen === 'controls') repaintControls();
+    if (tabletScreen === 'saves') repaintSaves();
+  }
+
+  function repaintSaves(): void {
+    if (!tabletPanel || tabletScreen !== 'saves') return;
+    const state = {
+      saves: savesList,
+      shots: saveShots,
+      locale: $language,
+      busy: savesBusy
+    };
+    tabletPanel.regions = layoutSavesPanel(state);
+    const regions = tabletPanel.regions;
+    tabletPanel.paint((ctx) =>
+      drawSavesPanel(ctx, state, regions, {
+        heading: t($language, 'vrSaves'),
+        newSave: t($language, 'vrNewSave'),
+        close: t($language, 'vrRemapDone'),
+        empty: t($language, 'vrNoSaves'),
+        // Passé plutôt que traduit dans `saveIdentity` : ce module est testé
+        // depuis Bun, qui ne résout pas l'alias des traductions.
+        quickSave: t($language, 'quickSave')
+      }, hovered?.panel === 'tablet' ? hovered.region.id : null)
+    );
+  }
+
+  /** Rafraîchit la liste depuis l'API, puis repeint. */
+  async function refreshSaves(): Promise<void> {
+    const ctx = saveable();
+    if (!ctx) return;
+    const listed = await fetchSaves(ctx.gameId);
+    if (!listed.ok) {
+      notifications.show(t($language, listed.reason), 'error');
+      return;
+    }
+    savesList = listed.saves;
+    loadSaveShots(savesList);
+    repaintSaves();
+  }
+
   function repaintControls(): void {
-    if (!tabletPanel || !tabletOpen) return;
+    if (!tabletPanel || tabletScreen !== 'controls') return;
     const state = { map: padMap, listeningFor, language: $language };
     tabletPanel.regions = layoutControlsPanel(state);
     const regions = tabletPanel.regions;
@@ -606,8 +682,7 @@
     return {
       heading: t($language, 'vrRemapHeading'),
       press: t($language, 'vrRemapPress'),
-      presetLetters: t($language, 'vrPresetLetters'),
-      presetThumb: t($language, 'vrPresetThumb'),
+      restoreDefaults: t($language, 'vrRestoreDefaults'),
       done: t($language, 'vrRemapDone'),
       bindAll: t($language, 'vrRemapBindAll'),
       fixedDpad: t($language, 'vrFixedDpad'),
@@ -647,12 +722,16 @@
    * one surface. They do not any more, so the game keeps playing and a launch
    * screen keeps its place behind the tablet.
    */
-  function openTablet(): void {
-    tabletOpen = true;
+  function openTablet(screen: 'controls' | 'saves'): void {
+    tabletScreen = screen;
     listeningFor = null;
+    savesBusy = false;
     captureGate.reset();
     if (tabletPanel) tabletPanel.mesh.visible = true;
-    repaintControls();
+    repaintTablet();
+    // Après le premier peint, pas avant : la liste arrive du réseau et le
+    // panneau doit exister à l'écran pendant l'attente.
+    if (screen === 'saves') void refreshSaves();
   }
 
   /**
@@ -675,9 +754,10 @@
    * on hitting a hidden mesh.
    */
   function closeTablet(): void {
-    tabletOpen = false;
+    tabletScreen = null;
     bindSequence = null;
     listeningFor = null;
+    savesBusy = false;
     captureGate.reset();
     if (tabletPanel) {
       tabletPanel.regions.length = 0;
@@ -819,7 +899,7 @@
       // way back to the library: a player who had simply finished had to take
       // the headset off and put it back on.
       if (id === 'stop') { void stopTogether(); return; }
-      if (id === 'controls') { openTablet(); return; }
+      if (id === 'controls') { openTablet('controls'); return; }
       /*
        * Puts the room back in front of the player.
        *
@@ -841,44 +921,18 @@
        * adapter: `game:load` is broadcast to the whole room by the server,
        * which is what makes it safe mid-lockstep - that file's header says so.
        */
-      if (id === 'save' || id === 'load') {
-        const ctx = saveable();
-        if (!ctx) {
-          // Said rather than swallowed: a button that does nothing is
-          // indistinguishable from a broken one, and the notice reaches the
-          // band now (see `vrNotice`).
+      if (id === 'saves') {
+        // La liste, pas un emplacement rapide. Les deux boutons d'avant
+        // écrivaient et lisaient un unique emplacement, et le lecteur ne
+        // marchait pas du tout - voir la note sur `quick-actions`.
+        if (!saveable()) {
           notifications.show(t($language, 'failedToSave'), 'error');
           return;
         }
-        const common = {
-          socket: $socket,
-          roomId: ctx.roomId,
-          gameId: ctx.gameId,
-          locale: $language
-        };
-        if (id === 'save') void quickSave({ ...common, emulator: {
-          saveState: async () => ctx.core.saveState(),
-          getCanvas: frameCanvas
-        } });
-        else void quickLoad(common);
+        openTablet('saves');
         return;
       }
-      if (id === 'resume') {
-        // Back to the game, so the game gets its screen back. The launch
-        // screen is abandoned rather than kept: `launchFor` surviving here
-        // would leave regions on a mesh that is a picture again. Same for the
-        // remap panel, which lives on that same mesh.
-        launchFor = null;
-        // `closeTablet()`, not `tabletOpen = false`: hiding the panel group
-        // makes the tablet invisible for now, but its own `mesh.visible` would
-        // stay true and it would reappear the next time the panels are
-        // recalled - carrying regions for a rebinding nobody started.
-        closeTablet();
-        if (scene) scene.screen.regions.length = 0;
-        scene?.screen.showPicture();
-        scene?.panelsVisible(false);
-        return;
-      }
+
       // The presets and the language used to be answered here. They live on
       // the remap panel now - `panels/profile.ts`' header says why.
     }
@@ -887,6 +941,45 @@
     // needed: they no longer share `scene.screen.regions`.
     if (target.panel === 'tablet') {
       const id = target.region.id;
+
+      if (tabletScreen === 'saves') {
+        if (id === 'close') { closeTablet(); return; }
+
+        if (id === 'new-save') {
+          void writeNewSave();
+          return;
+        }
+
+        if (id.startsWith('load:')) {
+          const ctx = saveable();
+          if (!ctx) return;
+          /*
+           * Par `awaitSave`, et c'est tout le correctif.
+           *
+           * C'est le chemin de ce composant : écouteur cadré sur
+           * `game:loaded`, timeout de cinq secondes, et un `apply` qui
+           * distingue les deux mondes - en solo il n'y a qu'un coeur et il
+           * l'adopte ; en lockstep seul l'hôte agit sur la réponse, l'invité
+           * recevant le changement comme une resync ordinaire. `quickLoad`
+           * émettait `game:load` sans rien de tout ça.
+           */
+          savesBusy = true;
+          repaintSaves();
+          const host = groupIsHost;
+          const group = engine !== null && groupRoomId !== null;
+          awaitSave(ctx.roomId, id.slice('load:'.length), (bytes, name) => {
+            savesBusy = false;
+            if (!group) {
+              ctx.core.loadState(bytes);
+            } else if (host) {
+              (engine as LockstepEngine | null)?.adoptState(bytes, `save "${name ?? ''}"`);
+            }
+            closeTablet();
+          });
+          return;
+        }
+        return;
+      }
       if (id === 'lang:en' || id === 'lang:fr') {
         language.set(id === 'lang:en' ? 'en' : 'fr');
         // Every panel carries text.
@@ -910,8 +1003,11 @@
         repaintControls();
         return;
       }
-      if (id === 'preset:letters' || id === 'preset:thumb') {
-        writePadMap(localStorage, id === 'preset:thumb' ? THUMB_MAP : LETTERS_MAP);
+      if (id === 'restore-defaults') {
+        // `LETTERS_MAP` est le défaut, et `writePadMap` RETIRE la valeur
+        // stockée quand la carte l'égale (`pad-map.ts:174`) - donc restaurer,
+        // c'est littéralement oublier ce qui était stocké.
+        writePadMap(localStorage, LETTERS_MAP);
         // Read back rather than assumed: `readPadMap` is the only thing that
         // decides, and a preset written and not stored - the default is
         // removed, not stored - must still read back correctly.
@@ -1286,6 +1382,69 @@
     };
     sock.on('game:loaded', saveListener);
     sock.emit('game:load', { roomId, saveId });
+  }
+
+  /**
+   * Écrit une nouvelle sauvegarde du jeu en cours.
+   *
+   * `game:save` sans `saveId`, donc une création et jamais un écrasement -
+   * c'est la différence avec le F2/F4 de la page plate, qui réutilise l'id de
+   * sa sentinelle pour garder un emplacement unique.
+   *
+   * Le nom vient d'`autoSaveName`, celui-là même que `saveIdentity` reconnaît
+   * comme auto-nommé pour n'afficher qu'une ligne. Inventer un autre nom ici
+   * aurait donné deux lignes pour une sauvegarde qui n'a rien de plus à dire.
+   */
+  async function writeNewSave(): Promise<void> {
+    const ctx = saveable();
+    const sock = $socket;
+    if (!ctx || !sock) return;
+
+    savesBusy = true;
+    repaintSaves();
+
+    const saveData = await captureState({
+      saveState: async () => ctx.core.saveState(),
+      getCanvas: frameCanvas
+    });
+    const screenshot = captureThumbnailHere();
+
+    const done = () => {
+      sock.off('error', failed);
+      savesBusy = false;
+      // La liste, pas une insertion à la main : le serveur décide de l'id et
+      // de la date, et deviner l'un des deux les ferait diverger.
+      void refreshSaves();
+    };
+    const failed = () => {
+      sock.off('game:saved', done);
+      savesBusy = false;
+      notifications.show(t($language, 'failedToSave'), 'error');
+      repaintSaves();
+    };
+    sock.once('game:saved', done);
+    sock.once('error', failed);
+
+    sock.emit('game:save', {
+      roomId: ctx.roomId,
+      name: autoSaveName($language),
+      saveData,
+      screenshot
+    });
+  }
+
+  /** La dernière image du jeu en PNG, ou undefined. Voir `frameCanvas`. */
+  function captureThumbnailHere(): string | undefined {
+    const canvas = frameCanvas();
+    if (!canvas) return undefined;
+    try {
+      return canvas.toDataURL('image/png');
+    } catch (err) {
+      // Une vignette manquante laisse la ligne avec son nom et sa date, qui
+      // sont ce qui l'identifie - l'image ne faisait que confirmer.
+      logger.warn('vr could not capture a save thumbnail', err);
+      return undefined;
+    }
   }
 
   /** Taken off in `teardown`: the socket outlives the session. */
@@ -1759,7 +1918,7 @@
      * Nothing else runs this frame - no pointer, no hover - because the panel
      * carries no regions while it listens.
      */
-    if (tabletOpen && listeningFor) {
+    if (tabletScreen === 'controls' && listeningFor) {
       const sources = scene.inputSources();
       if (menuPressed(sources)) {
         /*
@@ -2154,7 +2313,9 @@
     tabletPanel = null;
     covers.clear();
     saveShots.clear();
-    tabletOpen = false;
+    savesList = [];
+    savesBusy = false;
+    tabletScreen = null;
     listeningFor = null;
     captureGate.reset();
     hovered = null;

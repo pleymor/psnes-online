@@ -93,8 +93,22 @@ const PROMPT_Y = 88;
  */
 const BIND_ALL_Y = 400;
 const BTN_H = 64;
-const PRESET_Y = BIND_ALL_Y + BTN_H + 16;
-const PRESET_W = (ART_W - 20) / 2;
+/*
+ * Un seul préréglage, et il n'a pas de nom.
+ *
+ * Il y en avait deux - « fidèle aux lettres » et « confort du pouce » - avec
+ * un schéma de manette sur chaque carte, parce que ce panneau était le seul
+ * endroit qui montrait quel bouton Touch portait quel bouton SNES. Le dessin
+ * le montre maintenant en entier et en permanence, donc la carte n'avait plus
+ * rien à expliquer, et le second préréglage plus rien à départager : le joueur
+ * remappe ce qu'il veut bouton par bouton.
+ *
+ * Ce qui reste est un retour au défaut, qui n'a pas besoin d'être nommé - on
+ * ne le choisit pas, on y revient. `writePadMap` RETIRE la valeur stockée
+ * quand la carte égale le défaut (`pad-map.ts:174`), donc « restaurer » est
+ * littéralement « oublier ce qui était stocké ».
+ */
+const RESTORE_Y = BIND_ALL_Y + BTN_H + 16;
 
 /*
  * Le rappel des entrées hors modèle : pleine largeur, sous les lignes.
@@ -115,7 +129,7 @@ const FIXED_GAP = 30;
  * running had no route back to the launch options at all - the curved screen
  * kept the remap for the rest of the session.
  */
-const CLOSE_Y = PRESET_Y;
+const CLOSE_Y = RESTORE_Y;
 
 /*
  * La langue, arrivée du bandeau.
@@ -148,8 +162,8 @@ export interface ControlsLabels {
   done: string;
   /** Démarre la séquence : les huit boutons, dans l'ordre du dessin. */
   bindAll: string;
-  presetLetters: string;
-  presetThumb: string;
+  /** Le retour au défaut. Voir `RESTORE_Y`. */
+  restoreDefaults: string;
   fixedDpad: string;
   fixedMenu: string;
   langEn: string;
@@ -166,14 +180,7 @@ export function layoutControlsPanel(state: ControlsState): Region[] {
   const regions: Region[] = padRegions(ART);
 
   regions.push({ id: 'bind-all', x: ART_X, y: BIND_ALL_Y, w: ART_W, h: BTN_H });
-  regions.push({ id: 'preset:letters', x: ART_X, y: PRESET_Y, w: PRESET_W, h: BTN_H });
-  regions.push({
-    id: 'preset:thumb',
-    x: ART_X + PRESET_W + 20,
-    y: PRESET_Y,
-    w: PRESET_W,
-    h: BTN_H
-  });
+  regions.push({ id: 'restore-defaults', x: ART_X, y: RESTORE_Y, w: ART_W, h: BTN_H });
 
   regions.push({ id: 'lang:en', x: LEGEND_X, y: LANG_Y, w: LANG_W, h: BTN_H });
   regions.push({
@@ -289,13 +296,9 @@ export function drawControlsPanel(
     drawPresetButton(ctx, bindAll, labels.bindAll, opts.hoverId === 'bind-all');
   }
 
-  const letters = byId.get('preset:letters');
-  const thumb = byId.get('preset:thumb');
-  if (letters) {
-    drawPresetButton(ctx, letters, labels.presetLetters, opts.hoverId === 'preset:letters');
-  }
-  if (thumb) {
-    drawPresetButton(ctx, thumb, labels.presetThumb, opts.hoverId === 'preset:thumb');
+  const restore = byId.get('restore-defaults');
+  if (restore) {
+    drawPresetButton(ctx, restore, labels.restoreDefaults, opts.hoverId === 'restore-defaults');
   }
   const close = byId.get('close');
   if (close) {

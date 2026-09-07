@@ -46,8 +46,7 @@ import {
 const LABELS = {
   controls: 'Contrôles',
   recenter: 'Recentrer',
-  save: 'Sauver',
-  load: 'Charger',
+  saves: 'Sauvegardes',
   quit: 'Quitter la VR',
   resume: 'Reprendre',
   stopGame: 'Arrêter'
@@ -229,19 +228,31 @@ test('a label that fits is not cut', () => {
  * Both exist only while something is running. There is nothing to write when
  * no game is loaded, and reloading into no game is not a thing either.
  */
-test('saving and loading are offered only while a game is running', () => {
-  for (const id of ['save', 'load']) {
-    assert.ok(!ids(state()).includes(id), `${id} has nothing to act on when idle`);
-    assert.ok(ids(state({ playing: true })).includes(id));
-  }
+/*
+ * Un bouton pour les sauvegardes, là où il y en avait deux.
+ *
+ * Sauvegarder et Charger agissaient sur un emplacement rapide unique, et
+ * Charger ne marchait pas du tout : il passait par `quickLoad`, qui émet
+ * `game:load` sans écouteur, alors que `VrShell` a son propre `awaitSave`.
+ * Le panneau de la tablette liste, crée et charge n'importe laquelle.
+ *
+ * Offert seulement en jeu : il n'y a rien à écrire quand aucun jeu n'est
+ * chargé, et recharger dans le vide n'est pas une action non plus.
+ */
+test('les sauvegardes sont offertes seulement pendant une partie', () => {
+  assert.ok(!ids(state()).includes('saves'), 'rien a sauvegarder hors partie');
+  assert.ok(ids(state({ playing: true })).includes('saves'));
 });
 
-test('the two of them are named', () => {
-  const ctx = recordingContext();
+test('il n y a plus qu un bouton, et il est nomme', () => {
   const s = state({ playing: true });
+  const shown = ids(s);
+  assert.ok(!shown.includes('save'), 'l ancien emplacement rapide est parti');
+  assert.ok(!shown.includes('load'), 'et son lecteur casse avec lui');
+
+  const ctx = recordingContext();
   drawProfilePanel(ctx, s, layoutProfilePanel(s), { labels: LABELS, hoverId: null });
-  assert.ok(ctx.texts.includes(LABELS.save));
-  assert.ok(ctx.texts.includes(LABELS.load));
+  assert.ok(ctx.texts.includes(LABELS.saves));
 });
 
 /*

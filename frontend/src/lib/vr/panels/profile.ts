@@ -96,9 +96,8 @@ export interface ProfileState {
 export interface ProfileLabels {
   /** Opens the rebinding panel on the curved screen. */
   controls: string;
-  /** The quick slot, shared with the flat page's F2 and F4. */
-  save: string;
-  load: string;
+  /** Opens the saves screen on the tablet. */
+  saves: string;
   /** Puts the room back in front of the player. See `vr/anchor.ts`. */
   recenter: string;
   quit: string;
@@ -128,10 +127,15 @@ export function layoutProfilePanel(state: ProfileState): Region[] {
   ];
 
   if (state.playing) {
-    // The two that act on the game come first, then the two that end it -
-    // reading left to right in order of how much they cost to press.
-    regions.push({ id: 'save', ...slot(0, 1) });
-    regions.push({ id: 'load', ...slot(1, 1) });
+    /*
+     * Un bouton pour les sauvegardes, là où il y en avait deux.
+     *
+     * Sauvegarder et Charger agissaient sur un emplacement rapide unique. Le
+     * panneau de la tablette liste, crée et charge n'importe laquelle, donc un
+     * seul bouton l'ouvre - et l'emplacement libéré reste vide plutôt que
+     * d'être rempli pour être rempli.
+     */
+    regions.push({ id: 'saves', ...slot(0, 1) });
     regions.push({ id: 'resume', ...slot(2, 1) });
     regions.push({ id: 'stop', ...slot(3, 1) });
   }
@@ -195,8 +199,7 @@ export function drawProfilePanel(
     quit: labels.quit,
     controls: labels.controls,
     recenter: labels.recenter,
-    save: labels.save,
-    load: labels.load,
+    saves: labels.saves,
     resume: labels.resume,
     stop: labels.stopGame
   };

@@ -33,8 +33,7 @@ const LABELS: ControlsLabels = {
   press: 'Pressez un bouton — clic du stick droit pour annuler',
   done: 'Retour',
   bindAll: 'Tout configurer',
-  presetLetters: 'Preset lettres',
-  presetThumb: 'Preset pouce',
+  restoreDefaults: 'Restaurer les boutons par défaut',
   fixedDpad: 'Croix directionnelle : les deux sticks',
   fixedMenu: 'Menu : clic du stick droit',
   langEn: 'English',
@@ -105,10 +104,19 @@ test('les huit boutons ont chacun leur région', () => {
   }
 });
 
-test('les deux presets sont offerts', () => {
+/*
+ * Un seul préréglage, sans nom.
+ *
+ * Il y en avait deux, chacun avec un schéma de manette, parce que ce panneau
+ * était le seul endroit qui montrait quel bouton Touch portait quel bouton
+ * SNES. Le dessin le montre maintenant en entier, donc la carte n'avait plus
+ * rien à expliquer et le second préréglage plus rien à départager.
+ */
+test('le retour au defaut est offert, et il est seul', () => {
   const ids = layoutControlsPanel(state()).map((r) => r.id);
-  assert.ok(ids.includes('preset:letters'));
-  assert.ok(ids.includes('preset:thumb'), 'revenir en arrière doit être possible aussi');
+  assert.ok(ids.includes('restore-defaults'));
+  assert.equal(ids.filter((id) => id.startsWith('preset:')).length, 0);
+  assert.ok(draw(state()).texts.includes(LABELS.restoreDefaults));
 });
 
 test('chaque ligne nomme son bouton et l entrée qui le porte', () => {
