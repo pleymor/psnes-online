@@ -36,6 +36,7 @@ const LABELS: ControlsLabels = {
   restoreDefaults: 'Restaurer les boutons par défaut',
   fixedDpad: 'Croix directionnelle : les deux sticks',
   fixedMenu: 'Menu : clic du stick droit',
+  fixedTurbo: 'Accéléré : maintenir le clic du stick gauche',
   langEn: 'English',
   langFr: 'Français',
   button: { a: 'A', b: 'B', x: 'X', y: 'Y', l: 'L', r: 'R', start: 'START', select: 'SELECT' },
@@ -160,6 +161,35 @@ test('les entrées non assignables sont nommées', () => {
   const drawn = draw(state()).texts.join('\n');
   assert.ok(drawn.includes(LABELS.fixedDpad), "la croix n'est expliquée nulle part");
   assert.ok(drawn.includes(LABELS.fixedMenu), "le menu n'est expliqué nulle part");
+});
+
+test('l accéléré est nommé, et seulement tant que son entrée est libre', () => {
+  // Le geste ne s'écrit nulle part ailleurs : ni bouton, ni ligne de légende,
+  // ni région. Sans cette ligne, un joueur ne peut que le découvrir par
+  // accident - et un joueur qui a remappé le clic gauche découvrirait à la
+  // place un raccourci annoncé qui ne répond plus.
+  const free = draw(state()).texts.join('\n');
+  assert.ok(free.includes(LABELS.fixedTurbo), "l'accéléré n'est expliqué nulle part");
+
+  const claimed = draw(state({ map: assignInput(LETTERS_MAP, 'start', 'XrLeftStickClick') }));
+  assert.ok(
+    !claimed.texts.join('\n').includes(LABELS.fixedTurbo),
+    "l'accéléré est annoncé alors qu'un bouton a pris son entrée"
+  );
+});
+
+test('les deux lignes hors modèle ne bougent pas quand la troisième disparaît', () => {
+  // Le bloc est ancré par le haut justement pour ça : un remap sans rapport ne
+  // doit pas réagencer le panneau sous le regard du joueur.
+  const at = (shot: ReturnType<typeof draw>, text: string) =>
+    shot.placed.find((p) => p.text === text)?.y;
+
+  const free = draw(state());
+  const claimed = draw(state({ map: assignInput(LETTERS_MAP, 'start', 'XrLeftStickClick') }));
+
+  for (const label of [LABELS.fixedDpad, LABELS.fixedMenu]) {
+    assert.equal(at(free, label), at(claimed, label), `${label} a bougé`);
+  }
 });
 
 test('une map remappée est ce qui est dessiné, pas le preset', () => {

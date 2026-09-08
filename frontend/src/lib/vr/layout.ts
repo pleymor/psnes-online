@@ -16,6 +16,8 @@
  */
 
 import { aspectRatioOf, type PixelAspect } from '$lib/znet/fit';
+import { screenWidth } from './screen-geometry';
+import type { ScreenShape } from './screen-shape';
 import type { PanelSize } from './panel';
 
 export interface Placement {
@@ -29,11 +31,15 @@ export interface Placement {
 }
 
 export interface ScreenPlacement {
-  radius: number;
-  /** Radians of arc the cylinder segment covers. */
+  /** Metres from the eye to the centre of the picture. The cylinder's radius
+   *  when curved, the plane's depth when flat. */
+  distance: number;
+  /** Radians of horizontal field of view the picture covers, whatever its
+   *  shape. `screen-geometry.ts` turns that into a width. */
   arc: number;
   height: number;
   centerY: number;
+  curved: boolean;
 }
 
 export interface SceneLayout {
@@ -57,11 +63,6 @@ export interface SceneLayout {
  * There is no height left to guess: the scene is placed where the head
  * actually was.
  */
-
-const SCREEN_RADIUS = 2.5;
-/** 60 degrees. Wide enough to fill the view, narrow enough that the edges are
- * not behind the player's cheekbones. */
-const SCREEN_ARC = Math.PI / 3;
 
 /**
  * The horizontal radius, not the distance - `eyeDistance` is the distance.
@@ -152,20 +153,51 @@ function lectern(azimuth: number): Placement {
   };
 }
 
-export function sceneLayout(aspect: PixelAspect): SceneLayout {
-  // Arc length is the screen's width, so the height is what the player's
-  // aspect choice actually decides.
-  const screenWidth = SCREEN_RADIUS * SCREEN_ARC;
-
+/**
+ * Where the screen is, from what the player chose.
+ *
+ * Its own function because it is the only placement that changes during a
+ * session: `scene.reshapeScreen` re-runs THIS rather than `sceneLayout`, so
+ * the panels are not re-placed for a screen setting - and so the two paths
+ * cannot drift into placing the screen differently.
+ *
+ * The width comes from `screenWidth` rather than being computed here, because
+ * a flat screen covering the same angle is about 10 % wider than a curved one
+ * (its edges are further from the eye). Dividing the wrong width by the aspect
+ * ratio would stretch a flat picture vertically - and that reads as a decoding
+ * bug, nowhere near the layout.
+ */
+export function screenPlacement(aspect: PixelAspect, shape: ScreenShape): ScreenPlacement {
+  const arc = (shape.angle * Math.PI) / 180;
+  const width = screenWidth(shape.distance, arc, shape.curved);
   return {
-    screen: {
-      radius: SCREEN_RADIUS,
-      arc: SCREEN_ARC,
-      height: screenWidth / aspectRatioOf(aspect),
-      // Straight ahead: the picture is what the player came for, so it goes
-      // where they are already looking rather than above or below it.
-      centerY: 0
-    },
+    distance: shape.distance,
+    arc,
+    curved: shape.curved,
+    height: width / aspectRatioOf(aspect),
+    // Straight ahead: the picture is what the player came for, so it goes
+    // where they are already looking rather than above or below it.
+    centerY: 0
+  };
+}
+
+/**
+ * The whole scene, for a screen the player may have moved.
+ *
+ * The shape is a required argument rather than a defaulted one on purpose: an
+ * omitted screen setting would silently give the caller the shipped geometry,
+ * which is exactly the bug that would leave a player's choice applied to the
+ * mesh and not to the layout the pointer is tested against.
+ *
+ * Only the screen listens to it. The tablet in particular does NOT follow the
+ * screen: it stays at 1.5 m whatever the player chose, which is what keeps its
+ * angular size - tuned by looking at renders - and its distance from the band
+ * fixed. That works because the nearest rung is 2.0 m; the parallax gap it
+ * leaves is what `screen-shape.ts` documents as the reason for that floor.
+ */
+export function sceneLayout(aspect: PixelAspect, shape: ScreenShape): SceneLayout {
+  return {
+    screen: screenPlacement(aspect, shape),
     library: lectern(-LECTERN_AZIMUTH),
     friends: lectern(LECTERN_AZIMUTH),
     profile: {

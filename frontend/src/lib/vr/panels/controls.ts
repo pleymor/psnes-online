@@ -23,7 +23,13 @@
  */
 
 import { truncate, type PanelSize, type Region } from '../panel';
-import { VR_BUTTONS, type VrButton, type VrPadMap, type XrInput } from '../pad-map';
+import {
+  VR_BUTTONS,
+  fastForwardClaimed,
+  type VrButton,
+  type VrPadMap,
+  type XrInput
+} from '../pad-map';
 import { drawPadArt, padRegions, PAD_ART_ASPECT } from './pad-art';
 import { SMW, drawField, statusBox, chromeButton } from './chrome';
 
@@ -130,7 +136,20 @@ const RESTORE_Y = BIND_ALL_Y + BTN_H + 16;
  * directionnelle : les deux sticks » se terminait en « les deux s… ». Un
  * rappel tronqué est pire qu'absent : il attire l'œil sans rien apprendre.
  */
-const FIXED_Y = 712;
+/**
+ * Le bloc des entrées hors modèle, ancré par le HAUT.
+ *
+ * La troisième ligne est conditionnelle - elle nomme l'accéléré et disparaît
+ * quand un bouton a réclamé son entrée - et c'est CE fait qui impose le sens
+ * de l'ancrage. Ancré par le bas, le retrait de la troisième ligne pousserait
+ * les deux premières de trente pixels vers le bas : le panneau se réagencerait
+ * sous le regard du joueur pour un binding sans rapport. Ancré par le haut,
+ * seule la ligne conditionnelle apparaît et disparaît.
+ *
+ * C'était 712 tant qu'il n'y avait que deux lignes. Remonté de trente pour que
+ * la troisième tienne : 682 + 2 x 30 = 742, sous les 768 du panneau.
+ */
+const FIXED_TOP = 682;
 const FIXED_GAP = 30;
 
 /*
@@ -179,6 +198,8 @@ export interface ControlsLabels {
   restoreDefaults: string;
   fixedDpad: string;
   fixedMenu: string;
+  /** L'accéléré, tenu sur le clic du stick gauche. Voir `FIXED_TOP`. */
+  fixedTurbo: string;
   langEn: string;
   langFr: string;
   button: Record<VrButton, string>;
@@ -313,8 +334,14 @@ export function drawControlsPanel(
   ctx.textAlign = 'left';
   ctx.fillStyle = '#6a6a78';
   ctx.font = '20px system-ui, sans-serif';
-  ctx.fillText(truncate(ctx, labels.fixedDpad, fixedW), PAD, FIXED_Y);
-  ctx.fillText(truncate(ctx, labels.fixedMenu, fixedW), PAD, FIXED_Y + FIXED_GAP);
+  const fixed = [labels.fixedDpad, labels.fixedMenu];
+  // Nommé seulement tant qu'il existe : `fastForwardClaimed` est la même
+  // question que `fastForwardHeld` pose avant de tenir le geste, donc le
+  // panneau ne peut pas annoncer un raccourci que la carte a emporté.
+  if (!fastForwardClaimed(state.map)) fixed.push(labels.fixedTurbo);
+  fixed.forEach((line, index) => {
+    ctx.fillText(truncate(ctx, line, fixedW), PAD, FIXED_TOP + index * FIXED_GAP);
+  });
 
   ctx.restore();
 }

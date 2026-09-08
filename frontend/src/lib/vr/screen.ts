@@ -13,7 +13,7 @@
  */
 
 import * as THREE from 'three';
-import { curvedScreenGeometry, visibleU } from './screen-geometry';
+import { screenGeometry, visibleU } from './screen-geometry';
 import {
   pictureUniforms,
   PICTURE_VERTEX_SHADER,
@@ -43,6 +43,18 @@ export interface VrScreen {
    * `upload`.
    */
   showPicture(): void;
+  /**
+   * Moves and re-shapes the screen without disturbing what it is showing.
+   *
+   * The player can change the screen's distance, angular size and curvature
+   * mid-session, so this exists to be called on a live mesh - during a game,
+   * with a texture already uploaded, or with a panel painted on it. It keeps
+   * the current mode and the current uv range: rebuilding at uMax 1 while the
+   * emulator owns the screen would show the player 256 columns of stale
+   * memory, which is the trap `paintPanel` already documents from the other
+   * side.
+   */
+  reshape(placement: ScreenPlacement): void;
   isPanel(): boolean;
   panelSize(): PanelSize | null;
   /** Replaced whenever the launch screen is laid out. `scene.aimedAt` reads it. */
@@ -70,7 +82,9 @@ function panelTextureFor(canvas: HTMLCanvasElement): THREE.CanvasTexture {
   return texture;
 }
 
-export function createVrScreen(placement: ScreenPlacement): VrScreen {
+export function createVrScreen(initial: ScreenPlacement): VrScreen {
+  /** Reassigned by `reshape`, which is why this is not the parameter. */
+  let placement = initial;
   /*
    * Two materials now, swapped on the mesh, where there used to be one with
    * its `map` reassigned.
@@ -122,12 +136,23 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
   /** Replaced whenever the launch screen is laid out. `scene.aimedAt` reads it. */
   const regions: Region[] = [];
 
+  /**
+   * The uv range the current geometry was built for.
+   *
+   * Remembered because `reshape` has to rebuild with the SAME range: it is
+   * called from a settings panel that knows nothing about whether the picture
+   * or a menu currently owns the screen.
+   */
+  let builtUMax = 1;
+
   function rebuildGeometry(uMax: number): void {
+    builtUMax = uMax;
     mesh.geometry.dispose();
-    const { positions, uvs, indices } = curvedScreenGeometry({
-      radius: placement.radius,
+    const { positions, uvs, indices } = screenGeometry({
+      distance: placement.distance,
       arc: placement.arc,
       height: placement.height,
+      curved: placement.curved,
       uMax
     });
     const geometry = new THREE.BufferGeometry();
@@ -325,6 +350,12 @@ export function createVrScreen(placement: ScreenPlacement): VrScreen {
       if (mode === 'picture') return;
       builtFor = { width: -1, height: -1, stride: -1 };
       mode = 'picture';
+    },
+
+    reshape(next: ScreenPlacement): void {
+      placement = next;
+      mesh.position.set(0, next.centerY, 0);
+      rebuildGeometry(builtUMax);
     },
 
     isPanel: () => mode === 'panel',

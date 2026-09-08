@@ -30,6 +30,21 @@ import { TABLET_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/controls.js'
 import { LIBRARY_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/library.js';
 import { FRIENDS_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/friends.js';
 import { PROFILE_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/profile.js';
+import {
+  DEFAULT_SHAPE,
+  SCREEN_ANGLES,
+  SCREEN_DISTANCES,
+  type ScreenShape
+} from '../../frontend/src/lib/vr/screen-shape.js';
+
+/** Les cinquante réglages atteignables : cinq distances, cinq tailles, deux
+ *  formes. Assez peu pour être balayés en entier plutôt qu'échantillonnés. */
+const EVERY_SHAPE: ScreenShape[] = SCREEN_DISTANCES.flatMap((distance) =>
+  SCREEN_ANGLES.flatMap((angle) => [
+    { distance, angle, curved: true },
+    { distance, angle, curved: false }
+  ])
+);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -45,32 +60,32 @@ test('layout.ts imports nothing from three', () => {
 });
 
 test('the screen is a wide arc at arm-and-then-some length', () => {
-  const { screen } = sceneLayout('crt');
-  assert.equal(screen.radius, 2.5);
+  const { screen } = sceneLayout('crt', DEFAULT_SHAPE);
+  assert.equal(screen.distance, 2.5);
   assert.ok(screen.arc > 0.9 && screen.arc < 1.2, 'about 60 degrees of arc, in radians');
   assert.equal(screen.centerY, 0, 'straight ahead: y is measured from the eyes');
 });
 
 test('the screen takes its shape from the aspect preference', () => {
-  const crt = sceneLayout('crt').screen;
-  const square = sceneLayout('square').screen;
+  const crt = sceneLayout('crt', DEFAULT_SHAPE).screen;
+  const square = sceneLayout('square', DEFAULT_SHAPE).screen;
 
   // Arc length is the screen's width; the height follows the ratio the player
   // chose, so 'crt' is the 4:3 the games were composed for.
-  const crtWidth = crt.radius * crt.arc;
-  const squareWidth = square.radius * square.arc;
+  const crtWidth = crt.distance * crt.arc;
+  const squareWidth = square.distance * square.arc;
   assert.ok(Math.abs(crtWidth / crt.height - 4 / 3) < 1e-9);
   assert.ok(Math.abs(squareWidth / square.height - 8 / 7) < 1e-9);
   assert.ok(crt.height < square.height, '4:3 is a shorter picture than 8:7 at one width');
 });
 
 test('the panels are nearer than the screen, which is the whole of the choice', () => {
-  const { screen, library, friends, profile } = sceneLayout('crt');
+  const { screen, library, friends, profile } = sceneLayout('crt', DEFAULT_SHAPE);
   for (const [name, panel] of [['library', library], ['friends', friends], ['profile', profile]] as const) {
     const [x, , z] = panel.position;
     const distance = Math.hypot(x, z);
     assert.ok(
-      distance < screen.radius,
+      distance < screen.distance,
       `${name} must be nearer than the screen: legibility follows angular distance`
     );
   }
@@ -78,14 +93,19 @@ test('the panels are nearer than the screen, which is the whole of the choice', 
 
 test('the panels sit below eye level, to be found by looking down', () => {
   const eye = 1.75;
-  const { library, friends, profile } = sceneLayout('crt', eye);
+  // `sceneLayout('crt', eye)` traînait ici depuis une signature où le second
+  // argument etait une hauteur d'oeil. Bun ne typait rien, l'argument etait
+  // ignore, et le test passait - jusqu'a ce que le second argument devienne la
+  // forme de l'ecran, ou 1.75 aurait donne un ecran NaN qu'aucune assertion de
+  // ce test ne regarde.
+  const { library, friends, profile } = sceneLayout('crt', DEFAULT_SHAPE);
   assert.ok(library.position[1] < eye);
   assert.ok(friends.position[1] < eye);
   assert.ok(profile.position[1] < library.position[1], 'the band is the lowest: it is used least');
 });
 
 test('the two lecterns are exact mirrors', () => {
-  const { library, friends } = sceneLayout('crt');
+  const { library, friends } = sceneLayout('crt', DEFAULT_SHAPE);
   // A tolerance rather than equality: these come out of Math.sin and Math.cos,
   // whose exact sign symmetry is not something the language guarantees. A
   // picometre of asymmetry is not a layout bug; a centimetre would be, and
@@ -103,14 +123,14 @@ test('the two lecterns are exact mirrors', () => {
 });
 
 test('everything is in front of the player', () => {
-  const layout = sceneLayout('crt');
+  const layout = sceneLayout('crt', DEFAULT_SHAPE);
   for (const panel of [layout.library, layout.friends, layout.profile]) {
     assert.ok(panel.position[2] < 0, 'three.js looks down -Z; a positive z is behind the head');
   }
 });
 
 test('the lecterns pitch back so a lowered panel faces raised eyes', () => {
-  const { library } = sceneLayout('crt');
+  const { library } = sceneLayout('crt', DEFAULT_SHAPE);
   assert.ok(library.rotation[0] < 0, 'a negative pitch tips the top away and the face upward');
   assert.ok(Math.abs(library.rotation[0]) > 0.5, 'and by a real amount, not a token degree');
 });
@@ -122,7 +142,7 @@ test('every height is measured from the eyes, never from a floor', () => {
    * numbers did whenever the fallback fired, and nobody ever saw it because
    * the Quest always granted the floor.
    */
-  const layout = sceneLayout('crt');
+  const layout = sceneLayout('crt', DEFAULT_SHAPE);
   assert.equal(layout.screen.centerY, 0);
 
   for (const [name, placement] of [
@@ -153,7 +173,7 @@ test('every height is measured from the eyes, never from a floor', () => {
  * `layout.ts` to the panel modules' canvas sizes.
  */
 test('every panel is shaped like its own canvas, or its text is stretched', () => {
-  const { library, friends, profile, tablet } = sceneLayout('crt');
+  const { library, friends, profile, tablet } = sceneLayout('crt', DEFAULT_SHAPE);
 
   const pairs = [
     ['library', library, LIBRARY_PANEL_SIZE],
@@ -188,7 +208,7 @@ test('every panel is shaped like its own canvas, or its text is stretched', () =
  * says. Every angle computed from the radius alone is overstated.
  */
 test('the distance to a panel counts the drop, not just the radius', () => {
-  const { library, profile } = sceneLayout('crt');
+  const { library, profile } = sceneLayout('crt', DEFAULT_SHAPE);
 
   // A lectern 1.06 out and 0.45 down is 1.15 away, not 1.06.
   const [x, y, z] = library.position;
@@ -203,7 +223,7 @@ test('the distance to a panel counts the drop, not just the radius', () => {
 });
 
 test('the lecterns are wide enough in view to be read from where they sit', () => {
-  const { library, friends } = sceneLayout('crt');
+  const { library, friends } = sceneLayout('crt', DEFAULT_SHAPE);
 
   for (const [name, panel] of [['library', library], ['friends', friends]] as const) {
     assert.ok(
@@ -225,7 +245,7 @@ test('the lecterns are wide enough in view to be read from where they sit', () =
  * A band rather than a target, because neither end is a cliff.
  */
 test('every panel carries about as many canvas pixels as the headset can show', () => {
-  const layout = sceneLayout('crt');
+  const layout = sceneLayout('crt', DEFAULT_SHAPE);
   const pairs = [
     ['library', layout.library, LIBRARY_PANEL_SIZE],
     ['friends', layout.friends, FRIENDS_PANEL_SIZE],
@@ -300,7 +320,7 @@ test('un tangage arriere descend le bord bas, parce qu il le rapproche', () => {
  * bande de mapping fixe.
  */
 test('le bandeau ne mange pas le bas de la tablette', () => {
-  const { tablet, profile } = sceneLayout('crt');
+  const { tablet, profile } = sceneLayout('crt', DEFAULT_SHAPE);
 
   assert.ok(
     eyeDistance(profile) < eyeDistance(tablet),
@@ -314,24 +334,87 @@ test('le bandeau ne mange pas le bas de la tablette', () => {
   );
 });
 
-test('la tablette flotte devant l ecran, pas dessus', () => {
-  const { tablet, screen } = sceneLayout('crt');
-  assert.ok(
-    eyeDistance(tablet) < screen.radius - 0.8,
-    'sans separation il n y a pas de parallaxe, donc pas d effet flottant'
-  );
+/*
+ * L'invariance d'occlusion, désormais sur les cinquante réglages.
+ *
+ * C'est ce test qui a fixé la borne basse de `SCREEN_DISTANCES`. Écrit sur le
+ * seul réglage livré, il passait avec 0,8 m de marge ; ouvert à la grille
+ * entière il refusait 1,8 m, et c'est comme ça que le cran le plus proche est
+ * devenu 2,0 m plutôt qu'un chiffre choisi à vue.
+ *
+ * La marge est descendue de 0,8 à 0,4 m avec cette ouverture, et c'est une
+ * concession assumée : 0,8 était un choix de conception fait quand l'écran
+ * était fixe, jamais mesuré, et le joueur qui rapproche volontairement son
+ * écran fait ce troc lui-même. Ce que le test tient encore est qu'il reste de
+ * la séparation à TOUS les crans - sans quoi la tablette cesserait de flotter
+ * pour devenir un autocollant sur l'image.
+ */
+test('la tablette flotte devant l ecran a tous les reglages', () => {
+  for (const shape of EVERY_SHAPE) {
+    const { tablet, screen } = sceneLayout('crt', shape);
+    const separation = screen.distance - eyeDistance(tablet);
+    assert.ok(
+      separation > 0.4,
+      `a ${shape.distance} m il ne reste que ${separation.toFixed(2)} m de parallaxe`
+    );
+  }
+});
+
+test('le bandeau reste le plus proche des trois surfaces, a tous les reglages', () => {
+  // L'ordre bandeau < tablette < ecran est ce qui garantit que la sortie n'est
+  // jamais cachee. Un ecran rapproche ne doit pas pouvoir renverser cet ordre.
+  for (const shape of EVERY_SHAPE) {
+    const { tablet, profile, screen } = sceneLayout('crt', shape);
+    assert.ok(eyeDistance(profile) < eyeDistance(tablet), 'le bandeau passe derriere la tablette');
+    assert.ok(eyeDistance(tablet) < screen.distance, 'la tablette passe derriere l ecran');
+  }
+});
+
+test('plat ou courbe, l ecran couvre le meme angle', () => {
+  // C'est ce qui fait de la courbure un reglage de FORME et non une seconde
+  // taille : basculer ne change pas la place que l'image prend dans le regard.
+  for (const distance of SCREEN_DISTANCES) {
+    for (const angle of SCREEN_ANGLES) {
+      const curved = sceneLayout('crt', { distance, angle, curved: true }).screen;
+      const flat = sceneLayout('crt', { distance, angle, curved: false }).screen;
+      assert.equal(curved.arc, flat.arc);
+      assert.ok(flat.height > curved.height, 'un plat plus large est aussi plus haut, a ratio egal');
+    }
+  }
+});
+
+test('l image garde son ratio quelle que soit la forme', () => {
+  // Un plat a qui on donnerait la largeur du courbe serait etire
+  // verticalement - et ca se lit comme un bug de decodage, loin du layout.
+  for (const curved of [true, false]) {
+    const screen = sceneLayout('crt', { distance: 3.0, angle: 70, curved }).screen;
+    const width = curved
+      ? screen.distance * screen.arc
+      : 2 * screen.distance * Math.tan(screen.arc / 2);
+    assert.ok(Math.abs(width / screen.height - 4 / 3) < 1e-9, `forme courbe=${curved}`);
+  }
 });
 
 test('une part utile de l image du jeu reste au-dessus de la tablette', () => {
-  const { tablet, screen } = sceneLayout('crt');
-  const image = verticalSpan({
-    position: [0, screen.centerY, -screen.radius],
-    rotation: [0, 0, 0],
-    width: screen.radius * screen.arc,
-    height: screen.height
-  });
-  const reste = (image.top - verticalSpan(tablet).top) / (image.top - image.bottom);
-  // 45 % avec les chiffres retenus. Flotter devant l ecran implique d en
-  // masquer une part : ce test borne cette part, il ne la supprime pas.
-  assert.ok(reste > 0.35, `il ne reste que ${(reste * 100).toFixed(0)}% de l image au-dessus`);
+  // Sur toute la grille, parce que c'est la TAILLE qui decide ici : la part
+  // masquee ne depend pas de la distance (l'image et la tablette grandissent
+  // ensemble en metres, pas en degres), mais un ecran regle a 45 degres est
+  // une image courte devant une tablette de taille angulaire fixe.
+  for (const shape of EVERY_SHAPE) {
+    const { tablet, screen } = sceneLayout('crt', shape);
+    const image = verticalSpan({
+      position: [0, screen.centerY, -screen.distance],
+      rotation: [0, 0, 0],
+      width: screen.distance * screen.arc,
+      height: screen.height
+    });
+    const reste = (image.top - verticalSpan(tablet).top) / (image.top - image.bottom);
+    // 45 % au reglage livre, 43 % au plus petit. Flotter devant l ecran
+    // implique d en masquer une part : ce test borne cette part, il ne la
+    // supprime pas.
+    assert.ok(
+      reste > 0.35,
+      `a ${shape.angle} deg il ne reste que ${(reste * 100).toFixed(0)}% de l image au-dessus`
+    );
+  }
 });

@@ -1,5 +1,5 @@
 /**
- * The curved screen's mesh, generated rather than taken from three.
+ * The screen's mesh, generated rather than taken from three.
  *
  * The reason is the frame buffer's padding. `videoSurface()` is a zero-copy
  * view whose stride is fixed at 512 pixels however wide the picture actually
@@ -15,18 +15,31 @@
  * Coordinates are three.js's, as in `layout.ts`: origin at the player, looking
  * down -Z. The mesh is centred on its own origin vertically; `layout.ts` says
  * where it goes.
+ *
+ * Curved and flat are one function rather than two, and share every vertex
+ * index, uv and winding - only x and z differ. The player chooses between them
+ * at run time (`screen-shape.ts`), so the two shapes are swapped on a live
+ * mesh; two code paths would mean an enroulement or a uv range that is only
+ * right in one of them, and a screen wound the wrong way is invisible rather
+ * than wrong-looking. Both shapes cover the SAME arc, which is what makes the
+ * choice a matter of form and not a second size setting.
  */
 
-export interface CurvedScreenSpec {
-  radius: number;
-  /** Radians. */
+export interface ScreenSpec {
+  /** Metres from the eye to the centre of the picture. The cylinder's radius
+   *  when curved, the plane's depth when flat. */
+  distance: number;
+  /** Radians of horizontal field of view the picture covers, in both shapes. */
   arc: number;
   height: number;
   /** Horizontal subdivisions. Enough that the curve does not facet visibly;
-   * 48 is comfortable at 2.5 m. */
+   * 48 is comfortable at 2.5 m. Kept for the flat shape too, where two would
+   * do, so that swapping shapes never re-allocates a different mesh size. */
   segments?: number;
   /** The right edge of the sampled region. From `visibleU`. */
   uMax: number;
+  /** Defaults to curved, which is what every screen was before the setting. */
+  curved?: boolean;
 }
 
 export interface ScreenGeometry {
@@ -50,7 +63,23 @@ export function visibleU(width: number, stride: number): number {
   return Math.min(width / stride, 1);
 }
 
-export function curvedScreenGeometry(spec: CurvedScreenSpec): ScreenGeometry {
+/**
+ * How wide the picture is, in metres, for a given angle and shape.
+ *
+ * Two formulas because the arc is what is held constant. Curved, the picture
+ * IS the arc, so its width is the arc length. Flat, its edges are further from
+ * the eye than its centre, so covering the same angle takes a wider picture -
+ * `2 d tan(arc/2)` rather than `d arc`, about 10 % more at 60 degrees.
+ *
+ * Exported because `layout.ts` needs the same number to divide by the aspect
+ * ratio: a flat screen given the curved width would be visibly stretched, and
+ * the stretch would look like a decoding bug rather than a layout one.
+ */
+export function screenWidth(distance: number, arc: number, curved: boolean): number {
+  return curved ? distance * arc : 2 * distance * Math.tan(arc / 2);
+}
+
+export function screenGeometry(spec: ScreenSpec): ScreenGeometry {
   // `Math.max(1, ...)` closes off `segments: 0`, which would otherwise divide
   // by zero in `t = i / segments` below and produce a silent NaN mesh - an
   // invisible screen inside a headset, indistinguishable from a game that
@@ -61,6 +90,9 @@ export function curvedScreenGeometry(spec: CurvedScreenSpec): ScreenGeometry {
   const columns = segments + 1;
   const half = spec.arc / 2;
   const top = spec.height / 2;
+  const curved = spec.curved ?? true;
+  /** Only read on the flat branch, where x is linear rather than angular. */
+  const halfWidth = screenWidth(spec.distance, spec.arc, false) / 2;
 
   const positions = new Float32Array(columns * 2 * 3);
   const uvs = new Float32Array(columns * 2 * 2);
@@ -69,8 +101,19 @@ export function curvedScreenGeometry(spec: CurvedScreenSpec): ScreenGeometry {
   for (let i = 0; i < columns; i++) {
     const t = i / segments;
     const angle = -half + spec.arc * t;
-    const x = spec.radius * Math.sin(angle);
-    const z = -spec.radius * Math.cos(angle);
+    /*
+     * The one difference between the two shapes.
+     *
+     * Curved: the column sits on the cylinder at its own angle. Flat: x is
+     * spread linearly across the chord and z is constant, so the edges are
+     * further from the eye - which is exactly what a flat screen is.
+     *
+     * `u` is NOT adjusted for that. A flat screen's edges are stretched
+     * slightly, the same way a real flat panel viewed from its centre is;
+     * correcting it here would be a projection the picture never asked for.
+     */
+    const x = curved ? spec.distance * Math.sin(angle) : -halfWidth + 2 * halfWidth * t;
+    const z = curved ? -spec.distance * Math.cos(angle) : -spec.distance;
     const u = spec.uMax * t;
 
     // Vertex 2i is this column's bottom, 2i+1 its top.

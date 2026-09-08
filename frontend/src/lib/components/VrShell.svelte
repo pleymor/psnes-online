@@ -55,19 +55,26 @@
   } from '$lib/vr/panels/launch';
   import { launchOptions } from '$lib/vr/launch-options';
   import { activeRooms, myRoom } from '$lib/rooms/my-room';
-  import { menuPressed, readVrPad, activeXrInputs } from '$lib/vr/pad';
+  import { menuPressed, readVrPad, activeXrInputs, fastForwardHeld } from '$lib/vr/pad';
   import {
     readPadMap, writePadMap, assignInput,
-    // `THUMB_MAP` n'est plus importé : son bouton a disparu avec le second
-    // préréglage, mais `readPadMap` honore encore la valeur stockée `'thumb'`
-    // pour ne reprendre son réglage à personne.
-    LETTERS_MAP,
+    // Ni `LETTERS_MAP` ni `THUMB_MAP` ne sont importés : leurs boutons ont
+    // disparu avec les préréglages, et aucun des deux n'est plus le défaut -
+    // mais `readPadMap` honore encore les valeurs stockées `'letters'` et
+    // `'thumb'` pour ne reprendre son réglage à personne.
+    DEFAULT_MAP,
     type VrPadMap, type VrButton, type XrInput
   } from '$lib/vr/pad-map';
   import {
     TABLET_PANEL_SIZE, layoutControlsPanel, drawControlsPanel,
     type ControlsLabels
   } from '$lib/vr/panels/controls';
+  import { layoutOptionsPanel, drawOptionsPanel } from '$lib/vr/panels/options';
+  import { layoutScreenPanel, drawScreenPanel } from '$lib/vr/panels/screen-settings';
+  import {
+    readScreenShape, writeScreenShape, stepDistance, stepAngle,
+    DEFAULT_SHAPE, type ScreenShape
+  } from '$lib/vr/screen-shape';
   // La séquence appartient au dessin, pas au panneau : c'est son ordre de
   // lecture que « tout configurer » parcourt.
   import { BIND_SEQUENCE, nextInSequence } from '$lib/vr/panels/pad-art';
@@ -197,6 +204,43 @@
     return engine && saveContext ? saveContext : null;
   }
   let audio: AudioSink | null = null;
+
+  /** Le multiplicateur, le même que celui du pupitre plat. */
+  const FAST_FORWARD_SPEED = 4;
+
+  /**
+   * L'accéléré, tenu sur le clic du stick gauche.
+   *
+   * Un drapeau d'état plutôt qu'un appel par frame, et ce n'est pas une
+   * économie : `setMuted(true)` VIDE ce qui est en file
+   * (`znet/output.ts:218`), donc le rappeler soixante-douze fois par seconde
+   * ne laisserait jamais un échantillon atteindre le casque. Seule la
+   * transition parle au gouverneur et au puits.
+   *
+   * Les deux règles dictées par le propriétaire se partagent entre ici et
+   * `pad.ts`, selon ce que chacun peut savoir :
+   *
+   * - « si ce bouton est assigné, alors c'est le bouton assigné qui gagne » se
+   *   lit sur la carte, donc `fastForwardHeld` la tient.
+   * - « pour l'instant, le clic en partie à deux ne fait rien » ne se lit que
+   *   d'ici : `groupRoomId` est ce qui distingue un lockstep d'un solo, et les
+   *   DEUX moteurs exposent `governor.setSpeed` - rien dans le type n'aurait
+   *   arrêté un accéléré unilatéral, qui ferait attendre le pair un pas par
+   *   frame qui n'arrive plus au rythme convenu.
+   *
+   * Muet pendant le maintien, pour la raison que `SoloRoom.svelte` a déjà
+   * écrite à son propre turbo : le puits joue en temps réel et l'accéléré
+   * produit jusqu'à quatre fois plus d'échantillons, donc le nourrir pendant
+   * ce temps fait grandir une file qui ne se vide jamais.
+   */
+  let fastForward = false;
+
+  function setFastForward(on: boolean): void {
+    if (on === fastForward) return;
+    fastForward = on;
+    engine?.governor.setSpeed(on ? FAST_FORWARD_SPEED : 1);
+    audio?.setMuted(on);
+  }
   /**
    * The room this shell created and therefore owes the server.
    *
@@ -250,7 +294,7 @@
    * before the panel ever repaints with it - the button would appear to do
    * nothing.
    */
-  let padMap: VrPadMap = LETTERS_MAP;
+  let padMap: VrPadMap = DEFAULT_MAP;
 
   /**
    * Whether the floating tablet is up.
@@ -265,10 +309,27 @@
    * A union rather than a boolean now, which is what the second option screen
    * was always going to introduce - the note here used to say so. `null` is
    * lowered.
+   *
+   * `'options'` is the root: the band opens it, and the two settings screens
+   * return to it rather than lowering the tablet, which is the « bouton de
+   * retour vers le menu principal d'options » this shape was asked for.
+   * `'saves'` is opened straight from the band - it is an action, not a
+   * setting - so its own way out lowers the tablet.
    */
-  let tabletScreen: 'controls' | 'saves' | null = null;
+  type TabletScreen = 'options' | 'controls' | 'saves' | 'screen' | null;
+  let tabletScreen: TabletScreen = null;
   /** The tablet's panel, created in `enter()`. Hidden unless a screen is up. */
   let tabletPanel: PanelMesh | null = null;
+
+  /**
+   * Where the player put the screen, read once per session in `enter()`.
+   *
+   * A plain `let` for the same reason `padMap` is one: made reactive, the
+   * statement would recompute on the very write it triggers - `writeScreenShape`
+   * touches `localStorage` - and overwrite the step before the panel repaints
+   * with it, so « + » would appear to do nothing.
+   */
+  let screenShape: ScreenShape = DEFAULT_SHAPE;
   /**
    * Where « configure every button » has got to, or null outside a sequence.
    *
@@ -524,7 +585,7 @@
     profilePanel.paint((ctx) =>
       drawProfilePanel(ctx, state, regions, {
         labels: {
-          controls: t($language, 'controls'),
+          options: t($language, 'vrOptions'),
           recenter: t($language, 'vrRecenter'),
           saves: t($language, 'vrSaves'),
           quit: t($language, 'vrQuit'),
@@ -624,8 +685,72 @@
 
   /** Repeint la tablette, quel que soit l'écran qu'elle porte. */
   function repaintTablet(): void {
+    if (tabletScreen === 'options') repaintOptions();
     if (tabletScreen === 'controls') repaintControls();
     if (tabletScreen === 'saves') repaintSaves();
+    if (tabletScreen === 'screen') repaintScreenSettings();
+  }
+
+  function repaintOptions(): void {
+    if (!tabletPanel || tabletScreen !== 'options') return;
+    tabletPanel.regions = layoutOptionsPanel();
+    const regions = tabletPanel.regions;
+    tabletPanel.paint((ctx) =>
+      drawOptionsPanel(ctx, regions, {
+        labels: {
+          heading: t($language, 'vrOptions'),
+          controls: t($language, 'vrRemapHeading'),
+          screen: t($language, 'vrScreen'),
+          close: t($language, 'vrRemapDone')
+        },
+        hoverId: hovered?.panel === 'tablet' ? hovered.region.id : null
+      })
+    );
+  }
+
+  function repaintScreenSettings(): void {
+    if (!tabletPanel || tabletScreen !== 'screen') return;
+    tabletPanel.regions = layoutScreenPanel(screenShape);
+    const regions = tabletPanel.regions;
+    tabletPanel.paint((ctx) =>
+      drawScreenPanel(ctx, screenShape, regions, {
+        labels: {
+          heading: t($language, 'vrScreen'),
+          distance: t($language, 'vrScreenDistance'),
+          size: t($language, 'vrScreenSize'),
+          shape: t($language, 'vrScreenShape'),
+          flat: t($language, 'vrScreenFlat'),
+          curved: t($language, 'vrScreenCurved'),
+          close: t($language, 'vrRemapDone'),
+          /*
+           * Formaté ici, pas dans le panneau : la virgule décimale est une
+           * question de locale, et le panneau est testé depuis Bun, qui ne
+           * résout pas l'alias des traductions. La même frontière que
+           * `quickSave` pour le panneau des sauvegardes.
+           */
+          metres: (value) => `${value.toFixed(1).replace('.', $language === 'fr' ? ',' : '.')} m`,
+          degrees: (value) => `${value}°`
+        },
+        hoverId: hovered?.panel === 'tablet' ? hovered.region.id : null
+      })
+    );
+  }
+
+  /**
+   * Applique une forme d'écran : la géométrie, le stockage, le panneau.
+   *
+   * Les trois ensemble et dans cet ordre, parce que c'est l'ordre dans lequel
+   * le joueur les perçoit : l'écran bouge sous ses yeux pendant qu'il règle -
+   * il n'y a pas de bouton « Appliquer », et c'est ce qui rend le panneau
+   * utilisable puisque l'écran est juste derrière la tablette. Le repeint
+   * vient en dernier parce que les crans de bout d'échelle changent de région
+   * avec la valeur.
+   */
+  function applyScreenShape(next: ScreenShape): void {
+    screenShape = next;
+    scene?.reshapeScreen(next);
+    writeScreenShape(localStorage, next);
+    repaintScreenSettings();
   }
 
   function repaintSaves(): void {
@@ -696,6 +821,7 @@
       bindAll: t($language, 'vrRemapBindAll'),
       fixedDpad: t($language, 'vrFixedDpad'),
       fixedMenu: t($language, 'vrFixedMenu'),
+      fixedTurbo: t($language, 'vrFixedTurbo'),
       // Each language named in ITSELF, not in the current one: somebody who
       // has landed in the wrong language has to be able to read their way out.
       langEn: 'English',
@@ -731,7 +857,7 @@
    * one surface. They do not any more, so the game keeps playing and a launch
    * screen keeps its place behind the tablet.
    */
-  function openTablet(screen: 'controls' | 'saves'): void {
+  function openTablet(screen: Exclude<TabletScreen, null>): void {
     tabletScreen = screen;
     listeningFor = null;
     savesBusy = false;
@@ -908,7 +1034,16 @@
       // way back to the library: a player who had simply finished had to take
       // the headset off and put it back on.
       if (id === 'stop') { void stopTogether(); return; }
-      if (id === 'controls') { openTablet('controls'); return; }
+      /*
+       * Le menu, plus la panneau de remap directement.
+       *
+       * Le bandeau n'avait plus de créneau pour un septième bouton : trois
+       * colonnes est un plancher (quatre tronquaient les libellés, une
+       * troisième rangée ramènerait les cibles à 5,5 degrés), donc le bandeau
+       * garde les ACTIONS et les réglages passent derrière une entrée. Voir
+       * `panels/options.ts`.
+       */
+      if (id === 'options') { openTablet('options'); return; }
       /*
        * Puts the room back in front of the player.
        *
@@ -975,6 +1110,42 @@
     if (target.panel === 'tablet') {
       const id = target.region.id;
 
+      /*
+       * Le menu d'options : la racine de la tablette.
+       *
+       * Sa sortie referme la tablette, là où celle des deux panneaux de
+       * réglage remonte ici. C'est ce qui fait de ce panneau une racine
+       * plutôt qu'un étage de plus.
+       */
+      if (tabletScreen === 'options') {
+        if (id === 'controls') { openTablet('controls'); return; }
+        if (id === 'screen') { openTablet('screen'); return; }
+        if (id === 'close') { closeTablet(); return; }
+        return;
+      }
+
+      /*
+       * Les réglages d'écran, appliqués au clic.
+       *
+       * Les quatre pas n'existent comme régions que s'ils mènent quelque part
+       * (`screen-settings.ts`), donc aucune borne n'est vérifiée ici : un
+       * `stepDistance` au bout rendrait la même forme, mais il ne peut pas
+       * être atteint. La forme dessinée est la même que celle appliquée à la
+       * géométrie, ce qui est tout l'intérêt de la faire passer par
+       * `applyScreenShape`.
+       */
+      if (tabletScreen === 'screen') {
+        if (id === 'nearer') { applyScreenShape(stepDistance(screenShape, -1)); return; }
+        if (id === 'farther') { applyScreenShape(stepDistance(screenShape, 1)); return; }
+        if (id === 'smaller') { applyScreenShape(stepAngle(screenShape, -1)); return; }
+        if (id === 'bigger') { applyScreenShape(stepAngle(screenShape, 1)); return; }
+        if (id === 'flat') { applyScreenShape({ ...screenShape, curved: false }); return; }
+        if (id === 'curved') { applyScreenShape({ ...screenShape, curved: true }); return; }
+        // Remonte au menu, pas au jeu : voir `TabletScreen`.
+        if (id === 'close') { openTablet('options'); return; }
+        return;
+      }
+
       if (tabletScreen === 'saves') {
         if (id === 'close') { closeTablet(); return; }
 
@@ -1037,10 +1208,10 @@
         return;
       }
       if (id === 'restore-defaults') {
-        // `LETTERS_MAP` est le défaut, et `writePadMap` RETIRE la valeur
-        // stockée quand la carte l'égale (`pad-map.ts:174`) - donc restaurer,
-        // c'est littéralement oublier ce qui était stocké.
-        writePadMap(localStorage, LETTERS_MAP);
+        // `writePadMap` RETIRE la valeur stockée quand la carte égale le
+        // défaut - donc restaurer, c'est littéralement oublier ce qui était
+        // stocké.
+        writePadMap(localStorage, DEFAULT_MAP);
         // Read back rather than assumed: `readPadMap` is the only thing that
         // decides, and a preset written and not stored - the default is
         // removed, not stored - must still read back correctly.
@@ -1066,7 +1237,10 @@
         repaintControls();
         return;
       }
-      if (id === 'close') { closeTablet(); return; }
+      // Remonte au menu d'options, pas au jeu : c'est le retour que ce
+      // panneau a toujours dû avoir, et il n'avait rien où remonter avant
+      // qu'`options.ts` existe.
+      if (id === 'close') { openTablet('options'); return; }
       return;
     }
 
@@ -1338,6 +1512,15 @@
         // not take it by itself any more.
         scene.screen.showPicture();
         scene?.panelsVisible(false);
+        /*
+         * Le drapeau, pas le gouverneur : un gouverneur neuf est déjà à 1 et
+         * un puits neuf n'est pas muet. Ce qu'il faut remettre, c'est la
+         * MÉMOIRE de la transition - un accéléré encore tenu au moment où la
+         * partie précédente s'est arrêtée rendrait le prochain
+         * `setFastForward(false)` sans effet, et le geste resterait mort
+         * jusqu'à un aller-retour complet du clic.
+         */
+        fastForward = false;
         engine.governor.start();
         // So `resume` is there next time the panels come back, even though
         // they are hidden right now and the paint itself is invisible.
@@ -1688,6 +1871,10 @@
       // above are where the flat and solo paths start theirs: starting it
       // inside the engine reaches `requestAnimationFrame`, which does not
       // exist under the node test runner.
+      // Voir la même ligne dans `launch()`. Ici l'accéléré ne sera jamais
+      // tenu - `groupRoomId` est posé - mais le drapeau doit quand même être
+      // propre pour le solo qui suivra cette partie à deux.
+      fastForward = false;
       engine.governor.start();
       repaintProfile();
     } catch (err) {
@@ -2027,6 +2214,25 @@
     if (menuPressed(scene.inputSources())) scene.panelsVisible(true);
 
     /*
+     * L'accéléré, avant la sortie anticipée qui suit : c'est le seul geste que
+     * ce composant lit manettes en main PENDANT que le jeu tourne.
+     *
+     * L'ordre des `&&` fait deux choses. Il garde `fastForwardHeld` - le seul
+     * terme qui parcoure les manettes - dans le seul cas où la réponse peut
+     * être vraie ; et son premier terme est ce qui relâche l'accéléré quand
+     * les panneaux reviennent, y compris quand c'est le clic du stick DROIT
+     * juste au-dessus qui vient de les rappeler alors que le gauche est
+     * toujours enfoncé. Un bouton qui a disparu ne peut pas être relâché -
+     * `SoloRoom.svelte` tient la même règle sur son pad tactile.
+     */
+    setFastForward(
+      !scene.arePanelsVisible() &&
+        groupRoomId === null &&
+        engine !== null &&
+        fastForwardHeld(scene.inputSources(), padMap, sessionVisibility())
+    );
+
+    /*
      * The panels and the game never read the controllers at the same time.
      * The trigger is the pointer while the panels are up and SNES R while they
      * are down, and letting both read it would make a scroll press jump in
@@ -2085,9 +2291,14 @@
       // Read once per session, into the plain `let` above - see its comment
       // for why this cannot be a reactive statement.
       padMap = readPadMap(localStorage);
+      // Lue avant la scène, pas après : la géométrie de l'écran est construite
+      // dans `createVrScene`, et l'appliquer ensuite ferait apparaître le
+      // réglage du joueur comme un saut au premier frame.
+      screenShape = readScreenShape(localStorage);
 
       scene = createVrScene({
         aspect: readAspectPreference(localStorage),
+        shape: screenShape,
         onContextLost: () => {
           logger.warn('the XR webgl context was lost');
           // `show(message, type)` — the store has no `.error()` helper

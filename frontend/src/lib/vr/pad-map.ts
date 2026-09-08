@@ -5,9 +5,12 @@
  * deux presets était « toute la rectification » du fait de ne pas offrir de
  * réglage de contrôles. Ce n'est plus la conclusion retenue, mais le
  * raisonnement tient toujours : le losange SNES (X haut, Y gauche, A droite,
- * B bas) doit se plier sur deux paires verticales, aucun pliage n'est gratuit,
- * et les deux presets restent les deux bonnes réponses par défaut. Ils sont
- * désormais des points de départ plutôt que le choix entier.
+ * B bas) doit se plier sur deux paires verticales, et aucun pliage n'est
+ * gratuit. Ce qui a changé une seconde fois, c'est la conclusion qu'on en
+ * tirait : le défaut n'est plus un pliage du losange du tout, mais la
+ * permutation que le propriétaire a fini par jouer (voir `DEFAULT_MAP`). Les
+ * deux presets d'origine ne survivent que pour les joueurs qui en avaient un
+ * de stocké.
  *
  * Neuf entrées assignables pour huit boutons. Les sticks (la croix) et le clic
  * du stick droit (le menu, seul recours : le bouton Quest est réservé par le
@@ -59,10 +62,32 @@ export type VrPadMap = Record<VrButton, XrInput>;
 export const VR_PAD_KEY = 'psnes-vr-pad';
 
 /**
+ * L'entrée qui porte l'accéléré tant qu'aucun bouton SNES ne l'a prise.
+ *
+ * Nommée ici, dans le modèle, et pas là où l'accéléré est appliqué : « si ce
+ * bouton est assigné, alors c'est le bouton assigné qui gagne » est une règle
+ * SUR la carte, et c'est la carte qui doit pouvoir répondre. Le geste vit
+ * dans `fastForwardHeld` (`pad.ts`), et le panneau ne le nomme au joueur que
+ * quand `fastForwardClaimed` est faux - annoncer un raccourci qu'un remap
+ * vient d'emporter est pire que ne rien annoncer.
+ */
+export const FAST_FORWARD_INPUT: XrInput = 'XrLeftStickClick';
+
+/** Un bouton SNES a-t-il réclamé l'entrée de l'accéléré ? */
+export function fastForwardClaimed(map: VrPadMap): boolean {
+  return VR_BUTTONS.some((button) => map[button] === FAST_FORWARD_INPUT);
+}
+
+/**
  * Le preset qui garde la lettre imprimée honnête.
  *
  * C'était `FACE.letters` dans `pad.ts` : `left: [PAD.Y, PAD.X]`,
  * `right: [PAD.B, PAD.A]`, où le premier de chaque paire est le bouton HAUT.
+ *
+ * Il a été le défaut jusqu'au 2026-09-08. Il ne l'est plus, mais il reste
+ * exporté : `'letters'` est déjà sous la clé chez de vrais joueurs, et
+ * `readPadMap` doit continuer à leur rendre CE pliage-là plutôt que le
+ * nouveau. Un défaut qui change ne doit pas déplacer un choix explicite.
  */
 export const LETTERS_MAP: VrPadMap = {
   y: 'XrLeftFaceUpper',
@@ -91,8 +116,39 @@ export const THUMB_MAP: VrPadMap = {
   start: 'XrRightSqueeze'
 };
 
-/** Celui qu'un joueur obtient sans rien demander. */
-const DEFAULT_MAP = LETTERS_MAP;
+/**
+ * Celui qu'un joueur obtient sans rien demander, et il n'est ni l'un ni
+ * l'autre des deux presets ci-dessus.
+ *
+ * Il vient du jeu réel : le propriétaire a passé les soirées à rebinder dans
+ * le casque, s'est arrêté sur cette permutation, et l'a dictée bouton par
+ * bouton. C'est la seule justification qu'elle a besoin d'avoir - aucun
+ * raisonnement sur le losange SNES ne bat des heures de manette en main - mais
+ * elle en a une seconde, structurelle, qui explique pourquoi les presets
+ * dérivés du losange ne pouvaient pas y arriver : ici les gâchettes ne portent
+ * PAS les boutons L/R. Les grips le font, là où une gâchette d'index tombe
+ * naturellement sur une détente et où un majeur tombe sur une gâchette
+ * d'épaule. Les deux gâchettes libérées prennent alors A et X, les deux
+ * boutons qu'on presse le plus, et les quatre boutons de face se répartissent
+ * en deux paires : B et Y à droite (le saut et la course de Mario, sous le
+ * pouce qui ne bouge pas), Start et Select à gauche (ceux qu'on presse entre
+ * deux parties, loin de tout).
+ *
+ * Le clic du stick gauche - la neuvième entrée - reste libre, et ce n'est pas
+ * un reste : c'est ce qui rend l'accéléré (`fastForwardHeld` dans `pad.ts`)
+ * disponible sans réglage. Un joueur qui l'assigne quand même récupère son
+ * bouton, et perd l'accéléré : la règle est « le bouton assigné gagne ».
+ */
+export const DEFAULT_MAP: VrPadMap = {
+  a: 'XrRightTrigger',
+  x: 'XrLeftTrigger',
+  l: 'XrLeftSqueeze',
+  r: 'XrRightSqueeze',
+  y: 'XrRightFaceUpper',
+  b: 'XrRightFaceLower',
+  start: 'XrLeftFaceUpper',
+  select: 'XrLeftFaceLower'
+};
 
 function sameMap(a: VrPadMap, b: VrPadMap): boolean {
   return VR_BUTTONS.every((button) => a[button] === b[button]);

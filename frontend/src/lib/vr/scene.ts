@@ -19,7 +19,8 @@ import { createFramePump } from './frame-pump';
 import { framebufferScale } from './framebuffer-scale';
 import { anchorFrom } from './anchor';
 import { createVrScreen, type VrScreen } from './screen';
-import { sceneLayout, type SceneLayout, type Placement } from './layout';
+import { sceneLayout, screenPlacement, type SceneLayout, type Placement } from './layout';
+import type { ScreenShape } from './screen-shape';
 import type { PixelAspect } from '$lib/znet/fit';
 import { createPanelMesh, type PanelMesh } from './panel-mesh';
 import { aimable, hit, type PanelSize } from './panel';
@@ -45,6 +46,19 @@ export interface VrScene {
    * why this is a decision the app has to make at all.
    */
   recenter(): void;
+  /**
+   * Applies a screen setting the player just changed.
+   *
+   * Only the screen moves: `layout.screen` is replaced and the mesh
+   * re-shaped, while the panels keep the placements they were added with.
+   * That is not an optimisation - `addPanel` bakes a placement into a mesh,
+   * so re-placing the panels would mean rebuilding them, and `layout.ts` says
+   * why they do not need to follow the screen.
+   *
+   * `layout` is mutated rather than replaced because callers hold it: the
+   * shell reads `scene.layout` when it adds its panels.
+   */
+  reshapeScreen(shape: ScreenShape): void;
   panelsVisible(visible: boolean): void;
   arePanelsVisible(): boolean;
   aimedAt(): PointerTarget | null;
@@ -55,6 +69,8 @@ export interface VrScene {
 
 export function createVrScene(opts: {
   aspect: PixelAspect;
+  /** Where the player put the screen. See `screen-shape.ts`. */
+  shape: ScreenShape;
   onContextLost: () => void;
   /**
    * A throw that escaped the pumped emulation slice or a per-frame callback.
@@ -64,7 +80,7 @@ export function createVrScene(opts: {
    */
   onFrameError: (err: unknown) => void;
 }): VrScene {
-  const layout = sceneLayout(opts.aspect);
+  const layout = sceneLayout(opts.aspect, opts.shape);
 
   const canvas = document.createElement('canvas');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -383,6 +399,11 @@ export function createVrScene(opts: {
       return panel;
     },
     recenter: () => void (recenterPending = true),
+    reshapeScreen(shape: ScreenShape): void {
+      layout.screen = screenPlacement(opts.aspect, shape);
+      screen.reshape(layout.screen);
+    },
+
     panelsVisible: (visible: boolean) => void (panelGroup.visible = visible),
     arePanelsVisible: () => panelGroup.visible,
     aimedAt,

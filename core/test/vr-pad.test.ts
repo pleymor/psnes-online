@@ -24,9 +24,11 @@ import {
   readVrPad,
   menuPressed,
   activeXrInputs,
+  fastForwardHeld,
   XR_AXIS_THRESHOLD
 } from '../../frontend/src/lib/vr/pad.js';
 import {
+  DEFAULT_MAP,
   LETTERS_MAP,
   THUMB_MAP,
   assignInput
@@ -261,4 +263,56 @@ test('un masque nul est ce que produit une session non visible, boutons tenus ou
     0,
     'le test ne prouverait rien si visible rendait zéro aussi'
   );
+});
+
+/**
+ * L'accéléré, tenu sur le clic du stick gauche.
+ *
+ * Deux règles dictées par le propriétaire, et la seconde est celle qui décide
+ * de la forme du code : « si ce bouton est assigné, alors c'est le bouton
+ * assigné qui gagne ». L'accéléré n'est donc pas un neuvième câblage en dur
+ * posé à côté du modèle - il vit DANS le modèle, comme la seule chose que la
+ * neuvième entrée fait quand personne ne l'a réclamée. Un joueur qui met Start
+ * sur le clic gauche reprend son entrée sans avoir à désactiver quoi que ce
+ * soit, et sans qu'un bouton SNES devienne muet.
+ *
+ * La première règle - rien en partie à deux - n'est pas ici : elle ne se lit
+ * pas sur les manettes. C'est `VrShell` qui la tient, parce que c'est lui qui
+ * sait si la room est un lockstep, et un accéléré unilatéral y calerait le
+ * pair.
+ */
+
+test('le clic du stick gauche tient l accéléré quand rien ne l a réclamé', () => {
+  assert.equal(fastForwardHeld([controller('left', { buttons: [3] })], DEFAULT_MAP, 'visible'), true);
+});
+
+test('relâché, l accéléré retombe', () => {
+  assert.equal(fastForwardHeld([controller('left'), controller('right')], DEFAULT_MAP, 'visible'), false);
+});
+
+test('un bouton assigné au clic gauche gagne contre l accéléré', () => {
+  const map = assignInput(DEFAULT_MAP, 'start', 'XrLeftStickClick');
+  const sources = [controller('left', { buttons: [3] })];
+
+  assert.equal(fastForwardHeld(sources, map, 'visible'), false, "l'assignation doit gagner");
+  // Les deux moitiés de la règle : l'accéléré cède ET le bouton répond. Sans
+  // cette seconde ligne, un `fastForwardHeld` qui rendrait toujours false
+  // passerait le test en laissant Start muet.
+  assert.equal(readVrPad(sources, map, 'visible'), PAD.START);
+});
+
+test('le clic du stick droit ne tient pas l accéléré : c est le menu', () => {
+  assert.equal(fastForwardHeld([controller('right', { buttons: [3] })], DEFAULT_MAP, 'visible'), false);
+});
+
+test('le menu système ne soude pas l accéléré', () => {
+  // Même raison que pour le masque : la boucle continue de tourner et les
+  // entrées cessent d'arriver, donc un clic tenu à cet instant resterait tenu.
+  const held = [controller('left', { buttons: [3] })];
+  assert.equal(fastForwardHeld(held, DEFAULT_MAP, 'visible-blurred'), false);
+  assert.equal(fastForwardHeld(held, DEFAULT_MAP, 'hidden'), false);
+});
+
+test('une source qui n est ni gauche ni droite ne tient pas l accéléré', () => {
+  assert.equal(fastForwardHeld([controller('none', { buttons: [3] })], DEFAULT_MAP, 'visible'), false);
 });

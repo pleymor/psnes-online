@@ -10,6 +10,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
+  DEFAULT_MAP,
   LETTERS_MAP,
   THUMB_MAP,
   VR_PAD_KEY,
@@ -36,8 +37,10 @@ function isInjective(map: VrPadMap): boolean {
   return new Set(BUTTONS.map((b) => map[b])).size === BUTTONS.length;
 }
 
-test('les deux presets sont des permutations complètes', () => {
-  for (const [name, map] of [['letters', LETTERS_MAP], ['thumb', THUMB_MAP]] as const) {
+test('les trois maps livrées sont des permutations complètes', () => {
+  for (const [name, map] of [
+    ['default', DEFAULT_MAP], ['letters', LETTERS_MAP], ['thumb', THUMB_MAP]
+  ] as const) {
     assert.equal(Object.keys(map).length, 8, `${name} n'a pas huit lignes`);
     assert.ok(isInjective(map), `${name} assigne deux boutons à la même entrée`);
   }
@@ -89,7 +92,38 @@ test('aucune suite d assignations ne peut casser l injectivité', () => {
 });
 
 test('rien de stocké rend le défaut', () => {
-  assert.deepEqual(readPadMap(storage()), LETTERS_MAP);
+  assert.deepEqual(readPadMap(storage()), DEFAULT_MAP);
+});
+
+/**
+ * Le défaut, épinglé entrée par entrée.
+ *
+ * Ce n'est pas un test de tautologie : cette map est une DICTÉE, celle que le
+ * propriétaire a jouée puis transcrite bouton par bouton, et le seul endroit
+ * où elle est écrite deux fois est ici. Une faute de frappe dans `pad-map.ts`
+ * donnerait un défaut jouable et faux - la panne qu'aucun autre test ne peut
+ * voir, puisque toute permutation passe l'injectivité.
+ */
+test('le défaut est la map dictée', () => {
+  assert.deepEqual(DEFAULT_MAP, {
+    a: 'XrRightTrigger',
+    b: 'XrRightFaceLower',
+    x: 'XrLeftTrigger',
+    y: 'XrRightFaceUpper',
+    l: 'XrLeftSqueeze',
+    r: 'XrRightSqueeze',
+    start: 'XrLeftFaceUpper',
+    select: 'XrLeftFaceLower'
+  });
+});
+
+test('le défaut laisse le clic du stick gauche libre', () => {
+  // C'est ce qui rend l'accéléré disponible sans réglage : `pad.ts` ne le tient
+  // que si personne ne l'a réclamé. Voir `fastForwardHeld`.
+  assert.ok(
+    !BUTTONS.some((button) => DEFAULT_MAP[button] === 'XrLeftStickClick'),
+    "un bouton SNES a pris la neuvième entrée, l'accéléré n'a plus de geste"
+  );
 });
 
 test('une valeur héritée letters ou thumb se résout vers sa map', () => {
@@ -102,27 +136,39 @@ test('une valeur héritée letters ou thumb se résout vers sa map', () => {
 test('une valeur illisible est retirée et rend le défaut', () => {
   for (const junk of ['{', 'nonsense', '{"a":"XrNope"}', '{"a":"XrLeftTrigger"}']) {
     const store = storage({ [VR_PAD_KEY]: junk });
-    assert.deepEqual(readPadMap(store), LETTERS_MAP, `${junk} n'a pas rendu le défaut`);
+    assert.deepEqual(readPadMap(store), DEFAULT_MAP, `${junk} n'a pas rendu le défaut`);
     assert.equal(store.held.has(VR_PAD_KEY), false, `${junk} est resté stocké`);
   }
 });
 
 test('une map non injective stockée à la main est refusée', () => {
-  const broken = { ...LETTERS_MAP, a: LETTERS_MAP.r };
+  const broken = { ...DEFAULT_MAP, a: DEFAULT_MAP.r };
   const store = storage({ [VR_PAD_KEY]: JSON.stringify(broken) });
-  assert.deepEqual(readPadMap(store), LETTERS_MAP);
+  assert.deepEqual(readPadMap(store), DEFAULT_MAP);
   assert.equal(store.held.has(VR_PAD_KEY), false);
 });
 
 test('le défaut est retiré plutôt qu écrit', () => {
   const store = storage({ [VR_PAD_KEY]: 'thumb' });
-  writePadMap(store, LETTERS_MAP);
+  writePadMap(store, DEFAULT_MAP);
   assert.equal(store.held.has(VR_PAD_KEY), false, "le défaut ne doit pas être stocké");
+});
+
+test('les deux presets hérités sont désormais des maps ordinaires', () => {
+  // Ils ne sont plus le défaut, donc ils s'écrivent au lieu d'être retirés -
+  // et c'est ce qui garde son réglage à un joueur qui avait choisi `letters`
+  // en connaissance de cause, au lieu de le faire glisser vers la dictée.
+  for (const map of [LETTERS_MAP, THUMB_MAP]) {
+    const store = storage();
+    writePadMap(store, map);
+    assert.equal(store.held.has(VR_PAD_KEY), true);
+    assert.deepEqual(readPadMap(store), map);
+  }
 });
 
 test('une map non-défaut est écrite et se relit identique', () => {
   const store = storage();
-  const custom = assignInput(LETTERS_MAP, 'a', 'XrLeftStickClick');
+  const custom = assignInput(DEFAULT_MAP, 'a', 'XrLeftStickClick');
   writePadMap(store, custom);
   assert.deepEqual(readPadMap(store), custom);
 });

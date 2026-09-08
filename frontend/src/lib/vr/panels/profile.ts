@@ -107,8 +107,16 @@ export interface ProfileState {
 }
 
 export interface ProfileLabels {
-  /** Opens the rebinding panel on the curved screen. */
-  controls: string;
+  /**
+   * Opens the options menu on the tablet.
+   *
+   * It used to be `controls`, straight to the rebinding panel. The band ran
+   * out of slots when the screen setting arrived - three columns is a floor,
+   * not a taste (four truncated four labels out of six, and a third row would
+   * take the targets from 8 degrees to about 5.5) - so the band kept the
+   * ACTIONS and the settings moved behind one entry. See `options.ts`.
+   */
+  options: string;
   /** Opens the saves screen on the tablet. */
   saves: string;
   /** Puts the room back in front of the player. See `vr/anchor.ts`. */
@@ -133,7 +141,7 @@ export function layoutProfilePanel(state: ProfileState): Region[] {
    */
   const regions: Region[] = [
     { id: 'quit', ...slot(2, 0) },
-    { id: 'controls', ...slot(0, 0) },
+    { id: 'options', ...slot(0, 0) },
     { id: 'recenter', ...slot(1, 0) }
   ];
 
@@ -178,7 +186,7 @@ export function drawProfilePanel(
 
   const label: Record<string, string> = {
     quit: labels.quit,
-    controls: labels.controls,
+    options: labels.options,
     recenter: labels.recenter,
     saves: labels.saves,
     resume: labels.resume,

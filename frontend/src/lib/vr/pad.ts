@@ -16,7 +16,14 @@
  */
 
 import { PAD, type PadMask } from '$lib/znet/protocol';
-import { VR_BUTTONS, type VrButton, type VrPadMap, type XrInput } from './pad-map';
+import {
+  VR_BUTTONS,
+  FAST_FORWARD_INPUT,
+  fastForwardClaimed,
+  type VrButton,
+  type VrPadMap,
+  type XrInput
+} from './pad-map';
 
 /** The part of `XRInputSource` this reads. */
 export interface PadLikeSource {
@@ -164,6 +171,39 @@ export function readVrPad(
   }
 
   return mask;
+}
+
+/**
+ * The ninth input, and what it does when nobody has claimed it.
+ *
+ * Fast-forward is held on the left stick click - the one assignable input no
+ * default map uses. Two rulings shape this, both from the owner:
+ *
+ * 1. "si ce bouton est assigné, alors c'est le bouton assigné qui gagne".
+ *    So this is not a ninth hard-wired gesture living beside the model: it
+ *    lives INSIDE it, as the thing the free input does while it is free. A
+ *    player who puts Start there takes the input back without having to turn
+ *    anything off, and no SNES button ever goes mute to keep fast-forward.
+ * 2. "pour l'instant, le clic en partie à deux ne fait rien". That one is NOT
+ *    here, because it cannot be read off a controller: a lockstep room is
+ *    something only the shell knows about, and a one-sided speed-up would
+ *    stall the peer. `VrShell` holds that half.
+ *
+ * Gated on visibility for the same reason `readVrPad` is, and it is worse
+ * here: a mask welded down by the system menu is a character running into a
+ * wall, but a speed welded to four times real time has no button left to
+ * release, since the click that set it is the click that would clear it.
+ */
+export function fastForwardHeld(
+  sources: Iterable<PadLikeSource>,
+  map: VrPadMap,
+  visibility: string
+): boolean {
+  if (visibility !== 'visible') return false;
+  // Rule 1, and it is asked of the map before the controllers are read rather
+  // than after: an assigned click must not even be looked at as fast-forward.
+  if (fastForwardClaimed(map)) return false;
+  return activeXrInputs(sources).includes(FAST_FORWARD_INPUT);
 }
 
 /**

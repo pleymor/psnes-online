@@ -44,7 +44,7 @@ import {
  * passage la collision des deux « Quitter » que ce fichier surveille déjà.
  */
 const LABELS = {
-  controls: 'Contrôles',
+  options: 'Options',
   recenter: 'Recentrer',
   saves: 'Sauvegardes',
   quit: 'Quitter la VR',
@@ -98,10 +98,10 @@ test('the exit is in the same place whether or not a game is running', () => {
   assert.deepEqual(idle, busy);
 });
 
-test('the controls panel and the recentre are offered in every state', () => {
+test('the options menu and the recentre are offered in every state', () => {
   for (const playing of [false, true]) {
     const shown = ids(state({ playing }));
-    assert.ok(shown.includes('controls'), 'rebinding must be reachable while playing too');
+    assert.ok(shown.includes('options'), 'the settings must be reachable while playing too');
     assert.ok(shown.includes('recenter'), 'a room in the wrong place is worst mid-game');
   }
 });
