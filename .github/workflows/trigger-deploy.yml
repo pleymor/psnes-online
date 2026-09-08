@@ -45,6 +45,19 @@ jobs:
             exit 1
           fi
 
+      # The suites build nothing, and that let a broken frontend build reach
+      # the deploy on 2026-09-08: a new route missing from
+      # `kit.prerender.entries` is invisible to `test:all`, to `svelte-check`
+      # and to `vite dev`, and only fails inside the infra repo's `docker
+      # build` - minutes later, in another repository, after the images have
+      # started building. Building here costs about twenty seconds and puts
+      # the failure back where it was written.
+      #
+      # The same command the Dockerfile runs, so this cannot pass while that
+      # one fails.
+      - name: Build the frontend
+        run: bun run --filter=./frontend build
+
   trigger:
     name: Trigger Infrastructure Deployment
     runs-on: ubuntu-latest
