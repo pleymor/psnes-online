@@ -14,7 +14,14 @@ import { BUTTONS, parsePadCode } from '../controls/binding.js';
 import type { TouchPad } from '../controls/touch.js';
 import { PAD, type PadMask } from './protocol.js';
 
-const BUTTON_BITS: Record<Button, number> = {
+/**
+ * Le bit SNES de chaque bouton.
+ *
+ * Exporté parce que la VR lit désormais une manette Bluetooth contre la MÊME
+ * table de bindings que cette page-ci (`vr/bt-pad.ts`), et deux tables
+ * bouton -> bit dériveraient l'une de l'autre au premier changement.
+ */
+export const BUTTON_BITS: Record<Button, number> = {
 	a: PAD.A,
 	b: PAD.B,
 	x: PAD.X,
@@ -143,7 +150,7 @@ export class InputCollector {
 				if (this.held.has(code)) mask |= bit;
 			}
 		}
-		return sanitise(mask | this.readPads() | (this.touch?.mask ?? 0));
+		return sanitisePad(mask | this.readPads() | (this.touch?.mask ?? 0));
 	}
 
 	private readPads(): number {
@@ -171,7 +178,20 @@ export class InputCollector {
 	}
 }
 
-function readPadCode(pad: Gamepad, described: PadCodeDescriptor): boolean {
+/**
+ * Un code de manette est-il tenu sur cette manette ?
+ *
+ * Exporté pour la même raison que `BUTTON_BITS` : la lecture VR d'une manette
+ * Bluetooth doit répondre exactement comme celle-ci, seuil d'axe compris.
+ *
+ * Le paramètre est volontairement plus large que `Gamepad` : la VR passe le
+ * même objet, mais ses tests passent un faux, et exiger le type du navigateur
+ * ferait dépendre une fonction pure d'une définition DOM.
+ */
+export function readPadCode(
+	pad: { buttons: readonly { pressed: boolean }[]; axes: readonly number[] },
+	described: PadCodeDescriptor
+): boolean {
 	if (described.kind === 'button') return pad.buttons[described.index]?.pressed ?? false;
 	const value = pad.axes[described.index] ?? 0;
 	return described.dir === 'minus' ? value < -AXIS_THRESHOLD : value > AXIS_THRESHOLD;
@@ -182,7 +202,7 @@ function readPadCode(pad: Gamepad, described: PadCodeDescriptor): boolean {
  * take genuinely undefined paths when they see it. Dropping the second
  * direction here keeps both peers on the defined path.
  */
-function sanitise(mask: number): number {
+export function sanitisePad(mask: number): number {
 	if ((mask & (PAD.LEFT | PAD.RIGHT)) === (PAD.LEFT | PAD.RIGHT)) mask &= ~PAD.RIGHT;
 	if ((mask & (PAD.UP | PAD.DOWN)) === (PAD.UP | PAD.DOWN)) mask &= ~PAD.DOWN;
 	return mask & 0x0fff;

@@ -56,6 +56,9 @@
   import { launchOptions } from '$lib/vr/launch-options';
   import { activeRooms, myRoom } from '$lib/rooms/my-room';
   import { menuPressed, readVrPad, activeXrInputs, fastForwardHeld } from '$lib/vr/pad';
+  import { readBluetoothPad, bluetoothPadName } from '$lib/vr/bt-pad';
+  import type { PadMask } from '$lib/znet/protocol';
+  import { STANDARD_PAD, normaliseControlsConfig, type PadConfig } from '$lib/controls/binding';
   import {
     readPadMap, writePadMap, assignInput,
     // Ni `LETTERS_MAP` ni `THUMB_MAP` ne sont importés : leurs boutons ont
@@ -365,6 +368,20 @@
    * with it, so « + » would appear to do nothing.
    */
   let screenShape: ScreenShape = DEFAULT_SHAPE;
+
+  /**
+   * La table de la manette Bluetooth : celle de la page plate, pas une
+   * troisième.
+   *
+   * `STANDARD_PAD` en attendant la réponse du serveur, et en cas d'échec :
+   * c'est le mapping `standard` que toute manette moderne annonce, donc une
+   * manette non configurée marche telle quelle. Une table vide aurait rendu la
+   * manette muette exactement là où le joueur ne peut rien lire.
+   *
+   * Un `let` et non un `$:` pour la raison de `padMap` : rien ici ne doit
+   * recalculer sur une écriture qu'il vient de déclencher.
+   */
+  let bluetoothConfig: PadConfig = STANDARD_PAD;
   /**
    * Where « configure every button » has got to, or null outside a sequence.
    *
@@ -921,6 +938,19 @@
       fixedDpad: t($language, 'vrFixedDpad'),
       fixedMenu: t($language, 'vrFixedMenu'),
       fixedTurbo: t($language, 'vrFixedTurbo'),
+      /*
+       * Lu au moment du peint, et pas gardé dans un état.
+       *
+       * Une manette qu'on allume ou qu'on éteint pendant la session change
+       * cette ligne, et `gamepadconnected` repeint le panneau (voir `enter`).
+       * Une copie dans une variable serait une deuxième vérité à tenir à jour.
+       */
+      fixedPad: (() => {
+        const name = bluetoothPadName(gamepadsHere());
+        return name
+          ? t($language, 'vrPadDetected', { name })
+          : t($language, 'vrPadNone');
+      })(),
       // Each language named in ITSELF, not in the current one: somebody who
       // has landed in the wrong language has to be able to read their way out.
       langEn: 'English',
@@ -1582,15 +1612,9 @@
             save: (bytes) => $socket?.emit('game:saveSram', { roomId, sramData: toBase64(bytes) })
           },
           audio,
-          readPads: () => ({
-            // Zero while the panels are up: the trigger is the pointer then,
-            // and letting both read it at once would make a menu press also
-            // register as SNES R.
-            pad1: scene && !scene.arePanelsVisible()
-              ? readVrPad(scene.inputSources(), padMap, sessionVisibility())
-              : 0,
-            pad2: 0
-          }),
+          // Les Touch et la manette Bluetooth, fusionnées par `localPad`, qui
+          // porte aussi la règle du zéro pendant que les panneaux sont levés.
+          readPads: () => ({ pad1: localPad(), pad2: 0 }),
           onFrame: (c) => scene?.screen.upload(c.videoSurface()),
           onError: (err) => logger.error('vr engine', err),
           /*
@@ -1714,6 +1738,56 @@
     } finally {
       launching = false;
     }
+  }
+
+  /**
+   * La table de la manette, depuis le compte du joueur.
+   *
+   * La même requête que la page plate (`/api/user/controls`), et le même
+   * normaliseur : c'est ce qui garantit qu'une manette configurée sur grand
+   * écran se comporte pareil dans le casque. Un échec laisse `STANDARD_PAD`,
+   * qui est jouable - dire « impossible de charger tes contrôles » dans un
+   * casque n'apporterait rien à quelqu'un qui ne peut rien y faire.
+   */
+  async function loadBluetoothConfig(): Promise<void> {
+    try {
+      const res = await fetch('/api/user/controls', { credentials: 'include' });
+      if (!res.ok) return;
+      bluetoothConfig = normaliseControlsConfig(await res.json()).p1.pad;
+      repaintControls();
+    } catch (err) {
+      logger.warn('vr could not load the pad bindings; keeping the standard mapping', err);
+    }
+  }
+
+  /**
+   * Le masque SNES de CE casque : les Touch et la manette Bluetooth ensemble.
+   *
+   * Un seul endroit pour les deux chemins - le solo et le lockstep - qui
+   * lisaient la même expression en double. Et la fusion est sûre par
+   * construction : la spec du module Gamepads de WebXR interdit qu'une manette
+   * ordinaire soit exposée comme source XR, donc `session.inputSources` et
+   * `navigator.getGamepads()` ne peuvent pas décrire le même bouton. Voir
+   * `bt-pad.ts`.
+   *
+   * Zéro pendant que les panneaux sont levés : la gâchette est alors le
+   * pointeur, et laisser les deux la lire ferait d'une pressée de menu un R
+   * dans Super Mario World. La manette Bluetooth suit la même règle, sans
+   * quoi une pression dessus jouerait pendant qu'on navigue dans un menu.
+   */
+  function localPad(): PadMask {
+    if (!scene || scene.arePanelsVisible()) return 0;
+    const visibility = sessionVisibility();
+    return (
+      readVrPad(scene.inputSources(), padMap, visibility) |
+      readBluetoothPad(gamepadsHere(), bluetoothConfig, visibility)
+    );
+  }
+
+  /** Ce que le navigateur annonce, ou rien là où il n'y en a pas. */
+  function gamepadsHere(): Iterable<Gamepad | null> {
+    if (typeof navigator === 'undefined' || !navigator.getGamepads) return [];
+    return navigator.getGamepads();
   }
 
   /** The session's own visibility, which is what `readVrPad` gates on. */
@@ -2209,12 +2283,10 @@
         },
         audio,
         joinRelay: () => joinRelay(roomId),
-        // One mask, which is what `readVrPad` already produces - no `pad2: 0`
-        // here, because the other pad arrives over the transport.
-        readLocalInput: () =>
-          scene && !scene.arePanelsVisible()
-            ? readVrPad(scene.inputSources(), padMap, sessionVisibility())
-            : 0,
+        // One mask - no `pad2: 0` here, because the other pad arrives over the
+        // transport. `localPad` merges the Touch controllers with a Bluetooth
+        // pad, exactly as the solo path does.
+        readLocalInput: localPad,
         onEvent: onSessionEvent,
         onFrame: (c) => scene?.screen.upload(c.videoSurface()),
         onError: (err) => logger.error('vr lockstep', err),
@@ -2678,6 +2750,10 @@
       // dans `createVrScene`, et l'appliquer ensuite ferait apparaître le
       // réglage du joueur comme un saut au premier frame.
       screenShape = readScreenShape(localStorage);
+      // Sans await : la table par défaut est déjà jouable, et faire attendre
+      // l'ouverture de la session sur une requête réseau serait payer une
+      // lenteur visible pour un réglage que presque personne ne change.
+      void loadBluetoothConfig();
 
       scene = createVrScene({
         aspect: readAspectPreference(localStorage),
@@ -2791,6 +2867,19 @@
        * exactement la demande qu'il existe pour entendre.
        */
       $socket?.on('rom:request', onRomRequested);
+      /*
+       * Une manette allumée pendant la session doit apparaître sur le panneau.
+       *
+       * `fixedPad` est lu au peint, donc sans ces deux écouteurs la ligne
+       * resterait sur « aucune détectée » jusqu'au prochain survol - et c'est
+       * précisément le joueur qui vient d'appairer sa manette qui la lirait.
+       *
+       * Que ces événements arrivent pendant une session immersive fait partie
+       * de ce qu'aucune documentation ne dit ; les poser ne coûte rien, et la
+       * ligne se rafraîchit de toute façon au prochain survol.
+       */
+      window.addEventListener('gamepadconnected', repaintControls);
+      window.addEventListener('gamepaddisconnected', repaintControls);
       // The friend's own quit reaches this listener the same way - the only
       // path that can tell the *other* player of a netplay room the match is
       // over, exactly as `room-session.ts` states for the flat page.
@@ -2955,6 +3044,8 @@
     $socket?.off('game:started', onGameStarted);
     $socket?.off('game:stopped', onGameStopped);
     $socket?.off('rom:request', onRomRequested);
+    window.removeEventListener('gamepadconnected', repaintControls);
+    window.removeEventListener('gamepaddisconnected', repaintControls);
     friendsPanel = null;
     friendEntries = [];
     onlineFriends = new Map();

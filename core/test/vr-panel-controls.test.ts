@@ -37,6 +37,7 @@ const LABELS: ControlsLabels = {
   fixedDpad: 'Croix directionnelle : les deux sticks',
   fixedMenu: 'Menu : clic du stick droit',
   fixedTurbo: 'Accéléré : maintenir le clic du stick gauche',
+  fixedPad: 'Manette Bluetooth : 8BitDo SN30 Pro',
   langEn: 'English',
   langFr: 'Français',
   button: { a: 'A', b: 'B', x: 'X', y: 'Y', l: 'L', r: 'R', start: 'START', select: 'SELECT' },
@@ -161,6 +162,32 @@ test('les entrées non assignables sont nommées', () => {
   const drawn = draw(state()).texts.join('\n');
   assert.ok(drawn.includes(LABELS.fixedDpad), "la croix n'est expliquée nulle part");
   assert.ok(drawn.includes(LABELS.fixedMenu), "le menu n'est expliqué nulle part");
+});
+
+/*
+ * La manette Bluetooth, toujours nommée - même absente.
+ *
+ * C'est l'instrument, pas une décoration : aucune documentation ne dit si le
+ * navigateur du Quest livre les événements Gamepad pendant une session
+ * immersive, et ce panneau est le seul endroit d'où un joueur peut le lire.
+ * Une ligne qui n'apparaîtrait qu'en cas de succès ne répondrait justement pas
+ * à la question de celui dont la manette ne marche pas.
+ */
+test('la manette Bluetooth est nommée', () => {
+  const drawn = draw(state()).texts.join('\n');
+  assert.ok(drawn.includes(LABELS.fixedPad), 'rien ne dit ce que le casque voit');
+});
+
+test('la ligne de la manette ne bouge pas quand l accéléré disparaît', () => {
+  // La conditionnelle est écrite en dernier justement pour ça.
+  const at = (shot: ReturnType<typeof draw>, text: string) =>
+    shot.placed.find((p) => p.text === text)?.y;
+  const free = draw(state());
+  const claimed = draw(state({ map: assignInput(LETTERS_MAP, 'start', 'XrLeftStickClick') }));
+
+  for (const label of [LABELS.fixedDpad, LABELS.fixedMenu, LABELS.fixedPad]) {
+    assert.equal(at(free, label), at(claimed, label), `${label} a bougé`);
+  }
 });
 
 test('l accéléré est nommé, et seulement tant que son entrée est libre', () => {

@@ -139,17 +139,19 @@ const RESTORE_Y = BIND_ALL_Y + BTN_H + 16;
 /**
  * Le bloc des entrées hors modèle, ancré par le HAUT.
  *
- * La troisième ligne est conditionnelle - elle nomme l'accéléré et disparaît
+ * Une ligne du bloc est conditionnelle - celle de l'accéléré, qui disparaît
  * quand un bouton a réclamé son entrée - et c'est CE fait qui impose le sens
- * de l'ancrage. Ancré par le bas, le retrait de la troisième ligne pousserait
- * les deux premières de trente pixels vers le bas : le panneau se réagencerait
- * sous le regard du joueur pour un binding sans rapport. Ancré par le haut,
- * seule la ligne conditionnelle apparaît et disparaît.
+ * de l'ancrage. Ancré par le bas, son retrait pousserait toutes les autres de
+ * trente pixels : le panneau se réagencerait sous le regard du joueur pour un
+ * binding sans rapport. Ancré par le haut, elle est la seule à bouger, et elle
+ * est écrite EN DERNIER pour que ce soit vrai - une conditionnelle au milieu
+ * ferait remonter celles d'après.
  *
- * C'était 712 tant qu'il n'y avait que deux lignes. Remonté de trente pour que
- * la troisième tienne : 682 + 2 x 30 = 742, sous les 768 du panneau.
+ * 712 tant qu'il n'y avait que deux lignes, 682 pour trois, 652 pour quatre :
+ * 652 + 3 x 30 = 742, sous les 768 du panneau, et bien en dessous du bouton
+ * de restauration qui finit à 544.
  */
-const FIXED_TOP = 682;
+const FIXED_TOP = 652;
 const FIXED_GAP = 30;
 
 /*
@@ -198,6 +200,20 @@ export interface ControlsLabels {
   restoreDefaults: string;
   fixedDpad: string;
   fixedMenu: string;
+  /**
+   * La manette Bluetooth détectée, déjà mise en mots par l'appelant.
+   *
+   * Un libellé qui porte une donnée vivante, comme `incomingFrom` du panneau
+   * des amis : l'interpolation est une affaire de traduction, et ce module est
+   * testé sous Bun, qui ne résout pas l'alias des traductions.
+   *
+   * Toujours affichée, y compris pour dire qu'aucune n'est vue. C'est
+   * l'instrument : aucune documentation ne dit si le navigateur du Quest livre
+   * les événements Gamepad pendant une session immersive, donc le joueur le
+   * lit ici au lieu de le supposer - et celui dont la manette ne répond pas
+   * sait enfin si elle est vue.
+   */
+  fixedPad: string;
   /** L'accéléré, tenu sur le clic du stick gauche. Voir `FIXED_TOP`. */
   fixedTurbo: string;
   langEn: string;
@@ -334,7 +350,7 @@ export function drawControlsPanel(
   ctx.textAlign = 'left';
   ctx.fillStyle = '#6a6a78';
   ctx.font = '20px system-ui, sans-serif';
-  const fixed = [labels.fixedDpad, labels.fixedMenu];
+  const fixed = [labels.fixedDpad, labels.fixedMenu, labels.fixedPad];
   // Nommé seulement tant qu'il existe : `fastForwardClaimed` est la même
   // question que `fastForwardHeld` pose avant de tenir le geste, donc le
   // panneau ne peut pas annoncer un raccourci que la carte a emporté.
