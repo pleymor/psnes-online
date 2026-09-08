@@ -391,11 +391,18 @@
    * statement is the whole of what makes the lectern follow them: an
    * invitation arriving, being answered, expiring, or being taken back has to
    * repaint the panel, and a statement that mentioned only `friendsPanel`
-   * would run once at mount and never again. `$myRoom` is already a dependency
-   * of the statement below, but of that one - and it is the `.invitation`
-   * field that matters here, which is why it is spelt out.
+   * would run once at mount and never again.
+   *
+   * `$myRoom` bare rather than `$myRoom?.invitation`, which is what it used to
+   * say. The panel now reads the room's MEMBERS too - that is what removes the
+   * Invite button from a friend who has just joined - and a store field named
+   * in the guard is easy to mistake for the dependency. It is not: Svelte 4
+   * takes the dependencies from the identifiers written here, and the store
+   * emits as a whole. Naming the whole room says out loud what this statement
+   * actually follows. Verified by compiling and reading `$$self.$$.update`,
+   * which is the only thing that settles a question like this.
    */
-  $: if (friendsPanel && ($invitations || $myRoom?.invitation)) repaintFriends();
+  $: if (friendsPanel && ($invitations || $myRoom)) repaintFriends();
 
   /*
    * The newest notification, mirrored where a headset can see it.
@@ -561,7 +568,21 @@
       pending?.toUserId
     );
 
-    const state = { rows, pending, incoming: asking ? [asking] : [] };
+    /*
+     * Qui est déjà là, ce que seul ce composant sait.
+     *
+     * `$myRoom.players` porte les `userId`, et le store se met à jour de
+     * lui-même quand une invitation est acceptée - dans les deux sens - donc
+     * ce simple ensemble suffit à faire disparaître le bouton « Inviter » de
+     * la ligne d'un ami qui vient de nous rejoindre. C'est le défaut rapporté :
+     * accepter marchait, et sa ligne continuait de proposer de l'inviter.
+     *
+     * Mon propre id peut y être sans conséquence : la liste ne contient que
+     * des amis, donc aucune ligne ne me porte.
+     */
+    const members = new Set(($myRoom?.players ?? []).map((player) => player.userId));
+
+    const state = { rows, pending, incoming: asking ? [asking] : [], members };
     friendsPanel.regions = layoutFriendsPanel(state);
     const regions = friendsPanel.regions;
     const hoverId = hovered?.panel === 'friends' ? hovered.region.id : null;
@@ -577,6 +598,7 @@
         cancel: t($language, 'vrCancelInvite'),
         accept: t($language, 'vrAcceptInvite'),
         decline: t($language, 'vrDeclineInvite'),
+        inGroup: t($language, 'vrInGroup'),
         incomingFrom: asking
           ? t($language, 'vrInvitesYou', { pseudo: asking.fromPseudo })
           : ''

@@ -94,6 +94,8 @@ export interface FriendsLabels {
   invite: string;
   /** On the row of the friend this room has asked. */
   invited: string;
+  /** On the row of a friend who is already here. See `FriendsState.members`. */
+  inGroup: string;
   cancel: string;
   accept: string;
   decline: string;
@@ -163,6 +165,22 @@ export interface FriendsState {
   pending: PendingInvitation | null;
   /** Only the first is offered - see `layoutFriendsPanel`. */
   incoming: readonly IncomingInvitation[];
+  /**
+   * The user ids already in this player's room.
+   *
+   * Added because of a reported defect, and its shape is the diagnosis: this
+   * panel knew only about INVITATIONS - the one we sent (`pending`) and the
+   * ones we receive (`incoming`) - and nothing about who is already here.
+   * Accepting an invitation therefore could not change a friend's row, and
+   * they kept an Invite button while sitting in the same room. Pressing it
+   * would have asked somebody already present to join a room they had not
+   * left.
+   *
+   * A set of ids rather than the room itself: this module stays pure and
+   * knows nothing of `RoomView`, exactly as it takes rows rather than the
+   * friends store.
+   */
+  members: ReadonlySet<string>;
 }
 
 /** Where a row's button goes, given the row's index and whether a band is up. */
@@ -204,6 +222,17 @@ export function layoutFriendsPanel(state: FriendsState): Region[] {
   }
 
   state.rows.forEach((row, index) => {
+    /*
+     * Already here: nothing to offer, and this comes FIRST.
+     *
+     * Before the pending branch, because both can be true for one frame - we
+     * invite Ada, she accepts, and the invitation's disappearance and the
+     * room's new member are two separate updates. Offering to cancel an
+     * invitation she has already accepted would be a button that undoes
+     * nothing.
+     */
+    if (state.members.has(row.id)) return;
+
     if (state.pending) {
       if (row.id === state.pending.toUserId) {
         regions.push({ id: `cancel-invite:${state.pending.id}`, ...buttonAt(index, !!asking) });
@@ -278,7 +307,8 @@ export function drawFriendsPanel(
 
   state.rows.forEach((row, index) => {
     const y = top + index * ROW_H + ROW_H / 2;
-    const invited = state.pending?.toUserId === row.id;
+    const here = state.members.has(row.id);
+    const invited = !here && state.pending?.toUserId === row.id;
 
     // Un ruban par ligne : sur l'herbe, du texte nu ne se lit pas.
     ribbon(ctx, PAD - 14, top + index * ROW_H + 4, width - (PAD - 14) * 2, ROW_H - 8);
@@ -305,12 +335,22 @@ export function drawFriendsPanel(
      * act on. `library.ts` makes the same call with its empty-library
      * messages: one line that is true beats two that compete.
      */
-    ctx.fillStyle = invited ? '#1a3a8a' : '#6a6a70';
+    ctx.fillStyle = here || invited ? '#1a3a8a' : '#6a6a70';
     ctx.font = '25px system-ui, sans-serif';
     ctx.textAlign = 'right';
-    const status = invited
-      ? labels.invited
-      : (row.playing ?? (row.online ? labels.online : labels.offline));
+    /*
+     * One line, and being here outranks everything else on it.
+     *
+     * The rule this row already followed for "Invited" - one line that is
+     * true beats two that compete - decides the order: a friend in the room
+     * is neither waiting to answer nor merely online, and the game title they
+     * would otherwise show is the one this player is in too.
+     */
+    const status = here
+      ? labels.inGroup
+      : invited
+        ? labels.invited
+        : (row.playing ?? (row.online ? labels.online : labels.offline));
     ctx.fillText(truncate(ctx, status, STATUS_W), STATUS_RIGHT, y);
 
     const cancel = state.pending && invited ? byId.get(`cancel-invite:${state.pending.id}`) : null;

@@ -41,7 +41,8 @@ const LABELS = {
   accept: 'Accept',
   decline: 'Decline',
   /** Already interpolated with the inviter's name by the caller. */
-  incomingFrom: 'Zoe invites you'
+  incomingFrom: 'Zoe invites you',
+  inGroup: 'in your group'
 };
 
 function recordingContext() {
@@ -73,6 +74,7 @@ function state(over: Partial<FriendsState> = {}): FriendsState {
     rows: friendRows(FRIENDS, new Map([['u1', true]]), new Map(), CAP),
     pending: null,
     incoming: [],
+    members: new Set<string>(),
     ...over
   };
 }
@@ -160,7 +162,7 @@ test('an invited friend stays visible even after going offline', () => {
 
   const pending = { id: 'inv1', toUserId: 'x0' };
   assert.ok(
-    layoutFriendsPanel({ rows, pending, incoming: [] }).some(
+    layoutFriendsPanel({ rows, pending, incoming: [], members: new Set() }).some(
       (r) => r.id === 'cancel-invite:inv1'
     ),
     'the invitation would otherwise be impossible to take back'
@@ -289,4 +291,69 @@ test('a friend in a game shows the game, not just a dot', () => {
   });
   drawFriendsPanel(ctx, s, layoutFriendsPanel(s), LABELS);
   assert.ok(ctx.texts.join(' | ').includes('Zelda'));
+});
+
+
+/*
+ * Un membre du groupe n'est plus invitable, et c'est un defaut rapporte.
+ *
+ * « depuis la VR, on peut accepter une invitation. ca marche. mais apres, le
+ * panneau des amis affiche toujours le bouton "inviter" sur l'ami qui est
+ * pourtant deja dans le groupe. »
+ *
+ * La cause n'etait pas dans l'acceptation : ce panneau ne connaissait que les
+ * invitations - celle qu'on a ENVOYEE (`pending`) et celles qu'on RECOIT
+ * (`incoming`) - et rien sur qui est deja dans la room. Accepter ne pouvait
+ * donc rien changer a la ligne de l'ami, quelle que soit la qualite du reste.
+ *
+ * Ce n'est pas qu'un bouton de trop : le presser enverrait une invitation a
+ * quelqu'un qui est deja la, et lui poserait une question sur une room qu'il
+ * n'a pas quittee.
+ */
+test('un ami deja dans le groupe n est plus invitable', () => {
+  const together = state({ members: new Set(['u1']) });
+  const shown = ids(together);
+
+  assert.ok(!shown.includes('invite:u1'), 'le bouton inviter survit a l acceptation');
+  // Et les autres gardent le leur : c'est une ligne qui change, pas le panneau.
+  assert.ok(!shown.includes('invite:u2'), 'u2 est hors ligne, il n a jamais de bouton');
+  const withBo = state({
+    rows: friendRows(FRIENDS, new Map([['u1', true], ['u2', true]]), new Map(), CAP),
+    members: new Set(['u1'])
+  });
+  assert.ok(ids(withBo).includes('invite:u2'), 'u2 est en ligne et hors du groupe');
+});
+
+test('un membre du groupe le dit, au lieu de dire qu il est en ligne', () => {
+  const ctx = recordingContext();
+  const together = state({ members: new Set(['u1']) });
+  drawFriendsPanel(ctx, together, layoutFriendsPanel(together), LABELS);
+  const drawn = ctx.texts.join('\n');
+
+  assert.ok(drawn.includes(LABELS.inGroup), 'rien ne dit qu il est dans le groupe');
+  /*
+   * Et une seule ligne de statut, la regle que ce module s'applique deja pour
+   * « Invite » : deux verites qui se concurrencent valent moins qu'une seule
+   * sur laquelle le joueur peut agir. Etre dans le groupe bat « en ligne »,
+   * qui n'apprend plus rien.
+   */
+  assert.ok(!drawn.includes(LABELS.online), 'la presence concurrence l appartenance au groupe');
+});
+
+test('etre dans le groupe bat aussi l invitation en attente', () => {
+  // Cas atteignable : on invite Ada, elle accepte. Le serveur consomme
+  // l'invitation, mais si l'ordre d'arrivee des deux mises a jour laissait
+  // `pending` une image de plus, sa ligne ne doit pas proposer de l'annuler.
+  const s = state({
+    pending: { id: 'inv1', toUserId: 'u1' },
+    members: new Set(['u1'])
+  });
+  assert.ok(!ids(s).includes('cancel-invite:inv1'));
+  assert.ok(!ids(s).includes('invite:u1'));
+
+  const ctx = recordingContext();
+  drawFriendsPanel(ctx, s, layoutFriendsPanel(s), LABELS);
+  const drawn = ctx.texts.join('\n');
+  assert.ok(drawn.includes(LABELS.inGroup));
+  assert.ok(!drawn.includes(LABELS.invited), 'il est arrive, il n est plus attendu');
 });
