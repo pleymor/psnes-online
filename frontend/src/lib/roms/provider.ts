@@ -88,6 +88,27 @@ export function isCached(checksum: string): boolean {
 }
 
 /**
+ * Garde des octets qu'un PAIR a envoyés, parce que le joueur l'a demandé.
+ *
+ * `kept-files.ts` posait la règle : « ce qu'un hôte envoie n'y entre jamais :
+ * recevoir n'est pas posséder, et c'est une décision du propriétaire, pas une
+ * limitation technique. » La décision a été prise le 2026-09-08, et elle est de
+ * DEMANDER : l'invité qui reçoit un jeu voit la question sur son écran de
+ * lancement, avec le rappel qu'il ne doit garder que les jeux dont il possède
+ * la cartouche. Sans réponse, rien n'est gardé - `remember` seul reste le
+ * chemin du transfert, et il ne fait que mettre en cache.
+ *
+ * `keepQuietly` et non `keep` : échouer à garder n'est pas échouer à recevoir.
+ * La partie tourne sur les octets en cache, et seul le confort du prochain
+ * lancement est perdu - la même raison que pour un fichier désigné à la main.
+ */
+export async function keepReceived(bytes: Uint8Array): Promise<string> {
+	const checksum = remember(bytes);
+	await keepQuietly(checksum, bytes);
+	return checksum;
+}
+
+/**
  * Reads one ROM out of the folder, and keeps it.
  *
  * The keeping is the whole point of this being its own function. Until now a

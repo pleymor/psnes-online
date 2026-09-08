@@ -356,3 +356,45 @@ test('le rapport de raison ne change pas ce qui est renvoyé', async () => {
 	const { resolveQuietly } = await provider();
 	assert.equal(await resolveQuietly('deadbeef'), await resolveQuietly('deadbeef', { onMiss: () => {} }));
 });
+
+/*
+ * Ce qu'un pair envoie, gardé seulement si le joueur le demande.
+ *
+ * `kept-files.ts` posait la règle : « ce qu'un hôte envoie n'y entre jamais :
+ * recevoir n'est pas posséder, et c'est une décision du propriétaire, pas une
+ * limitation technique ». La décision a été prise le 2026-09-08, et elle est
+ * de DEMANDER : l'invité voit la question sur son écran de lancement, avec le
+ * rappel qu'il ne doit garder que les jeux dont il possède la cartouche.
+ *
+ * Les deux chemins doivent donc rester distincts, et c'est ce que ces deux
+ * tests tiennent : recevoir met en cache, garder écrit.
+ */
+test('recevoir sans garder ne laisse rien sur l appareil', async () => {
+	const { remember, isCached, useKeptFiles } = await provider();
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+	const kept = memoryKeptFiles();
+	useKeptFiles(kept);
+
+	const bytes = rom(31);
+	const checksum = remember(bytes);
+
+	assert.equal(isCached(checksum), true, 'la partie doit pouvoir tourner');
+	assert.deepEqual(await kept.checksums(), [], 'rien ne doit avoir été installé');
+	useKeptFiles(null);
+});
+
+test('garder ce qu un pair a envoyé le rend résoluble ensuite', async () => {
+	const { keepReceived, resolveQuietly, useKeptFiles } = await provider();
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+	const kept = memoryKeptFiles();
+	useKeptFiles(kept);
+
+	const bytes = rom(32);
+	const checksum = await keepReceived(bytes);
+
+	assert.deepEqual(await kept.checksums(), [checksum]);
+	// Et il se retrouve sans le pair : c'est tout ce que « garder » veut dire.
+	const found = await resolveQuietly(checksum);
+	assert.ok(found, 'gardé mais introuvable');
+	useKeptFiles(null);
+});

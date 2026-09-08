@@ -65,6 +65,14 @@ export interface LaunchRoom {
 	id: string;
 	/** Who may stage a save. Not the host: the host can change hands. */
 	createdBy: string;
+	/**
+	 * Who serves a missing ROM, and therefore who cannot receive one.
+	 *
+	 * The server routes `rom:request` to the host's socket
+	 * (`websocket/rom-transfer.ts`), so this is not a cosmetic distinction from
+	 * `createdBy`: a guest can be sent the cartridge, a host has nobody to ask.
+	 */
+	hostId: string;
 	status: 'waiting' | 'playing';
 	gameCrc32?: string;
 	/** The save the room will start on, staged through `room:choose-save`. */
@@ -109,6 +117,15 @@ export interface LaunchOptions {
 	friend: FriendState | null;
 	/** Whether this device can read the ROM at all. */
 	romHere: boolean;
+	/**
+	 * The ROM is not here, and the host of this room will send it.
+	 *
+	 * Distinct from `!romHere` because it is what turns a refusal into a wait:
+	 * the screen says the friend is about to send the game instead of telling
+	 * the player to leave the headset. Only ever true for a guest - see
+	 * `LaunchRoom.hostId`.
+	 */
+	romIncoming: boolean;
 	blocked: LaunchBlock | null;
 }
 
@@ -146,11 +163,41 @@ export interface LaunchInput {
 	 * behind.
 	 */
 	quickSaveLabel: string;
+	/**
+	 * The room's own game, for a dump that is in no library entry.
+	 *
+	 * Without it this function returns null for a guest who does not own the
+	 * game - and `VrShell` answers a null by putting the TEST PATTERN back up.
+	 * That is what a friend actually got on 2026-09-08: no title, no cover, no
+	 * port, no button, and then a red line on the lectern sixty degrees to his
+	 * left when the host started. The room already carries the title, the cover
+	 * and the checksum; there was never a reason to draw nothing.
+	 *
+	 * The library entry still wins when there is one: it is the only thing that
+	 * carries this player's own saves, and the room's title is whatever the
+	 * other player's copy is called.
+	 */
+	roomGame?: { title: string; coverUrl?: string };
 }
 
-/** null when the dump is in no library entry: there is nothing to draw. */
+/** null when the dump is in neither the library nor the room: nothing to draw. */
 export function launchOptions(input: LaunchInput): LaunchOptions | null {
-	const entry = input.library.find((game) => game.crc32 === input.crc32);
+	const owned = input.library.find((game) => game.crc32 === input.crc32);
+	const entry: LibraryGame | null =
+		owned ??
+		(input.roomGame
+			? {
+					// Keyed by the dump, because `VrShell` looks its covers up by
+					// `game.id` and this entry has no row of its own to take an id from.
+					id: `room:${input.crc32}`,
+					title: input.roomGame.title,
+					coverUrl: input.roomGame.coverUrl,
+					crc32: input.crc32,
+					// A guest owns no saves for a game they do not own: saves belong to
+					// the game's owner, and the server serves only theirs.
+					saves: []
+				}
+			: null);
 	if (!entry) return null;
 
 	const room = input.room;
@@ -161,6 +208,15 @@ export function launchOptions(input: LaunchInput): LaunchOptions | null {
 		: null;
 
 	const romHere = input.openable.has(input.crc32);
+	/*
+	 * Not here, but on its way.
+	 *
+	 * `other !== null` is what makes this a group rather than a lone creator's
+	 * room, and `hostId !== me` is what makes this player the one who can
+	 * receive. Both are needed: a host has nobody to ask, and an empty room has
+	 * nobody to ask either.
+	 */
+	const romIncoming = !romHere && other !== null && room !== null && room.hostId !== input.me;
 
 	return {
 		game: {
@@ -204,19 +260,30 @@ export function launchOptions(input: LaunchInput): LaunchOptions | null {
 			? { pseudo: other.pseudo, online: other.online, port: other.port, isReady: other.isReady }
 			: null,
 		romHere,
-		blocked: blockedBy(room, romHere, input.crc32)
+		romIncoming,
+		blocked: blockedBy(room, romHere || romIncoming, input.crc32)
 	};
 }
 
 /**
  * Ordered by what the player can do about it, not by severity.
  *
- * A missing ROM comes first because it is the only one they cannot fix from
- * inside the headset - a seat is two buttons away, and a playing room has the
- * game itself to go back to.
+ * A missing ROM comes first because it is the hardest to fix from inside the
+ * headset - a seat is two buttons away, and a playing room has the game itself
+ * to go back to.
+ *
+ * It used to be the one that could NOT be fixed from in there, which is why
+ * the message told the player to leave VR. That was true only because the VR
+ * shell had never learned the transfer the flat room has always used, so
+ * `romAvailable` now means "here, or on its way from the host" - and a guest
+ * is no longer sent out of the headset to fetch what their friend is holding.
  */
-function blockedBy(room: LaunchRoom | null, romHere: boolean, crc32: string): LaunchBlock | null {
-	if (!romHere) return 'rom-missing';
+function blockedBy(
+	room: LaunchRoom | null,
+	romAvailable: boolean,
+	crc32: string
+): LaunchBlock | null {
+	if (!romAvailable) return 'rom-missing';
 	if (!room) return null;
 	if (room.status === 'playing') return 'already-playing';
 

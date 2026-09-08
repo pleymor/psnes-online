@@ -98,6 +98,42 @@ const LAUNCH_W = 384;
 const LAUNCH_H = 96;
 const LAUNCH_Y = 620;
 
+/*
+ * Le bloc « le jeu arrive », entre les ports et le bouton.
+ *
+ * Dans la colonne de droite et pas dans celle des sauvegardes, parce que les
+ * deux cas où il apparaît ne se ressemblent pas : un invité qui ne possède pas
+ * le jeu n'a aucune sauvegarde et la colonne de gauche est vide, mais un
+ * joueur qui le possède sans l'avoir sur CE casque a sa liste complète. Un
+ * bloc qui déménagerait selon le cas serait deux mises en page à tenir.
+ *
+ * Les ports finissent à 480 et le bouton commence à 620 : 140 px, ce qui tient
+ * une ligne d'annonce et une paire de boutons. Le disclaimer, lui, est trop
+ * long pour 384 px de large - il passe en pleine largeur sous le bouton, là où
+ * il reste lisible sans concurrencer quoi que ce soit.
+ */
+/*
+ * Les ports finissent a 480 et le bouton commence a 620.
+ *
+ * L'annonce etait a 490 : sa hampe touchait le bas de « Joueur 2 », vu au
+ * rendu. Douze pixels d'air sous les ports, seize au-dessus du bouton.
+ */
+const INCOMING_Y = 504;
+const KEEP_QUESTION_Y = 534;
+const KEEP_Y = 552;
+const KEEP_H = 52;
+const KEEP_GAP = 16;
+/*
+ * Deux réponses courtes, et non deux libellés qui portent la question.
+ *
+ * Première version : « Garder le jeu » et « Ne pas garder », côte à côte sur
+ * toute la colonne. Au rendu les deux débordaient de leurs 184 px et se
+ * touchaient. La question passe donc sur sa propre ligne, où elle a 384 px, et
+ * les boutons ne portent plus que « Oui » et « Non » - qui tiennent trois fois.
+ */
+const KEEP_W = 120;
+const LEGAL_Y = 740;
+
 export interface LaunchLabels {
 	newGame: string;
 	saveLockedByCreator: string;
@@ -109,6 +145,22 @@ export interface LaunchLabels {
 	/** The friend line's short state word when `FriendState.online` is false. */
 	friendAway: string;
 	romMissing: string;
+	/** Ce que l'invité lit à la place du refus : le jeu arrive de l'hôte. */
+	romIncoming: string;
+	/** La question, sur sa propre ligne. Les boutons ne disent que oui et non. */
+	keepQuestion: string;
+	yes: string;
+	no: string;
+	/**
+	 * Le disclaimer, à côté de la seule question de l'app qui installe un
+	 * fichier venu de quelqu'un d'autre.
+	 *
+	 * Une phrase et non le texte légal complet de la page plate : celui-ci fait
+	 * quatre phrases, et un mur de texte sur un écran courbe à deux mètres et
+	 * demi ne se lit pas - donc ne protège personne. Ce que ce libellé porte est
+	 * la phrase opérante appliquée à ce choix précis.
+	 */
+	keepRomLegal: string;
 	alreadyPlaying: string;
 	noSeat: string;
 	gameChanged: string;
@@ -151,6 +203,24 @@ export function layoutLaunchPanel(options: LaunchOptions, _labels: LaunchLabels)
 			y: PORT_Y + PORT_H + PORT_GAP,
 			w: PORT_W,
 			h: PORT_H
+		});
+	}
+
+	/*
+	 * La question ne se pose que s'il y a quelque chose à garder.
+	 *
+	 * Elle vit dans la mise en page et pas dans un état du panneau : elle
+	 * dépend de `romIncoming`, pas de la réponse - qui, elle, arrive par
+	 * `opts.keepRom` et ne change que le fond des deux boutons.
+	 */
+	if (options.romIncoming) {
+		regions.push({ id: 'keep:yes', x: LAUNCH_X, y: KEEP_Y, w: KEEP_W, h: KEEP_H });
+		regions.push({
+			id: 'keep:no',
+			x: LAUNCH_X + KEEP_W + KEEP_GAP,
+			y: KEEP_Y,
+			w: KEEP_W,
+			h: KEEP_H
 		});
 	}
 
@@ -255,7 +325,17 @@ function drawButton(
 	ctx.font = '600 26px system-ui, sans-serif';
 	ctx.textAlign = 'center';
 	ctx.textBaseline = 'middle';
-	ctx.fillText(label, region.x + region.w / 2, region.y + region.h / 2);
+	/*
+	 * Tronqué, parce qu'un libellé trop large ne s'arrêtait pas au bouton.
+	 *
+	 * `fillText` centré déborde des DEUX côtés, donc un libellé de 190 px dans
+	 * un bouton de 184 en recouvrait le voisin - vu au rendu sur la paire
+	 * « Garder le jeu » / « Ne pas garder », et invisible au test, dont le faux
+	 * contexte mesure neuf pixels par caractère là où du 26 px gras en fait
+	 * quatorze. Une ellipse dit la vérité ; un débordement fait croire à deux
+	 * boutons qui se chevauchent.
+	 */
+	ctx.fillText(truncate(ctx, label, region.w - 16), region.x + region.w / 2, region.y + region.h / 2);
 	if (hovered) {
 		ctx.strokeStyle = '#ffffff';
 		ctx.lineWidth = 2;
@@ -306,6 +386,17 @@ export function drawLaunchPanel(
 		/** Loaded save thumbnails, keyed by SAVE id. `data:` URLs; they cannot
 		 *  taint anything. */
 		shots: ReadonlyMap<string, CanvasImageSource>;
+		/** La réponse à la question du conservage. Transitoire, comme `hoverId` :
+		 *  elle n'est ni dans la room ni dans la bibliothèque. */
+		keepRom: boolean;
+		/**
+		 * Le transfert en cours, déjà mis en mots par l'appelant.
+		 *
+		 * Une chaîne prête et non un pourcentage : l'interpolation est une
+		 * affaire de traduction, et ce module est testé sous Bun, qui ne résout
+		 * pas l'alias où vivent les traductions.
+		 */
+		transfer: string | null;
 	}
 ): void {
 	const { width, height } = LAUNCH_PANEL_SIZE;
@@ -422,8 +513,60 @@ export function drawLaunchPanel(
 		if (two) drawButton(ctx, two, labels.port2, options.myPort === 2, opts.hoverId === 'port:2');
 	}
 
+	if (options.romIncoming) {
+		ctx.font = '24px system-ui, sans-serif';
+		ctx.fillStyle = '#c8d8f0';
+		ctx.textAlign = 'left';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(truncate(ctx, labels.romIncoming, LAUNCH_W), LAUNCH_X, INCOMING_Y);
+
+		ctx.font = '22px system-ui, sans-serif';
+		ctx.fillStyle = '#a8b8d0';
+		ctx.fillText(truncate(ctx, labels.keepQuestion, LAUNCH_W), LAUNCH_X, KEEP_QUESTION_Y);
+
+		const yes = byId.get('keep:yes');
+		if (yes) drawButton(ctx, yes, labels.yes, opts.keepRom, opts.hoverId === 'keep:yes');
+		const no = byId.get('keep:no');
+		if (no) drawButton(ctx, no, labels.no, !opts.keepRom, opts.hoverId === 'keep:no');
+
+		/*
+		 * Pleine largeur sous le bouton, et sur un fond.
+		 *
+		 * La phrase ne tient pas dans les 384 px de la colonne. Et elle est
+		 * posee sur une bande sombre parce que du gris sur l'herbe ne se lit pas
+		 * - `friends.ts` l'avait deja ecrit pour ses lignes, et un disclaimer
+		 * illisible ne protege personne.
+		 */
+		ctx.fillStyle = 'rgba(10, 10, 18, 0.72)';
+		ctx.fillRect(0, LEGAL_Y - 20, width, 36);
+		ctx.font = '20px system-ui, sans-serif';
+		ctx.fillStyle = '#d8d8e4';
+		ctx.textAlign = 'left';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(truncate(ctx, labels.keepRomLegal, width - PAD * 2), PAD, LEGAL_Y);
+	}
+
 	const launch = byId.get('launch');
-	if (launch) {
+	/*
+	 * Pendant le transfert, la progression prend la place du libellé.
+	 *
+	 * Le bouton garde sa région - `launching` côté appelant fait d'une deuxième
+	 * pressée un non-événement - mais lui laisser dire « Lancer » pendant qu'il
+	 * reçoit ferait croire que rien n'a été pris en compte.
+	 */
+	if (launch && opts.transfer) {
+		ctx.fillStyle = '#1c1c26';
+		ctx.fillRect(launch.x, launch.y, launch.w, launch.h);
+		ctx.font = '600 26px system-ui, sans-serif';
+		ctx.fillStyle = '#ffffff';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(
+			truncate(ctx, opts.transfer, launch.w - 24),
+			launch.x + launch.w / 2,
+			launch.y + launch.h / 2
+		);
+	} else if (launch) {
 		drawButton(ctx, launch, labels.launch, true, opts.hoverId === 'launch');
 	} else {
 		const why = blockedLabel(options, labels);

@@ -82,7 +82,10 @@
   import { user } from '$lib/stores/user';
   import { games, loadGames } from '$lib/stores/games';
   import { deviceLibrary } from '$lib/roms/device-library';
-  import { resolvableHere, resolveQuietly, type MissReason } from '$lib/roms/provider';
+  import {
+    resolvableHere, resolveQuietly, remember, keepReceived, type MissReason
+  } from '$lib/roms/provider';
+  import { receiveRom, sendRom } from '$lib/roms/transfer';
   import type { PanelMesh } from '$lib/vr/panel-mesh';
   import { loadCore, AudioSink, SocketTransport, UpgradingTransport, type SessionEvent, type Transport } from '$lib/znet';
   import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
@@ -258,6 +261,38 @@
   let ownedRoomId: string | null = null;
   /** Shown on the lectern when a launch could not read the file. */
   let launchNotice: string | null = null;
+
+  /**
+   * La réponse de l'invité à « garder ce jeu ? », et son défaut.
+   *
+   * Faux par défaut, et ce n'est pas un hasard : `kept-files.ts` posait que ce
+   * qu'un hôte envoie n'entre pas de lui-même sur l'appareil de l'invité, et
+   * ne rien répondre doit donc ne rien installer. Il faut le geste pour que le
+   * fichier reste.
+   */
+  let keepReceivedRom = false;
+
+  /**
+   * Le transfert en cours, déjà mis en mots, ou null.
+   *
+   * Une chaîne et non un pourcentage : elle est écrite dans la langue du
+   * joueur ici, où `t()` existe, et le panneau ne fait que la dessiner. Elle
+   * sert aux DEUX sens - l'invité qui reçoit et l'hôte qui envoie - parce que
+   * sans elle la partie de l'hôte a l'air de figer pendant qu'il sert
+   * plusieurs mégaoctets.
+   */
+  let romTransfer: string | null = null;
+
+  /**
+   * Les octets du jeu en cours, gardés pour servir un invité sans toucher au
+   * disque.
+   *
+   * Le même rôle que `loadedRom` dans `LockstepRoom.svelte`. Sans lui, une
+   * demande arrivée pendant la partie repasserait par `resolveQuietly`, dont
+   * le chemin nominal est le dossier - et redemander une permission de dossier
+   * depuis un casque est « une danse à part entière » (`vr/door.ts`).
+   */
+  let loadedRom: Uint8Array | null = null;
   /** The dump whose launch options the screen is showing, or null for the
    * checkerboard. */
   let launchFor: string | null = null;
@@ -634,6 +669,17 @@
       room: $myRoom ?? null,
       me: $user?.id ?? '',
       openable: new Set(resolvable ?? []),
+      /*
+       * Le jeu de la room, pour un dump qui n'est dans aucune entrée.
+       *
+       * Sans ça `launchOptions` rend null et le bloc ci-dessous remet le
+       * damier de test : c'est ce qu'un invité qui ne possédait pas le jeu a
+       * eu devant les yeux, sans titre, sans jaquette et sans bouton.
+       */
+      roomGame:
+        $myRoom?.gameCrc32 === launchFor && $myRoom.gameTitle
+          ? { title: $myRoom.gameTitle, coverUrl: $myRoom.gameCoverUrl }
+          : undefined,
       stagedSaveId,
       // What a save is CALLED, decided by the same `saveIdentity` the flat
       // grid uses. Without these two the headset prints the stored name, and
@@ -650,6 +696,10 @@
       return;
     }
 
+    // La jaquette de ce jeu-là : son id est dérivé du dump quand il ne vient
+    // pas d'une entrée de bibliothèque, donc `loadCovers` ne l'a jamais vue.
+    loadCover(options.game.id, options.game.coverUrl);
+
     const labels = launchLabels();
     const regions = layoutLaunchPanel(options, labels);
     // Replaced in place: `scene.aimedAt` holds this same array.
@@ -663,7 +713,9 @@
         labels,
         hoverId: hovered?.panel === 'screen' ? hovered.region.id : null,
         covers,
-        shots: saveShots
+        shots: saveShots,
+        keepRom: keepReceivedRom,
+        transfer: romTransfer
       })
     );
   }
@@ -704,6 +756,11 @@
       waitingForFriend: t($language, 'vrWaitingForFriend'),
       friendReady: t($language, 'vrFriendReady'),
       romMissing: t($language, 'vrRomMissing'),
+      romIncoming: t($language, 'vrRomIncoming'),
+      keepQuestion: t($language, 'vrKeepRom'),
+      yes: t($language, 'yes'),
+      no: t($language, 'no'),
+      keepRomLegal: t($language, 'vrKeepRomLegal'),
       alreadyPlaying: t($language, 'vrAlreadyPlaying'),
       noSeat: t($language, 'vrNoSeat'),
       gameChanged: t($language, 'vrGameChanged'),
@@ -945,27 +1002,38 @@
   }
 
   function loadCovers(list: typeof $games): void {
-    for (const game of list) {
-      if (!game.coverUrl || covers.has(game.id)) continue;
-      const image = new Image();
-      // Before `src`, or the attribute does not apply to the request. See the
-      // note on `covers` for why this is per-URL rather than always or never.
-      if (isForeign(game.coverUrl)) image.crossOrigin = 'anonymous';
-      // Both surfaces: the lectern's grid AND the launch screen's jaquette.
-      // Repainting only the library is what left the curved screen showing its
-      // placeholder rectangle for the whole session - the cover had loaded,
-      // nothing asked for it to be drawn again.
-      image.onload = () => {
-        covers.set(game.id, image);
-        repaintLibrary();
-        repaintLaunch();
-      };
-      // A host that sends no CORS headers lands here. Nothing to do: the game
-      // keeps its title, and never entering `covers` is what stops a tainted
-      // image from reaching the canvas.
-      image.onerror = () => logger.warn('cover unavailable in VR', game.coverUrl);
-      image.src = game.coverUrl;
-    }
+    for (const game of list) loadCover(game.id, game.coverUrl);
+  }
+
+  /**
+   * One cover, by the key the panels look it up under.
+   *
+   * Split out of `loadCovers` because the launch screen now draws a game that
+   * is in NO library entry - the room's own, for a guest who does not own it -
+   * and that entry's id is derived from the dump (`launch-options.ts`) rather
+   * than taken from a row that does not exist.
+   */
+  function loadCover(id: string, url?: string): void {
+    const game = { id, coverUrl: url };
+    if (!game.coverUrl || covers.has(game.id)) return;
+    const image = new Image();
+    // Before `src`, or the attribute does not apply to the request. See the
+    // note on `covers` for why this is per-URL rather than always or never.
+    if (isForeign(game.coverUrl)) image.crossOrigin = 'anonymous';
+    // Both surfaces: the lectern's grid AND the launch screen's jaquette.
+    // Repainting only the library is what left the curved screen showing its
+    // placeholder rectangle for the whole session - the cover had loaded,
+    // nothing asked for it to be drawn again.
+    image.onload = () => {
+      covers.set(game.id, image);
+      repaintLibrary();
+      repaintLaunch();
+    };
+    // A host that sends no CORS headers lands here. Nothing to do: the game
+    // keeps its title, and never entering `covers` is what stops a tainted
+    // image from reaching the canvas.
+    image.onerror = () => logger.warn('cover unavailable in VR', game.coverUrl);
+    image.src = game.coverUrl;
   }
 
   function activate(target: PointerTarget): void {
@@ -1345,6 +1413,22 @@
         } else {
           stagedSaveId = saveId;
         }
+        repaintLaunch();
+        return;
+      }
+
+      /*
+       * La réponse à « garder ce jeu ? », prise avant le transfert.
+       *
+       * Avant, parce que c'est le seul moment où elle ne coûte rien : le
+       * transfert n'a pas commencé, personne n'attend, et l'invité choisit en
+       * même temps qu'il lance. La poser après aurait retardé la partie des
+       * DEUX joueurs pour une question qui ne concerne qu'un appareil.
+       */
+      if (id === 'keep:yes' || id === 'keep:no') {
+        keepReceivedRom = id === 'keep:yes';
+        // Et tout de suite si les octets sont déjà là. Voir `keepNow`.
+        if (keepReceivedRom) void keepNow();
         repaintLaunch();
         return;
       }
@@ -1863,6 +1947,157 @@
     });
   }
 
+  /**
+   * Garde maintenant ce que cet appareil a déjà en main.
+   *
+   * Sans ça « Oui » serait un bouton mort la moitié du temps, et c'est un
+   * enchaînement réel qui le montre : c'est l'HÔTE qui presse Lancer, donc
+   * l'invité n'a que les quelques secondes entre le choix du jeu et ce
+   * lancement pour répondre. S'il rate la fenêtre, la partie se joue quand
+   * même - le défaut est « ne pas garder » - et la question lui revient sur
+   * l'écran de lancement d'après-partie, parce que des octets en cache ne sont
+   * pas pour autant sur l'appareil (`resolvableHere` ne voit que le dossier et
+   * le magasin). Là, une intention notée pour un transfert qui n'aura plus
+   * lieu n'aurait rien gardé.
+   *
+   * `resolveQuietly` plutôt que `loadedRom` : celui-ci porte les octets du jeu
+   * en cours, qui n'est pas forcément celui de l'écran. Et `resolveQuietly`
+   * regarde le cache en premier, qui est exactement là où un jeu reçu vit.
+   *
+   * Rien en main veut dire que le transfert n'a pas eu lieu : la réponse est
+   * alors honorée à la réception, par `receiveFromHost`.
+   */
+  async function keepNow(): Promise<void> {
+    const crc32 = launchFor;
+    if (!crc32) return;
+
+    const bytes = await resolveQuietly(crc32, { requestPermission: false });
+    if (!bytes) return;
+
+    await keepReceived(bytes);
+    // Relu, sinon l'écran continuerait d'annoncer un envoi pour un jeu qui est
+    // désormais sur l'appareil - et la question resterait posée.
+    resolvable = await resolvableHere();
+    repaintLaunch();
+  }
+
+  /**
+   * Le jeu, reçu de l'hôte, quand cet appareil ne l'a pas.
+   *
+   * C'est la moitié qui manquait à la VR. Le serveur relaie `rom:request` et
+   * `rom:chunk` depuis toujours et `LockstepRoom.svelte` s'en sert : un invité
+   * sans cartouche la reçoit de l'hôte, vérifiée contre le CRC32 de la room.
+   * Le shell VR, lui, abandonnait - et disait au joueur de sortir du casque,
+   * ce que deux joueurs ont dû faire pour de vrai le 2026-09-08.
+   *
+   * L'hôte ne reçoit rien : le serveur route la demande vers SON socket, donc
+   * un hôte sans cartouche n'a personne à qui demander. `launch-options.ts`
+   * tient la même règle pour décider si l'écran de lancement bloque.
+   *
+   * Rend null plutôt que de lever : l'appelant a déjà un chemin pour « pas de
+   * ROM », et c'est le bon - le message qu'il pose est le dernier recours.
+   */
+  async function receiveFromHost(
+    roomId: string,
+    crc32: string,
+    isHost: boolean
+  ): Promise<Uint8Array | null> {
+    const sock = $socket;
+    if (isHost || !sock) return null;
+
+    try {
+      const rom = await receiveRom({
+        socket: sock as never,
+        roomId,
+        expectedCrc32: crc32,
+        onProgress: (done, total) => showTransfer('vrReceivingRom', done, total)
+      });
+      romTransfer = null;
+
+      /*
+       * Gardé seulement si l'invité l'a demandé.
+       *
+       * `remember` met en cache et rien de plus : la partie tourne, et les
+       * octets meurent avec l'onglet. `keepReceived` les écrit sur l'appareil,
+       * et c'est le geste de l'invité sur son écran de lancement qui décide -
+       * disclaimer légal à côté du bouton. `kept-files.ts` porte la règle.
+       */
+      if (keepReceivedRom) await keepReceived(rom);
+      else remember(rom);
+
+      logger.info(`Received the ROM from the host (${rom.byteLength} bytes)`, { crc32 });
+      return rom;
+    } catch (err) {
+      romTransfer = null;
+      repaintLaunch();
+      logger.warn('the host could not send the ROM', err);
+      return null;
+    }
+  }
+
+  /**
+   * Sert le jeu à l'invité qui le demande.
+   *
+   * Enregistré pour toute la session et pas seulement pendant une partie : la
+   * demande arrive quand l'invité démarre, ce qui peut précéder le moment où
+   * cet hôte a lui-même lancé - `loadedRom` est alors encore vide, et le
+   * `resolveQuietly` silencieux prend le relais depuis le cache ou le store
+   * des fichiers gardés.
+   */
+  async function onRomRequested(data: { roomId: string; from: string }): Promise<void> {
+    const sock = $socket;
+    const room = $myRoom;
+    if (!sock || !data || !room || data.roomId !== room.id) return;
+    if (room.hostId !== $user?.id) return;
+
+    const crc32 = room.gameCrc32;
+    const rom = loadedRom ?? (crc32 ? await resolveQuietly(crc32, { requestPermission: false }) : null);
+    if (!rom) {
+      // Dit plutôt que tu : sans ça l'invité attend le timeout de `receiveRom`
+      // devant un écran qui ne dit rien.
+      logger.warn('a guest asked for the ROM but this headset has no copy either');
+      sock.emit('rom:unavailable', {
+        roomId: room.id,
+        to: data.from,
+        reason: 'The host does not have this ROM either'
+      });
+      return;
+    }
+
+    try {
+      await sendRom({
+        socket: sock as never,
+        roomId: room.id,
+        to: data.from,
+        rom,
+        onProgress: (done, total) => showTransfer('vrSendingRom', done, total),
+        // Une frame fait 14 ms à 72 Hz. Rendre la main à la file de macrotâches
+        // entre deux morceaux garde la tranche d'émulation devant le transfert,
+        // ce que `LockstepRoom.svelte` fait pour la même raison.
+        pause: () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+      });
+    } finally {
+      romTransfer = null;
+      repaintLaunch();
+    }
+  }
+
+  /**
+   * Met la progression en mots, et ne repeint que quand elle change.
+   *
+   * Le rappel tombe à chaque morceau, et un repeint est une rastérisation de
+   * 1024 x 768 suivie d'un envoi de texture : les faire tous coûterait plus que
+   * le transfert. Le pourcentage entier est la granularité que l'œil peut lire
+   * de toute façon.
+   */
+  function showTransfer(key: 'vrReceivingRom' | 'vrSendingRom', done: number, total: number): void {
+    const percent = Math.min(100, Math.round((done / Math.max(1, total)) * 100));
+    const line = t($language, key, { percent });
+    if (line === romTransfer) return;
+    romTransfer = line;
+    repaintLaunch();
+  }
+
   function onGameStarted(): void {
     const room = $myRoom;
     if (!room || room.players.length < 2 || !room.gameCrc32) return;
@@ -1911,7 +2146,8 @@
       // path (`launch()` above) has no use for, since it plays alone.
       setLogLabels({ roomId, player: isHost ? 'p1' : 'p2' });
 
-      const rom = await resolveQuietly(crc32, { requestPermission: false });
+      const rom = (await resolveQuietly(crc32, { requestPermission: false }))
+        ?? (await receiveFromHost(roomId, crc32, isHost));
       if (!rom) {
         // The refusal the launch screen already predicted. Saying it twice is
         // better than a black screen.
@@ -1920,6 +2156,9 @@
         repaintLibrary();
         return;
       }
+      // Gardés pour servir l'autre casque sans repasser par le dossier, dont
+      // la permission demande une danse à part dans un casque. Voir `loadedRom`.
+      loadedRom = rom;
 
       const core = await loadCore();
       audio = new AudioSink();
@@ -2543,6 +2782,15 @@
       // to both members once either of them asks, and `onGameStarted` reads
       // `$myRoom` fresh rather than trusting anything carried on the event.
       $socket?.on('game:started', onGameStarted);
+      /*
+       * Servir le jeu, pour toute la session.
+       *
+       * Pas seulement pendant une partie : la demande arrive quand l'invité
+       * démarre, et le serveur la route vers le socket de l'hôte quel que soit
+       * l'état de la room. Un écouteur posé plus tard aurait manqué
+       * exactement la demande qu'il existe pour entendre.
+       */
+      $socket?.on('rom:request', onRomRequested);
       // The friend's own quit reaches this listener the same way - the only
       // path that can tell the *other* player of a netplay room the match is
       // over, exactly as `room-session.ts` states for the flat page.
@@ -2706,6 +2954,7 @@
     $socket?.off('friend:statusChanged', handleFriendStatusChanged);
     $socket?.off('game:started', onGameStarted);
     $socket?.off('game:stopped', onGameStopped);
+    $socket?.off('rom:request', onRomRequested);
     friendsPanel = null;
     friendEntries = [];
     onlineFriends = new Map();
@@ -2716,6 +2965,8 @@
     savesList = [];
     savesBusy = false;
     savesConfirming = null;
+    romTransfer = null;
+    loadedRom = null;
     tabletScreen = null;
     listeningFor = null;
     captureGate.reset();

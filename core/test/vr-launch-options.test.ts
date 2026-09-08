@@ -61,6 +61,9 @@ function room(over: Partial<LaunchRoom> = {}): LaunchRoom {
   return {
     id: 'r1',
     createdBy: 'me',
+    // `me` opened this room, so `me` is its host - which matters now that the
+    // host is who a guest asks for a missing ROM.
+    hostId: 'me',
     status: 'waiting',
     gameCrc32: 'aaaa1111',
     players: [
@@ -644,4 +647,154 @@ test('the game carries its id, which is how a cover is found', () => {
   });
 
   assert.equal(options!.game.id, 'mine');
+});
+
+
+/*
+ * Un ROM absent n'est plus fatal quand quelqu'un peut l'envoyer.
+ *
+ * Rapporte depuis deux casques : « il n'avait pas le jeu. le jeu ne se
+ * lancait pas, et lui avait une erreur disant de lancer le jeu hors VR. on a
+ * donc du faire une partie a deux hors VR avant. »
+ *
+ * Le serveur relaie `rom:request` depuis toujours et la page plate s'en sert :
+ * un invite sans cartouche la recoit de l'hote, verifiee contre le CRC32 de la
+ * room. La VR etait la seule room a ne jamais l'avoir appris, et ce module
+ * disait meme que le ROM manquant est « le seul [blocage] qu'ils ne peuvent
+ * pas resoudre depuis le casque ». Ce n'est plus vrai, et c'est ici que ca se
+ * decide - pas dans le panneau, qui ne fait que dessiner.
+ *
+ * L'invite peut recevoir ; l'HOTE, non. Le serveur route `rom:request` vers le
+ * socket de l'hote, donc un hote sans cartouche n'a personne a qui demander.
+ */
+test('un invite sans le ROM peut lancer : l hote va le lui envoyer', () => {
+  const options = launchOptions({
+    ...NAMING,
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({ hostId: 'you' }),
+    me: 'me',
+    openable: new Set<string>()
+  });
+
+  assert.equal(options!.romHere, false, 'le ROM n est pas la, et ca reste vrai');
+  assert.equal(options!.romIncoming, true, 'et il va arriver');
+  assert.equal(options!.blocked, null, 'donc plus rien ne bloque le lancement');
+});
+
+test('un hote sans le ROM reste bloque : il n a personne a qui demander', () => {
+  const options = launchOptions({
+    ...NAMING,
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({ hostId: 'me' }),
+    me: 'me',
+    openable: new Set<string>()
+  });
+  assert.equal(options!.romIncoming, false);
+  assert.equal(options!.blocked, 'rom-missing');
+});
+
+test('seul dans sa room, personne n envoie rien', () => {
+  const options = launchOptions({
+    ...NAMING,
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({
+      hostId: 'you',
+      players: [{ userId: 'me', pseudo: 'Ada', port: 1, isReady: true, online: true }]
+    }),
+    me: 'me',
+    openable: new Set<string>()
+  });
+  assert.equal(options!.romIncoming, false, 'une room a un joueur n est pas un groupe');
+  assert.equal(options!.blocked, 'rom-missing');
+});
+
+test('en solo, un ROM absent bloque toujours', () => {
+  const options = launchOptions({
+    ...NAMING,
+    library: library(),
+    crc32: 'aaaa1111',
+    room: null,
+    me: 'me',
+    openable: new Set<string>()
+  });
+  assert.equal(options!.romIncoming, false);
+  assert.equal(options!.blocked, 'rom-missing');
+});
+
+test('rien n arrive quand le ROM est deja la', () => {
+  const options = launchOptions({
+    ...NAMING,
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({ hostId: 'you' }),
+    me: 'me',
+    openable: OPENABLE
+  });
+  assert.equal(options!.romHere, true);
+  assert.equal(options!.romIncoming, false, 'annoncer un transfert qui n aura pas lieu');
+});
+
+/*
+ * Le jeu de la room, pour un dump qui n'est dans aucune bibliotheque.
+ *
+ * C'est l'autre moitie de la meme soiree, et la plus deroutante : sans entree
+ * de bibliotheque ce module rendait `null`, et `VrShell` remettait alors le
+ * DAMIER DE TEST. L'invite n'a donc eu aucun ecran de lancement - ni titre, ni
+ * jaquette, ni port, ni bouton - puis une phrase rouge sur le pupitre de
+ * gauche, a soixante degres de son regard, quand l'hote a lance.
+ *
+ * La room porte deja le titre, la jaquette et le CRC32. Il n'y a aucune raison
+ * de ne rien dessiner.
+ */
+test('un dump absent de la bibliotheque se dessine depuis la room', () => {
+  const options = launchOptions({
+    ...NAMING,
+    library: library(),
+    crc32: 'ffff9999',
+    room: room({ hostId: 'you', gameCrc32: 'ffff9999' }),
+    me: 'me',
+    openable: new Set<string>(),
+    roomGame: { title: 'Super Metroid', coverUrl: 'https://example.test/cover.png' }
+  });
+
+  assert.ok(options, 'la room dit tout ce qu il faut pour dessiner un ecran');
+  assert.equal(options.game.title, 'Super Metroid');
+  assert.equal(options.game.crc32, 'ffff9999');
+  assert.equal(options.game.coverUrl, 'https://example.test/cover.png');
+  // Les sauvegardes appartiennent au proprietaire du jeu, donc l invite n en a
+  // aucune : une liste vide, pas celles d un autre dump.
+  assert.deepEqual(options.saves, []);
+  assert.equal(options.romIncoming, true);
+  assert.equal(options.blocked, null);
+});
+
+test('l entree de bibliotheque gagne contre le jeu de la room', () => {
+  // Sinon un joueur qui POSSEDE le jeu perdrait ses sauvegardes de l ecran
+  // parce que la room porte le titre choisi par l autre.
+  const options = launchOptions({
+    ...NAMING,
+    library: library(),
+    crc32: 'aaaa1111',
+    room: room({ hostId: 'you' }),
+    me: 'me',
+    openable: OPENABLE,
+    roomGame: { title: 'Un autre titre' }
+  });
+  assert.equal(options!.game.title, 'Super Mario World');
+  assert.equal(options!.saves.length, 1);
+});
+
+test('sans entree ET sans jeu de room, il n y a toujours rien a dessiner', () => {
+  const options = launchOptions({
+    ...NAMING,
+    library: library(),
+    crc32: 'ffff9999',
+    room: room({ hostId: 'you', gameCrc32: 'ffff9999' }),
+    me: 'me',
+    openable: new Set<string>()
+  });
+  assert.equal(options, null);
 });

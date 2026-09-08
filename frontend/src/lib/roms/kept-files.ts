@@ -7,8 +7,12 @@
  * l'en-tête de `source-state.ts` met en garde. Un fichier désigné à la main
  * entre ici, et l'appareil se remplit au fil des parties.
  *
- * Ce qu'un hôte envoie n'y entre jamais : recevoir n'est pas posséder, et c'est
- * une décision du propriétaire, pas une limitation technique.
+ * Ce qu'un hôte envoie n'y entre pas de lui-même : recevoir n'est pas posséder,
+ * et c'est une décision du propriétaire, pas une limitation technique. La
+ * décision a été prise le 2026-09-08, et elle est de DEMANDER : l'invité qui
+ * reçoit un jeu de son ami se voit poser la question sur son écran de
+ * lancement, disclaimer légal à côté, et c'est sa réponse qui fait entrer les
+ * octets ici (`keepReceived` dans `provider.ts`). Sans réponse, rien n'entre.
  *
  * L'interface existe pour que la règle soit testable sans IndexedDB, sur le
  * modèle de `readDirectionMode` dans `controls/touch.ts`.

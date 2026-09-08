@@ -45,6 +45,13 @@ const LABELS: LaunchLabels = {
   friendReady: 'Ready',
   friendAway: 'Away',
   romMissing: 'This game is not on this device. Launch it once outside VR.',
+  romIncoming: 'Your friend will send you this game.',
+  keepQuestion: 'Keep it on this device?',
+  yes: 'Yes',
+  no: 'No',
+  // La vraie phrase, pas un bouchon : elle est mesuree plus bas, et un
+  // remplacant court passerait une verification que le vrai libelle echoue.
+  keepRomLegal: 'Only keep a game if you own the original cartridge.',
   alreadyPlaying: 'This room is already playing.',
   noSeat: 'Somebody has to take a controller first.',
   friendAwayBlocked: 'A player is away. Wait for them to come back before starting.'
@@ -69,6 +76,7 @@ function options(over: Partial<LaunchOptions> = {}): LaunchOptions {
     myPort: null,
     friend: null,
     romHere: true,
+    romIncoming: false,
     blocked: null,
     ...over
   };
@@ -115,6 +123,8 @@ function draw(
   pictures: {
     covers?: Map<string, CanvasImageSource>;
     shots?: Map<string, CanvasImageSource>;
+    keepRom?: boolean;
+    transfer?: string | null;
   } = {}
 ) {
   const ctx = recordingContext();
@@ -122,7 +132,9 @@ function draw(
     labels: LABELS,
     hoverId,
     covers: pictures.covers ?? new Map(),
-    shots: pictures.shots ?? new Map()
+    shots: pictures.shots ?? new Map(),
+    keepRom: pictures.keepRom ?? false,
+    transfer: pictures.transfer ?? null
   });
   return ctx;
 }
@@ -566,4 +578,122 @@ test('a save thumbnail keeps the shape of the frame it captured', () => {
   // The reserved column is 88 x 60.
   assert.equal(shot.h, 60, 'the column constrains the tall axis');
   assert.equal(shot.w, 256 * (60 / 224), 'not the column 88, which is the stretch');
+});
+
+
+/*
+ * Le ROM qui arrive : ce que l'invite voit a la place d'un refus.
+ *
+ * L'ancien ecran disait « lance-le une fois hors VR » et retirait le bouton.
+ * Un invite dans un groupe n'a plus a sortir du casque : l'hote a la
+ * cartouche, le serveur relaie le transfert depuis toujours, et c'est
+ * `launch-options.ts` qui a decide que ce n'est plus un blocage. Ce panneau ne
+ * fait que le dire - et poser la seule question que le transfert souleve.
+ */
+test('un ROM qui arrive laisse le bouton et annonce l envoi', () => {
+  const o = options({ romHere: false, romIncoming: true, blocked: null });
+  const ids = layoutLaunchPanel(o, LABELS).map((r) => r.id);
+  assert.ok(ids.includes('launch'), 'le bouton doit rester : il y a de quoi lancer');
+
+  const drawn = draw(o).texts.join('\n');
+  assert.ok(drawn.includes(LABELS.romIncoming), "rien n annonce que le jeu arrive");
+  assert.ok(drawn.includes(LABELS.keepQuestion), 'la question n est pas ecrite');
+  assert.ok(!drawn.includes(LABELS.romMissing), 'l ancien refus traine encore');
+});
+
+test('la question du conservage n est posee que quand un ROM arrive', () => {
+  const incoming = layoutLaunchPanel(
+    options({ romHere: false, romIncoming: true }),
+    LABELS
+  ).map((r) => r.id);
+  assert.ok(incoming.includes('keep:yes'));
+  assert.ok(incoming.includes('keep:no'));
+
+  // Rien a garder quand le jeu est deja la : la question serait sans objet.
+  const here = layoutLaunchPanel(options(), LABELS).map((r) => r.id);
+  assert.ok(!here.includes('keep:yes'));
+  assert.ok(!here.includes('keep:no'));
+});
+
+test('le disclaimer accompagne la question, et seulement elle', () => {
+  const asked = draw(options({ romHere: false, romIncoming: true })).texts.join('\n');
+  assert.ok(asked.includes(LABELS.keepRomLegal), 'la question est posee sans le disclaimer');
+
+  const notAsked = draw(options()).texts.join('\n');
+  assert.ok(!notAsked.includes(LABELS.keepRomLegal), 'un disclaimer sans question a poser');
+});
+
+test('le choix se voit sur le fond, pas sur le libelle', () => {
+  // La meme regle que les deux ports et les deux langues : deux etats qui ne
+  // differeraient que par un `fillText` ne seraient pas distinguables ici, et
+  // c'est le piege ou sont tombees les cartes de preset du pupitre.
+  const o = options({ romHere: false, romIncoming: true });
+  const keeping = draw(o, null, { keepRom: true });
+  const refusing = draw(o, null, { keepRom: false });
+
+  assert.deepEqual(keeping.texts, refusing.texts, 'le libelle change de sens selon l etat');
+  assert.notDeepEqual(
+    keeping.calls.filter((c) => c === 'fillRect'),
+    [],
+    'le marquage doit etre un fond'
+  );
+});
+
+test('le transfert en cours remplace le libelle du bouton', () => {
+  const o = options({ romHere: false, romIncoming: true });
+  const running = draw(o, null, { transfer: 'Receiving the game… 42%' });
+  const drawn = running.texts.join('\n');
+
+  assert.ok(drawn.includes('Receiving the game… 42%'));
+  assert.ok(!drawn.includes(LABELS.launch), 'le bouton dit encore de lancer pendant qu il recoit');
+});
+
+/*
+ * La largeur des libelles de bouton, mesuree avec un proxy HONNETE.
+ *
+ * Le faux contexte de ce fichier compte neuf pixels par caractere, ce qui est
+ * optimiste pour du 26 px gras : le vrai en fait pres de quatorze. La premiere
+ * paire - « Garder le jeu » et « Ne pas garder » - passait ce test a 117 px
+ * pour 164 disponibles, et debordait de son bouton au rendu, par-dessus son
+ * voisin. Le rendu tranche, mais un proxy honnete rattrape le cas grossier.
+ */
+const BUTTON_PX_PER_CHAR = 14;
+
+test('les libelles des boutons tiennent dans leur boite', () => {
+  const regions = layoutLaunchPanel(options({ romHere: false, romIncoming: true }), LABELS);
+  const pairs = [
+    ['keep:yes', LABELS.yes],
+    ['keep:no', LABELS.no],
+    ['launch', LABELS.launch]
+  ] as const;
+
+  for (const [id, label] of pairs) {
+    const region = regions.find((r) => r.id === id)!;
+    const width = label.length * BUTTON_PX_PER_CHAR;
+    assert.ok(width < region.w - 16, `${label} fait environ ${width} px pour ${region.w}`);
+  }
+});
+
+test('rien ne chevauche rien dans l etat du ROM qui arrive', () => {
+  // L'etat le plus charge : cinq sauvegardes, deux ports, la question, le
+  // bouton. C'est exactement ce genre d'ajout qui avait fait passer le bouton
+  // de lancement par-dessus la sixieme ligne de sauvegarde.
+  const regions = layoutLaunchPanel(
+    options({
+      romHere: false,
+      romIncoming: true,
+      friend: { pseudo: 'Bob', online: true, port: 2, isReady: true },
+      myPort: 1
+    }),
+    LABELS
+  );
+  for (const a of regions) {
+    assert.ok(a.x >= 0 && a.y >= 0 && a.x + a.w <= LAUNCH_PANEL_SIZE.width, `${a.id} sort`);
+    assert.ok(a.y + a.h <= LAUNCH_PANEL_SIZE.height, `${a.id} sort par le bas`);
+    for (const b of regions) {
+      if (a === b) continue;
+      const apart = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+      assert.ok(apart, `${a.id} chevauche ${b.id}`);
+    }
+  }
 });
