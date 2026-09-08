@@ -33,6 +33,7 @@ import {
   DEFAULT_SHAPE,
   SCREEN_DISTANCES,
   SCREEN_ANGLES,
+  SCREEN_HEIGHTS,
   type ScreenShape
 } from '../../frontend/src/lib/vr/screen-shape.js';
 
@@ -40,12 +41,15 @@ const LABELS: ScreenPanelLabels = {
   heading: 'Écran',
   distance: 'Distance',
   size: 'Taille',
+  height: 'Hauteur',
   shape: 'Forme',
   flat: 'Plat',
   curved: 'Incurvé',
   close: 'Retour',
   metres: (value: number) => `${value.toFixed(1).replace('.', ',')} m`,
-  degrees: (value: number) => `${value}°`
+  degrees: (value: number) => `${value}°`,
+  centimetres: (value: number) =>
+    value === 0 ? '0 cm' : `${value > 0 ? '+' : '−'}${Math.abs(Math.round(value * 100))} cm`
 };
 
 const OPTIONS_LABELS: OptionsLabels = {
@@ -86,9 +90,9 @@ function drawScreen(shape: ScreenShape, hoverId: string | null = null) {
 
 const ids = (shape: ScreenShape) => layoutScreenPanel(shape).map((r) => r.id).sort();
 
-test('les sept commandes sont là au réglage livré', () => {
+test('les neuf commandes sont là au réglage livré', () => {
   assert.deepEqual(ids(DEFAULT_SHAPE), [
-    'bigger', 'close', 'curved', 'farther', 'flat', 'nearer', 'smaller'
+    'bigger', 'close', 'curved', 'farther', 'flat', 'higher', 'lower', 'nearer', 'smaller'
   ]);
 });
 
@@ -107,6 +111,13 @@ test('le bout de l échelle retire sa région, pas son bouton', () => {
 
   const biggest: ScreenShape = { ...DEFAULT_SHAPE, angle: SCREEN_ANGLES[SCREEN_ANGLES.length - 1] };
   assert.ok(!ids(biggest).includes('bigger'));
+
+  const lowest: ScreenShape = { ...DEFAULT_SHAPE, height: SCREEN_HEIGHTS[0] };
+  assert.ok(!ids(lowest).includes('lower'));
+  assert.ok(ids(lowest).includes('higher'));
+
+  const highest: ScreenShape = { ...DEFAULT_SHAPE, height: SCREEN_HEIGHTS[SCREEN_HEIGHTS.length - 1] };
+  assert.ok(!ids(highest).includes('higher'));
 });
 
 test('les deux formes restent visables, y compris celle qui est active', () => {
@@ -120,19 +131,30 @@ test('les deux formes restent visables, y compris celle qui est active', () => {
 });
 
 test('les valeurs dessinées sont celles de la forme', () => {
-  const drawn = drawScreen({ distance: 3.0, angle: 70, curved: false }).joined;
+  const drawn = drawScreen({ distance: 3.0, angle: 70, height: 0.2, curved: false }).joined;
   assert.ok(drawn.includes('3,0 m'), `la distance manque : ${drawn}`);
   assert.ok(drawn.includes('70°'), 'la taille manque');
+  assert.ok(drawn.includes('+20 cm'), 'la hauteur manque');
 
-  const other = drawScreen({ distance: 4.3, angle: 45, curved: true }).joined;
+  const other = drawScreen({ distance: 4.3, angle: 45, height: -0.4, curved: true }).joined;
   assert.ok(other.includes('4,3 m'));
   assert.ok(other.includes('45°'));
+  assert.ok(other.includes('−40 cm'));
   assert.ok(!other.includes('3,0 m'), 'une valeur en dur traîne dans le dessin');
+});
+
+test('la hauteur zéro se lit sans signe', () => {
+  // « +0 cm » et « −0 cm » sont tous les deux faux : c'est le niveau des yeux.
+  assert.ok(drawScreen(DEFAULT_SHAPE).joined.includes('0 cm'));
+  assert.ok(!drawScreen(DEFAULT_SHAPE).joined.includes('+0 cm'));
 });
 
 test('les trois intitulés et la sortie sont dessinés', () => {
   const drawn = drawScreen(DEFAULT_SHAPE).joined;
-  for (const label of [LABELS.heading, LABELS.distance, LABELS.size, LABELS.shape, LABELS.flat, LABELS.curved, LABELS.close]) {
+  for (const label of [
+    LABELS.heading, LABELS.distance, LABELS.size, LABELS.height, LABELS.shape,
+    LABELS.flat, LABELS.curved, LABELS.close
+  ]) {
     assert.ok(drawn.includes(label), `${label} n'est pas dessiné`);
   }
 });

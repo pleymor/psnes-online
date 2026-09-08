@@ -154,6 +154,21 @@ function lectern(azimuth: number): Placement {
 }
 
 /**
+ * The distance at which the size setting is also the size seen.
+ *
+ * The size is nominal, like a television's inches: `shape.angle` is the angle
+ * the picture covers WHEN it sits here, and the width in metres that implies
+ * follows it everywhere else. Reading the setting at the chosen distance
+ * instead - which is what the first version did - kept the angle constant and
+ * scaled the object, so the distance setting changed nothing that could be
+ * seen. `screen-shape.ts` tells that story with the measurements.
+ *
+ * 2.5 m because that is what shipped: at the default the two readings agree to
+ * the last decimal, so no player's screen moves for this correction.
+ */
+const SIZE_REFERENCE_DISTANCE = 2.5;
+
+/**
  * Where the screen is, from what the player chose.
  *
  * Its own function because it is the only placement that changes during a
@@ -168,16 +183,33 @@ function lectern(azimuth: number): Placement {
  * bug, nowhere near the layout.
  */
 export function screenPlacement(aspect: PixelAspect, shape: ScreenShape): ScreenPlacement {
-  const arc = (shape.angle * Math.PI) / 180;
-  const width = screenWidth(shape.distance, arc, shape.curved);
+  const nominalArc = (shape.angle * Math.PI) / 180;
+  // Fixed in metres, whatever the distance. This one line is the correction.
+  const width = screenWidth(SIZE_REFERENCE_DISTANCE, nominalArc, shape.curved);
+
+  /*
+   * The angle that width actually covers from where the player put it.
+   *
+   * Two formulas because two shapes, and they are the inverses of
+   * `screenWidth`: a curved picture IS its arc, so it covers `width /
+   * distance`; a flat one is a chord, so it covers `2 atan(width / 2d)`. Both
+   * give back `nominalArc` at the reference distance, which is what makes the
+   * setting honest there and only there - `vr-layout.test.ts` says why no
+   * parametrisation can make it honest everywhere for both shapes at once.
+   */
+  const arc = shape.curved
+    ? width / shape.distance
+    : 2 * Math.atan(width / (2 * shape.distance));
+
   return {
     distance: shape.distance,
     arc,
     curved: shape.curved,
     height: width / aspectRatioOf(aspect),
-    // Straight ahead: the picture is what the player came for, so it goes
-    // where they are already looking rather than above or below it.
-    centerY: 0
+    // Straight ahead by default, and the player's own offset from there. Eye
+    // level is where the head was at the last recentre, which is not where the
+    // player is once they have sat down or stretched - see `SCREEN_HEIGHTS`.
+    centerY: shape.height
   };
 }
 

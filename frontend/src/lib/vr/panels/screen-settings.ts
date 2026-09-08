@@ -27,6 +27,7 @@ import { SMW, drawField, statusBox, chromeButton } from './chrome';
 import {
   SCREEN_DISTANCES,
   SCREEN_ANGLES,
+  SCREEN_HEIGHTS,
   shapeRungs,
   type ScreenShape
 } from '../screen-shape';
@@ -55,9 +56,17 @@ const VALUE_X = 520;
 const VALUE_W = 240;
 const PLUS_X = 790;
 
-const DISTANCE_Y = 150;
-const SIZE_Y = 290;
-const SHAPE_Y = 430;
+/*
+ * Quatre rangées de commandes plus la sortie, en 768 px.
+ *
+ * L'écart de 125 px pour des rangées de 90 laisse les cinq points de position
+ * respirer entre deux rangées : ils sont posés 6 px sous leur rangée et font
+ * 18 px, donc ils finissent 11 px avant la suivante.
+ */
+const DISTANCE_Y = 120;
+const SIZE_Y = 245;
+const HEIGHT_Y = 370;
+const SHAPE_Y = 495;
 
 /** Les cinq points sous la valeur, qui disent où on en est sur l'échelle. */
 const DOT_SIZE = 18;
@@ -71,12 +80,14 @@ const CURVED_X = 650;
 const CLOSE_X = MINUS_X;
 const CLOSE_W = 500;
 const CLOSE_H = 88;
-const CLOSE_Y = 600;
+const CLOSE_Y = 615;
 
 export interface ScreenPanelLabels {
   heading: string;
   distance: string;
   size: string;
+  /** La hauteur, au-dessus ou en dessous du niveau des yeux. */
+  height: string;
   shape: string;
   flat: string;
   curved: string;
@@ -87,6 +98,9 @@ export interface ScreenPanelLabels {
    *  faire. Le format dépend de la locale (« 2,5 m » contre « 2.5 m »). */
   metres: (value: number) => string;
   degrees: (value: number) => string;
+  /** En centimètres, signés : c'est un écart au niveau des yeux, pas une
+   *  altitude, et « 0,2 m » se lit moins bien que « +20 cm ». */
+  centimetres: (value: number) => string;
 }
 
 /**
@@ -110,6 +124,12 @@ export function layoutScreenPanel(shape: ScreenShape): Region[] {
   }
   if (rungs.angle < SCREEN_ANGLES.length - 1) {
     regions.push({ id: 'bigger', x: PLUS_X, y: SIZE_Y, w: STEP_W, h: ROW_H });
+  }
+  if (rungs.height > 0) {
+    regions.push({ id: 'lower', x: MINUS_X, y: HEIGHT_Y, w: STEP_W, h: ROW_H });
+  }
+  if (rungs.height < SCREEN_HEIGHTS.length - 1) {
+    regions.push({ id: 'higher', x: PLUS_X, y: HEIGHT_Y, w: STEP_W, h: ROW_H });
   }
 
   // Les deux formes restent visables, celle qui est active comprise : la paire
@@ -175,6 +195,15 @@ export function drawScreenPanel(
       plus: 'bigger',
       count: SCREEN_ANGLES.length,
       at: rungs.angle
+    },
+    {
+      y: HEIGHT_Y,
+      label: labels.height,
+      value: labels.centimetres(shape.height),
+      minus: 'lower',
+      plus: 'higher',
+      count: SCREEN_HEIGHTS.length,
+      at: rungs.height
     }
   ] as const;
 

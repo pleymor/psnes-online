@@ -26,9 +26,11 @@ import {
   DEFAULT_SHAPE,
   SCREEN_DISTANCES,
   SCREEN_ANGLES,
+  SCREEN_HEIGHTS,
   SCREEN_SHAPE_KEY,
   stepDistance,
   stepAngle,
+  stepHeight,
   readScreenShape,
   writeScreenShape,
   type ScreenShape
@@ -46,15 +48,49 @@ function storage(initial: Record<string, string> = {}) {
 
 test('le défaut est la géométrie livrée avant le réglage', () => {
   // 2,5 m et 60 degrés étaient `SCREEN_RADIUS` et `SCREEN_ARC` dans
-  // `layout.ts`, et l'écran a toujours été incurvé.
-  assert.deepEqual(DEFAULT_SHAPE, { distance: 2.5, angle: 60, curved: true });
+  // `layout.ts`, l'écran a toujours été incurvé, et il a toujours été au
+  // niveau des yeux - `centerY` valait zéro en dur.
+  assert.deepEqual(DEFAULT_SHAPE, { distance: 2.5, angle: 60, height: 0, curved: true });
 });
 
-test('le défaut est sur les deux échelles', () => {
+test('le défaut est sur les trois échelles', () => {
   // Sans ça, un joueur qui n'a rien touché ne pourrait pas revenir au défaut
   // par les boutons - il n'y aurait pas de cran pour ça.
   assert.ok(SCREEN_DISTANCES.includes(DEFAULT_SHAPE.distance));
   assert.ok(SCREEN_ANGLES.includes(DEFAULT_SHAPE.angle));
+  assert.ok(SCREEN_HEIGHTS.includes(DEFAULT_SHAPE.height));
+});
+
+test('la hauteur est centrée sur le niveau des yeux et symétrique', () => {
+  // Zéro est le niveau des yeux au dernier recentrage, donc il doit être un
+  // cran - et les deux sens doivent aller aussi loin, un joueur pouvant aussi
+  // bien avoir recentré trop haut que trop bas.
+  assert.ok(SCREEN_HEIGHTS.includes(0));
+  assert.equal(Math.min(...SCREEN_HEIGHTS), -Math.max(...SCREEN_HEIGHTS));
+});
+
+test('un cran de hauteur monte, un cran descend, et rien d autre ne bouge', () => {
+  const up = stepHeight(DEFAULT_SHAPE, 1);
+  assert.equal(up.height, 0.2);
+  assert.equal(stepHeight(up, -1).height, 0);
+  assert.equal(up.distance, DEFAULT_SHAPE.distance);
+  assert.equal(up.angle, DEFAULT_SHAPE.angle);
+
+  const bottom: ScreenShape = { ...DEFAULT_SHAPE, height: Math.min(...SCREEN_HEIGHTS) };
+  assert.deepEqual(stepHeight(bottom, -1), bottom, 'le bas doit buter');
+  const top: ScreenShape = { ...DEFAULT_SHAPE, height: Math.max(...SCREEN_HEIGHTS) };
+  assert.deepEqual(stepHeight(top, 1), top, 'le haut doit buter');
+});
+
+test('une forme d avant le réglage de hauteur garde ce qu elle avait', () => {
+  // Elle est complétée à zéro plutôt que jetée : c'est exactement ce que ce
+  // joueur voyait, et lui reprendre sa distance et sa taille pour un champ qui
+  // n'existait pas encore serait gratuit.
+  const before = storage({ [SCREEN_SHAPE_KEY]: '{"distance":3,"angle":45,"curved":false}' });
+  assert.deepEqual(readScreenShape(before), {
+    distance: 3, angle: 45, height: 0, curved: false
+  });
+  assert.equal(before.held.has(SCREEN_SHAPE_KEY), true, 'elle ne doit pas être retirée');
 });
 
 test('la distance la plus proche laisse la tablette flotter devant l écran', () => {
@@ -120,7 +156,7 @@ test('le défaut est retiré plutôt qu écrit', () => {
 
 test('une forme choisie est écrite et se relit identique', () => {
   const store = storage();
-  const chosen: ScreenShape = { distance: 2.0, angle: 80, curved: false };
+  const chosen: ScreenShape = { distance: 2.0, angle: 80, height: -0.4, curved: false };
   writeScreenShape(store, chosen);
   assert.deepEqual(readScreenShape(store), chosen);
 });
@@ -135,7 +171,7 @@ test('une valeur illisible ou hors échelle est retirée et rend le défaut', ()
     '{"distance":0.3,"angle":60,"curved":true}',
     '{"distance":1.8,"angle":60,"curved":true}',
     '{"distance":2.5,"angle":179,"curved":true}',
-    '{"distance":2.5,"angle":60}',
+    '{"distance":2.5,"angle":60,"height":9,"curved":true}',
     '{"distance":"2.5","angle":60,"curved":true}'
   ];
   for (const value of junk) {

@@ -34,16 +34,20 @@ import {
   DEFAULT_SHAPE,
   SCREEN_ANGLES,
   SCREEN_DISTANCES,
+  SCREEN_HEIGHTS,
   type ScreenShape
 } from '../../frontend/src/lib/vr/screen-shape.js';
 
-/** Les cinquante réglages atteignables : cinq distances, cinq tailles, deux
- *  formes. Assez peu pour être balayés en entier plutôt qu'échantillonnés. */
+/** Les 250 réglages atteignables : cinq distances, cinq tailles, cinq
+ *  hauteurs, deux formes. Assez peu pour être balayés en entier plutôt
+ *  qu'échantillonnés. */
 const EVERY_SHAPE: ScreenShape[] = SCREEN_DISTANCES.flatMap((distance) =>
-  SCREEN_ANGLES.flatMap((angle) => [
-    { distance, angle, curved: true },
-    { distance, angle, curved: false }
-  ])
+  SCREEN_ANGLES.flatMap((angle) =>
+    SCREEN_HEIGHTS.flatMap((height) => [
+      { distance, angle, height, curved: true },
+      { distance, angle, height, curved: false }
+    ])
+  )
 );
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -370,14 +374,108 @@ test('le bandeau reste le plus proche des trois surfaces, a tous les reglages', 
   }
 });
 
-test('plat ou courbe, l ecran couvre le meme angle', () => {
-  // C'est ce qui fait de la courbure un reglage de FORME et non une seconde
-  // taille : basculer ne change pas la place que l'image prend dans le regard.
+/*
+ * Le défaut rapporté depuis le casque, et ce qui le tenait.
+ *
+ * « la distance ne regle pas la distance mais la hauteur, et pas en m mais en
+ * cm ». La premiere version tenait la taille ANGULAIRE constante d'un cran de
+ * distance a l'autre, ce qui rendait la largeur PHYSIQUE proportionnelle a la
+ * distance : de 2,09 m a 4,50 m de large, et de 1,57 m a 3,38 m de haut. Vu de
+ * l'origine de la session l'image ne bougeait pas d'un dixieme de degre - donc
+ * le reglage ne se voyait pas - et vu d'un oeil qui n'est PAS a cette origine,
+ * son seul effet visible etait une derive verticale : 3 degres pour 20 cm de
+ * decalage, mesures. Un joueur ne se tient jamais exactement la ou il etait au
+ * dernier recentrage.
+ *
+ * La taille est donc physique maintenant, nominale a 2,5 m, et la distance
+ * deplace un objet de taille fixe - une television dans une piece. Ces deux
+ * tests sont ce qui empeche d'y revenir.
+ */
+test('reculer l ecran le rapetisse, ce qui est tout ce qu on demande a ce reglage', () => {
+  for (const angle of SCREEN_ANGLES) {
+    for (const curved of [true, false]) {
+      const angles = SCREEN_DISTANCES.map(
+        (distance) => sceneLayout('crt', { distance, angle, height: 0, curved }).screen.arc
+      );
+      for (let i = 1; i < angles.length; i++) {
+        assert.ok(
+          angles[i] < angles[i - 1],
+          `a ${angle} deg nominal, reculer de ${SCREEN_DISTANCES[i - 1]} a ${SCREEN_DISTANCES[i]} m ` +
+            `laisse l angle a ${((angles[i] * 180) / Math.PI).toFixed(1)}° : le reglage est invisible`
+        );
+      }
+    }
+  }
+});
+
+test('la taille physique de l image ne depend pas de la distance', () => {
+  // C'est la moitie du defaut qui se voyait : le bord haut montait de 90 cm en
+  // metres d'un bout de l'echelle a l'autre, ce qui deplacait l'image
+  // verticalement des que l'oeil n'etait pas a l'origine.
+  for (const angle of SCREEN_ANGLES) {
+    for (const curved of [true, false]) {
+      const heights = SCREEN_DISTANCES.map(
+        (distance) => sceneLayout('crt', { distance, angle, height: 0, curved }).screen.height
+      );
+      for (const height of heights) {
+        assert.ok(
+          Math.abs(height - heights[0]) < 1e-9,
+          `l image mesure ${height.toFixed(2)} m de haut ici et ${heights[0].toFixed(2)} m ailleurs`
+        );
+      }
+    }
+  }
+});
+
+test('la taille nominale est la taille vue a la distance de reference', () => {
+  // 2,5 m et 60 degres est ce qui a ete livre : le reglage par defaut doit
+  // rendre exactement cette geometrie, sinon la mise a jour deplace l ecran de
+  // tout le monde.
+  const { screen } = sceneLayout('crt', DEFAULT_SHAPE);
+  assert.ok(Math.abs((screen.arc * 180) / Math.PI - 60) < 1e-9);
+  assert.equal(screen.distance, 2.5);
+  assert.equal(screen.centerY, 0);
+});
+
+test('la hauteur deplace le centre de l image, et elle seule', () => {
+  const flat = sceneLayout('crt', { ...DEFAULT_SHAPE, height: -0.4 }).screen;
+  const high = sceneLayout('crt', { ...DEFAULT_SHAPE, height: 0.4 }).screen;
+
+  assert.equal(flat.centerY, -0.4);
+  assert.equal(high.centerY, 0.4);
+  // Ni la distance, ni l angle, ni la taille : sinon « hauteur » serait un
+  // deuxieme reglage de taille, l erreur exacte qui vient d etre corrigee.
+  assert.equal(flat.distance, high.distance);
+  assert.equal(flat.arc, high.arc);
+  assert.equal(flat.height, high.height);
+});
+
+test('plat ou courbe, l ecran couvre le meme angle a la distance de reference', () => {
+  /*
+   * L'egalite exacte n'est possible qu'a une seule distance, et c'est de la
+   * geometrie, pas un compromis : un arc de longueur L vu de d couvre L/d, une
+   * corde de longueur L couvre 2 atan(L/2d). Deux formes de meme largeur
+   * physique ne peuvent pas couvrir le meme angle partout. Chaque forme prend
+   * donc la largeur qui lui fait couvrir l'angle nominal a 2,5 m, et ailleurs
+   * les deux restent proches - ce qui suffit a ce que basculer reste un
+   * reglage de FORME et non une seconde taille.
+   */
+  for (const angle of SCREEN_ANGLES) {
+    const curved = sceneLayout('crt', { distance: 2.5, angle, height: 0, curved: true }).screen;
+    const flat = sceneLayout('crt', { distance: 2.5, angle, height: 0, curved: false }).screen;
+    assert.ok(Math.abs(curved.arc - flat.arc) < 1e-9, `a 2,5 m et ${angle} deg nominal`);
+  }
+
   for (const distance of SCREEN_DISTANCES) {
     for (const angle of SCREEN_ANGLES) {
-      const curved = sceneLayout('crt', { distance, angle, curved: true }).screen;
-      const flat = sceneLayout('crt', { distance, angle, curved: false }).screen;
-      assert.equal(curved.arc, flat.arc);
+      const curved = sceneLayout('crt', { distance, angle, height: 0, curved: true }).screen;
+      const flat = sceneLayout('crt', { distance, angle, height: 0, curved: false }).screen;
+      const ecart = Math.abs(((curved.arc - flat.arc) * 180) / Math.PI);
+      // 7,3 degres au pire, mesures : l ecran le plus large au cran le plus
+      // proche, ou l arc atteint 100 degres et la corde sature vers 93. La
+      // borne est juste au-dessus de ce pire cas, pas un chiffre rond choisi a
+      // vue - c est ce qui la rend capable de voir une regression.
+      assert.ok(ecart < 8, `a ${distance} m et ${angle} deg nominal, ${ecart.toFixed(1)}° d ecart`);
       assert.ok(flat.height > curved.height, 'un plat plus large est aussi plus haut, a ratio egal');
     }
   }
@@ -387,7 +485,7 @@ test('l image garde son ratio quelle que soit la forme', () => {
   // Un plat a qui on donnerait la largeur du courbe serait etire
   // verticalement - et ca se lit comme un bug de decodage, loin du layout.
   for (const curved of [true, false]) {
-    const screen = sceneLayout('crt', { distance: 3.0, angle: 70, curved }).screen;
+    const screen = sceneLayout('crt', { distance: 3.0, angle: 70, height: 0, curved }).screen;
     const width = curved
       ? screen.distance * screen.arc
       : 2 * screen.distance * Math.tan(screen.arc / 2);
@@ -395,26 +493,44 @@ test('l image garde son ratio quelle que soit la forme', () => {
   }
 });
 
-test('une part utile de l image du jeu reste au-dessus de la tablette', () => {
-  // Sur toute la grille, parce que c'est la TAILLE qui decide ici : la part
-  // masquee ne depend pas de la distance (l'image et la tablette grandissent
-  // ensemble en metres, pas en degres), mais un ecran regle a 45 degres est
-  // une image courte devant une tablette de taille angulaire fixe.
+/** La part de l image qui depasse au-dessus de la tablette. */
+function partAuDessus(shape: ScreenShape): number {
+  const { tablet, screen } = sceneLayout('crt', shape);
+  const image = verticalSpan({
+    position: [0, screen.centerY, -screen.distance],
+    rotation: [0, 0, 0],
+    width: screen.distance * screen.arc,
+    height: screen.height
+  });
+  return (image.top - verticalSpan(tablet).top) / (image.top - image.bottom);
+}
+
+/*
+ * Deux bornes, et c'est la hauteur reglable qui a impose de les separer.
+ *
+ * Flotter devant l ecran implique d en masquer une part, et ce test bornait
+ * cette part a 35 % - une valeur ecrite quand il n y avait qu une geometrie.
+ * Elle ne peut pas tenir sur les 250 reglages : un petit ecran, loin et
+ * descendu de 40 cm, ne laisse plus que 12 % au-dessus (mesure). Ce n est pas
+ * une panne, c est le troc que le joueur vient de faire lui-meme, et la
+ * rangee « Hauteur » est juste devant lui pour le defaire.
+ *
+ * Le reglage livre garde donc la propriete pour laquelle elle avait ete
+ * ecrite, et la grille garde un plancher : il doit toujours rester de l image
+ * a voir, sinon la tablette cesserait d etre une surface qui flotte devant le
+ * jeu pour devenir un cache.
+ */
+test('au reglage livre, la moitie de l image reste au-dessus de la tablette', () => {
+  assert.ok(partAuDessus(DEFAULT_SHAPE) > 0.4, `${(partAuDessus(DEFAULT_SHAPE) * 100).toFixed(0)}%`);
+});
+
+test('quel que soit le reglage, il reste de l image au-dessus de la tablette', () => {
   for (const shape of EVERY_SHAPE) {
-    const { tablet, screen } = sceneLayout('crt', shape);
-    const image = verticalSpan({
-      position: [0, screen.centerY, -screen.distance],
-      rotation: [0, 0, 0],
-      width: screen.distance * screen.arc,
-      height: screen.height
-    });
-    const reste = (image.top - verticalSpan(tablet).top) / (image.top - image.bottom);
-    // 45 % au reglage livre, 43 % au plus petit. Flotter devant l ecran
-    // implique d en masquer une part : ce test borne cette part, il ne la
-    // supprime pas.
+    const reste = partAuDessus(shape);
     assert.ok(
-      reste > 0.35,
-      `a ${shape.angle} deg il ne reste que ${(reste * 100).toFixed(0)}% de l image au-dessus`
+      reste > 0.1,
+      `a ${shape.distance} m / ${shape.angle} deg / ${shape.height * 100} cm il ne reste ` +
+        `que ${(reste * 100).toFixed(0)}% de l image au-dessus`
     );
   }
 });

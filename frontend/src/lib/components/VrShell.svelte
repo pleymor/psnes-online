@@ -72,7 +72,7 @@
   import { layoutOptionsPanel, drawOptionsPanel } from '$lib/vr/panels/options';
   import { layoutScreenPanel, drawScreenPanel } from '$lib/vr/panels/screen-settings';
   import {
-    readScreenShape, writeScreenShape, stepDistance, stepAngle,
+    readScreenShape, writeScreenShape, stepDistance, stepAngle, stepHeight,
     DEFAULT_SHAPE, type ScreenShape
   } from '$lib/vr/screen-shape';
   // La séquence appartient au dessin, pas au panneau : c'est son ordre de
@@ -718,6 +718,7 @@
           heading: t($language, 'vrScreen'),
           distance: t($language, 'vrScreenDistance'),
           size: t($language, 'vrScreenSize'),
+          height: t($language, 'vrScreenHeight'),
           shape: t($language, 'vrScreenShape'),
           flat: t($language, 'vrScreenFlat'),
           curved: t($language, 'vrScreenCurved'),
@@ -729,7 +730,13 @@
            * `quickSave` pour le panneau des sauvegardes.
            */
           metres: (value) => `${value.toFixed(1).replace('.', $language === 'fr' ? ',' : '.')} m`,
-          degrees: (value) => `${value}°`
+          degrees: (value) => `${value}°`,
+          // Signé, et sans signe à zéro : c'est un écart au niveau des yeux,
+          // et « +0 cm » comme « −0 cm » seraient tous les deux faux.
+          centimetres: (value) =>
+            value === 0
+              ? '0 cm'
+              : `${value > 0 ? '+' : '−'}${Math.abs(Math.round(value * 100))} cm`
         },
         hoverId: hovered?.panel === 'tablet' ? hovered.region.id : null
       })
@@ -1139,6 +1146,8 @@
         if (id === 'farther') { applyScreenShape(stepDistance(screenShape, 1)); return; }
         if (id === 'smaller') { applyScreenShape(stepAngle(screenShape, -1)); return; }
         if (id === 'bigger') { applyScreenShape(stepAngle(screenShape, 1)); return; }
+        if (id === 'lower') { applyScreenShape(stepHeight(screenShape, -1)); return; }
+        if (id === 'higher') { applyScreenShape(stepHeight(screenShape, 1)); return; }
         if (id === 'flat') { applyScreenShape({ ...screenShape, curved: false }); return; }
         if (id === 'curved') { applyScreenShape({ ...screenShape, curved: true }); return; }
         // Remonte au menu, pas au jeu : voir `TabletScreen`.
