@@ -35,6 +35,7 @@
   import IdentifyGame from '$lib/components/IdentifyGame.svelte';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
+  import SiteFooter from '$lib/components/SiteFooter.svelte';
   import { createLogger } from '$lib/utils/logger';
   import { setPageTitle } from '$lib/utils/page-title';
 
@@ -416,6 +417,12 @@
       </div>
     </div>
   </main>
+  <!--
+    Hors du `<main>` centré : `.landing-container` centre son contenu sur toute
+    la hauteur de la fenêtre, donc un pied de page à l'intérieur serait au
+    milieu de l'écran, sous le bouton de connexion.
+  -->
+  <SiteFooter />
 {:else}
   <!-- Library page for authenticated users -->
   <div class="app-layout">
@@ -520,6 +527,7 @@
           </div>
         {/if}
       </div>
+      <SiteFooter />
     </main>
   </div>
 

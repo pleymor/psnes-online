@@ -159,7 +159,7 @@
   {#if missingCount > 0}
     <p class="explain">{missingCount} {t($language, 'gamesNotOnThisDevice')}</p>
   {/if}
-  <p class="legal">{t($language, 'legalUploadWarning')}</p>
+  <p class="legal">{t($language, 'legalRomWarning')}</p>
 
   {#if state.kind === 'unsupported'}
     <p class="explain">{t($language, 'romFolderUnsupported')}</p>

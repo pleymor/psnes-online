@@ -2,8 +2,27 @@ export const translations = {
   en: {
     // Legal disclaimer
     legalWarning: 'Legal Warning',
-    legalText: 'This platform is provided for educational and preservation purposes. You must legally own the games for which you use ROMs. Using ROMs without owning the original games is illegal. By using this service, you agree to be solely responsible for complying with intellectual property laws.',
-    legalUploadWarning: 'You must own an original physical copy of the game. Uploading and using ROMs without owning the original game is illegal. You are solely responsible for complying with intellectual property laws.',
+    /*
+     * Rewritten on 2026-09-08, and it had never been displayed anywhere until
+     * the footer that now carries it.
+     *
+     * The old wording said owning the game made the ROM lawful, which is the
+     * half that matters and it got it wrong: French law excludes software from
+     * the private-copy exception (CPI art. L122-5) and allows only the backup
+     * copy made by the person entitled to use the software (art. L122-6-1 II).
+     * Owning the cartridge is necessary and not sufficient - a downloaded ROM
+     * is not that backup copy. `docs/content.ts` carries the references.
+     */
+    legalText: 'psnes hosts and distributes no games: it reads the files you hand it, and they stay on your machine. You must own the original cartridge of each game you play, and the ROM must be your own backup copy of it - a downloaded ROM is not covered, even if the game sits on your shelf. You alone are responsible for the rights you hold over your files.',
+    documentation: 'Documentation',
+    /*
+     * `legalRomWarning`, not `legalUploadWarning`: the old name and the old
+     * sentence both said this app uploads ROMs. It does not, and never has -
+     * `backend/src/api/games.ts` states it in its own header and exposes no
+     * route to download one. A warning that misdescribes the thing it warns
+     * about teaches the reader to skip the next one.
+     */
+    legalRomWarning: 'psnes uploads nothing: your files stay on this device. You must own the original cartridge of each game, and the ROM must be your own backup copy of it. See the documentation for the legal references.',
 
     // Navigation
     library: 'Library',
@@ -554,8 +573,9 @@ export const translations = {
   fr: {
     // Legal disclaimer
     legalWarning: 'Avertissement Légal',
-    legalText: 'Cette plateforme est fournie à des fins éducatives et de préservation. Vous devez posséder légalement les jeux dont vous utilisez les ROMs. L\'utilisation de ROMs sans posséder les jeux originaux est illégale. En utilisant ce service, vous acceptez d\'être seul responsable du respect des lois sur la propriété intellectuelle.',
-    legalUploadWarning: 'Vous devez posséder une copie physique originale du jeu. L\'upload et l\'utilisation de ROMs sans posséder le jeu original sont illégaux. Vous êtes seul responsable du respect des lois sur la propriété intellectuelle.',
+    legalText: 'psnes n\'héberge et ne distribue aucun jeu : il lit les fichiers que vous lui présentez, et ils restent sur votre machine. Vous devez posséder la cartouche originale de chaque jeu auquel vous jouez, et la ROM doit en être votre propre copie de sauvegarde - une ROM téléchargée n\'est pas couverte, même si le jeu est sur votre étagère. Vous êtes seul responsable du droit que vous avez d\'en disposer.',
+    documentation: 'Documentation',
+    legalRomWarning: 'psnes ne téléverse rien : vos fichiers restent sur cet appareil. Vous devez posséder la cartouche originale de chaque jeu, et la ROM doit en être votre propre copie de sauvegarde. Les références de loi sont dans la documentation.',
 
     // Navigation
     library: 'Bibliothèque',
