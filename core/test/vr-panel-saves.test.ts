@@ -30,7 +30,12 @@ const LABELS = {
   newSave: 'Nouvelle sauvegarde',
   close: 'Retour',
   empty: 'Aucune sauvegarde pour ce jeu',
-  quickSave: 'Sauvegarde rapide'
+  quickSave: 'Sauvegarde rapide',
+  overwrite: 'Écraser',
+  remove: 'Supprimer',
+  confirmRemove: 'Supprimer ?',
+  yes: 'Oui',
+  no: 'Non'
 };
 
 function save(over: Partial<SaveSummary> = {}): SaveSummary {
@@ -73,7 +78,14 @@ function recordingContext() {
 }
 
 function state(over: Partial<SavesState> = {}): SavesState {
-  return { saves: [save()], shots: new Map(), locale: 'fr', busy: false, ...over };
+  return {
+    saves: [save()],
+    shots: new Map(),
+    locale: 'fr',
+    busy: false,
+    confirming: null,
+    ...over
+  };
 }
 
 const ids = (s: SavesState) => layoutSavesPanel(s).map((r) => r.id);
@@ -82,6 +94,76 @@ test('chaque sauvegarde visible offre son chargement, par son id', () => {
   const s = state({ saves: [save({ id: 'a' }), save({ id: 'b' })] });
   assert.ok(ids(s).includes('load:a'));
   assert.ok(ids(s).includes('load:b'));
+});
+
+/*
+ * Trois gestes par ligne, et un seul est un simple toucher.
+ *
+ * Charger reste le toucher de la ligne : c'est le geste le plus fréquent, et
+ * le transformer en « sélectionner puis agir » l'aurait rallongé pour financer
+ * les deux autres. Écraser et Supprimer sont donc deux boutons à droite de la
+ * ligne, aussi hauts qu'elle.
+ */
+test('chaque sauvegarde offre aussi de l ecraser et de la supprimer', () => {
+  const s = state({ saves: [save({ id: 'a' }), save({ id: 'b' })] });
+  for (const id of ['a', 'b']) {
+    assert.ok(ids(s).includes(`overwrite:${id}`), `${id} ne peut pas etre ecrasee`);
+    assert.ok(ids(s).includes(`delete:${id}`), `${id} ne peut pas etre supprimee`);
+  }
+});
+
+/*
+ * Supprimer demande, sur la ligne elle-même.
+ *
+ * C'est irréversible, et un pointeur laser tenu à bout de bras dérape. Pas de
+ * modale pour autant : les deux boutons de la ligne deviennent la question, et
+ * le reste du panneau ne bouge pas.
+ */
+test('supprimer demande confirmation sur sa propre ligne', () => {
+  const asked = state({ saves: [save({ id: 'a' }), save({ id: 'b' })], confirming: 'a' });
+  const shown = ids(asked);
+
+  assert.ok(shown.includes('confirm-delete:a'), 'la question doit pouvoir etre repondue oui');
+  assert.ok(shown.includes('cancel-delete'), 'et non');
+  assert.ok(!shown.includes('delete:a'), 'le bouton qui a pose la question a cede sa place');
+  assert.ok(!shown.includes('overwrite:a'), "ecraser la ligne qu on interroge n a pas de sens");
+
+  // Et surtout : la ligne interrogee ne se charge plus. Un tir qui derape
+  // pendant la question ne doit pas remplacer la partie en cours.
+  assert.ok(!shown.includes('load:a'), 'la ligne interrogee reste chargeable');
+
+  // Les autres lignes gardent leurs trois gestes : la question porte sur une
+  // ligne, pas sur le panneau.
+  assert.ok(shown.includes('load:b'));
+  assert.ok(shown.includes('overwrite:b'));
+  assert.ok(shown.includes('delete:b'));
+});
+
+test('la question dessinee nomme ce qu elle va supprimer', () => {
+  const ctx = recordingContext();
+  const s = state({ confirming: 's1' });
+  drawSavesPanel(ctx, s, layoutSavesPanel(s), LABELS);
+  const drawn = ctx.texts.join('\n');
+  assert.ok(drawn.includes(LABELS.yes) && drawn.includes(LABELS.no), 'les deux reponses');
+  // Le nom reste lisible pendant la question : c'est la seule chose qui dit
+  // laquelle des quatre on est en train de perdre.
+  assert.ok(drawn.includes('Avant le boss'), 'la ligne interrogee a perdu son nom');
+  /*
+   * Et la question est ECRITE. Le rendu a tranche : « Oui » et « Non » sur une
+   * ligne par ailleurs inchangee ne disent pas ce qui est demande. Elle prend
+   * la place de la date, qui n apprend rien a ce moment-la.
+   */
+  assert.ok(drawn.includes(LABELS.confirmRemove), 'la question n est pas ecrite');
+  assert.ok(!drawn.includes('01/09/2026'), 'la date occupe encore la place de la question');
+});
+
+test('les deux boutons de ligne sont nommes', () => {
+  const ctx = recordingContext();
+  const s = state();
+  drawSavesPanel(ctx, s, layoutSavesPanel(s), LABELS);
+  const drawn = ctx.texts.join('\n');
+  assert.ok(drawn.includes(LABELS.overwrite));
+  assert.ok(drawn.includes(LABELS.remove));
 });
 
 test('creer et sortir sont toujours offerts', () => {
@@ -157,6 +239,31 @@ test('une vignette chargee est dessinee, et son absence ne casse rien', () => {
   assert.ok(!without.calls.includes('drawImage'));
   // Et la ligne existe quand meme : une sauvegarde sans image reste chargeable.
   assert.ok(ids(bare).includes('load:s1'));
+});
+
+/*
+ * Le puits a les proportions d'une image SNES, et c'est la moitié du rapport
+ * « les vignettes sont trop petites ».
+ *
+ * Le puits mesurait 96 x 60 pour une image de 256 x 224, soit 8:7. `fitContain`
+ * ajuste sur la hauteur dans ce cas, donc l'image dessinée faisait 68 x 60 et
+ * 28 px de puits restaient vides à droite - une vignette un tiers plus petite
+ * que sa boîte, sans que rien ne le dise. Un puits au bon ratio rend ces pixels
+ * à l'image.
+ */
+test('la vignette remplit son puits, qui a le ratio d une image SNES', () => {
+  const ctx = recordingContext();
+  const s = state({ shots: new Map([['s1', { width: 256, height: 224 } as CanvasImageSource]]) });
+  drawSavesPanel(ctx, s, layoutSavesPanel(s), LABELS);
+
+  const drawn = ctx.images[0];
+  assert.ok(drawn, 'aucune image dessinee');
+  assert.ok(Math.abs(drawn.w / drawn.h - 256 / 224) < 0.01, 'la vignette est deformee');
+  // Deux fois la surface d'avant : 68 x 60 tenait dans 4080 px carres.
+  assert.ok(
+    drawn.w * drawn.h > 4080 * 2,
+    `la vignette fait ${drawn.w.toFixed(0)} x ${drawn.h.toFixed(0)}, a peine plus qu avant`
+  );
 });
 
 test('les vignettes sont reduites avec le bon filtre', () => {

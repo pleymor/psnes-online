@@ -105,7 +105,7 @@
    * Charger ne faisait rien. Les deux fonctions restent pour le F2/F4 de la
    * page plate, qui a les composants qui écoutent.
    */
-  import { fetchSaves, autoSaveName, type SaveSummary } from '$lib/saves/api';
+  import { fetchSaves, deleteSave, autoSaveName, type SaveSummary } from '$lib/saves/api';
   import { captureState } from '$lib/saves/capture';
   import {
     SAVES_PANEL_SIZE, layoutSavesPanel, drawSavesPanel
@@ -348,6 +348,13 @@
    * -retour plutôt que de laisser une deuxième pression perdre la première.
    */
   let savesBusy = false;
+  /**
+   * La sauvegarde dont la suppression est en train d'être demandée, ou null.
+   *
+   * Ici et pas dans le panneau parce que c'est un état de session : il doit
+   * survivre à un repeint (un survol en repeint) et mourir avec la tablette.
+   */
+  let savesConfirming: string | null = null;
   /** The button waiting for its new input, or null. */
   let listeningFor: VrButton | null = null;
   /**
@@ -766,7 +773,8 @@
       saves: savesList,
       shots: saveShots,
       locale: $language,
-      busy: savesBusy
+      busy: savesBusy,
+      confirming: savesConfirming
     };
     tabletPanel.regions = layoutSavesPanel(state);
     const regions = tabletPanel.regions;
@@ -778,7 +786,12 @@
         empty: t($language, 'vrNoSaves'),
         // Passé plutôt que traduit dans `saveIdentity` : ce module est testé
         // depuis Bun, qui ne résout pas l'alias des traductions.
-        quickSave: t($language, 'quickSave')
+        quickSave: t($language, 'quickSave'),
+        overwrite: t($language, 'overwrite'),
+        remove: t($language, 'delete'),
+        confirmRemove: t($language, 'vrDeleteSave'),
+        yes: t($language, 'yes'),
+        no: t($language, 'no')
       }, hovered?.panel === 'tablet' ? hovered.region.id : null)
     );
   }
@@ -868,6 +881,7 @@
     tabletScreen = screen;
     listeningFor = null;
     savesBusy = false;
+    savesConfirming = null;
     captureGate.reset();
     if (tabletPanel) tabletPanel.mesh.visible = true;
     repaintTablet();
@@ -900,6 +914,7 @@
     bindSequence = null;
     listeningFor = null;
     savesBusy = false;
+    savesConfirming = null;
     captureGate.reset();
     if (tabletPanel) {
       tabletPanel.regions.length = 0;
@@ -1159,7 +1174,47 @@
         if (id === 'close') { closeTablet(); return; }
 
         if (id === 'new-save') {
-          void writeNewSave();
+          void writeSave();
+          return;
+        }
+
+        /*
+         * Écraser, sans confirmation mais en gardant le NOM stocké.
+         *
+         * Le serveur réécrit le nom en même temps que l'état
+         * (`game-handlers.ts` : `updateSaveData(db, saveId, data.name, ...)`),
+         * donc lui passer un nom neuf renommerait « Avant le boss » en
+         * horodatage - et surtout, la sauvegarde rapide cesserait d'être la
+         * sauvegarde rapide, sa sentinelle `__quick__` étant précisément son
+         * nom stocké. Le nom vient donc de `savesList`, jamais du libellé
+         * affiché, qui est déjà une traduction de cette sentinelle.
+         *
+         * Pas de confirmation : c'est un geste délibéré et répétitif, celui du
+         * joueur qui refait son point d'avant-boss. Supprimer, lui, demande.
+         */
+        if (id.startsWith('overwrite:')) {
+          const saveId = id.slice('overwrite:'.length);
+          const target = savesList.find((candidate) => candidate.id === saveId);
+          if (!target) return;
+          void writeSave({ id: target.id, name: target.name });
+          return;
+        }
+
+        if (id.startsWith('confirm-delete:')) {
+          void removeSave(id.slice('confirm-delete:'.length));
+          return;
+        }
+
+        if (id === 'cancel-delete') {
+          savesConfirming = null;
+          repaintSaves();
+          return;
+        }
+
+        // La question, pas la suppression. Voir `SavesState.confirming`.
+        if (id.startsWith('delete:')) {
+          savesConfirming = id.slice('delete:'.length);
+          repaintSaves();
           return;
         }
 
@@ -1620,12 +1675,25 @@
    * comme auto-nommé pour n'afficher qu'une ligne. Inventer un autre nom ici
    * aurait donné deux lignes pour une sauvegarde qui n'a rien de plus à dire.
    */
-  async function writeNewSave(): Promise<void> {
+  /**
+   * Écrit l'état courant : une sauvegarde neuve, ou par-dessus une existante.
+   *
+   * Un seul chemin pour les deux, parce que le serveur n'en a qu'un
+   * (`game:save`, avec ou sans `saveId`) et que tout le reste - la capture de
+   * l'état, la vignette, l'attente de `game:saved`, le rafraîchissement des
+   * deux listes - est identique. Deux fonctions auraient divergé sur le
+   * rafraîchissement, qui est la partie qu'on oublie : c'est déjà ce qui avait
+   * rendu une sauvegarde invisible de sa propre bibliothèque.
+   */
+  async function writeSave(target?: { id: string; name: string }): Promise<void> {
     const ctx = saveable();
     const sock = $socket;
     if (!ctx || !sock) return;
 
     savesBusy = true;
+    // La question tombe avec l'écriture : elle portait sur un état du panneau
+    // que cette écriture vient de remplacer.
+    savesConfirming = null;
     repaintSaves();
 
     const saveData = await captureState({
@@ -1663,10 +1731,55 @@
 
     sock.emit('game:save', {
       roomId: ctx.roomId,
-      name: autoSaveName($language),
+      // `saveId` absent pour une neuve : le serveur attribue alors l'id et le
+      // numéro d'emplacement, et deviner l'un des deux les ferait diverger.
+      saveId: target?.id,
+      name: target?.name ?? autoSaveName($language),
       saveData,
       screenshot
     });
+  }
+
+  /**
+   * Supprime une sauvegarde, une fois la question répondue.
+   *
+   * Par l'API REST et non par le socket : `deleteSave` existe déjà et c'est la
+   * page plate qui l'utilise, avec sa propre distinction entre « ta session a
+   * expiré » et « ce jeu n'est pas le tien » - deux problèmes aux remèdes
+   * différents, et dire à quelqu'un de se reconnecter alors que sa session va
+   * bien l'envoie en boucle.
+   */
+  async function removeSave(saveId: string): Promise<void> {
+    const ctx = saveable();
+    if (!ctx) return;
+
+    savesBusy = true;
+    savesConfirming = null;
+    repaintSaves();
+
+    const result = await deleteSave(ctx.gameId, saveId);
+    savesBusy = false;
+
+    if (!result.ok) {
+      notifications.show(t($language, result.reason), 'error');
+      // Repeindre quand même : `busy` a laissé le panneau sans régions, et
+      // rendre la main sans repeindre le figerait. La même raison que
+      // `refreshSaves`.
+      repaintSaves();
+      return;
+    }
+
+    void refreshSaves();
+    /*
+     * Et le store des jeux, sinon la sauvegarde supprimée reste sur l'écran de
+     * lancement.
+     *
+     * Le symétrique exact du défaut « je ne la vois plus nulle part » : ce
+     * store est rempli une fois par la page d'accueil, l'écran de lancement
+     * construit ses listes depuis lui, et une suppression qui ne le touche pas
+     * laisse une ligne qui ne charge plus rien.
+     */
+    void loadGames();
   }
 
   /** La dernière image du jeu en PNG, ou undefined. Voir `frameCanvas`. */
@@ -2580,6 +2693,7 @@
     saveShots.clear();
     savesList = [];
     savesBusy = false;
+    savesConfirming = null;
     tabletScreen = null;
     listeningFor = null;
     captureGate.reset();
