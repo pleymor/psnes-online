@@ -66,11 +66,12 @@ export interface LaunchRoom {
 	/** Who may stage a save. Not the host: the host can change hands. */
 	createdBy: string;
 	/**
-	 * Who serves a missing ROM, and therefore who cannot receive one.
+	 * Whose room this is, for everything that turns on it elsewhere.
 	 *
-	 * The server routes `rom:request` to the host's socket
-	 * (`websocket/rom-transfer.ts`), so this is not a cosmetic distinction from
-	 * `createdBy`: a guest can be sent the cartridge, a host has nobody to ask.
+	 * It used to decide who could be sent a missing ROM as well - the relay
+	 * only ever routed a request to the host - so a host without the cartridge
+	 * had nobody to ask. `websocket/rom-transfer.ts` now routes to whoever is
+	 * NOT asking, and this field has no say in the transfer any more.
 	 */
 	hostId: string;
 	status: 'waiting' | 'playing';
@@ -118,12 +119,12 @@ export interface LaunchOptions {
 	/** Whether this device can read the ROM at all. */
 	romHere: boolean;
 	/**
-	 * The ROM is not here, and the host of this room will send it.
+	 * The ROM is not here, and the other player in this room will send it.
 	 *
 	 * Distinct from `!romHere` because it is what turns a refusal into a wait:
 	 * the screen says the friend is about to send the game instead of telling
-	 * the player to leave the headset. Only ever true for a guest - see
-	 * `LaunchRoom.hostId`.
+	 * the player to leave the headset. True for either side of the room - what
+	 * it needs is somebody to ask, not a particular role.
 	 */
 	romIncoming: boolean;
 	blocked: LaunchBlock | null;
@@ -211,12 +212,20 @@ export function launchOptions(input: LaunchInput): LaunchOptions | null {
 	/*
 	 * Not here, but on its way.
 	 *
-	 * `other !== null` is what makes this a group rather than a lone creator's
-	 * room, and `hostId !== me` is what makes this player the one who can
-	 * receive. Both are needed: a host has nobody to ask, and an empty room has
-	 * nobody to ask either.
+	 * `other !== null` is the whole condition: it is what makes this a group
+	 * rather than a lone creator's room, and so what says there is somebody to
+	 * ask. `hostId !== me` used to be required too, on the belief that a host
+	 * has nobody to ask - false, and it cost a session on 2026-09-09. The
+	 * cartridge is on a device while the library entry is on the server, so a
+	 * host playing from a second machine is the one without the file, and the
+	 * relay now carries a ROM in whichever direction it is needed.
+	 *
+	 * `online` because a promise is what this flag makes: the screen stops
+	 * saying "go and find the file" and says "your friend is sending it". A
+	 * player whose tab is closed sends nothing, and a wait that never ends is
+	 * worse than a refusal that can be acted on.
 	 */
-	const romIncoming = !romHere && other !== null && room !== null && room.hostId !== input.me;
+	const romIncoming = !romHere && other !== null && other.online === true;
 
 	return {
 		game: {
@@ -275,8 +284,8 @@ export function launchOptions(input: LaunchInput): LaunchOptions | null {
  * It used to be the one that could NOT be fixed from in there, which is why
  * the message told the player to leave VR. That was true only because the VR
  * shell had never learned the transfer the flat room has always used, so
- * `romAvailable` now means "here, or on its way from the host" - and a guest
- * is no longer sent out of the headset to fetch what their friend is holding.
+ * `romAvailable` now means "here, or on its way from the other player" - and
+ * nobody is sent out of the headset to fetch what their friend is holding.
  */
 function blockedBy(
 	room: LaunchRoom | null,

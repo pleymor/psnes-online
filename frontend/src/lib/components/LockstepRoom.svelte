@@ -374,9 +374,13 @@
 
   onMount(() => {
     // Registered before the core starts loading, not after. Both machines boot
-    // at once and the guest asks for the ROM straight away; a listener attached
+    // at once and whoever lacks the ROM asks straight away; a listener attached
     // at the end of boot would miss the first requests.
-    if (isHost) $socket?.on('rom:request', onRomRequested);
+    //
+    // On both sides, not just the host's. The host is not the one who
+    // necessarily holds the cartridge - the library entry is on the server and
+    // the bytes are on one device - so either player may be the one asked.
+    $socket?.on('rom:request', onRomRequested);
     $socket?.on('connect', onSocketReconnected);
     $socket?.on('znet:error', onRelayError);
     $socket?.on('player:left', onPlayerLeft);
@@ -1028,31 +1032,31 @@
       return found;
     }
 
-    // The guest asks the host before it asks the player. The host has the
-    // cartridge by definition, and sending someone away to find a file they may
-    // not have is the end of the session.
-    if (!isHost) {
-      try {
-        statusText = 'Receiving the ROM from the host…';
-        const rom = await receiveRom({
-          socket: $socket as never,
-          roomId,
-          expectedCrc32: gameCrc32,
-          onProgress: (done, total) => (romTransfer = { direction: 'in', done, total })
-        });
-        romTransfer = null;
-        // `remember` fait tourner la partie ; les octets meurent avec l'onglet
-        // tant que l'invité n'a pas répondu à la question que voici.
-        remember(rom);
-        keepOffer.received(gameCrc32, rom);
-        logger.info(`Received the ROM from the host (${rom.byteLength} bytes)`, { crc32: gameCrc32 });
-        return rom;
-      } catch (err) {
-        romTransfer = null;
-        // Not fatal: the player may well have the file, so fall through to
-        // asking rather than dropping them back into the lobby.
-        logger.warn('The host could not send the ROM', err);
-      }
+    // Ask the other player before asking this one. Sending someone away to
+    // find a file they may not have is the end of the session, and the peer is
+    // as likely to hold the dump as this machine is: `isHost` used to gate
+    // this, on the premise that a host always has the cartridge, and a host
+    // playing from a second machine was left with nowhere to turn.
+    try {
+      statusText = 'Receiving the ROM from the other player…';
+      const rom = await receiveRom({
+        socket: $socket as never,
+        roomId,
+        expectedCrc32: gameCrc32,
+        onProgress: (done, total) => (romTransfer = { direction: 'in', done, total })
+      });
+      romTransfer = null;
+      // `remember` fait tourner la partie ; les octets meurent avec l'onglet
+      // tant que l'invité n'a pas répondu à la question que voici.
+      remember(rom);
+      keepOffer.received(gameCrc32, rom);
+      logger.info(`Received the ROM from the other player (${rom.byteLength} bytes)`, { crc32: gameCrc32 });
+      return rom;
+    } catch (err) {
+      romTransfer = null;
+      // Not fatal: the player may well have the file, so fall through to
+      // asking rather than dropping them back into the lobby.
+      logger.warn('The other player could not send the ROM', err);
     }
 
     logger.info('No local copy found; asking the player', { crc32: gameCrc32 });
@@ -1066,19 +1070,27 @@
     });
   }
 
+  /** Who is already being served, so a repeated question is not answered twice. */
+  let serving = new Set<string>();
+
   /**
-   * Answers a guest that has no copy of the cartridge.
+   * Answers whichever player has no copy of the cartridge.
    *
    * Sending happens off the frame loop, a chunk at a time: lockstep runs no
-   * faster than its slowest peer, so a host that stutters pushing four
-   * megabytes into a socket stalls the guest it is helping.
+   * faster than its slowest peer, so a machine that stutters pushing four
+   * megabytes into a socket stalls the player it is helping.
+   *
+   * The asker repeats itself every two seconds until the first piece lands, so
+   * two or three copies of the same question are normal at boot. Serving each
+   * of them would push the ROM two or three times over.
    */
   async function onRomRequested(data: { roomId: string; from: string }) {
-    if (data?.roomId !== roomId || !isHost) return;
+    if (data?.roomId !== roomId) return;
+    if (serving.has(data.from)) return;
 
     const rom = loadedRom ?? (gameCrc32 ? await resolveQuietly(gameCrc32) : null);
     if (!rom) {
-      logger.warn('A guest asked for the ROM but this machine has no copy either');
+      logger.warn('A player asked for the ROM but this machine has no copy either');
       $socket?.emit('rom:unavailable', {
         roomId,
         to: data.from,
@@ -1087,17 +1099,22 @@
       return;
     }
 
-    logger.info(`Sending the ROM to a guest (${rom.byteLength} bytes)`);
-    await sendRom({
-      socket: $socket as never,
-      roomId,
-      to: data.from,
-      rom,
-      onProgress: (done, total) => (romTransfer = { direction: 'out', done, total }),
-      // A frame is 16ms; yielding to the macrotask queue between chunks keeps
-      // the emulator's slice from being pushed aside by the transfer.
-      pause: () => new Promise<void>((resolve) => setTimeout(resolve, 0))
-    });
+    logger.info(`Sending the ROM to the other player (${rom.byteLength} bytes)`);
+    serving.add(data.from);
+    try {
+      await sendRom({
+        socket: $socket as never,
+        roomId,
+        to: data.from,
+        rom,
+        onProgress: (done, total) => (romTransfer = { direction: 'out', done, total }),
+        // A frame is 16ms; yielding to the macrotask queue between chunks keeps
+        // the emulator's slice from being pushed aside by the transfer.
+        pause: () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+      });
+    } finally {
+      serving.delete(data.from);
+    }
     romTransfer = null;
     logger.info('Finished sending the ROM');
   }
@@ -1316,13 +1333,13 @@
   <!-- The transfer banner and the ROM prompt live inside .lockstep rather than
        beside it: both are fixed overlays, so their position is unchanged, but
        as descendants of the fullscreen element they still render once a player
-       goes fullscreen. A host serving a ROM to a guest who joins mid-match
+       goes fullscreen. A player serving a ROM to the one who joins mid-match
        would otherwise watch a silent transfer. -->
   {#if romTransfer}
     <div class="rom-transfer">
       <span>
         {romTransfer.direction === 'in'
-          ? 'Receiving the ROM from the host'
+          ? 'Receiving the ROM from the other player'
           : 'Sending the ROM to the other player'}
       </span>
       <progress value={romTransfer.done} max={romTransfer.total}></progress>
