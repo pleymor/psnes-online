@@ -5,7 +5,9 @@
   import DualClientEmulator from './DualClientEmulator.svelte';
   import PauseMenu from './PauseMenu.svelte';
   import LocateRom from './LocateRom.svelte';
+  import KeepRomOffer from './KeepRomOffer.svelte';
   import { remember, resolveQuietly } from '$lib/roms/provider';
+  import { createKeepOffer } from '$lib/roms/keep-offer';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { readShaderPreference } from '$lib/stores/shader-preference';
   import type { KeyConfig } from '$lib/types';
@@ -50,6 +52,13 @@
   let romPrompt: ((bytes: Uint8Array) => void) | null = null;
   /** Chunks sent or received, for a transfer the player can watch. */
   let romTransfer: { direction: 'in' | 'out'; done: number; total: number } | null = null;
+  /**
+   * La question posée à l'invité après un transfert : garder ce jeu ?
+   *
+   * `keep-offer.ts` porte la règle et dit pourquoi elle est posée après le
+   * transfert, et non avant comme sur l'écran de lancement VR.
+   */
+  const keepOffer = createKeepOffer();
   /** Kept so a guest arriving later can be served without touching the disk. */
   let loadedRom: Uint8Array | null = null;
   let romHash: string | null = null;
@@ -127,7 +136,10 @@
           onProgress: (done, total) => (romTransfer = { direction: 'in', done, total })
         });
         romTransfer = null;
+        // `remember` fait tourner la partie ; les octets meurent avec l'onglet
+        // tant que l'invité n'a pas répondu à la question que voici.
         remember(rom);
+        keepOffer.received(gameCrc32, rom);
         logger.info(`📦 Received the ROM from the host (${rom.byteLength} bytes)`);
         return rom;
       } catch (err) {
@@ -1002,6 +1014,8 @@
 {#if romPrompt}
   <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
 {/if}
+
+<KeepRomOffer offer={keepOffer} title={gameTitle} />
 
 <div class="p2p-room" class:single-mode={emulationMode === EmulationMode.SINGLE}>
   <!-- Game Container -->

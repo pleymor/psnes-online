@@ -33,9 +33,11 @@
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import LocateRom from './LocateRom.svelte';
+  import KeepRomOffer from './KeepRomOffer.svelte';
   import TouchControls from './TouchControls.svelte';
   import { TouchPad, touchPadWanted } from '$lib/controls/touch';
   import { remember, resolveQuietly } from '$lib/roms/provider';
+  import { createKeepOffer } from '$lib/roms/keep-offer';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import { readAspectPreference, writeAspectPreference } from '$lib/stores/aspect-preference';
@@ -139,6 +141,14 @@
   let romPrompt: ((bytes: Uint8Array) => void) | null = null;
   /** Chunks sent or received, for a transfer the player can watch. */
   let romTransfer: { direction: 'in' | 'out'; done: number; total: number } | null = null;
+
+  /**
+   * La question posée à l'invité après un transfert : garder ce jeu ?
+   *
+   * `keep-offer.ts` porte la règle et dit pourquoi elle est posée ici plutôt
+   * qu'avant le transfert comme en VR.
+   */
+  const keepOffer = createKeepOffer();
   let showStats = false;
 
   /** Kept so a guest arriving later can be served without touching the disk. */
@@ -1031,7 +1041,10 @@
           onProgress: (done, total) => (romTransfer = { direction: 'in', done, total })
         });
         romTransfer = null;
+        // `remember` fait tourner la partie ; les octets meurent avec l'onglet
+        // tant que l'invité n'a pas répondu à la question que voici.
         remember(rom);
+        keepOffer.received(gameCrc32, rom);
         logger.info(`Received the ROM from the host (${rom.byteLength} bytes)`, { crc32: gameCrc32 });
         return rom;
       } catch (err) {
@@ -1322,6 +1335,8 @@
   {#if romPrompt}
     <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
   {/if}
+
+  <KeepRomOffer offer={keepOffer} title={gameTitle} />
 
   <!--
     Double-click toggles fullscreen, the way a video player does. It is not a
