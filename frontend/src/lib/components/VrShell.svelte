@@ -296,6 +296,15 @@
    * depuis un casque est « une danse à part entière » (`vr/door.ts`).
    */
   let loadedRom: Uint8Array | null = null;
+
+  /**
+   * Qui est déjà servi, pour ne pas répondre deux fois à la même question.
+   *
+   * Le demandeur répète sa demande toutes les deux secondes jusqu'au premier
+   * morceau, donc deux ou trois exemplaires de la même question sont normaux au
+   * démarrage. Les servir tous enverrait la ROM deux ou trois fois.
+   */
+  const serving = new Set<string>();
   /** The dump whose launch options the screen is showing, or null for the
    * checkerboard. */
   let launchFor: string | null = null;
@@ -2039,7 +2048,7 @@
    * regarde le cache en premier, qui est exactement là où un jeu reçu vit.
    *
    * Rien en main veut dire que le transfert n'a pas eu lieu : la réponse est
-   * alors honorée à la réception, par `receiveFromHost`.
+   * alors honorée à la réception, par `receiveFromPeer`.
    */
   async function keepNow(): Promise<void> {
     const crc32 = launchFor;
@@ -2056,28 +2065,27 @@
   }
 
   /**
-   * Le jeu, reçu de l'hôte, quand cet appareil ne l'a pas.
+   * Le jeu, reçu de l'autre joueur, quand cet appareil ne l'a pas.
    *
    * C'est la moitié qui manquait à la VR. Le serveur relaie `rom:request` et
-   * `rom:chunk` depuis toujours et `LockstepRoom.svelte` s'en sert : un invité
-   * sans cartouche la reçoit de l'hôte, vérifiée contre le CRC32 de la room.
-   * Le shell VR, lui, abandonnait - et disait au joueur de sortir du casque,
-   * ce que deux joueurs ont dû faire pour de vrai le 2026-09-08.
+   * `rom:chunk` depuis toujours et `LockstepRoom.svelte` s'en sert : qui n'a
+   * pas la cartouche la reçoit, vérifiée contre le CRC32 de la room. Le shell
+   * VR, lui, abandonnait - et disait au joueur de sortir du casque, ce que deux
+   * joueurs ont dû faire pour de vrai le 2026-09-08.
    *
-   * L'hôte ne reçoit rien : le serveur route la demande vers SON socket, donc
-   * un hôte sans cartouche n'a personne à qui demander. `launch-options.ts`
-   * tient la même règle pour décider si l'écran de lancement bloque.
+   * L'hôte recevait encore moins que les autres : le relais ne routait une
+   * demande que vers SON socket, donc un hôte sans cartouche n'avait personne
+   * à qui demander. La prod l'a montré le 2026-09-09, l'hôte réclamant trois
+   * fois en deux minutes pendant que l'invité tenait le dump. Le relais route
+   * maintenant vers celui qui ne demande pas, et `launch-options.ts` tient la
+   * même règle pour décider si l'écran de lancement bloque.
    *
    * Rend null plutôt que de lever : l'appelant a déjà un chemin pour « pas de
    * ROM », et c'est le bon - le message qu'il pose est le dernier recours.
    */
-  async function receiveFromHost(
-    roomId: string,
-    crc32: string,
-    isHost: boolean
-  ): Promise<Uint8Array | null> {
+  async function receiveFromPeer(roomId: string, crc32: string): Promise<Uint8Array | null> {
     const sock = $socket;
-    if (isHost || !sock) return null;
+    if (!sock) return null;
 
     try {
       const rom = await receiveRom({
@@ -2122,22 +2130,25 @@
     const sock = $socket;
     const room = $myRoom;
     if (!sock || !data || !room || data.roomId !== room.id) return;
-    if (room.hostId !== $user?.id) return;
+    // Plus de filtre sur l'hôte : c'est l'autre joueur qui demande, quel que
+    // soit son rôle, et ce casque répond s'il tient la cartouche.
+    if (serving.has(data.from)) return;
 
     const crc32 = room.gameCrc32;
     const rom = loadedRom ?? (crc32 ? await resolveQuietly(crc32, { requestPermission: false }) : null);
     if (!rom) {
-      // Dit plutôt que tu : sans ça l'invité attend le timeout de `receiveRom`
+      // Dit plutôt que tu : sans ça l'autre attend le timeout de `receiveRom`
       // devant un écran qui ne dit rien.
-      logger.warn('a guest asked for the ROM but this headset has no copy either');
+      logger.warn('a player asked for the ROM but this headset has no copy either');
       sock.emit('rom:unavailable', {
         roomId: room.id,
         to: data.from,
-        reason: 'The host does not have this ROM either'
+        reason: 'The other player does not have this ROM either'
       });
       return;
     }
 
+    serving.add(data.from);
     try {
       await sendRom({
         socket: sock as never,
@@ -2151,6 +2162,7 @@
         pause: () => new Promise<void>((resolve) => setTimeout(resolve, 0))
       });
     } finally {
+      serving.delete(data.from);
       romTransfer = null;
       repaintLaunch();
     }
@@ -2221,7 +2233,7 @@
       setLogLabels({ roomId, player: isHost ? 'p1' : 'p2' });
 
       const rom = (await resolveQuietly(crc32, { requestPermission: false }))
-        ?? (await receiveFromHost(roomId, crc32, isHost));
+        ?? (await receiveFromPeer(roomId, crc32));
       if (!rom) {
         // The refusal the launch screen already predicted. Saying it twice is
         // better than a black screen.

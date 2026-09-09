@@ -125,9 +125,11 @@
     const found = await resolveQuietly(gameCrc32);
     if (found) return found;
 
-    // The guest asks the host before it asks the player: in a room for someone
-    // else's game, the host is the one machine certain to have the cartridge.
-    if (!isHost && emulationMode !== EmulationMode.SINGLE) {
+    // Ask the other player before asking this one. `isHost` used to gate this
+    // too, on the premise that the host is the machine certain to have the
+    // cartridge - it is not: the library entry lives on the server and the
+    // bytes live on one device, so a host on a second machine has none.
+    if (emulationMode !== EmulationMode.SINGLE) {
       try {
         const rom = await receiveRom({
           socket: $socket as never,
@@ -140,11 +142,11 @@
         // tant que l'invité n'a pas répondu à la question que voici.
         remember(rom);
         keepOffer.received(gameCrc32, rom);
-        logger.info(`📦 Received the ROM from the host (${rom.byteLength} bytes)`);
+        logger.info(`📦 Received the ROM from the other player (${rom.byteLength} bytes)`);
         return rom;
       } catch (err) {
         romTransfer = null;
-        logger.warn('The host could not send the ROM', err);
+        logger.warn('The other player could not send the ROM', err);
       }
     }
 
@@ -156,29 +158,38 @@
     });
   }
 
-  /** Answers a guest that has no copy of the cartridge. See LockstepRoom. */
+  /** Who is already being served, so a repeated question is not answered twice. */
+  let serving = new Set<string>();
+
+  /** Answers whichever player has no copy of the cartridge. See LockstepRoom. */
   async function onRomRequested(data: { roomId: string; from: string }) {
-    if (data?.roomId !== roomId || !isHost) return;
+    if (data?.roomId !== roomId) return;
+    if (serving.has(data.from)) return;
 
     const rom = loadedRom ?? (gameCrc32 ? await resolveQuietly(gameCrc32) : null);
     if (!rom) {
       $socket?.emit('rom:unavailable', {
         roomId,
         to: data.from,
-        reason: 'The host does not have this ROM either'
+        reason: 'The other player does not have this ROM either'
       });
       return;
     }
 
-    logger.info(`📦 Sending the ROM to a guest (${rom.byteLength} bytes)`);
-    await sendRom({
-      socket: $socket as never,
-      roomId,
-      to: data.from,
-      rom,
-      onProgress: (done, total) => (romTransfer = { direction: 'out', done, total }),
-      pause: () => new Promise<void>((resolve) => setTimeout(resolve, 0))
-    });
+    logger.info(`📦 Sending the ROM to the other player (${rom.byteLength} bytes)`);
+    serving.add(data.from);
+    try {
+      await sendRom({
+        socket: $socket as never,
+        roomId,
+        to: data.from,
+        rom,
+        onProgress: (done, total) => (romTransfer = { direction: 'out', done, total }),
+        pause: () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+      });
+    } finally {
+      serving.delete(data.from);
+    }
     romTransfer = null;
   }
 
@@ -918,7 +929,8 @@
   onMount(async () => {
     // Before anything else loads: the guest asks for the ROM as soon as it
     // mounts, and a listener attached later would miss the first requests.
-    if (isHost) $socket?.on('rom:request', onRomRequested);
+    // On both sides: either player may be the one without the cartridge.
+    $socket?.on('rom:request', onRomRequested);
 
     // Always add keyboard listener for pause menu (Escape key)
     window.addEventListener('keydown', handleKeyDown);
@@ -1001,7 +1013,7 @@
   <div class="rom-transfer">
     <span>
       {romTransfer.direction === 'in'
-        ? 'Receiving the ROM from the host'
+        ? 'Receiving the ROM from the other player'
         : 'Sending the ROM to the other player'}
     </span>
     <progress value={romTransfer.done} max={romTransfer.total}></progress>

@@ -328,7 +328,9 @@ test('a device that can open other games still cannot open this one', () => {
     ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
-    room: room(),
+    // Sans room : personne a qui demander, donc l absence bloque encore et le
+    // test porte bien sur `openable` et pas sur le transfert.
+    room: null,
     me: 'me',
     openable: new Set(['bbbb2222', 'cccc3333'])
   });
@@ -342,7 +344,9 @@ test('a ROM this device cannot read blocks the launch and says so', () => {
     ...NAMING,
     library: library(),
     crc32: 'aaaa1111',
-    room: room(),
+    // Personne dans la room pour l envoyer : c est ce qui rend l absence
+    // bloquante, plutot que le fait de ne pas avoir le fichier.
+    room: null,
     me: 'me',
     openable: new Set<string>()
   });
@@ -393,7 +397,9 @@ test('solo needs no seat', () => {
 
 test('a missing ROM outranks a missing seat', () => {
   // The player can do something about a seat from in here. They cannot do
-  // anything about a ROM that is not on the device, so that is what to say.
+  // anything about a ROM that is not on the device and that nobody can send,
+  // so that is what to say. Bob is offline: were he there the game would be on
+  // its way and the seat would be the only thing left to fix.
   const options = launchOptions({
     ...NAMING,
     library: library(),
@@ -401,7 +407,7 @@ test('a missing ROM outranks a missing seat', () => {
     room: room({
       players: [
         { userId: 'me', pseudo: 'Ada', port: null, isReady: false, online: true },
-        { userId: 'you', pseudo: 'Bob', port: null, isReady: false, online: true }
+        { userId: 'you', pseudo: 'Bob', port: null, isReady: false, online: false }
       ]
     }),
     me: 'me',
@@ -682,7 +688,7 @@ test('un invite sans le ROM peut lancer : l hote va le lui envoyer', () => {
   assert.equal(options!.blocked, null, 'donc plus rien ne bloque le lancement');
 });
 
-test('un hote sans le ROM reste bloque : il n a personne a qui demander', () => {
+test('un hote sans le ROM le recoit de l autre joueur', () => {
   const options = launchOptions({
     ...NAMING,
     library: library(),
@@ -691,8 +697,12 @@ test('un hote sans le ROM reste bloque : il n a personne a qui demander', () => 
     me: 'me',
     openable: new Set<string>()
   });
-  assert.equal(options!.romIncoming, false);
-  assert.equal(options!.blocked, 'rom-missing');
+  // Etre hote ne veut pas dire tenir la cartouche : la fiche est sur le
+  // serveur, les octets sont sur un appareil. Un hote qui joue depuis une
+  // deuxieme machine n avait personne a qui demander, et c est exactement ce
+  // que la prod a montre le 2026-09-09.
+  assert.equal(options!.romIncoming, true);
+  assert.equal(options!.blocked, null);
 });
 
 test('seul dans sa room, personne n envoie rien', () => {
