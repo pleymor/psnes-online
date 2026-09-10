@@ -47,13 +47,24 @@
   } | null = null;
 
   /*
-   * Une fiche du catalogue livré ne s'édite pas : le rafraîchissement JSON
-   * supprime et réinsère ses lignes, donc la correction disparaîtrait au
-   * déploiement suivant. Le serveur refuse (409) ; ne pas proposer le bouton
-   * est la moitié honnête de la même règle. Pour celles-là, la correction
-   * consiste à pointer la copie vers une autre fiche.
+   * Corriger est proposé dès qu'il y a une fiche, mais ne veut pas dire la
+   * même chose des deux côtés.
+   *
+   * Une ligne du catalogue livré ne se réécrit pas : le rafraîchissement JSON
+   * la supprime et la réinsère, donc la correction vivrait jusqu'au
+   * déploiement suivant et pas plus. Le serveur refuse, et c'est juste.
+   *
+   * Ne pas proposer le bouton du tout était la première réponse, et c'était
+   * la mauvaise : sur 1477 fiches, 1475 sont livrées, donc la fonctionnalité
+   * était invisible pour à peu près tout le monde - signalé le 2026-09-10 par
+   * quelqu'un cherchant le lien sur Donkey Kong Country. Corriger une fiche
+   * livrée écrit donc une COPIE communautaire préremplie et y repointe cette
+   * copie du jeu. La ligne livrée n'est pas touchée, la correction tient, et
+   * elle parvient à tous ceux qui ont le même dump. Le prix est un
+   * quasi-doublon dans le catalogue, choisi en connaissance de cause.
    */
-  $: correctable = entry !== null && entry.source === 'community';
+  $: correctable = entry !== null;
+  $: copying = mode === 'edit' && entry !== null && entry.source !== 'community';
 
   interface Match {
     id: string;
@@ -214,60 +225,49 @@
   }
 
   /**
-   * Enregistre la correction d'une fiche existante.
+   * Écrit ce que le formulaire contient, et rend l'identifiant de la fiche.
    *
-   * Un PUT et non un POST : l'identifiant ne bouge pas, et c'est ce qui
-   * compte. Créer une fiche corrigée puis y repointer la copie perdrait la
-   * couverture et le crédit déjà attachés à celle-ci, et laisserait une fiche
-   * fausse derrière dans le catalogue.
+   * Trois cas, une seule différence entre eux : où le contenu atterrit. Une
+   * fiche communautaire est réécrite sur place, ce qui garde son identifiant -
+   * donc sa jaquette, son crédit, et les jeux des autres joueurs. Une fiche
+   * livrée et une fiche neuve passent toutes deux par `identify`, qui insère
+   * et repointe : pour la première c'est une copie, pour la seconde une
+   * création, et le serveur n'a pas à faire la différence.
    */
-  async function saveEntry() {
-    if (!entry) return;
-    busy = true;
-    error = '';
-    try {
-      if (!coverPendingFor) {
-        const res = await fetch(`/api/metadata/${entry.id}`, {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form)
-        });
-        if (!res.ok) {
-          const payload = await res.json().catch(() => ({}));
-          throw new Error(payload.error || `HTTP ${res.status}`);
-        }
+  async function persistForm(): Promise<string | null> {
+    // Une seule chose restait à faire : renvoyer l'image. Ne pas réécrire la
+    // fiche évite d'en créer une deuxième au deuxième essai.
+    if (coverPendingFor) return coverPendingFor;
+
+    if (mode === 'edit' && entry && entry.source === 'community') {
+      const res = await fetch(`/api/metadata/${entry.id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error || `HTTP ${res.status}`);
       }
-      try {
-        await uploadCover(entry.id);
-      } catch (err) {
-        // Comme à la création : la fiche est enregistrée, seule l'image
-        // manque, donc le bouton propose de réessayer l'image seule plutôt
-        // que de renvoyer le formulaire.
-        coverPendingFor = entry.id;
-        error = `${t($language, 'identifyCoverFailed')} ${err instanceof Error ? err.message : ''}`;
-        return;
-      }
-      dispatch('identified', entry.id);
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-      logger.error('Could not correct the entry', err);
-    } finally {
-      busy = false;
+      return entry.id;
     }
+
+    return await identify({ entry: form });
   }
 
-  async function createEntry() {
+  async function submitForm() {
     busy = true;
     error = '';
     try {
-      const metadataId = coverPendingFor ?? (await identify({ entry: form }));
+      const metadataId = await persistForm();
       if (!metadataId) return;
       try {
         await uploadCover(metadataId);
       } catch (err) {
-        // The entry exists and is linked; only the picture is missing, so the
-        // button becomes "try the image again" rather than re-posting the entry.
+        // La fiche existe et la copie pointe dessus ; seule l'image manque,
+        // donc le bouton devient « réessayer l'image » plutôt que de renvoyer
+        // le formulaire.
         coverPendingFor = metadataId;
         error = `${t($language, 'identifyCoverFailed')} ${err instanceof Error ? err.message : ''}`;
         return;
@@ -275,7 +275,7 @@
       dispatch('identified', metadataId);
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
-      logger.error('Could not create the entry', err);
+      logger.error('Could not write the entry', err);
     } finally {
       busy = false;
     }
@@ -361,7 +361,20 @@
       </div>
     {:else}
       <h2>{t($language, mode === 'edit' ? 'identifyEditTitle' : 'identifyCreateTitle')}</h2>
-      <p class="explain">{t($language, mode === 'edit' ? 'identifyEditExplain' : 'identifyCreateExplain')}</p>
+      <!--
+        Trois phrases pour trois effets. Corriger une fiche livrée en écrit une
+        copie plutôt que de la modifier, et le dire ici est la seule façon que
+        le joueur ait de le savoir avant de valider.
+      -->
+      <p class="explain">
+        {#if copying}
+          {t($language, 'identifyCopyExplain')}
+        {:else if mode === 'edit'}
+          {t($language, 'identifyEditExplain')}
+        {:else}
+          {t($language, 'identifyCreateExplain')}
+        {/if}
+      </p>
 
       {#if error}
         <p class="error">{error}</p>
@@ -420,7 +433,7 @@
         <button class="secondary" on:click={() => (mode = 'search')} disabled={busy}>
           {t($language, 'identifyBackToSearch')}
         </button>
-        <button class="primary" on:click={mode === 'edit' ? saveEntry : createEntry} disabled={busy}>
+        <button class="primary" on:click={submitForm} disabled={busy}>
           {busy
             ? t($language, 'loading')
             : coverPendingFor
@@ -486,6 +499,11 @@
     border-radius: 6px;
     padding: 0.45rem 0.6rem;
     color: #eee;
+    /* `font-family` en plus de la taille : un textarea hérite du monospace du
+       navigateur, pas de la page, donc la description s'affichait en chasse
+       fixe au milieu de sept champs qui ne l'étaient pas. Visible seulement
+       une fois le formulaire ouvert prérempli. */
+    font-family: inherit;
     font-size: 0.9rem;
     width: 100%;
   }
