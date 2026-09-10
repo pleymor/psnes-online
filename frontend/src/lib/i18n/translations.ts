@@ -123,6 +123,7 @@ export const translations = {
     scanningFolder: 'Reading the folder…',
     romsNoneAdded: 'None of the games could be added.',
     noRomsFound: 'No SNES ROM in that folder.',
+    metadataFilled: '{count} entries filled in',
     gamesAdded: 'games added',
     gamesRemoved: 'games no longer in the folder',
     refreshLibrary: 'Rescan the folder',
@@ -169,12 +170,8 @@ export const translations = {
     noneOnThisDevice: 'None of your {count} games are on this device',
     noneOnThisDeviceHint:
       'Your account still holds them. Point this device at your ROM folder, or add a file, and they come back.',
-    updateMetadata: 'Update Metadata',
-    updating: 'Updating...',
-    metadataUpdated: 'Metadata updated! {updated} game(s) matched, {skipped} skipped.',
     failedToRefreshMetadata: 'Failed to refresh metadata',
     errorRefreshingMetadata: 'Error refreshing metadata',
-    metadataUpdateFailed: 'Could not update the metadata.',
 
     // Delete game
     deleteGame: 'Delete Game?',
@@ -696,6 +693,7 @@ export const translations = {
     scanningFolder: 'Lecture du dossier…',
     romsNoneAdded: 'Aucun jeu n\'a pu être ajouté.',
     noRomsFound: 'Aucune ROM SNES dans ce dossier.',
+    metadataFilled: '{count} fiches complétées',
     gamesAdded: 'jeux ajoutés',
     gamesRemoved: 'jeux plus présents dans le dossier',
     refreshLibrary: 'Rescanner le dossier',
@@ -742,12 +740,8 @@ export const translations = {
     noneOnThisDevice: 'Aucun de vos {count} jeux n\'est sur cet appareil',
     noneOnThisDeviceHint:
       'Votre compte les garde. Désignez le dossier de vos ROMs, ou ajoutez un fichier, et ils réapparaissent.',
-    updateMetadata: 'Mettre à jour les métadonnées',
-    updating: 'Mise à jour...',
-    metadataUpdated: 'Métadonnées mises à jour ! {updated} jeu(x) trouvé(s), {skipped} ignoré(s).',
     failedToRefreshMetadata: 'Échec de la mise à jour des métadonnées',
     errorRefreshingMetadata: 'Erreur lors de la mise à jour des métadonnées',
-    metadataUpdateFailed: 'Impossible de mettre à jour les métadonnées.',
 
     // Delete game
     deleteGame: 'Supprimer le jeu ?',
