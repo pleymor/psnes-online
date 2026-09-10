@@ -45,29 +45,21 @@
        bibliothèque l'a rendu visible. */
     width: 100%;
     max-width: 60rem;
-    margin: 0;
-    padding: 0 0 3rem;
+    margin: 2.5rem 0 3rem;
+    padding: 1.25rem 1.25rem 1.5rem;
+    background: var(--panel);
+    border: 3px solid var(--edge);
+    border-radius: 9px;
   }
 
-  /* Le filet, en dégradé qui s'éteint aux deux bouts plutôt qu'en trait net.
-     Un trait franc de 60rem sous une colonne centrée de 600px fait se
-     rencontrer deux largeurs sans rapport ; en s'effaçant, il sépare sans
-     annoncer une largeur. Un ::before plutôt qu'un border-top pour la même
-     raison qu'il porte sa marge : il vit dans le flux, donc l'espace
-     au-dessus et en dessous se règle ici, en un seul endroit. */
-  .site-footer::before {
-    content: '';
-    display: block;
-    height: 1px;
-    margin: 0 0 1.75rem;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      var(--edge) 15%,
-      var(--edge) 85%,
-      transparent
-    );
-  }
+  /* Le filet dégradé a disparu avec ce qu'il séparait. Il existait parce
+     que le pied de page n'avait pas de bord à lui et flottait sur le même
+     noir que la page ; maintenant qu'il est une plaque cernée d'or, se
+     dessiner un second trait à l'intérieur serait redire la même chose.
+     La plaque plutôt qu'un bandeau pleine largeur : le pied de page vit à
+     l'intérieur du `<main>` sur la bibliothèque et à la racine sur la page
+     de connexion, donc un bandeau demanderait des marges négatives qui
+     déborderaient sur la seconde. */
 
   .bar {
     display: flex;
@@ -84,7 +76,7 @@
     font-family: 'Silkscreen', monospace;
     font-size: 0.72rem;
     letter-spacing: 0.04em;
-    color: var(--ridge);
+    color: var(--shell);
   }
 
   nav {
@@ -96,20 +88,20 @@
   /* La pastille du sommaire de `/docs`, à l'identique. C'était un lien bleu
      souligné au survol, la seule occurrence de ce style sur le site. */
   a {
-    padding: 0.35rem 0.8rem;
-    border: 1px solid var(--edge);
-    /* La pilule appartenait à l'ancien langage. */
-    border-radius: 0;
+    padding: 0.3rem 0.8rem;
+    border: 2px solid var(--edge);
+    border-radius: 6px;
     color: var(--shell);
     text-decoration: none;
-    font-size: 0.8rem;
-    transition: border-color 0.15s, color 0.15s;
+    font-family: var(--display);
+    font-size: 0.85rem;
+    transition: background 0.15s, color 0.15s;
   }
 
   a:hover,
   a:focus-visible {
-    border-color: var(--brand-lift);
-    color: var(--label);
+    background: var(--edge);
+    color: var(--panel);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -126,8 +118,8 @@
        rétrogradé par sa place et son cadre, jamais en le rendant plus pâle
        ou plus petit. */
     padding-left: 0.9rem;
-    border-left: 2px solid var(--brand);
-    color: var(--muted);
+    border-left: 2px solid var(--edge);
+    color: var(--ridge);
     font-size: 0.85rem;
     line-height: 1.6;
     max-width: 46rem;
@@ -135,7 +127,7 @@
 
   @media (max-width: 40rem) {
     .site-footer {
-      padding: 0 1rem 2.5rem;
+      padding: 1rem 1rem 1.25rem;
     }
 
     .bar {

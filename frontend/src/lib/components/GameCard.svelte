@@ -132,14 +132,20 @@
    * étiquette violette. J'avais d'abord inventé un lavande, alors que
    * l'application avait déjà sa couleur de marque.
    */
+  /* La boîte à message de Super Mario World : fond crème, bord d'encre
+     épais, et une ombre portée DURE d'un seul décalage - pas un halo flou.
+     C'est la différence entre un objet posé sur un décor et une carte de
+     tableau de bord ; le flou gris était précisément le kit générique. */
   .game-card {
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    background: none;
-    border: none;
-    padding: 0;
+    gap: 0.35rem;
+    background: var(--shell);
+    border: 3px solid var(--ink);
+    border-radius: 8px;
+    padding: 5px;
+    box-shadow: 0 3px 0 rgba(0, 0, 0, 0.22);
     cursor: pointer;
     /* Le focus clavier doit se voir : la carte entière est un contrôle. */
     outline-offset: 3px;
@@ -161,8 +167,11 @@
        comprises. Un 3/4 portrait laissait deux bandes vides énormes ; 10/7
        (1,428) tombe entre les deux mesures et le cadre disparaît. */
     aspect-ratio: 10 / 7;
+    /* Le fond reste sombre derrière une jaquette en `contain` : deux bandes
+       crème autour d'un scan sombre feraient flotter l'image. */
     background: var(--ground);
-    border: 1px solid var(--edge);
+    border: 2px solid var(--ink);
+    border-radius: 4px;
     overflow: hidden;
   }
 
@@ -279,18 +288,24 @@
 
   /* Silkscreen en petit titre seulement. En paragraphe elle serait
      illisible, et le corps de texte reste en sans système. */
+  /* Ni Silkscreen ni Pixelify : le sans système, et c'est mesuré.
+     Silkscreen à 0,68 rem donnait des titres à deviner. Pixelify, essayée
+     ensuite, ferme tellement son C à 13 px qu'une capture montrait
+     « Ohrono Trigger » et « Donkey Kong Oountry » - un titre de jeu est la
+     seule chose de cette page qu'il faut lire sans effort, et c'est aussi
+     le texte le plus répété à l'écran. Les deux polices pixel restent sur
+     le décor, qui porte des mots courts et connus d'avance. */
   .info h2 {
     margin: 0;
-    font-family: 'Silkscreen', monospace;
-    font-size: 0.68rem;
-    font-weight: 400;
-    line-height: 1.55;
-    color: var(--shell);
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--ink);
   }
 
   .saves {
     margin: 0;
-    font-size: 0.72rem;
-    color: var(--muted);
+    font-size: 0.76rem;
+    color: var(--ink-2);
   }
 </style>
