@@ -80,21 +80,37 @@
   const share = sharing();
 
   function onShareOffered(offer: { roomId: string; crc32: string; title: string; from: string }) {
-    if (!offer || offer.roomId !== get(myRoom)?.id) return;
-    void share.offerReceived({ crc32: offer.crc32, title: offer.title, from: offer.from });
+    if (!offer?.roomId || !offer.crc32) return;
+    /*
+     * Plus de recoupement avec `myRoom`.
+     *
+     * Il y en avait un, et c'était une façon de perdre le message sans rien
+     * gagner : le serveur valide l'appartenance au salon avant de relayer
+     * l'offre, et `my-room.ts` ignore délibérément `room:updated`, donc le
+     * store local peut être en retard sur ce que le serveur sait déjà. Le
+     * 2026-09-10, « l'ami ne voit jamais de message » a été indécidable
+     * précisément parce que ce rejet ne disait rien.
+     *
+     * Journalisé à l'arrivée : les journaux du client remontent au backend,
+     * donc la prochaine offre dira elle-même si elle est arrivée jusqu'ici.
+     */
+    logger.info('a friend offered a game', { crc32: offer.crc32, room: offer.roomId });
+    void share.offerReceived(offer);
   }
 
   function onShareRequested(data: { roomId: string; from: string; crc32?: string }) {
     // Sans `crc32` c'est une demande de partie, et une salle s'en occupe déjà.
-    if (!data?.crc32 || data.roomId !== get(myRoom)?.id) return;
+    if (!data?.crc32) return;
     // Et seulement hors salon : dans une partie, `LockstepRoom` répond, avec
     // ses octets déjà chargés et son garde contre les doubles envois.
     if (get(inGame)) return;
     void share.requested(data.from, data.crc32);
   }
 
-  function onShareDeclined(data: { roomId: string }) {
-    if (data?.roomId !== get(myRoom)?.id) return;
+  function onShareDeclined(data: { roomId: string; reason?: string }) {
+    // Le relais ne l'envoie qu'à un membre du salon concerné ; le recouper
+    // ici ne pourrait que le perdre.
+    logger.info('the offer came back', { reason: data?.reason ?? 'declined' });
     share.declined();
   }
 

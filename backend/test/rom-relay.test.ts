@@ -43,7 +43,11 @@ function room(over: Partial<Room> = {}): Room {
  * are the real ones, and what is recorded is what a real socket would have
  * been told to send.
  */
-function relay(rooms: Map<string, Room>) {
+function relay(
+  rooms: Map<string, Room>,
+  /** Qui est joignable. Par défaut tout le monde ; un onglet fermé n'a plus de socket. */
+  getUserSocket: (id: string) => string | undefined = (id) => `socket:${id}`
+) {
   const handlers = new Map<string, (payload: never) => void>();
   const delivered: Array<{ to: string; event: string; payload: unknown }> = [];
 
@@ -61,7 +65,7 @@ function relay(rooms: Map<string, Room>) {
       })
     } as unknown as Server;
 
-    registerRomTransferHandlers(socket, user, io, rooms, (id: string) => `socket:${id}`);
+    registerRomTransferHandlers(socket, user, io, rooms, getUserSocket);
     for (const [event, handler] of mine) handlers.set(`${user.id}:${event}`, handler);
   };
 
@@ -316,4 +320,22 @@ test('un refus ne s adresse qu a un membre du salon', () => {
   wire.send(GUEST, 'rom:offer-declined', { roomId: 'room-1', to: 'outsider' });
 
   assert.equal(wire.delivered.length, 0);
+});
+
+test('une offre que personne ne peut recevoir le dit a celui qui l a faite', () => {
+  // Le seul membre joignable est l offrant : l autre a ferme son onglet, ou
+  // n a jamais eu de socket. Sans reponse, son bouton attend pour toujours -
+  // et le journal disait « offered a game » comme si tout allait bien, parce
+  // qu il etait ecrit AVANT de savoir si quelqu un avait ete atteint.
+  const rooms = new Map([['room-1', room()]]);
+  const wire = relay(rooms, (id) => (id === HOST ? `socket:${HOST}` : undefined));
+  wire.connect(asUser(HOST));
+
+  wire.send(HOST, 'rom:offer', { roomId: 'room-1', crc32: 'DEADBEEF', title: 'X' });
+
+  const answers = wire.delivered.filter(d => d.event === 'rom:offer-declined');
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0].to, `socket:${HOST}`);
+  assert.equal((answers[0].payload as { reason: string }).reason, 'unreachable');
+  assert.equal(wire.delivered.some(d => d.event === 'rom:offer'), false);
 });
