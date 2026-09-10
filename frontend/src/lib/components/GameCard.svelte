@@ -143,9 +143,9 @@
     gap: 0.35rem;
     background: var(--shell);
     border: 3px solid var(--ink);
-    border-radius: 8px;
-    padding: 5px;
-    box-shadow: 0 3px 0 rgba(0, 0, 0, 0.22);
+    border-radius: 10px;
+    padding: 8px;
+    box-shadow: 0 4px 0 rgba(0, 0, 0, 0.22);
     cursor: pointer;
     /* Le focus clavier doit se voir : la carte entière est un contrôle. */
     outline-offset: 3px;
@@ -197,7 +197,7 @@
 
   .label-only span {
     font-family: 'Silkscreen', monospace;
-    font-size: 0.72rem;
+    font-size: 0.95rem;
     line-height: 1.7;
     color: var(--ridge);
     text-align: center;
@@ -207,9 +207,9 @@
     position: absolute;
     top: 0;
     left: 0;
-    padding: 0.2rem 0.45rem;
+    padding: 0.25rem 0.55rem;
     font-family: 'Silkscreen', monospace;
-    font-size: 0.6rem;
+    font-size: 0.7rem;
     background: var(--ground);
     border: 1px solid var(--edge);
     color: var(--label);
@@ -227,12 +227,12 @@
 
   .details {
     position: absolute;
-    top: 0.35rem;
-    right: 0.35rem;
+    top: 0.45rem;
+    right: 0.45rem;
     display: grid;
     place-items: center;
-    width: 1.75rem;
-    height: 1.75rem;
+    width: 2.15rem;
+    height: 2.15rem;
     padding: 0;
     background: rgba(19, 19, 25, 0.85);
     border: 1px solid var(--edge);
@@ -269,7 +269,7 @@
 
   .play-hint span {
     font-family: 'Silkscreen', monospace;
-    font-size: 0.62rem;
+    font-size: 0.75rem;
     color: var(--label);
   }
 
@@ -297,15 +297,15 @@
      le décor, qui porte des mots courts et connus d'avance. */
   .info h2 {
     margin: 0;
-    font-size: 0.82rem;
+    font-size: 1.05rem;
     font-weight: 600;
-    line-height: 1.35;
+    line-height: 1.3;
     color: var(--ink);
   }
 
   .saves {
     margin: 0;
-    font-size: 0.76rem;
+    font-size: 0.85rem;
     color: var(--ink-2);
   }
 </style>

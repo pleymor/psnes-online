@@ -1042,12 +1042,13 @@
 
   .games-grid {
     display: grid;
-    /* Fixed 280px tracks, so auto-fill leaves a remainder at almost every
-       window width. `start` pushed all of it to the right, which read as the
-       whole library being pinned to the left edge; `center` splits it. The
-       cards keep their size - only the block of tracks moves. */
-    grid-template-columns: repeat(auto-fill, 215px);
-    gap: 1.5rem;
+    /* Pistes fixes, donc auto-fill laisse un reste à presque toutes les
+       largeurs de fenêtre. `start` poussait tout ce reste à droite, ce qui
+       se lisait comme une bibliothèque collée au bord gauche ; `center` le
+       partage. Les cartes gardent leur taille - seul le bloc de pistes
+       bouge. */
+    grid-template-columns: repeat(auto-fill, 376px);
+    gap: 1.75rem;
     justify-content: center;
   }
 
