@@ -23,6 +23,10 @@ import { writable, type Readable } from 'svelte/store';
 
 import { keepReceived } from './provider.js';
 import { keptFilesAvailable } from './kept-files.js';
+import { registerGame } from './local-library.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('KeepOffer');
 
 export interface KeepOfferDeps {
 	/**
@@ -33,13 +37,30 @@ export interface KeepOfferDeps {
 	keep?: (bytes: Uint8Array) => Promise<string>;
 	/** Si ce navigateur sait garder quoi que ce soit. */
 	available?: () => boolean;
+	/**
+	 * Inscrire le jeu dans la bibliothèque du joueur.
+	 *
+	 * Garder n'écrivait que les octets, et c'était une demi-promesse : le
+	 * fichier était sur l'appareil et le joueur n'avait aucune carte à
+	 * cliquer, donc aucun moyen de lancer seul le jeu qu'il venait
+	 * d'accepter. Signalé le 2026-09-10. `POST /api/games` est idempotent sur
+	 * le checksum - il rend la ligne existante plutôt que d'en créer une
+	 * seconde - donc accepter deux fois ne coûte rien.
+	 */
+	register?: (checksum: string, title: string) => Promise<void>;
 }
 
 export interface KeepOffer {
 	/** Le checksum sur lequel la question porte, ou null s'il n'y a rien à demander. */
 	asked: Readable<string | null>;
-	/** Des octets viennent d'arriver de l'hôte. */
-	received(checksum: string, bytes: Uint8Array): void;
+	/**
+	 * Des octets viennent d'arriver de l'hôte.
+	 *
+	 * `title` vient du salon : un jeu reçu n'a pas de nom de fichier, et c'est
+	 * la seule chose qui puisse nommer sa carte tant que le CRC32 n'a rien
+	 * trouvé dans le catalogue.
+	 */
+	received(checksum: string, bytes: Uint8Array, title?: string): void;
 	accept(): Promise<void>;
 	decline(): void;
 }
@@ -47,21 +68,32 @@ export interface KeepOffer {
 export function createKeepOffer(deps: KeepOfferDeps = {}): KeepOffer {
 	const keep = deps.keep ?? keepReceived;
 	const available = deps.available ?? keptFilesAvailable;
+	/*
+	 * `registerGame` veut un nom de fichier, et un jeu reçu n'en a pas : les
+	 * octets sont arrivés par la socket. Le titre du salon en tient lieu, ce
+	 * qui donne une carte lisible même si le CRC32 ne trouve rien dans le
+	 * catalogue - et quand il trouve, c'est le catalogue qui nomme la carte de
+	 * toute façon.
+	 */
+	const register =
+		deps.register ??
+		((checksum: string, title: string) =>
+			registerGame(checksum, `${title || checksum}.sfc`));
 
 	const asked = writable<string | null>(null);
 	/** Les checksums pour lesquels le joueur a déjà tranché, dans un sens ou l'autre. */
 	const answered = new Set<string>();
-	let pending: { checksum: string; bytes: Uint8Array } | null = null;
+	let pending: { checksum: string; bytes: Uint8Array; title: string } | null = null;
 
 	return {
 		asked: { subscribe: asked.subscribe },
 
-		received(checksum, bytes) {
+		received(checksum, bytes, title = '') {
 			// Un navigateur sans magasin ne doit pas promettre de garder, et une
 			// reconnexion retransfère la ROM : reposer la question à chaque fois
 			// serait du harcèlement pour un refus déjà exprimé.
 			if (!available() || answered.has(checksum)) return;
-			pending = { checksum, bytes };
+			pending = { checksum, bytes, title };
 			asked.set(checksum);
 		},
 
@@ -76,6 +108,18 @@ export function createKeepOffer(deps: KeepOfferDeps = {}): KeepOffer {
 			answered.add(offer.checksum);
 			asked.set(null);
 			await keep(offer.bytes);
+
+			// Les octets d'abord, la ligne ensuite : une bibliothèque qui
+			// annonce un jeu dont le fichier n'est pas là serait pire que
+			// l'inverse. Et l'échec est avalé comme celui de `keepQuietly`,
+			// pour la même raison - la question est déjà refermée, donc rien
+			// à l'écran ne pourrait le rapporter, et une promesse rejetée
+			// ici remonterait en unhandled rejection dans une page qui joue.
+			try {
+				await register(offer.checksum, offer.title);
+			} catch (err) {
+				logger.warn('Kept the ROM but could not add it to the library', err);
+			}
 		},
 
 		decline() {

@@ -1049,7 +1049,7 @@
       // `remember` fait tourner la partie ; les octets meurent avec l'onglet
       // tant que l'invité n'a pas répondu à la question que voici.
       remember(rom);
-      keepOffer.received(gameCrc32, rom);
+      keepOffer.received(gameCrc32, rom, gameTitle);
       logger.info(`Received the ROM from the other player (${rom.byteLength} bytes)`, { crc32: gameCrc32 });
       return rom;
     } catch (err) {
