@@ -19,7 +19,12 @@ import { myRoom } from '$lib/rooms/my-room';
 import { games, loadGames } from '$lib/stores/games';
 import { createSharing, type Sharing } from '$lib/roms/sharing';
 import { resolveQuietly, keepReceived } from '$lib/roms/provider';
-import { registerGame } from '$lib/roms/local-library';
+import {
+  registerGame,
+  supportsDirectoryPicker,
+  storedDirectory,
+  ensureWriteAccess
+} from '$lib/roms/local-library';
 import { romFileName } from '$lib/roms/rom-file';
 import { receiveRom, sendRom } from '$lib/roms/transfer';
 import { createLogger } from '$lib/utils/logger';
@@ -67,6 +72,28 @@ export function sharing(): Sharing {
      * « ce jeu est-il à moi » se lit dedans sans requête.
      */
     inLibrary: async (crc32) => get(games).some((g) => g.crc32 === crc32),
+
+    /*
+     * Le clic sur « Le recevoir » est le seul moment où cette invite peut
+     * aboutir - `requestPermission` veut une activation transitoire - et le
+     * seul où elle ne dérange personne, puisque aucune partie ne tourne.
+     * Silencieuse si le dossier est déjà en écriture, et sans objet s'il n'y
+     * a pas de dossier : on n'ouvre pas de sélecteur ici, seulement la
+     * permission sur ce que le joueur a déjà confié.
+     */
+    async grantFolderWrite() {
+      try {
+        if (!supportsDirectoryPicker()) return;
+        const handle = await storedDirectory();
+        if (!handle) return;
+        const granted = await ensureWriteAccess(handle);
+        logger.info('write access to the ROM folder', { granted });
+      } catch (err) {
+        // Un refus n'empêche pas de recevoir le jeu : les octets vont dans le
+        // magasin du navigateur comme avant.
+        logger.warn('could not ask for write access to the ROM folder', err);
+      }
+    },
 
     receive(crc32, roomId) {
       const sock = get(socket);

@@ -29,14 +29,22 @@ function harness(over: Partial<Parameters<typeof createSharing>[0]> = {}) {
 	const sent: Array<{ to: string; bytes: Uint8Array }> = [];
 
 	const asked: string[] = [];
+	const order: string[] = [];
 	const deps = {
 		inLibrary: async () => false,
+		grantFolderWrite: async () => {
+			order.push('grant');
+		},
 		emit: (event: string, payload: unknown) => {
 			emitted.push({ event, payload });
 			return true;
 		},
-		resolve: async () => null,
+		resolve: async () => {
+			order.push('resolve');
+			return null;
+		},
 		receive: async (crc32: string, roomId: string) => {
+			order.push('receive');
 			asked.push(`${roomId}:${crc32}`);
 			return ROM;
 		},
@@ -49,7 +57,7 @@ function harness(over: Partial<Parameters<typeof createSharing>[0]> = {}) {
 		...over
 	};
 
-	return { sharing: createSharing(deps), emitted, kept, sent, asked };
+	return { sharing: createSharing(deps), emitted, kept, sent, asked, order };
 }
 
 test('rien n est propose tant qu aucune offre n arrive', () => {
@@ -269,4 +277,31 @@ test('offrir a nouveau efface la reponse precedente', () => {
 
 	// Sinon « il a deja ce jeu » resterait affiche sous un bouton qui attend.
 	assert.equal(get(sharing.answer), null);
+});
+
+test('accepter demande l acces en ecriture avant tout le reste', async () => {
+	const { sharing, order } = harness();
+	await sharing.offerReceived(OFFER);
+	order.length = 0;
+
+	await sharing.accept();
+
+	/*
+	 * `requestPermission` exige une activation transitoire, et chaque `await`
+	 * la consomme : demandee apres le transfert - plusieurs secondes - elle
+	 * serait rejetee. Le clic sur « Le recevoir » est le seul moment ou elle
+	 * peut aboutir, et c est aussi le bon moment humainement : personne ne
+	 * joue, contrairement a la question posee a cote d une partie.
+	 */
+	assert.equal(order[0], 'grant', `ordre obtenu : ${order.join(' -> ')}`);
+});
+
+test('un refus n a rien a demander au dossier', async () => {
+	const { sharing, order } = harness();
+	await sharing.offerReceived(OFFER);
+	order.length = 0;
+
+	sharing.decline();
+
+	assert.deepEqual(order, []);
 });
