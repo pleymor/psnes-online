@@ -21,7 +21,7 @@ import { createSharing } from '../../frontend/src/lib/roms/sharing.js';
 
 const ROM = new Uint8Array([1, 2, 3]);
 const CRC = 'AAAA1111';
-const OFFER = { crc32: CRC, title: 'Umihara Kawase', from: 'friend-1' };
+const OFFER = { roomId: 'room-1', crc32: CRC, title: 'Umihara Kawase', from: 'friend-1' };
 
 function harness(over: Partial<Parameters<typeof createSharing>[0]> = {}) {
 	const emitted: Array<{ event: string; payload: unknown }> = [];
@@ -30,10 +30,13 @@ function harness(over: Partial<Parameters<typeof createSharing>[0]> = {}) {
 
 	const asked: string[] = [];
 	const deps = {
-		emit: (event: string, payload: unknown) => emitted.push({ event, payload }),
+		emit: (event: string, payload: unknown) => {
+			emitted.push({ event, payload });
+			return true;
+		},
 		resolve: async () => null,
-		receive: async (crc32: string) => {
-			asked.push(crc32);
+		receive: async (crc32: string, roomId: string) => {
+			asked.push(`${roomId}:${crc32}`);
 			return ROM;
 		},
 		keep: async (_bytes: Uint8Array, crc32: string, title: string) => {
@@ -61,17 +64,6 @@ test('une offre recue nomme le jeu et l ami', async () => {
 	assert.deepEqual(get(sharing.offered), OFFER);
 });
 
-test('une offre pour un jeu deja sur cet appareil n est pas posee', async () => {
-	const { sharing, emitted } = harness({ resolve: async () => ROM });
-
-	await sharing.offerReceived(OFFER);
-
-	// Celui qui offre ne sait pas ce que l autre possede. Poser la question
-	// pour un jeu deja la ferait repondre « oui » puis ne rien changer.
-	assert.equal(get(sharing.offered), null);
-	assert.deepEqual(emitted, []);
-});
-
 test('accepter demande le dump nomme, puis le garde et l inscrit', async () => {
 	const { sharing, kept, asked } = harness();
 	await sharing.offerReceived(OFFER);
@@ -82,7 +74,7 @@ test('accepter demande le dump nomme, puis le garde et l inscrit', async () => {
 	// consentement que le relais exige avant de laisser passer le moindre
 	// octet - voir `rom-relay.test.ts`. Ce qui compte ici est qu elle porte le
 	// dump offert, et pas celui que le salon porterait.
-	assert.deepEqual(asked, [CRC]);
+	assert.deepEqual(asked, [`room-1:${CRC}`]);
 	assert.deepEqual(kept, [{ crc32: CRC, title: 'Umihara Kawase' }]);
 	assert.equal(get(sharing.offered), null, 'la question se referme');
 });
@@ -93,7 +85,9 @@ test('refuser previent celui qui a offert, et ne garde rien', async () => {
 
 	sharing.decline();
 
-	assert.deepEqual(emitted, [{ event: 'rom:offer-declined', payload: { to: 'friend-1' } }]);
+	assert.deepEqual(emitted, [
+		{ event: 'rom:offer-declined', payload: { roomId: 'room-1', to: 'friend-1' } }
+	]);
 	assert.deepEqual(kept, []);
 	assert.equal(get(sharing.offered), null);
 });
@@ -156,4 +150,56 @@ test('une demande pour un dump que cet appareil n a pas recoit une reponse, pas 
 	assert.deepEqual(emitted, [
 		{ event: 'rom:unavailable', payload: { to: 'friend-1', reason: 'no-copy' } }
 	]);
+});
+
+test('une offre repond sur le salon qu elle nomme, pas sur celui que le client croit', async () => {
+	const { sharing, emitted } = harness();
+	await sharing.offerReceived({ ...OFFER, roomId: 'room-9' });
+
+	sharing.decline();
+
+	/*
+	 * Le serveur vient de valider l appartenance au salon avant de relayer
+	 * l offre. Repondre sur ce que le store local croit etre « mon salon »
+	 * ajoute une facon de perdre le message et rien d autre : ce store ignore
+	 * deliberement `room:updated`, et il peut donc etre en retard.
+	 */
+	assert.deepEqual(emitted, [
+		{ event: 'rom:offer-declined', payload: { roomId: 'room-9', to: 'friend-1' } }
+	]);
+});
+
+test('un jeu deja sur l appareil est refuse, pas ignore', async () => {
+	const { sharing, emitted } = harness({ resolve: async () => ROM });
+
+	await sharing.offerReceived(OFFER);
+
+	// Se taire laissait l offrant sur « En attente de… » pour toujours, sans
+	// que personne puisse savoir pourquoi.
+	assert.equal(get(sharing.offered), null, 'la question ne se pose pas');
+	assert.deepEqual(emitted, [
+		{
+			event: 'rom:offer-declined',
+			payload: { roomId: 'room-1', to: 'friend-1', reason: 'already-here' }
+		}
+	]);
+});
+
+test('offrir n attend rien si l emission n est pas partie', () => {
+	const { sharing } = harness({ emit: () => false });
+
+	sharing.offer(CRC, 'Umihara Kawase');
+
+	// Hors groupe ou sans socket, l emission est un non-evenement : afficher
+	// « En attente de… » serait annoncer une question que personne n a recue.
+	assert.equal(get(sharing.waiting), null);
+});
+
+test('un refus pour cause d injoignable arrete l attente', () => {
+	const { sharing } = harness();
+	sharing.offer(CRC, 'Umihara Kawase');
+
+	sharing.declined();
+
+	assert.equal(get(sharing.waiting), null);
 });

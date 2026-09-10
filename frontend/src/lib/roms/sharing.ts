@@ -24,6 +24,16 @@
 import { writable, type Readable } from 'svelte/store';
 
 export interface RomOffer {
+	/**
+	 * Le salon sur lequel l'offre est arrivée, et sur lequel on répond.
+	 *
+	 * Porté par l'offre plutôt que relu dans le store local, et c'est le
+	 * correctif du 2026-09-10 : le serveur vient de valider l'appartenance
+	 * avant de relayer, donc recouper avec ce que le client croit être « mon
+	 * salon » n'ajoute qu'une façon de perdre le message - `my-room.ts`
+	 * ignore délibérément `room:updated` et peut être en retard.
+	 */
+	roomId: string;
 	crc32: string;
 	title: string;
 	/** L'ami qui propose, tel que le relais le nomme. */
@@ -31,11 +41,18 @@ export interface RomOffer {
 }
 
 export interface SharingDeps {
-	emit(event: string, payload: unknown): void;
+	/** Rend `false` quand rien n'est parti - pas de salon, pas de socket. */
+	emit(event: string, payload: unknown): boolean;
 	/** Les octets, si cet appareil les a déjà. */
 	resolve(crc32: string): Promise<Uint8Array | null>;
-	/** Attend le transfert, une fois la demande partie. */
-	receive(crc32: string): Promise<Uint8Array>;
+	/**
+	 * Attend le transfert, une fois la demande partie.
+	 *
+	 * Le salon vient de l'offre, comme la réponse : la demande d'acceptation
+	 * est elle aussi portée par le relais, et l'envoyer sur le mauvais salon
+	 * la ferait jeter.
+	 */
+	receive(crc32: string, roomId: string): Promise<Uint8Array>;
 	/** Accepter, c'est avoir le jeu : garder les octets ET inscrire la fiche. */
 	keep(bytes: Uint8Array, crc32: string, title: string): Promise<void>;
 	send(to: string, bytes: Uint8Array): Promise<void>;
@@ -68,8 +85,10 @@ export function createSharing(deps: SharingDeps): Sharing {
 		waiting: { subscribe: waiting.subscribe },
 
 		offer(crc32, title) {
-			waiting.set(crc32);
-			deps.emit('rom:offer', { crc32, title });
+			// L'attente seulement si la question est partie : hors groupe ou
+			// sans socket, afficher « En attente de… » annonce une question
+			// que personne n'a reçue.
+			if (deps.emit('rom:offer', { crc32, title })) waiting.set(crc32);
 		},
 
 		declined() {
@@ -93,8 +112,17 @@ export function createSharing(deps: SharingDeps): Sharing {
 
 		async offerReceived(offer) {
 			// Celui qui offre ne sait pas ce que l'autre possède déjà. Poser la
-			// question pour un jeu qui est là ferait répondre oui pour rien.
-			if (await deps.resolve(offer.crc32)) return;
+			// question pour un jeu qui est là ferait répondre oui pour rien -
+			// mais se taire laissait l'offrant sur « En attente de… » pour
+			// toujours, sans que personne puisse savoir pourquoi.
+			if (await deps.resolve(offer.crc32)) {
+				deps.emit('rom:offer-declined', {
+					roomId: offer.roomId,
+					to: offer.from,
+					reason: 'already-here'
+				});
+				return;
+			}
 			pending = offer;
 			offered.set(offer);
 		},
@@ -109,7 +137,7 @@ export function createSharing(deps: SharingDeps): Sharing {
 			offered.set(null);
 
 			try {
-				const bytes = await deps.receive(offer.crc32);
+				const bytes = await deps.receive(offer.crc32, offer.roomId);
 				await deps.keep(bytes, offer.crc32, offer.title);
 			} catch {
 				// Rien n'est gardé à moitié, et l'ami peut reproposer. Le module
@@ -123,7 +151,7 @@ export function createSharing(deps: SharingDeps): Sharing {
 			if (!offer) return;
 			pending = null;
 			offered.set(null);
-			deps.emit('rom:offer-declined', { to: offer.from });
+			deps.emit('rom:offer-declined', { roomId: offer.roomId, to: offer.from });
 		}
 	};
 }

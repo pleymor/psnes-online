@@ -37,20 +37,32 @@ export function sharing(): Sharing {
 
   instance = createSharing({
     emit(event, payload) {
-      const id = roomId();
-      // Hors groupe il n'y a personne à qui parler, et le relais refuserait
-      // de toute façon : tout passe par l'appartenance au salon.
-      if (!id) return;
-      get(socket)?.emit(event, { roomId: id, ...(payload as object) });
+      /*
+       * Le salon que la charge utile porte l'emporte sur celui du store.
+       *
+       * Une réponse à une offre répond sur le salon de l'offre - le serveur
+       * vient de valider l'appartenance avant de la relayer. Ne consulter
+       * `myRoom` que pour ce qui part d'ici, c'est-à-dire l'offre elle-même.
+       */
+      const carried = (payload as { roomId?: string }).roomId;
+      const id = carried ?? roomId();
+      const sock = get(socket);
+      // Rendre `false` plutôt que se taire : l'appelant décide si une
+      // question qui n'est pas partie doit quand même afficher une attente.
+      if (!id || !sock) {
+        logger.warn('nothing sent: no room or no socket', { event, room: id ?? null });
+        return false;
+      }
+      sock.emit(event, { roomId: id, ...(payload as object) });
+      return true;
     },
 
     resolve: (crc32) => resolveQuietly(crc32, { requestPermission: false }),
 
-    receive(crc32) {
-      const id = roomId();
+    receive(crc32, roomId) {
       const sock = get(socket);
-      if (!id || !sock) return Promise.reject(new Error('no room to receive in'));
-      return receiveRom({ socket: sock as never, roomId: id, expectedCrc32: crc32 });
+      if (!sock) return Promise.reject(new Error('no socket to receive on'));
+      return receiveRom({ socket: sock as never, roomId, expectedCrc32: crc32 });
     },
 
     async keep(bytes, crc32, title) {
@@ -68,7 +80,10 @@ export function sharing(): Sharing {
     async send(to, bytes) {
       const id = roomId();
       const sock = get(socket);
-      if (!id || !sock) return;
+      if (!id || !sock) {
+        logger.warn('asked to send a ROM with no room or no socket');
+        return;
+      }
       await sendRom({
         socket: sock as never,
         roomId: id,

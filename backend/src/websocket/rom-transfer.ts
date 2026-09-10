@@ -164,8 +164,28 @@ export function registerRomTransferHandlers(
 		if (!room) return;
 		if (typeof data.crc32 !== 'string' || !data.crc32) return;
 
-		logger.info({ roomId: room.id, from: user.pseudo, crc32: data.crc32 }, 'A player offered a game');
-		for (const peer of othersInRoom(room, user.id, getUserSocket)) {
+		const others = othersInRoom(room, user.id, getUserSocket);
+
+		/*
+		 * Personne à qui offrir, et il faut le dire.
+		 *
+		 * L'autre joueur a fermé son onglet, ou n'a jamais eu de socket. Sans
+		 * cette réponse le bouton de l'offrant attend indéfiniment - et le
+		 * journal disait « offered a game » comme si tout allait bien, parce
+		 * qu'il était écrit AVANT de savoir si quelqu'un avait été atteint.
+		 * C'est ce silence qui a rendu indécidable, le 2026-09-10, un « l'ami
+		 * ne voit jamais de message ».
+		 */
+		if (others.length === 0) {
+			logger.warn(
+				{ roomId: room.id, from: user.pseudo, crc32: data.crc32 },
+				'A player offered a game but nobody in the room was reachable'
+			);
+			socket.emit('rom:offer-declined', { roomId: room.id, reason: 'unreachable' });
+			return;
+		}
+
+		for (const peer of others) {
 			io.to(peer.socketId).emit('rom:offer', {
 				roomId: room.id,
 				crc32: data.crc32,
@@ -173,6 +193,12 @@ export function registerRomTransferHandlers(
 				from: user.id
 			});
 		}
+		// Après coup, et avec le compte : « transmis à un joueur » et « jeté
+		// dans le vide » ne doivent pas se lire pareil dans le journal.
+		logger.info(
+			{ roomId: room.id, from: user.pseudo, crc32: data.crc32, to: others.length },
+			'A player offered a game'
+		);
 	});
 
 	/** "No thanks", so the offering side stops waiting on an answer. */
