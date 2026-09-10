@@ -95,7 +95,14 @@
      * donc la prochaine offre dira elle-même si elle est arrivée jusqu'ici.
      */
     logger.info('a friend offered a game', { crc32: offer.crc32, room: offer.roomId });
-    void share.offerReceived(offer);
+    // La décision est journalisée, pas devinée. Le 2026-09-10 j'ai conclu
+    // « il a déjà le jeu » d'un refus sans raison, et c'était faux : la
+    // preuve ne distinguait pas ce cas d'un « non merci ». Une ligne ici et
+    // la question ne se repose plus.
+    void share
+      .offerReceived(offer)
+      .then((decision) => logger.info('the offer was', { decision }))
+      .catch((err) => logger.error('the offer could not be handled', err));
   }
 
   function onShareRequested(data: { roomId: string; from: string; crc32?: string }) {
@@ -111,7 +118,7 @@
     // Le relais ne l'envoie qu'à un membre du salon concerné ; le recouper
     // ici ne pourrait que le perdre.
     logger.info('the offer came back', { reason: data?.reason ?? 'declined' });
-    share.declined();
+    share.declined(data?.reason ?? null);
   }
 
   const shareOffered = share.offered;
