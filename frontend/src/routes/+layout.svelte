@@ -247,12 +247,68 @@
 {/if}
 
 <style>
+  /*
+   * La palette de l'application, prise dans sa propre icône.
+   *
+   * `static/icon.svg` dessine une cartouche PAL sur ses vraies proportions,
+   * avec sa coque crème, ses stries et son étiquette violette - une identité
+   * complète, soignée, et qui n'apparaissait nulle part à l'écran. Les pages
+   * inventaient chacune leurs gris et un dégradé violet qui ne correspondait
+   * à rien. Ces valeurs-ci sortent du fichier, à l'hexadécimal près.
+   *
+   * `--brand` ne sert qu'en aplat : sur ce fond il plafonne à 2,5:1, donc
+   * illisible en texte. `--brand-lift` est le même violet éclairci jusqu'à
+   * environ 5,9:1, pour ce qui doit se lire.
+   */
+  :global(:root) {
+    --shell: #dcd8cb;
+    --label: #efece3;
+    --ridge: #b6af9c;
+    --brand: #5647cb;
+    --brand-lift: #8f81f0;
+    --deep: #2b2266;
+    --ground: #131319;
+    --panel: #1c1c22;
+    --edge: #2e2e38;
+    --muted: #8f8fa6;
+  }
+
   :global(body) {
     margin: 0;
     padding: 0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    background: #1a1a1a;
-    color: #ffffff;
+    background: var(--ground);
+    color: var(--label);
+  }
+
+  /*
+   * Le plancher des boutons, et c'est un correctif structurel.
+   *
+   * Trois fois aujourd'hui un bouton s'est affiché en blanc carré du
+   * navigateur parce que son composant n'avait pas de règle pour sa classe -
+   * `.share`, `.export-saves`, les deux du panneau sauvegardes. Un sélecteur
+   * de type (0,0,1) perd contre n'importe quelle classe (0,1,0), donc ceci
+   * ne prend jamais le pas sur un style existant : il ne fait que garantir
+   * qu'aucun bouton ne puisse plus jamais tomber sur le style par défaut.
+   */
+  :global(button) {
+    font: inherit;
+    color: var(--label);
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: 0;
+    padding: 0.4rem 0.8rem;
+    cursor: pointer;
+  }
+
+  :global(button:disabled) {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  :global(button:focus-visible) {
+    outline: 2px solid var(--brand-lift);
+    outline-offset: 2px;
   }
 
   .app {

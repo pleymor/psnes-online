@@ -483,7 +483,29 @@
 {:else}
   <!-- Library page for authenticated users -->
   <div class="app-layout">
-    <TopBar />
+    <TopBar>
+      <!--
+        Dans la barre plutôt que dans l'en-tête : elle est `sticky`, donc la
+        recherche reste atteignable pendant tout le défilement d'une longue
+        bibliothèque. Offerte dès qu'il y a quelque chose à filtrer, et gardée
+        tant qu'une recherche est en cours - la retirer sous le curseur parce
+        qu'elle ne trouve rien enlèverait le moyen de l'effacer.
+      -->
+      <!-- L'enveloppe porte le slot, pas l'input : Svelte exige que
+           `slot="..."` soit sur un enfant direct du composant, donc jamais
+           dans un `{#if}`. `display: contents` la rend transparente. -->
+      <div class="tool-slot" slot="tool">
+        {#if onThisDevice.length > 0 || gameQuery.trim()}
+          <input
+            class="library-search"
+            type="search"
+            bind:value={gameQuery}
+            placeholder={t($language, 'searchLibrary')}
+            aria-label={t($language, 'searchLibrary')}
+          />
+        {/if}
+      </div>
+    </TopBar>
 
     <!-- Main Content -->
     <main class="main-content">
@@ -497,18 +519,6 @@
             <p class="sync-note">{syncNote}</p>
           {/if}
         </div>
-        {#if onThisDevice.length > 0 || gameQuery.trim()}
-          <!-- Offert dès qu'il y a quelque chose à filtrer, et gardé tant
-               qu'une recherche est en cours : le retirer sous le curseur
-               parce qu'elle ne trouve rien enlèverait le moyen de l'effacer. -->
-          <input
-            class="library-search"
-            type="search"
-            bind:value={gameQuery}
-            placeholder={t($language, 'searchLibrary')}
-            aria-label={t($language, 'searchLibrary')}
-          />
-        {/if}
         {#if folderKnown}
           <button
             class="rescan"
@@ -595,11 +605,8 @@
                 playLabel={inGroup && myPartner && !groupBusy
                   ? t($language, 'playWith', { name: myPartner.pseudo })
                   : t($language, 'play')}
-                roomDisabled={groupBusy || roomIntent($myRoom).kind === 'blocked'}
                 on:play={() => playGame(game)}
-                on:room={() => openRoomFor(game)}
                 on:details={() => selectedGame = game}
-                on:delete={() => handleDeleteRequest(game)}
               />
             {/each}
           </div>
@@ -624,6 +631,9 @@
     <GameDetailsModal
       game={selectedGame}
       partnerName={myPartner?.pseudo ?? ''}
+      roomDisabled={groupBusy || roomIntent($myRoom).kind === 'blocked'}
+      on:room={() => { const g = selectedGame; selectedGame = null; if (g) openRoomFor(g); }}
+      on:delete={() => { const g = selectedGame; selectedGame = null; if (g) handleDeleteRequest(g); }}
       sharePending={$shareWaiting !== null && $shareWaiting === selectedGame.crc32}
       shareAnswer={$shareAnswer && $shareAnswer.crc32 === selectedGame.crc32
         ? $shareAnswer.reason
@@ -884,40 +894,54 @@
      outils de la même barre, et deux styles y liraient comme deux endroits.
      `appearance: none` parce qu'un `type="search"` non bridé porte encore la
      croix et les coins arrondis natifs de WebKit, blancs sur ce fond. */
+  .tool-slot {
+    display: contents;
+  }
+
   .library-search {
     appearance: none;
     -webkit-appearance: none;
-    background: rgba(255, 255, 255, 0.08);
-    color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    padding: 0.375rem 0.75rem;
-    border-radius: 6px;
-    font-size: 0.875rem;
+    background: var(--ground);
+    color: var(--label);
+    border: 1px solid var(--edge);
+    padding: 0.4rem 0.7rem;
+    /* Angles à zéro comme les tuiles : la pilule arrondie venait de l'autre
+       langage. */
+    border-radius: 0;
+    font-size: 0.8rem;
     min-width: 12rem;
     flex-shrink: 1;
   }
 
   .library-search::placeholder {
-    color: rgba(255, 255, 255, 0.45);
+    color: var(--muted);
   }
 
   .library-search:focus {
     outline: none;
-    border-color: rgba(102, 126, 234, 0.8);
+    border-color: var(--brand-lift);
   }
 
+  /* Le même métal que tout le reste, angles à zéro. Il portait son propre
+     gris translucide et son propre rayon, ce qui en faisait un objet de plus
+     dans une page qui en avait déjà trop. */
   .rescan {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    background: rgba(255, 255, 255, 0.08);
-    color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    padding: 0.375rem 0.75rem;
-    border-radius: 6px;
+    background: var(--panel);
+    color: var(--shell);
+    border: 1px solid var(--edge);
+    padding: 0.4rem 0.7rem;
+    border-radius: 0;
     cursor: pointer;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     flex-shrink: 0;
+  }
+
+  .rescan:hover:not(:disabled) {
+    border-color: var(--brand-lift);
+    color: var(--label);
   }
 
   .rescan:hover:not(:disabled) {
@@ -962,17 +986,22 @@
     .rescan-label { display: none; }
   }
 
+  /* Le titre appartient aux tuiles, plus à l'ancien dégradé.
+     Un dégradé violet sur un mot est le tell générique par excellence, et il
+     dépensait le seul accent de la page sur ce qui n'avait pas besoin d'être
+     regardé - les jaquettes, si. Silkscreen le rattache à l'étagère. */
   h1 {
-    font-size: 2.5rem;
-    margin: 0 0 0.5rem 0;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    font-family: 'Silkscreen', monospace;
+    font-size: 1.35rem;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    margin: 0 0 0.35rem 0;
+    color: var(--label);
   }
 
   .subtitle {
-    font-size: 1.125rem;
-    color: #888;
+    font-size: 0.8rem;
+    color: var(--muted);
     margin: 0;
   }
 
@@ -988,7 +1017,7 @@
        window width. `start` pushed all of it to the right, which read as the
        whole library being pinned to the left edge; `center` splits it. The
        cards keep their size - only the block of tracks moves. */
-    grid-template-columns: repeat(auto-fill, 280px);
+    grid-template-columns: repeat(auto-fill, 215px);
     gap: 1.5rem;
     justify-content: center;
   }

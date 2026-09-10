@@ -246,7 +246,25 @@
       The brand still goes home, because it always has and people who know that
       convention keep using it. It is no longer the only thing that does.
     -->
-    <a class="brand" class:redundant={!!back} href="/">🎮 PSNES</a>
+    <!--
+      La vraie marque, et non une manette générique.
+      
+      C'était 🎮 + « PSNES » : un emoji qui n'est pas le logo de
+      l'application, et dont le rendu dépend de la police du système. La
+      La marque de `static/favicon.svg`, et non la cartouche entière de
+      `icon.svg` : ce fichier porte lui-même la règle - « below 48px the
+      shell cannot be both honest and legible » - et une barre fait 26 px.
+      Essayé avec la coque d'abord, illisible, exactement comme annoncé.
+
+      Le mot disparaît avec l'emoji : une marque qui se voit n'a pas besoin
+      d'être aussi épelée à côté.
+    -->
+    <a class="brand" class:redundant={!!back} href="/" aria-label="psnes">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
+        <rect width="32" height="32" rx="5" fill="var(--brand)" />
+        <path d="M10 6H22V18H14V26H10ZM14 10H18V14H14Z" fill="var(--label)" fill-rule="evenodd" />
+      </svg>
+    </a>
 
     {#if back}
       <!--
@@ -259,6 +277,19 @@
         {t($language, back.label)}
       </a>
     {/if}
+  </div>
+
+  <!--
+    Ce que la page en cours veut porter dans la barre.
+    
+    La bibliothèque y met sa recherche : la barre est `sticky`, donc le champ
+    reste atteignable pendant tout le défilement, alors que dans l'en-tête il
+    disparaît dès la deuxième rangée. Un slot plutôt qu'un champ en dur,
+    parce qu'un « chercher dans tes jeux » sur la page de profil ou la
+    documentation serait du décor mort.
+  -->
+  <div class="page-tool">
+    <slot name="tool" />
   </div>
 
   <div class="right">
@@ -318,6 +349,11 @@
 {/if}
 
 <style>
+  .page-tool {
+    /* Ne prend de la place que si la page en met quelque chose. */
+    display: contents;
+  }
+
   .top-bar {
     /* Pinned, so the drawer below can be positioned against the viewport. */
     position: sticky;
@@ -328,7 +364,7 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.5rem 1rem;
-    background: #1a1a1a;
+    background: var(--panel);
     border-bottom: 1px solid #2e2e2e;
   }
 
@@ -340,9 +376,16 @@
   }
 
   .brand {
-    color: #fff;
+    display: inline-flex;
+    align-items: center;
     text-decoration: none;
-    font-weight: 600;
+    /* La cible reste confortable alors que la marque a rétréci. */
+    padding: 0.25rem;
+  }
+
+  .brand:focus-visible {
+    outline: 2px solid var(--brand-lift);
+    outline-offset: 2px;
   }
 
   .right {
@@ -352,12 +395,18 @@
   }
 
   .bar-button {
-    background: #2a2a2a;
-    border: 2px solid transparent;
-    color: #fff;
+    background: var(--ground);
+    border: 1px solid var(--edge);
+    color: var(--shell);
     padding: 0.35rem 0.7rem;
-    border-radius: 6px;
+    /* Angles à zéro : la barre appartient au même langage que les tuiles. */
+    border-radius: 0;
     cursor: pointer;
+  }
+
+  .bar-button:hover {
+    border-color: var(--brand-lift);
+    color: var(--label);
   }
 
   /* Quiet on purpose: it is a caption for the button next to it, not a

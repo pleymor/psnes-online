@@ -121,11 +121,14 @@ try {
 	await host.goto(APP);
 	await host.waitForTimeout(2500);
 
-	// Click the real button. The app's room:created handler only exists inside
+	// Click the real card. The app's room:created handler only exists inside
 	// its own click handler, so emitting room:create on the socket creates a
 	// room that nothing navigates to.
-	await host.waitForSelector('.btn-play', { timeout: 15000 });
-	await host.locator('.btn-play').first().click();
+	//
+	// La carte elle-même, et non un bouton : depuis la reprise visuelle de la
+	// bibliothèque, la jaquette EST le contrôle et cliquer un jeu le lance.
+	await host.waitForSelector('.game-card', { timeout: 15000 });
+	await host.locator('.game-card').first().click();
 	await host.waitForURL(/\/room\//, { timeout: 15000 });
 	const roomId = host.url().split('/room/')[1];
 	log(`room: ${roomId}`);

@@ -13,29 +13,27 @@
 
   const dispatch = createEventDispatcher();
 
-  async function deleteGame(event: Event) {
-    event.stopPropagation();
-    dispatch('delete');
-  }
-
-  function handleCardClick() {
-    dispatch('details');
-  }
-
-  /*
-   * Le pendant de « Jouer » : ouvrir un salon plutôt que lancer la partie, pour
-   * pouvoir en partager le lien et choisir sièges et mode avant de démarrer.
-   * Le clic sur la carte lance toujours en solo, cette carte a donc deux
-   * chemins explicites au lieu d'un clic qui devine.
+  /**
+   * Cliquer un jeu le lance.
+   *
+   * C'était l'inverse : le clic ouvrait la fiche et « Jouer » était un bouton
+   * parmi trois, sur chacune des cartes. Vingt-sept boutons pour neuf jeux,
+   * dont une action destructrice en permanence à l'écran, et la jaquette -
+   * la seule belle chose de la page - réduite à une vignette rognée entre eux.
+   *
+   * Le modèle est maintenant celui d'une étagère : la jaquette est la carte,
+   * et on clique un jeu pour y jouer. Le reste vit dans la fiche, qui s'ouvre
+   * par l'affordance discrète en coin - un bouton visible en permanence, et
+   * non un survol, parce qu'un téléphone ne survole rien.
    */
-  function openRoomClick(event: MouseEvent) {
-    event.stopPropagation();
-    dispatch('room');
+  function handleCardClick() {
+    if (playDisabled) return;
+    dispatch('play');
   }
 
-  function handlePlayClick(event: Event) {
+  function openDetails(event: Event) {
     event.stopPropagation();
-    dispatch('play');
+    dispatch('details');
   }
 
   function handleKeyPress(event: KeyboardEvent) {
@@ -44,25 +42,40 @@
       handleCardClick();
     }
   }
+
+  /**
+   * Une jaquette qui ne charge pas montrait son texte alternatif brut sur du
+   * gris. Le titre en Silkscreen sur une tuile sombre est déjà ce qu'est une
+   * étiquette de cartouche, et ne ressemble pas à une panne.
+   */
+  let coverBroken = false;
+  $: if (game.coverUrl) coverBroken = false;
 </script>
 
+<!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role -->
 <div
   class="game-card"
+  class:unplayable={playDisabled}
   role="button"
   tabindex="0"
+  title={playLabel || t($language, 'play')}
+  aria-label={playLabel || t($language, 'play')}
   on:click={handleCardClick}
   on:keypress={handleKeyPress}
 >
   <div class="cover">
-    {#if game.coverUrl}
-      <img src={game.coverUrl} alt={game.title} />
+    {#if game.coverUrl && !coverBroken}
+      <img src={game.coverUrl} alt="" on:error={() => (coverBroken = true)} />
     {:else}
-      <div class="placeholder">🎮</div>
+      <!-- Le titre EST l'étiquette : c'est ce qu'une cartouche sans jaquette
+           montre, et c'est plus utile qu'une manette générique. -->
+      <div class="label-only"><span>{game.title}</span></div>
     {/if}
+
     {#if !game.crc32}
       <!-- Added back when ROMs were stored online, so nothing here can find
            the file yet. Says so on the card rather than only at launch. -->
-      <div class="needs-rom" title={t($language, 'linkRomExplain')}>
+      <div class="badge needs-rom" title={t($language, 'linkRomExplain')}>
         {t($language, 'needsRom')}
       </div>
     {/if}
@@ -70,270 +83,214 @@
       <!-- Only when a checksum exists: without one there is nothing to
            identify yet, and "ROM to locate" is the truer thing to say. The two
            badges sit on opposite corners because a card can carry both. -->
-      <div class="needs-identification" title={t($language, 'identifyExplain')}>
+      <div class="badge needs-identification" title={t($language, 'identifyExplain')}>
         {t($language, 'needsIdentification')}
       </div>
     {/if}
-    <div class="hover-overlay">
-      <div class="info-icon">ℹ️</div>
-      <div class="info-text">{t($language, 'clickForDetails')}</div>
-    </div>
+
+    <!-- Visible en permanence et non au survol : un téléphone ne survole
+         rien, et c'est le seul chemin vers le salon et la suppression. -->
+    <button
+      class="details"
+      on:click={openDetails}
+      aria-label={t($language, 'clickForDetails')}
+      title={t($language, 'clickForDetails')}
+    >
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
+           stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.2" />
+        <path d="M8 7.2v4M8 4.9v.1" />
+      </svg>
+    </button>
+
+    <div class="play-hint"><span>{playLabel || t($language, 'play')}</span></div>
   </div>
 
   <div class="info">
     <h2>{game.title}</h2>
-    {#if game.genre}
-      <p class="genre">{game.genre}</p>
+    <!-- Le compte seulement s'il y en a. « 0 sauvegardes » neuf fois de suite
+         n'apprenait rien et occupait une ligne sur chaque carte. -->
+    {#if (game.saves?.length ?? 0) > 0}
+      <p class="saves">{t($language, 'saveStatesCount', { count: game.saves.length })}</p>
     {/if}
-    <p class="saves">{t($language, 'saveStatesCount', { count: game.saves?.length || 0 })}</p>
-  </div>
-
-  <div class="actions">
-    <button on:click={handlePlayClick} class="btn-play" disabled={playDisabled}>
-      {playLabel || t($language, 'play')}
-    </button>
-    <button
-      on:click={openRoomClick}
-      class="btn-room"
-      disabled={roomDisabled}
-      title={t($language, 'roomButtonHint')}
-    >
-      {t($language, 'roomButton')}
-    </button>
-    <!-- Une icône, plus un libellé : trois boutons de texte alignés
-         écrasaient la carte. Le nom accessible passe donc par aria-label,
-         sans quoi remplacer le mot par un glyphe l'aurait fait disparaître
-         pour un lecteur d'écran. Le title le rend aussi au survol. -->
-    <button
-      on:click={deleteGame}
-      class="btn-delete"
-      aria-label={t($language, 'delete')}
-      title={t($language, 'delete')}
-    >
-      <!-- SVG et non emoji : le glyphe dépendrait de la police du système, et
-           un contrôle fonctionnel ne doit pas pouvoir s'afficher en carré
-           vide. `currentColor` le fait suivre l'état de survol. -->
-      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"
-           stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
-        <path d="M2.5 4.5h11M6.5 4.5V3a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 .5.5v1.5" />
-        <path d="M4 4.5l.7 8.2a.8.8 0 0 0 .8.8h5a.8.8 0 0 0 .8-.8l.7-8.2" />
-        <path d="M6.8 7v4M9.2 7v4" />
-      </svg>
-    </button>
   </div>
 </div>
 
 <style>
-  .needs-identification {
-    position: absolute;
-    top: 0.5rem;
-    right: 0.5rem;
-    z-index: 2;
-    padding: 0.2rem 0.5rem;
-    border-radius: 999px;
-    background: rgba(102, 126, 234, 0.92);
-    color: #fff;
-    font-size: 0.68rem;
-    font-weight: 600;
-  }
-
-  .needs-rom {
-    position: absolute;
-    top: 0.5rem;
-    left: 0.5rem;
-    z-index: 2;
-    padding: 0.2rem 0.5rem;
-    border-radius: 999px;
-    background: rgba(234, 179, 8, 0.9);
-    color: #201a00;
-    font-size: 0.68rem;
-    font-weight: 600;
-  }
-
+  /*
+   * L'étagère de cartouches, pas le tableau de bord.
+   *
+   * La jaquette est la carte : format portrait réel, jamais rognée - la
+   * grille précédente en imposait un cadrage paysage, et « SUPER NINTENDO »
+   * se retrouvait coupé en bas de chacune. Angles à zéro et pas d'ombre
+   * douce : une cartouche est un rectangle, et le kit de cartes arrondies
+   * grises était précisément ce qui rendait la page anonyme.
+   *
+   * La palette est celle de la console, pas un « rétro » de catalogue :
+   * Les couleurs viennent des jetons de `+layout.svelte`, eux-mêmes tirés
+   * de `static/icon.svg` : la coque crème de la cartouche, ses stries, son
+   * étiquette violette. J'avais d'abord inventé un lavande, alors que
+   * l'application avait déjà sa couleur de marque.
+   */
   .game-card {
-    background: rgba(42, 42, 42, 0.8);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    overflow: hidden;
-    transition: all 0.3s ease;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    cursor: pointer;
+    position: relative;
     display: flex;
     flex-direction: column;
-    height: 100%;
+    gap: 0.5rem;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    /* Le focus clavier doit se voir : la carte entière est un contrôle. */
+    outline-offset: 3px;
   }
 
-  .game-card:hover {
-    transform: translateY(-8px);
-    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
-    border-color: rgba(102, 126, 234, 0.3);
+  .game-card:focus-visible {
+    outline: 2px solid var(--brand-lift);
+  }
+
+  .game-card.unplayable {
+    cursor: default;
+    opacity: 0.55;
   }
 
   .cover {
-    aspect-ratio: 16/9;
-    background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
-    display: flex;
-    justify-content: center;
-    align-items: center;
     position: relative;
+    /* Mesuré, pas supposé : les jaquettes du catalogue font 512x357 et
+       512x364, soit 1,434 et 1,407 - des scans PAYSAGE, boîte et tranche
+       comprises. Un 3/4 portrait laissait deux bandes vides énormes ; 10/7
+       (1,428) tombe entre les deux mesures et le cadre disparaît. */
+    aspect-ratio: 10 / 7;
+    background: var(--ground);
+    border: 1px solid var(--edge);
     overflow: hidden;
   }
 
-  .cover::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
-    opacity: 0;
-    transition: opacity 0.3s;
-  }
-
-  .game-card:hover .cover::before {
-    opacity: 1;
-  }
-
-  .hover-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: opacity 0.3s;
-    gap: 0.5rem;
-  }
-
-  .game-card:hover .hover-overlay {
-    opacity: 1;
-  }
-
-  .info-icon {
-    font-size: 2.5rem;
-  }
-
-  .info-text {
-    font-size: 0.875rem;
-    color: #fff;
-    font-weight: 500;
-  }
-
-  .placeholder {
-    font-size: 3rem;
-    opacity: 0.4;
-  }
-
-  img {
+  /* `contain` et non `cover` : ne jamais rogner une jaquette est tout
+     l'objet de cette reprise. Une boîte qui n'est pas exactement au format
+     laisse deux bandes, ce qui est le moindre mal. */
+  .cover img {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
+    display: block;
+  }
+
+  .label-only {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: linear-gradient(180deg, var(--panel), var(--ground));
+  }
+
+  .label-only span {
+    font-family: 'Silkscreen', monospace;
+    font-size: 0.72rem;
+    line-height: 1.7;
+    color: var(--ridge);
+    text-align: center;
+  }
+
+  .badge {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 0.2rem 0.45rem;
+    font-family: 'Silkscreen', monospace;
+    font-size: 0.6rem;
+    background: var(--ground);
+    border: 1px solid var(--edge);
+    color: var(--label);
+  }
+
+  .needs-identification {
+    top: auto;
+    bottom: 0;
+    color: #f0c020;
+  }
+
+  .needs-rom {
+    color: #e4353d;
+  }
+
+  .details {
+    position: absolute;
+    top: 0.35rem;
+    right: 0.35rem;
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    background: rgba(19, 19, 25, 0.85);
+    border: 1px solid var(--edge);
+    color: var(--ridge);
+    cursor: pointer;
+  }
+
+  .details:hover,
+  .details:focus-visible {
+    color: var(--label);
+    border-color: var(--brand-lift);
+  }
+
+  /* Le seul mouvement de la page, et il répond à un geste : ce que fait un
+     clic, dit au moment où l'on vise. */
+  .play-hint {
+    position: absolute;
+    inset: auto 0 0 0;
+    padding: 0.4rem 0.5rem;
+    background: rgba(19, 19, 25, 0.93);
+    border-top: 1px solid var(--brand);
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+
+  .game-card:hover .play-hint,
+  .game-card:focus-visible .play-hint {
+    opacity: 1;
+  }
+
+  .game-card.unplayable .play-hint {
+    display: none;
+  }
+
+  .play-hint span {
+    font-family: 'Silkscreen', monospace;
+    font-size: 0.62rem;
+    color: var(--label);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .play-hint {
+      transition: none;
+    }
   }
 
   .info {
-    padding: 1.25rem;
-    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0 0.1rem;
   }
 
-  h2 {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: #fff;
-  }
-
-  .genre {
-    margin: 0 0 0.25rem 0;
-    /* Not the #667eea of the brand gradient: at 14px on the card's #242424 it
-       reads 4.24:1, just under the 4.5:1 WCAG AA asks of body text. This is
-       the same hue lightened to 5.95:1, which still clears 4.5:1 on the
-       lightest background a card ever sits on. */
-    color: #8b9bf0;
-    font-size: 0.875rem;
-    font-weight: 500;
+  /* Silkscreen en petit titre seulement. En paragraphe elle serait
+     illisible, et le corps de texte reste en sans système. */
+  .info h2 {
+    margin: 0;
+    font-family: 'Silkscreen', monospace;
+    font-size: 0.68rem;
+    font-weight: 400;
+    line-height: 1.55;
+    color: var(--shell);
   }
 
   .saves {
     margin: 0;
-    color: #999;
-    font-size: 0.875rem;
-  }
-
-  .actions {
-    padding: 0 1.25rem 1.25rem;
-    display: flex;
-    gap: 0.75rem;
-  }
-
-  .btn-play {
-    flex: 1;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    padding: 0.875rem;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 0.9375rem;
-    font-weight: 500;
-    transition: transform 0.2s, box-shadow 0.2s;
-  }
-
-  /* Le second rôle de la paire : même forme et même hauteur que « Jouer »,
-     mais en contour plutôt qu'en dégradé, pour que le lancement direct reste
-     l'action mise en avant. */
-  .btn-room {
-    flex: 1;
-    background: transparent;
-    color: #d6d6e6;
-    border: 1px solid #3d3d52;
-    padding: 0.875rem;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 0.9375rem;
-    font-weight: 500;
-    transition: border-color 0.2s, color 0.2s;
-  }
-
-  .btn-room:hover:not(:disabled) {
-    border-color: #667eea;
-    color: #fff;
-  }
-
-  .btn-room:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-play:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-  }
-
-  .btn-play:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-
-  .btn-delete {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(68, 68, 68, 0.8);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    /* Carré plutôt qu'étiré : le padding vertical reste celui des deux autres
-       boutons pour que les trois gardent la même hauteur. */
-    padding: 0.875rem;
-    line-height: 1;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 0.9375rem;
-    transition: all 0.2s;
-    flex: 0 0 auto;
-  }
-
-  .btn-delete:hover {
-    background: rgba(200, 50, 50, 0.8);
-    border-color: rgba(200, 50, 50, 0.3);
+    font-size: 0.72rem;
+    color: var(--muted);
   }
 </style>
