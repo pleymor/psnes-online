@@ -556,6 +556,21 @@
     <IdentifyGame
       gameId={gameToIdentify.id}
       title={gameToIdentify.title}
+      entry={gameToIdentify.metadataId
+        ? {
+            id: gameToIdentify.metadataId,
+            source: gameToIdentify.metadataSource ?? null,
+            title: gameToIdentify.title ?? '',
+            altTitle: gameToIdentify.metadataAltTitle ?? '',
+            genre: gameToIdentify.genre ?? '',
+            publisher: gameToIdentify.publisher ?? '',
+            developer: gameToIdentify.developer ?? '',
+            releaseDate: gameToIdentify.releaseDate ?? '',
+            players: gameToIdentify.players ?? '',
+            region: gameToIdentify.region ?? '',
+            description: gameToIdentify.description ?? ''
+          }
+        : null}
       on:close={() => (gameToIdentify = null)}
       on:identified={() => { gameToIdentify = null; loadGames(); }}
     />

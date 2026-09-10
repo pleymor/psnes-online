@@ -21,6 +21,40 @@
   export let gameId: string;
   export let title = '';
 
+  /**
+   * La fiche à laquelle ce jeu est déjà rattaché, s'il l'est.
+   *
+   * Passée entière plutôt que reconstruite ici : la liste la résout déjà côté
+   * serveur, et un aller-retour de plus pour des champs qu'on tient déjà
+   * n'apporterait qu'une fenêtre de temps où le formulaire s'ouvre vide.
+   *
+   * `altTitle` en fait partie alors que rien ne l'affiche - c'est justement
+   * pour ça : sans lui, enregistrer une correction effacerait un champ que le
+   * joueur n'a jamais vu.
+   */
+  export let entry: {
+    id: string;
+    source: string | null;
+    title: string;
+    altTitle: string;
+    genre: string;
+    publisher: string;
+    developer: string;
+    releaseDate: string;
+    players: string;
+    region: string;
+    description: string;
+  } | null = null;
+
+  /*
+   * Une fiche du catalogue livré ne s'édite pas : le rafraîchissement JSON
+   * supprime et réinsère ses lignes, donc la correction disparaîtrait au
+   * déploiement suivant. Le serveur refuse (409) ; ne pas proposer le bouton
+   * est la moitié honnête de la même règle. Pour celles-là, la correction
+   * consiste à pointer la copie vers une autre fiche.
+   */
+  $: correctable = entry !== null && entry.source === 'community';
+
   interface Match {
     id: string;
     title: string;
@@ -31,7 +65,7 @@
     coverUrl: string | null;
   }
 
-  let mode: 'search' | 'create' = 'search';
+  let mode: 'search' | 'create' | 'edit' = 'search';
   let query = title;
   let results: Match[] = [];
   let searching = false;
@@ -104,14 +138,15 @@
     });
     const payload = await res.json().catch(() => ({}));
 
-    if (res.status === 409) {
-      // Not a failure: if this dump is claimed, its metadata already applies
-      // everywhere, so this library is simply out of date. Saying what the game
-      // is and reloading is more use than an error nobody can act on.
-      error = `${t($language, 'identifyAlreadyClaimed')} ${payload.metadata?.title ?? '?'}`;
-      dispatch('identified', payload.metadata?.id ?? '');
-      return null;
-    }
+    /*
+     * Plus de cas 409 ici. Le serveur en renvoyait un pour toute copie déjà
+     * identifiée, et ce bloc y répondait en écrivant `error` PUIS en émettant
+     * `identified` - ce qui ferme la fenêtre. Le message était détruit à
+     * l'instant où il était écrit, donc le joueur voyait la modale
+     * disparaître sans un mot. Repointer est permis maintenant, donc il n'y a
+     * plus de conflit à expliquer, et ce qui reste tombe dans l'erreur
+     * générique en dessous, qui elle s'affiche.
+     */
     if (!res.ok) throw new Error(payload.error || `HTTP ${res.status}`);
     return payload.metadataId as string;
   }
@@ -160,6 +195,68 @@
     }
   }
 
+  /** Ouvre le formulaire sur ce que la fiche dit aujourd'hui. */
+  function startEditing() {
+    if (!entry) return;
+    error = '';
+    form = {
+      title: entry.title,
+      altTitle: entry.altTitle,
+      genre: entry.genre,
+      publisher: entry.publisher,
+      developer: entry.developer,
+      releaseDate: entry.releaseDate,
+      players: entry.players,
+      region: entry.region,
+      description: entry.description
+    };
+    mode = 'edit';
+  }
+
+  /**
+   * Enregistre la correction d'une fiche existante.
+   *
+   * Un PUT et non un POST : l'identifiant ne bouge pas, et c'est ce qui
+   * compte. Créer une fiche corrigée puis y repointer la copie perdrait la
+   * couverture et le crédit déjà attachés à celle-ci, et laisserait une fiche
+   * fausse derrière dans le catalogue.
+   */
+  async function saveEntry() {
+    if (!entry) return;
+    busy = true;
+    error = '';
+    try {
+      if (!coverPendingFor) {
+        const res = await fetch(`/api/metadata/${entry.id}`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(form)
+        });
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          throw new Error(payload.error || `HTTP ${res.status}`);
+        }
+      }
+      try {
+        await uploadCover(entry.id);
+      } catch (err) {
+        // Comme à la création : la fiche est enregistrée, seule l'image
+        // manque, donc le bouton propose de réessayer l'image seule plutôt
+        // que de renvoyer le formulaire.
+        coverPendingFor = entry.id;
+        error = `${t($language, 'identifyCoverFailed')} ${err instanceof Error ? err.message : ''}`;
+        return;
+      }
+      dispatch('identified', entry.id);
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+      logger.error('Could not correct the entry', err);
+    } finally {
+      busy = false;
+    }
+  }
+
   async function createEntry() {
     busy = true;
     error = '';
@@ -193,8 +290,22 @@
 <div class="backdrop" role="presentation" on:click={() => !busy && dispatch('close')}>
   <div class="modal" role="dialog" aria-modal="true" on:click|stopPropagation>
     {#if mode === 'search'}
-      <h2>{t($language, 'identifyGame')}</h2>
-      <p class="explain">{t($language, 'identifyExplain')}</p>
+      <!--
+        Deux en-têtes, parce que cet écran répond à deux questions.
+        « Rien ici ne reconnaît cette ROM » était affiché dans les deux cas, y
+        compris pour un jeu déjà identifié - où c'est simplement faux, et où
+        la question n'est pas « qu'est-ce que c'est » mais « ce n'est pas ça ».
+        Nommer la fiche actuelle évite en plus de la choisir à nouveau par
+        mégarde : elle est en haut des résultats, puisque la recherche part de
+        son titre.
+      -->
+      {#if entry}
+        <h2>{t($language, 'identifyChangeTitle')}</h2>
+        <p class="explain">{t($language, 'identifyChangeExplain', { title: entry.title })}</p>
+      {:else}
+        <h2>{t($language, 'identifyGame')}</h2>
+        <p class="explain">{t($language, 'identifyExplain')}</p>
+      {/if}
 
       <input
         class="search"
@@ -239,13 +350,18 @@
         <button class="secondary" on:click={() => dispatch('close')} disabled={busy}>
           {t($language, 'cancel')}
         </button>
+        {#if correctable}
+          <button class="link" on:click={startEditing} disabled={busy}>
+            {t($language, 'identifyCorrect')}
+          </button>
+        {/if}
         <button class="link" on:click={() => (mode = 'create')} disabled={busy}>
           {t($language, 'identifyCreate')}
         </button>
       </div>
     {:else}
-      <h2>{t($language, 'identifyCreateTitle')}</h2>
-      <p class="explain">{t($language, 'identifyCreateExplain')}</p>
+      <h2>{t($language, mode === 'edit' ? 'identifyEditTitle' : 'identifyCreateTitle')}</h2>
+      <p class="explain">{t($language, mode === 'edit' ? 'identifyEditExplain' : 'identifyCreateExplain')}</p>
 
       {#if error}
         <p class="error">{error}</p>
@@ -304,12 +420,12 @@
         <button class="secondary" on:click={() => (mode = 'search')} disabled={busy}>
           {t($language, 'identifyBackToSearch')}
         </button>
-        <button class="primary" on:click={createEntry} disabled={busy}>
+        <button class="primary" on:click={mode === 'edit' ? saveEntry : createEntry} disabled={busy}>
           {busy
             ? t($language, 'loading')
             : coverPendingFor
               ? t($language, 'identifyRetryCover')
-              : t($language, 'identifyCreateSubmit')}
+              : t($language, mode === 'edit' ? 'identifyEditSubmit' : 'identifyCreateSubmit')}
         </button>
       </div>
     {/if}

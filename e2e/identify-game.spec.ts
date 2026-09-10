@@ -83,7 +83,19 @@ test.describe('completing the games database', () => {
 		}
 	});
 
-	test('a dump already claimed answers with what it is, not with a failure', async () => {
+	test('a dump already claimed can be claimed again, and the last answer stands', async () => {
+		/*
+		 * This used to answer 409, whatever was asked, which made the first
+		 * answer final: a dump named as the wrong game stayed that way for
+		 * everyone holding it, and the `entry` branch was unreachable too, so
+		 * writing a corrected entry failed the same way.
+		 *
+		 * The decision on 2026-09-09 was that anyone holding the dump may say
+		 * otherwise - a wrong entry is wrong for all of them, and the person
+		 * looking at it is the person who can see that it is wrong. The cost,
+		 * named at the time and visible here, is that nothing stops a second
+		 * player overriding a first one who was right.
+		 */
 		const one = await loginDev('1');
 		const two = await loginDev('2');
 		const dump = freshCrc();
@@ -101,14 +113,85 @@ test.describe('completing the games database', () => {
 				body: JSON.stringify({ entry: { title: 'Second Answer' } })
 			});
 
-			expect(second.status).toBe(409);
-			const payload = await second.json();
-			// The client can say "already identified as X" instead of showing an
-			// error the player cannot act on.
-			expect(payload.metadata.title).toBe('First Answer');
+			expect(second.ok).toBeTruthy();
+			const { metadataId } = await second.json();
+
+			// One claim per dump, and it reaches both libraries: the correction
+			// is a fact about the world, not about the player who made it.
+			const forOne = (await (await apiFetch(one, '/api/games')).json())
+				.find((g: { id: string }) => g.id === gameOne.id);
+			const forTwo = (await (await apiFetch(two, '/api/games')).json())
+				.find((g: { id: string }) => g.id === gameTwo.id);
+			expect(forOne.title).toBe('Second Answer');
+			expect(forOne.metadataId).toBe(metadataId);
+			expect(forTwo.title).toBe('Second Answer');
 		} finally {
 			await apiFetch(one, `/api/games/${gameOne.id}`, { method: 'DELETE' });
 			await apiFetch(two, `/api/games/${gameTwo.id}`, { method: 'DELETE' });
+		}
+	});
+
+	test('correcting an entry reaches the other player who has the dump', async () => {
+		const one = await loginDev('1');
+		const two = await loginDev('2');
+		const dump = freshCrc();
+		const gameOne = await addGame(one, dump, 'typo.sfc');
+		const gameTwo = await addGame(two, dump, 'typo-too.sfc');
+
+		try {
+			const { metadataId } = await (
+				await apiFetch(one, `/api/games/${gameOne.id}/identify`, {
+					method: 'POST',
+					body: JSON.stringify({ entry: { title: 'Umihra Kawase', publisher: 'TNN' } })
+				})
+			).json();
+
+			// The second player never wrote a word of this entry. Holding the
+			// dump is the whole permission: the typo is on their card too.
+			const fixed = await apiFetch(two, `/api/metadata/${metadataId}`, {
+				method: 'PUT',
+				body: JSON.stringify({ title: 'Umihara Kawase', publisher: 'TNN' })
+			});
+			expect(fixed.ok).toBeTruthy();
+
+			const forOne = (await (await apiFetch(one, '/api/games')).json())
+				.find((g: { id: string }) => g.id === gameOne.id);
+			expect(forOne.title).toBe('Umihara Kawase');
+			// The id did not move, so the cover and the credit already on this
+			// entry are still on it.
+			expect(forOne.metadataId).toBe(metadataId);
+		} finally {
+			await apiFetch(one, `/api/games/${gameOne.id}`, { method: 'DELETE' });
+			await apiFetch(two, `/api/games/${gameTwo.id}`, { method: 'DELETE' });
+		}
+	});
+
+	test('a stranger to the dump cannot rewrite its entry', async () => {
+		const one = await loginDev('1');
+		const stranger = await loginDev('2');
+		const game = await addGame(one, freshCrc(), 'mine.sfc');
+
+		try {
+			const { metadataId } = await (
+				await apiFetch(one, `/api/games/${game.id}/identify`, {
+					method: 'POST',
+					body: JSON.stringify({ entry: { title: 'Mine Alone' } })
+				})
+			).json();
+
+			// Otherwise knowing an id would be enough to rewrite anything in a
+			// catalogue every player reads.
+			const refused = await apiFetch(stranger, `/api/metadata/${metadataId}`, {
+				method: 'PUT',
+				body: JSON.stringify({ title: 'Vandalised' })
+			});
+			expect(refused.status).toBe(403);
+
+			const still = (await (await apiFetch(one, '/api/games')).json())
+				.find((g: { id: string }) => g.id === game.id);
+			expect(still.title).toBe('Mine Alone');
+		} finally {
+			await apiFetch(one, `/api/games/${game.id}`, { method: 'DELETE' });
 		}
 	});
 
