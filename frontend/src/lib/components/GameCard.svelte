@@ -160,9 +160,11 @@
    *
    * Deux temps, comme un pixel artist les dessine : trois pixels denses au
    * contact, là où rien ne passe entre la cartouche et le bois, puis une
-   * extinction sur toute la profondeur de la tablette. `top: 100%` la met
-   * sous la carte sans rien prendre au flux, donc le pas des étagères ne
-   * bouge pas.
+   * extinction sur les quatorze pixels de dessus qui restent devant la
+   * boîte - pas un de plus, sinon l'ombre déborderait sur le chant, qui
+   * est une face verticale et sur lequel rien n'est couché. `top: 100%`
+   * la met sous la carte sans rien prendre au flux, donc le pas des
+   * étagères ne bouge pas.
    */
   .game-card::after {
     content: '';
@@ -170,11 +172,11 @@
     top: 100%;
     left: 0;
     right: 0;
-    height: 20px;
+    height: 14px;
     background: linear-gradient(
       180deg,
       rgba(26, 12, 0, 0.55) 0 3px,
-      rgba(26, 12, 0, 0.3),
+      rgba(26, 12, 0, 0.28),
       rgba(26, 12, 0, 0)
     );
     pointer-events: none;

@@ -1082,10 +1082,11 @@
        L'ombre portée de la carte ne compte pas, elle ne prend pas de place
        dans le flux. */
     --row-h: calc(var(--card-w) * 0.7);
-    /* De quoi poser la tablette entière, son ombre, et laisser respirer la
-       rangée suivante : 22 px de dessus, 18 px de chant, 12 px d'ombre
-       portée, 12 px de ciel. */
-    --shelf-gap: 4rem;
+    /* Ce qui descend sous la ligne des cartouches, et rien de plus : 14 px
+       de dessus devant elles, 18 px de chant, 12 px d'ombre portée, 12 px
+       de ciel. Les 14 px de dessus qui passent DERRIÈRE sont dans la
+       hauteur de la rangée, pas dans cet écart. */
+    --shelf-gap: 3.5rem;
     --pitch: calc(var(--row-h) + var(--shelf-gap));
 
     grid-auto-rows: var(--row-h);
@@ -1110,13 +1111,19 @@
      * pas comme du relief. Ce qui donne le volume est ailleurs, et tient
      * en quatre bandes :
      *
-     * 1. LE DESSUS, 22 px, et c'est lui qu'on ne voyait pas. Une cartouche
-     *    posée sur une tablette est en retrait du chant, donc il y a
-     *    toujours une bande de bois éclairée DEVANT elle. À 7 px c'était un
-     *    reflet sur une arête ; à 22 px c'est une surface, et la tablette
-     *    devient un objet qu'on regarde d'un peu au-dessus. Elle est
-     *    dégradée du sombre au fond - à l'ombre des cartouches - vers le
-     *    clair au bord.
+     * 1. LE DESSUS, 28 px, et il passe DES DEUX CÔTÉS des cartouches.
+     *    C'est le point qui manquait : une tablette dont le dessus ne
+     *    commence qu'au pied des boîtes les pose contre le mur du fond,
+     *    pas dessus. Quatorze pixels passent donc derrière elles - cachés
+     *    par les jaquettes, mais visibles dans l'écart entre deux voisines
+     *    et aux deux bouts de la rangée, et c'est précisément là que l'oeil
+     *    lit la profondeur - et quatorze devant, où la boîte est en retrait
+     *    du chant. Le bord arrière du dessus fait une arête franche contre
+     *    le ciel : c'est le fond de la tablette.
+     *
+     *    Le dégradé n'est pas un simple sombre-vers-clair : le plus sombre
+     *    est sur la ligne des cartouches, qui portent ombre des deux côtés,
+     *    et ça s'éclaircit vers le fond comme vers le chant.
      * 2. L'ARÊTE, deux pixels d'encre, qui sépare ce dessus du chant. Sans
      *    elle les deux plans se lisent comme une seule bande bicolore.
      * 3. LE CHANT, 16 px de bois vu de face, avec son tramage.
@@ -1132,22 +1139,23 @@
      * mot-clé s'interpole en noir transparent et laisse un voile gris sur
      * les couleurs qu'il rejoint.
      */
-    --deck: 22px;
-    --plank: 40px;
+    --deck-back: 14px;
+    --deck-front: 14px;
+    --plank: 32px;
     --cast: 12px;
     background-image: linear-gradient(
       180deg,
-      transparent 0 var(--row-h),
-      #9c6a38 var(--row-h),
-      #c99a5e calc(var(--row-h) + 9px),
-      #e6c288 calc(var(--row-h) + var(--deck)),
-      var(--ink) calc(var(--row-h) + var(--deck)) calc(var(--row-h) + 24px),
-      #c08a4c calc(var(--row-h) + 24px) calc(var(--row-h) + 27px),
-      #a8683c calc(var(--row-h) + 27px) calc(var(--row-h) + 31px),
-      #8b4f28 calc(var(--row-h) + 31px) calc(var(--row-h) + 32px),
-      #a8683c calc(var(--row-h) + 32px) calc(var(--row-h) + 35px),
-      #8b4f28 calc(var(--row-h) + 35px) calc(var(--row-h) + 38px),
-      #5c3018 calc(var(--row-h) + 38px) calc(var(--row-h) + var(--plank)),
+      transparent 0 calc(var(--row-h) - var(--deck-back)),
+      #a5713e calc(var(--row-h) - var(--deck-back)),
+      #86592c var(--row-h),
+      #e6c288 calc(var(--row-h) + var(--deck-front)),
+      var(--ink) calc(var(--row-h) + var(--deck-front)) calc(var(--row-h) + 16px),
+      #c08a4c calc(var(--row-h) + 16px) calc(var(--row-h) + 19px),
+      #a8683c calc(var(--row-h) + 19px) calc(var(--row-h) + 23px),
+      #8b4f28 calc(var(--row-h) + 23px) calc(var(--row-h) + 24px),
+      #a8683c calc(var(--row-h) + 24px) calc(var(--row-h) + 27px),
+      #8b4f28 calc(var(--row-h) + 27px) calc(var(--row-h) + 30px),
+      #5c3018 calc(var(--row-h) + 30px) calc(var(--row-h) + var(--plank)),
       rgba(0, 0, 0, 0.34) calc(var(--row-h) + var(--plank)),
       rgba(0, 0, 0, 0) calc(var(--row-h) + var(--plank) + var(--cast))
     );
