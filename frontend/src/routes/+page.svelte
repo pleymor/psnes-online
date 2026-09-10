@@ -1077,9 +1077,11 @@
      * jaquette porte sur sa boîte de bordure : la hauteur de jaquette est
      * exactement 0,7 fois la largeur intérieure de la carte.
      */
-    --card-frame: 22px; /* 2 x 3px de bordure + 2 x 8px de marge interne */
-    --cover-h: calc((var(--card-w) - var(--card-frame)) * 0.7);
-    --row-h: calc(var(--cover-h) + 0.35rem + var(--info-h) + var(--card-frame));
+    /* La tuile n'est que la jaquette, sans cadre ni bande de titre : la
+       hauteur de rangée est donc exactement la largeur au format 10/7.
+       L'ombre portée de la carte ne compte pas, elle ne prend pas de place
+       dans le flux. */
+    --row-h: calc(var(--card-w) * 0.7);
     /* De quoi poser la planche et laisser respirer la rangée suivante :
        30 px de bois et 14 px de ciel. */
     --shelf-gap: 2.75rem;

@@ -52,14 +52,21 @@
   $: if (game.coverUrl) coverBroken = false;
 </script>
 
+<!--
+  La jaquette est tout ce qui reste, donc le nom du jeu se dit dans ces
+  deux attributs ou nulle part : `title` le donne au survol, `aria-label`
+  le donne avant l'action - sans quoi chaque carte de la grille
+  s'appellerait « Jouer ». L'indice au survol, lui, continue de dire ce
+  que le clic fait.
+-->
 <!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role -->
 <div
   class="game-card"
   class:unplayable={playDisabled}
   role="button"
   tabindex="0"
-  title={playLabel || t($language, 'play')}
-  aria-label={playLabel || t($language, 'play')}
+  title={game.title}
+  aria-label={`${game.title} — ${playLabel || t($language, 'play')}`}
   on:click={handleCardClick}
   on:keypress={handleKeyPress}
 >
@@ -105,15 +112,6 @@
 
     <div class="play-hint"><span>{playLabel || t($language, 'play')}</span></div>
   </div>
-
-  <div class="info">
-    <h2 title={game.title}>{game.title}</h2>
-    <!-- Le compte seulement s'il y en a. « 0 sauvegardes » neuf fois de suite
-         n'apprenait rien et occupait une ligne sur chaque carte. -->
-    {#if (game.saves?.length ?? 0) > 0}
-      <p class="saves">{t($language, 'saveStatesCount', { count: game.saves.length })}</p>
-    {/if}
-  </div>
 </div>
 
 <style>
@@ -126,25 +124,28 @@
    * douce : une cartouche est un rectangle, et le kit de cartes arrondies
    * grises était précisément ce qui rendait la page anonyme.
    *
-   * La palette est celle de la console, pas un « rétro » de catalogue :
-   * Les couleurs viennent des jetons de `+layout.svelte`, eux-mêmes tirés
-   * de `static/icon.svg` : la coque crème de la cartouche, ses stries, son
-   * étiquette violette. J'avais d'abord inventé un lavande, alors que
-   * l'application avait déjà sa couleur de marque.
+   * La tuile n'est plus que la jaquette : le cadre crème qui l'entourait
+   * est parti, parce qu'à trois par rangée c'est le carton qu'on vient
+   * regarder, pas la menuiserie autour. Le nom du jeu ne s'écrit donc plus
+   * sous la vignette - il vit dans l'infobulle, dans le nom accessible, et
+   * en clair au centre de la tuile quand justement il n'y a PAS de
+   * jaquette.
    */
-  /* La boîte à message de Super Mario World : fond crème, bord d'encre
-     épais, et une ombre portée DURE d'un seul décalage - pas un halo flou.
-     C'est la différence entre un objet posé sur un décor et une carte de
-     tableau de bord ; le flou gris était précisément le kit générique. */
+  /* La jaquette, et rien autour.
+     
+     C'était une boîte à message de Super Mario World - cadre crème, bord
+     d'encre, titre en dessous. Le cadre prenait la place de ce qu'il
+     encadrait : à trois jaquettes par rangée, ce qu'on vient regarder
+     c'est le carton, pas la menuiserie autour. Ce qui reste du meuble,
+     c'est l'étagère sous la rangée, et l'ombre portée DURE d'un seul
+     décalage - pas un halo flou - qui fait que la cartouche se pose
+     dessus au lieu de flotter au-dessus. */
   .game-card {
     position: relative;
     display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    background: var(--shell);
-    border: 3px solid var(--ink);
-    border-radius: 10px;
-    padding: 8px;
+    background: none;
+    border: none;
+    padding: 0;
     box-shadow: 0 4px 0 rgba(0, 0, 0, 0.22);
     cursor: pointer;
     /* Le focus clavier doit se voir : la carte entière est un contrôle. */
@@ -167,9 +168,13 @@
        comprises. Un 3/4 portrait laissait deux bandes vides énormes ; 10/7
        (1,428) tombe entre les deux mesures et le cadre disparaît. */
     aspect-ratio: 10 / 7;
-    /* Le fond reste sombre derrière une jaquette en `contain` : deux bandes
-       crème autour d'un scan sombre feraient flotter l'image. */
+    width: 100%;
+    /* Le fond reste sombre derrière une jaquette en `contain` : un scan qui
+       n'est pas exactement au format laisse deux bandes, et sombre elles se
+       lisent comme le fond de l'étui plutôt que comme un manque. */
     background: var(--ground);
+    /* Le seul bord qui reste, et il est d'encre, pas de crème : sans lui une
+       jaquette à fond sombre n'aurait plus de contour sur le ciel. */
     border: 2px solid var(--ink);
     border-radius: 4px;
     overflow: hidden;
@@ -279,50 +284,4 @@
     }
   }
 
-  /* Hauteur réservée, et non hauteur subie : le pas des étagères de
-     `.games-grid` est constant, donc deux cartes voisines doivent finir
-     à la même hauteur - qu'un titre tienne sur une ligne ou deux, qu'il
-     y ait des sauvegardes ou pas. */
-  .info {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    padding: 0 0.1rem;
-    height: var(--info-h);
-    overflow: hidden;
-  }
-
-  /* Silkscreen en petit titre seulement. En paragraphe elle serait
-     illisible, et le corps de texte reste en sans système. */
-  /* Ni Silkscreen ni Pixelify : le sans système, et c'est mesuré.
-     Silkscreen à 0,68 rem donnait des titres à deviner. Pixelify, essayée
-     ensuite, ferme tellement son C à 13 px qu'une capture montrait
-     « Ohrono Trigger » et « Donkey Kong Oountry » - un titre de jeu est la
-     seule chose de cette page qu'il faut lire sans effort, et c'est aussi
-     le texte le plus répété à l'écran. Les deux polices pixel restent sur
-     le décor, qui porte des mots courts et connus d'avance. */
-  /* Une ligne puis des points de suspension. Un titre coupé net à
-     mi-hauteur de lettre serait pire que coupé proprement, et le nom
-     entier reste lisible en infobulle comme dans la fiche du jeu. */
-  .info h2 {
-    margin: 0;
-    font-size: 1.05rem;
-    font-weight: 600;
-    line-height: 1.3;
-    color: var(--ink);
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    line-clamp: 1;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .saves {
-    margin: 0;
-    font-size: 0.85rem;
-    /* Explicite : `--info-h` compte cette ligne, donc son interligne ne
-       peut pas dépendre de ce que la page hérite. */
-    line-height: 1.4;
-    color: var(--ink-2);
-  }
 </style>
