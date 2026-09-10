@@ -24,6 +24,7 @@ import { writable, type Readable } from 'svelte/store';
 import { keepReceived } from './provider.js';
 import { keptFilesAvailable } from './kept-files.js';
 import { registerGame } from './local-library.js';
+import { romFileName } from './rom-file.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('KeepOffer');
@@ -34,7 +35,7 @@ export interface KeepOfferDeps {
 	 * donne dans `provider.ts` : la vraie écriture veut IndexedDB, et sans
 	 * paramètre la règle ne serait testable nulle part.
 	 */
-	keep?: (bytes: Uint8Array) => Promise<string>;
+	keep?: (bytes: Uint8Array, title?: string) => Promise<string>;
 	/** Si ce navigateur sait garder quoi que ce soit. */
 	available?: () => boolean;
 	/**
@@ -66,7 +67,9 @@ export interface KeepOffer {
 }
 
 export function createKeepOffer(deps: KeepOfferDeps = {}): KeepOffer {
-	const keep = deps.keep ?? keepReceived;
+	const keep =
+		deps.keep ??
+		((bytes: Uint8Array, title?: string) => keepReceived(bytes, { title }));
 	const available = deps.available ?? keptFilesAvailable;
 	/*
 	 * `registerGame` veut un nom de fichier, et un jeu reçu n'en a pas : les
@@ -77,8 +80,7 @@ export function createKeepOffer(deps: KeepOfferDeps = {}): KeepOffer {
 	 */
 	const register =
 		deps.register ??
-		((checksum: string, title: string) =>
-			registerGame(checksum, `${title || checksum}.sfc`));
+		((checksum: string, title: string) => registerGame(checksum, romFileName(title, checksum)));
 
 	const asked = writable<string | null>(null);
 	/** Les checksums pour lesquels le joueur a déjà tranché, dans un sens ou l'autre. */
@@ -107,7 +109,7 @@ export function createKeepOffer(deps: KeepOfferDeps = {}): KeepOffer {
 			pending = null;
 			answered.add(offer.checksum);
 			asked.set(null);
-			await keep(offer.bytes);
+			await keep(offer.bytes, offer.title);
 
 			// Les octets d'abord, la ligne ensuite : une bibliothèque qui
 			// annonce un jeu dont le fichier n'est pas là serait pire que

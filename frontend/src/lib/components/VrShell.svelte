@@ -90,6 +90,7 @@
   } from '$lib/roms/provider';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { registerGame } from '$lib/roms/local-library';
+  import { romFileName } from '$lib/roms/rom-file';
   import type { PanelMesh } from '$lib/vr/panel-mesh';
   import { loadCore, AudioSink, SocketTransport, UpgradingTransport, type SessionEvent, type Transport } from '$lib/znet';
   import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
@@ -2051,6 +2052,29 @@
    * Rien en main veut dire que le transfert n'a pas eu lieu : la réponse est
    * alors honorée à la réception, par `receiveFromPeer`.
    */
+  /**
+   * Garder pour de bon : les octets, puis la ligne de bibliothèque.
+   *
+   * Les deux chemins du casque passent par ici. L'invité peut répondre oui
+   * AVANT le transfert, sur l'écran de lancement, ou après coup depuis le même
+   * écran ; sans ce partage, l'un des deux gardait les octets sans donner de
+   * carte à cliquer - exactement le défaut signalé le 2026-09-10 hors casque.
+   *
+   * L'échec de l'inscription est avalé et journalisé, comme l'écriture
+   * elle-même : la question est déjà refermée, donc rien à l'écran ne pourrait
+   * le rapporter, et une promesse rejetée ici remonterait en unhandled
+   * rejection dans une session immersive.
+   */
+  async function keepAndRegister(bytes: Uint8Array, crc32: string): Promise<void> {
+    const title = $myRoom?.gameTitle ?? '';
+    await keepReceived(bytes, { title });
+    try {
+      await registerGame(crc32, romFileName(title, crc32));
+    } catch (err) {
+      logger.warn('kept the ROM but could not add it to the library', err);
+    }
+  }
+
   async function keepNow(): Promise<void> {
     const crc32 = launchFor;
     if (!crc32) return;
@@ -2058,17 +2082,7 @@
     const bytes = await resolveQuietly(crc32, { requestPermission: false });
     if (!bytes) return;
 
-    await keepReceived(bytes);
-    // Et la ligne de bibliothèque, sinon garder n'est qu'une demi-promesse :
-    // les octets sont sur le casque et le joueur n'a aucune carte à lancer.
-    // La même règle que les salons plats, tenue par `keep-offer.ts` là-bas.
-    // Avalé comme l'écriture elle-même : la question est déjà refermée.
-    try {
-      const title = $myRoom?.gameTitle ?? '';
-      await registerGame(crc32, `${title || crc32}.sfc`);
-    } catch (err) {
-      logger.warn('kept the ROM but could not add it to the library', err);
-    }
+    await keepAndRegister(bytes, crc32);
     // Relu, sinon l'écran continuerait d'annoncer un envoi pour un jeu qui est
     // désormais sur l'appareil - et la question resterait posée.
     resolvable = await resolvableHere();
@@ -2115,7 +2129,7 @@
        * et c'est le geste de l'invité sur son écran de lancement qui décide -
        * disclaimer légal à côté du bouton. `kept-files.ts` porte la règle.
        */
-      if (keepReceivedRom) await keepReceived(rom);
+      if (keepReceivedRom) await keepAndRegister(rom, crc32);
       else remember(rom);
 
       logger.info(`Received the ROM from the host (${rom.byteLength} bytes)`, { crc32 });

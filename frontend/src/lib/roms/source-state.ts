@@ -15,10 +15,22 @@ export interface RomSourceFacts {
 	folderName?: string;
 	/** Whether the browser still grants access to it. */
 	accessGranted?: boolean;
+	/**
+	 * Whether writing into it is granted, which is a different permission.
+	 *
+	 * The folder has always been asked for in `mode: 'read'`, so no player who
+	 * already picked one has granted this - putting a received game into the
+	 * folder needs a fresh prompt. That prompt must not appear during a match:
+	 * a native dialog takes the keyboard, a player who sends no inputs stalls
+	 * the other, and lockstep runs no faster than its slowest peer. So the
+	 * fact is carried here and the gesture lives on the profile's ROM panel,
+	 * where nobody is waiting.
+	 */
+	writeGranted?: boolean;
 }
 
 export type RomSourceState =
-	| { kind: 'folder'; name: string }
+	| { kind: 'folder'; name: string; writable: boolean }
 	| { kind: 'folder-stale'; name: string }
 	| { kind: 'no-folder' }
 	| { kind: 'unsupported' };
@@ -34,7 +46,11 @@ export function romSourceState(facts: RomSourceFacts): RomSourceState {
 	// lapses between sessions and re-granting needs a gesture, so this is a
 	// state the player can act on - and a different action from picking a
 	// folder they already picked.
+	// `writable` rather than a fifth kind: the remedy for a folder that cannot
+	// be written to is one more click on a panel the player is already looking
+	// at, not a different situation to explain. A stale folder says nothing
+	// about writing - there is no read access to build on yet.
 	return facts.accessGranted
-		? { kind: 'folder', name: facts.folderName }
+		? { kind: 'folder', name: facts.folderName, writable: facts.writeGranted === true }
 		: { kind: 'folder-stale', name: facts.folderName };
 }

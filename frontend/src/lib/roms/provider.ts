@@ -26,8 +26,10 @@ import {
 	readRomByChecksum,
 	romBytes,
 	storedDirectory,
-	supportsDirectoryPicker
+	supportsDirectoryPicker,
+	writeRomToFolder
 } from './local-library.js';
+import { romFileName } from './rom-file.js';
 import {
 	indexedDbKeptFiles,
 	keptFilesAvailable,
@@ -102,9 +104,43 @@ export function isCached(checksum: string): boolean {
  * La partie tourne sur les octets en cache, et seul le confort du prochain
  * lancement est perdu - la même raison que pour un fichier désigné à la main.
  */
-export async function keepReceived(bytes: Uint8Array): Promise<string> {
+export interface KeepReceivedOptions {
+	/**
+	 * Le titre du salon, qui nomme le fichier.
+	 *
+	 * Un jeu reçu n'a pas de nom de fichier - les octets sont arrivés par la
+	 * socket - et `romFileName` en fabrique un lisible, en retombant sur le
+	 * checksum quand il ne reste rien du titre.
+	 */
+	title?: string;
+	/** Un seam, pour la raison que `useKeptFiles` donne : ceci veut le disque. */
+	writeToFolder?: (name: string, bytes: Uint8Array) => Promise<boolean>;
+}
+
+export async function keepReceived(
+	bytes: Uint8Array,
+	options: KeepReceivedOptions = {}
+): Promise<string> {
 	const checksum = remember(bytes);
 	await keepQuietly(checksum, bytes);
+
+	/*
+	 * Et dans le dossier du joueur, quand c'est possible sans rien demander.
+	 *
+	 * Les deux, pas l'un ou l'autre. Le magasin du navigateur est le seul qui
+	 * se lise sans geste - la permission du dossier expire entre deux
+	 * sessions - donc il reste le chemin rapide ; le fichier, lui, se voit
+	 * dans l'explorateur et survit à un nettoyage des données du site, ce que
+	 * le magasin ne fait pas. Quatre mégaoctets en double ne sont pas un prix.
+	 *
+	 * Silencieux et sans invite : cela tourne à côté d'une partie, et une
+	 * boîte de dialogue native prendrait le clavier - un joueur qui n'envoie
+	 * plus d'entrées fait caler l'autre. Le geste qui accorde l'écriture vit
+	 * sur le panneau ROMs du profil.
+	 */
+	const write = options.writeToFolder ?? writeRomToFolder;
+	await write(romFileName(options.title ?? '', checksum), bytes);
+
 	return checksum;
 }
 

@@ -398,3 +398,50 @@ test('garder ce qu un pair a envoyé le rend résoluble ensuite', async () => {
 	assert.ok(found, 'gardé mais introuvable');
 	useKeptFiles(null);
 });
+
+test('garder ecrit aussi le fichier dans le dossier du joueur', async () => {
+	const { keepReceived, useKeptFiles } = await provider();
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+	const kept = memoryKeptFiles();
+	useKeptFiles(kept);
+
+	const written: Array<{ name: string; bytes: Uint8Array }> = [];
+	const bytes = rom(33);
+
+	await keepReceived(bytes, {
+		title: 'Donkey Kong Country',
+		writeToFolder: async (name: string, b: Uint8Array) => {
+			written.push({ name, bytes: b });
+			return true;
+		}
+	});
+
+	/*
+	 * Le magasin du navigateur ne se voit nulle part : « je n ai vu aucun
+	 * telechargement » etait la premiere remarque du proprietaire. Un vrai
+	 * fichier dans le dossier survit en plus a un nettoyage des donnees du
+	 * site, ce que le magasin ne fait pas.
+	 */
+	assert.deepEqual(written.map(w => w.name), ['Donkey Kong Country.sfc']);
+	assert.deepEqual(written[0].bytes, bytes);
+	useKeptFiles(null);
+});
+
+test('un dossier qui refuse n empeche pas de garder', async () => {
+	const { keepReceived, useKeptFiles } = await provider();
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+	const kept = memoryKeptFiles();
+	useKeptFiles(kept);
+
+	const bytes = rom(34);
+	// Pas de dossier, pas la permission d ecrire, disque plein : tout cela
+	// arrive pendant qu une partie tourne, et rien de tout cela ne doit
+	// coûter au joueur les octets qu il vient d accepter.
+	const checksum = await keepReceived(bytes, {
+		title: 'Refuse',
+		writeToFolder: async () => false
+	});
+
+	assert.deepEqual(await kept.checksums(), [checksum]);
+	useKeptFiles(null);
+});

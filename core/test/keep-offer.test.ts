@@ -27,13 +27,16 @@ import { createKeepOffer } from '../../frontend/src/lib/roms/keep-offer.js';
 const ROM = new Uint8Array([1, 2, 3]);
 const CRC = 'aaaa1111';
 
-/** Un magasin qui note ce qu'on lui demande de garder. */
+/** Un magasin qui note ce qu'on lui demande de garder, et sous quel nom. */
 function spy() {
 	const kept: Uint8Array[] = [];
+	const titles: string[] = [];
 	return {
 		kept,
-		keep: async (bytes: Uint8Array) => {
+		titles,
+		keep: async (bytes: Uint8Array, title = '') => {
 			kept.push(bytes);
+			titles.push(title);
 			return CRC;
 		}
 	};
@@ -51,7 +54,7 @@ function registrar() {
 }
 
 const deps = (
-	keep: (bytes: Uint8Array) => Promise<string>,
+	keep: (bytes: Uint8Array, title?: string) => Promise<string>,
 	available = true,
 	register: (checksum: string, title: string) => Promise<void> = async () => {}
 ) => ({
@@ -173,4 +176,16 @@ test('une inscription qui echoue ne fait pas echouer le fait de garder', async (
 	await offer.accept();
 
 	assert.equal(store.kept.length, 1, 'les octets sont sur l appareil quoi qu il arrive');
+});
+
+test('le titre du salon descend jusqu au magasin, qui en nomme le fichier', async () => {
+	const store = spy();
+	const offer = createKeepOffer(deps(store.keep));
+	offer.received(CRC, ROM, 'Donkey Kong Country');
+
+	await offer.accept();
+
+	// Sans lui, le fichier ecrit dans le dossier du joueur s appellerait par
+	// son checksum - lisible par une machine, par personne d autre.
+	assert.deepEqual(store.titles, ['Donkey Kong Country']);
 });
