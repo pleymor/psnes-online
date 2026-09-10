@@ -1082,9 +1082,9 @@
        L'ombre portée de la carte ne compte pas, elle ne prend pas de place
        dans le flux. */
     --row-h: calc(var(--card-w) * 0.7);
-    /* De quoi poser la planche et laisser respirer la rangée suivante :
-       30 px de bois et 14 px de ciel. */
-    --shelf-gap: 2.75rem;
+    /* De quoi poser la planche, son ombre, et laisser respirer la rangée
+       suivante : 30 px de bois, 12 px d'ombre portée, 10 px de ciel. */
+    --shelf-gap: 3.25rem;
     --pitch: calc(var(--row-h) + var(--shelf-gap));
 
     grid-auto-rows: var(--row-h);
@@ -1093,30 +1093,52 @@
     padding-bottom: var(--shelf-gap);
 
     /*
-     * Le bois, en bandes horizontales : filet d'encre, chant clair, corps,
-     * une ligne de tramage, corps plus sombre, ombre, filet d'encre. Pas de
-     * veines verticales - un fond répété ne peut pas borner un second axe,
-     * et le bois de cette époque était de toute façon tramé en bandes.
-     * La planche commence pile au bas de la carte, dont l'ombre dure de
-     * 4 px tombe donc dessus : c'est ce contact qui fait « posé sur ».
+     * Le bois, en bandes horizontales. Pas de veines verticales : un fond
+     * répété ne peut pas borner un second axe, et le bois de cette époque
+     * était de toute façon tramé en bandes.
      *
      * 30 px d'épaisseur, et c'est mesuré : à 22 px la planche se lisait
-     * comme un bâton, faute de place pour y distinguer un chant, un corps
+     * comme un bâton, faute de place pour y distinguer un dessus, un chant
      * et une ombre.
+     *
+     * LA PROFONDEUR tient à trois choses, et à rien d'autre - aucune
+     * perspective, aucune transformation :
+     *
+     * 1. Le DESSUS de la planche, sur ses sept premiers pixels, éclairé et
+     *    dégradé vers le fond. C'est la seule bande douce du profil ; tout
+     *    le reste est à arêtes franches. Une surface qui reçoit la lumière
+     *    ne peut pas être un aplat, sinon elle reste un trait.
+     * 2. L'ARÊTE, deux pixels d'encre, qui sépare ce dessus du chant. Sans
+     *    elle les deux se lisent comme une seule bande bicolore.
+     * 3. L'OMBRE PORTÉE sous la planche, douze pixels qui s'éteignent sur
+     *    le ciel. C'est l'indice le plus fort des trois : c'est lui qui
+     *    dit qu'il y a du vide derrière, et donc une planche devant.
+     *
+     * Les sept pixels du dessus ne sont pas un chiffre rond : l'ombre dure
+     * des cartouches en mange quatre, et il en faut assez pour qu'il reste
+     * de la surface éclairée à voir entre deux jaquettes.
+     *
+     * `rgba(0, 0, 0, 0)` et non `transparent` pour éteindre l'ombre : le
+     * mot-clé s'interpole en noir transparent et laisse un voile gris sur
+     * les couleurs qu'il rejoint.
      */
     --plank: 30px;
+    --cast: 12px;
     background-image: linear-gradient(
       180deg,
       transparent 0 var(--row-h),
-      var(--ink) var(--row-h) calc(var(--row-h) + 2px),
-      #d8a860 calc(var(--row-h) + 2px) calc(var(--row-h) + 6px),
-      #a8683c calc(var(--row-h) + 6px) calc(var(--row-h) + 14px),
-      #8b4f28 calc(var(--row-h) + 14px) calc(var(--row-h) + 15px),
-      #a8683c calc(var(--row-h) + 15px) calc(var(--row-h) + 18px),
-      #8b4f28 calc(var(--row-h) + 18px) calc(var(--row-h) + 24px),
-      #5c3018 calc(var(--row-h) + 24px) calc(var(--row-h) + 28px),
+      #e6c288 var(--row-h),
+      #cfa468 calc(var(--row-h) + 7px),
+      var(--ink) calc(var(--row-h) + 7px) calc(var(--row-h) + 9px),
+      #c08a4c calc(var(--row-h) + 9px) calc(var(--row-h) + 12px),
+      #a8683c calc(var(--row-h) + 12px) calc(var(--row-h) + 16px),
+      #8b4f28 calc(var(--row-h) + 16px) calc(var(--row-h) + 17px),
+      #a8683c calc(var(--row-h) + 17px) calc(var(--row-h) + 21px),
+      #8b4f28 calc(var(--row-h) + 21px) calc(var(--row-h) + 25px),
+      #5c3018 calc(var(--row-h) + 25px) calc(var(--row-h) + 28px),
       var(--ink) calc(var(--row-h) + 28px) calc(var(--row-h) + var(--plank)),
-      transparent calc(var(--row-h) + var(--plank))
+      rgba(0, 0, 0, 0.32) calc(var(--row-h) + var(--plank)),
+      rgba(0, 0, 0, 0) calc(var(--row-h) + var(--plank) + var(--cast))
     );
     background-size: 100% var(--pitch);
     background-repeat: repeat;
