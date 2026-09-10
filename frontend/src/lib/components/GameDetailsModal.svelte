@@ -243,9 +243,29 @@
     cursor: default;
   }
 
+  /* Peint comme ses voisins de la même colonne. Il ne portait que sa marge
+     et sa largeur, donc le bouton brut du navigateur juste sous deux boutons
+     habillés - la même omission que `.share` plus tôt dans la journée. */
   .export-saves {
     margin-top: 0.5rem;
     width: 100%;
+    background: transparent;
+    border: 1px solid #3d3d52;
+    color: #b7b7cc;
+    border-radius: 6px;
+    padding: 0.45rem 1rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .export-saves:hover:not(:disabled) {
+    border-color: #667eea;
+    color: #fff;
+  }
+
+  .export-saves:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 
   .export-error {
