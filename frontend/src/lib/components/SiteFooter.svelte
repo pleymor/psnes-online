@@ -94,7 +94,7 @@
     color: var(--shell);
     text-decoration: none;
     font-family: var(--display);
-    font-size: 0.85rem;
+    font-size: 1.05rem;
     transition: background 0.15s, color 0.15s;
   }
 
