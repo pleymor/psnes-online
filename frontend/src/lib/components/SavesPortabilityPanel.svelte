@@ -143,6 +143,25 @@
 </section>
 
 <style>
+  /* Le bouton de `RomSourcePanel`, à l'identique : ces deux panneaux sont
+     côte à côte sur la page de profil, et il n'y avait ici aucune règle du
+     tout - donc le bouton brut du navigateur, blanc et carré, à côté de son
+     voisin habillé. Signalé le 2026-09-10 : « ya plein de boutons sans style
+     comme Télécharger mes sauvegardes ». */
+  button {
+    background: #333;
+    border: 2px solid transparent;
+    color: #fff;
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
   h3 {
     margin: 0 0 0.25rem;
     font-size: 0.95rem;
