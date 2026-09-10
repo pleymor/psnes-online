@@ -24,6 +24,8 @@
     chooseDirectory,
     storedDirectory,
     ensureAccess,
+    hasWriteAccess,
+    ensureWriteAccess,
     scanDirectory,
     registerGame,
     forgetIndexed,
@@ -115,10 +117,15 @@
         state = romSourceState({ supported: true });
         return;
       }
+      const accessGranted = await ensureAccess(handle);
       state = romSourceState({
         supported: true,
         folderName: handle.name,
-        accessGranted: await ensureAccess(handle)
+        accessGranted,
+        // Interrogé, jamais demandé : l'invite d'écriture a son propre bouton
+        // plus bas, et `source-state.ts` dit pourquoi elle ne doit pas surgir
+        // toute seule.
+        writeGranted: accessGranted ? await hasWriteAccess(handle) : false
       });
     } catch (err) {
       // A remembered folder that was since moved or deleted must not vanish
@@ -126,6 +133,29 @@
       // "no folder" state with no idea why.
       const message = pickerError(err);
       if (message) error = message;
+    }
+  }
+
+  /**
+   * Accorde l'écriture sur un dossier déjà donné en lecture.
+   *
+   * Le dossier a longtemps été demandé en `mode: 'read'` seulement, donc
+   * personne ne l'a accordée. C'est ici qu'on la demande et nulle part
+   * ailleurs : une invite native prend le clavier, et un joueur qui n'envoie
+   * plus d'entrées fait caler l'autre en lockstep. Ici, personne n'attend.
+   */
+  async function allowWriting(): Promise<void> {
+    busy = true;
+    error = '';
+    try {
+      const handle = await storedDirectory();
+      if (handle) await ensureWriteAccess(handle);
+      await refresh();
+    } catch (err) {
+      const message = pickerError(err);
+      if (message) error = message;
+    } finally {
+      busy = false;
     }
   }
 
@@ -168,6 +198,12 @@
     <slot name="fallback" />
   {:else if state.kind === 'folder'}
     <p class="current">{t($language, 'romFolderCurrent')} <strong>{state.name}</strong></p>
+    {#if state.writable}
+      <p class="explain">{t($language, 'romFolderWritable')}</p>
+    {:else}
+      <p class="explain">{t($language, 'romFolderWriteOffer')}</p>
+      <button on:click={allowWriting} disabled={busy}>{t($language, 'romFolderAllowWrite')}</button>
+    {/if}
     <button on:click={pickFolder} disabled={busy}>{t($language, 'romFolderChange')}</button>
   {:else if state.kind === 'folder-stale'}
     <p class="explain">

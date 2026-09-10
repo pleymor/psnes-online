@@ -11,7 +11,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { romSourceState } from '../../frontend/src/lib/roms/source-state.js';
 import { pickerError } from '../../frontend/src/lib/roms/picker-error.js';
-import { romFileProblem } from '../../frontend/src/lib/roms/rom-file.js';
+import { romFileProblem, romFileName } from '../../frontend/src/lib/roms/rom-file.js';
 import {
   readShaderPreference,
   writeShaderPreference
@@ -67,9 +67,32 @@ test('supported with no folder asks for one', () => {
 });
 
 test('a folder with access is reported with its name', () => {
+  const state = romSourceState({
+    supported: true, folderName: 'SNES', accessGranted: true, writeGranted: true
+  });
+
+  assert.deepEqual(state, { kind: 'folder', name: 'SNES', writable: true });
+});
+
+test('a folder granted for reading is not thereby granted for writing', () => {
+  /*
+   * Le dossier a toujours ete demande en `mode: 'read'`, donc AUCUN joueur
+   * existant n a accorde l ecriture : ecrire un jeu recu dedans reclame une
+   * invite de plus. Elle ne doit pas surgir pendant un match - le focus vole
+   * arrete les entrees et fait caler l autre joueur - donc l etat porte le
+   * fait, et le panneau du profil porte le geste.
+   */
   const state = romSourceState({ supported: true, folderName: 'SNES', accessGranted: true });
 
-  assert.deepEqual(state, { kind: 'folder', name: 'SNES' });
+  assert.deepEqual(state, { kind: 'folder', name: 'SNES', writable: false });
+});
+
+test('l absence de oui n est pas un oui, pour l ecriture aussi', () => {
+  const state = romSourceState({
+    supported: true, folderName: 'SNES', accessGranted: true, writeGranted: false
+  });
+
+  assert.equal(state.kind === 'folder' && state.writable, false);
 });
 
 test('a folder whose permission has lapsed is distinguished from no folder at all', () => {
@@ -294,4 +317,39 @@ test('writing the default clears the entry instead of storing it', () => {
 
   writeAspectPreference(storage, 'crt');
   assert.equal(storage.getItem('psnes-aspect'), 'crt');
+});
+
+/*
+ * Le nom du fichier ecrit dans le dossier du joueur.
+ *
+ * Un jeu recu n a pas de nom de fichier - les octets sont arrives par la
+ * socket - donc il faut en fabriquer un a partir du titre du salon. Ce titre
+ * vient du catalogue ou d un autre joueur, et il finit en argument de
+ * `getFileHandle` dans un dossier que le joueur nous a confie : tout ce qui
+ * ressemble a un chemin doit disparaitre avant.
+ */
+
+test('un titre devient un nom de fichier lisible', () => {
+  assert.equal(romFileName('Donkey Kong Country', 'AAAA1111'), 'Donkey Kong Country.sfc');
+});
+
+test('un titre qui porte un chemin ne sort pas du dossier', () => {
+  // `getFileHandle` refuse deja les separateurs, mais s en remettre a lui
+  // laisse la regle dans une API du navigateur plutot que dans le code.
+  assert.equal(romFileName('../../etc/passwd', 'AAAA1111'), 'etc passwd.sfc');
+  assert.equal(romFileName('Super\\Mario', 'AAAA1111'), 'Super Mario.sfc');
+});
+
+test('un titre vide ou reduit a rien retombe sur le checksum', () => {
+  // Un nom vide ne s ecrit pas, et le checksum nomme le dump exactement.
+  assert.equal(romFileName('', 'AAAA1111'), 'AAAA1111.sfc');
+  assert.equal(romFileName('///', 'AAAA1111'), 'AAAA1111.sfc');
+});
+
+test('un titre interminable est borne', () => {
+  // Les systemes de fichiers plafonnent le nom, et un titre communautaire
+  // n est borne que par `MAX_FIELD`, soit 200 caracteres.
+  const name = romFileName('x'.repeat(300), 'AAAA1111');
+  assert.ok(name.length <= 100, `nom de ${name.length} caracteres`);
+  assert.ok(name.endsWith('.sfc'));
 });

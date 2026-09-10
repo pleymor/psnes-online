@@ -110,7 +110,13 @@ export async function chooseDirectory(): Promise<boolean> {
 	if (!supportsDirectoryPicker()) return false;
 	const handle = await (
 		window as unknown as { showDirectoryPicker(o?: unknown): Promise<FileSystemDirectoryHandle> }
-	).showDirectoryPicker({ id: 'psnes-roms', mode: 'read' });
+	// `readwrite` and not `read`: the same single dialog either way, and it is
+	// what lets a game received from a friend be written into the folder
+	// instead of living only in browser storage. Folders picked before this
+	// change stay read-only until the player grants the rest - see
+	// `ensureWriteAccess`, and `source-state.ts` for why that gesture belongs
+	// on the profile panel rather than in the middle of a match.
+	).showDirectoryPicker({ id: 'psnes-roms', mode: 'readwrite' });
 	await put(HANDLES, 'directory', handle);
 	return true;
 }
@@ -133,6 +139,73 @@ export async function hasAccess(handle: FileSystemDirectoryHandle): Promise<bool
 		queryPermission(d: { mode: string }): Promise<PermissionState>;
 	};
 	return (await withPermissions.queryPermission({ mode: 'read' })) === 'granted';
+}
+
+/**
+ * Whether the folder may be written to right now, without ever asking.
+ *
+ * Separate from `hasAccess` because they are separate permissions and only
+ * one of them has ever been requested. Every caller in a running match uses
+ * this and takes `false` for an answer: the prompt is the harm there, not the
+ * gesture requirement.
+ */
+export async function hasWriteAccess(handle: FileSystemDirectoryHandle): Promise<boolean> {
+	const withPermissions = handle as unknown as {
+		queryPermission(d: { mode: string }): Promise<PermissionState>;
+	};
+	try {
+		return (await withPermissions.queryPermission({ mode: 'readwrite' })) === 'granted';
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Asks for write permission on a stored folder. Needs a user gesture.
+ *
+ * Called from the profile's ROM panel and nowhere else. A native permission
+ * dialog takes the keyboard, and a lockstep player who stops sending inputs
+ * stalls the other one, so this must never fire beside a running game.
+ */
+export async function ensureWriteAccess(handle: FileSystemDirectoryHandle): Promise<boolean> {
+	if (await hasWriteAccess(handle)) return true;
+	const withPermissions = handle as unknown as {
+		requestPermission(d: { mode: string }): Promise<PermissionState>;
+	};
+	try {
+		return (await withPermissions.requestPermission({ mode: 'readwrite' })) === 'granted';
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Writes a ROM into the player's folder, if that is possible without asking.
+ *
+ * Best effort by design, and it says so by returning a boolean rather than
+ * throwing: this runs while a game is on screen, the answer changes nothing
+ * the player asked for - the bytes are kept in the device store either way -
+ * and the one thing it must not do is interrupt.
+ */
+export async function writeRomToFolder(name: string, bytes: Uint8Array): Promise<boolean> {
+	try {
+		if (!supportsDirectoryPicker()) return false;
+		const handle = await storedDirectory();
+		if (!handle || !(await hasWriteAccess(handle))) return false;
+
+		const file = await handle.getFileHandle(name, { create: true });
+		const writable = await (
+			file as unknown as { createWritable(): Promise<{ write(d: Uint8Array): Promise<void>; close(): Promise<void> }> }
+		).createWritable();
+		await writable.write(bytes);
+		await writable.close();
+		return true;
+	} catch {
+		// A folder that moved, a disk that is full, a name the filesystem
+		// refuses. None of it is worth a word on screen: the game is running
+		// and the bytes are safe in the device store.
+		return false;
+	}
 }
 
 /**
