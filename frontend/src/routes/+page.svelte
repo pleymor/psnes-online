@@ -59,6 +59,7 @@
    */
   const share = sharing();
   const shareWaiting = share.waiting;
+  const shareAnswer = share.answer;
   let showToast = false;
   let toastMessage = '';
   let toastType: 'success' | 'error' = 'success';
@@ -592,6 +593,9 @@
       game={selectedGame}
       partnerName={myPartner?.pseudo ?? ''}
       sharePending={$shareWaiting !== null && $shareWaiting === selectedGame.crc32}
+      shareAnswer={$shareAnswer && $shareAnswer.crc32 === selectedGame.crc32
+        ? $shareAnswer.reason
+        : undefined}
       on:share={() => {
         if (selectedGame?.crc32) share.offer(selectedGame.crc32, selectedGame.title);
       }}

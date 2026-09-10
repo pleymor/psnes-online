@@ -202,7 +202,7 @@ export function registerRomTransferHandlers(
 	});
 
 	/** "No thanks", so the offering side stops waiting on an answer. */
-	socket.on('rom:offer-declined', (data: { roomId: string; to: string }) => {
+	socket.on('rom:offer-declined', (data: { roomId: string; to: string; reason?: string }) => {
 		const room = getMemberRoom(rooms, data?.roomId, user.id, 'rom:offer-declined');
 		if (!room) return;
 		if (!room.players.some((p) => p.userId === data.to)) return;
@@ -210,7 +210,20 @@ export function registerRomTransferHandlers(
 		const target = getUserSocket(data.to);
 		if (!target) return;
 
-		io.to(target).emit('rom:offer-declined', { roomId: room.id, from: user.id });
+		/*
+		 * La raison passe. Elle ne passait pas, et c'était tout le problème.
+		 *
+		 * Cette charge utile était reconstruite avec `roomId` et `from`
+		 * seulement, donc « il a déjà ce jeu » arrivait indistinguable d'un
+		 * « non merci » cliqué par une personne. Le 2026-09-10, c'est ce qui a
+		 * rendu indécidable un « rien ne s'affiche » chez le destinataire : la
+		 * seule information qui expliquait l'écran vide était jetée ici.
+		 */
+		io.to(target).emit('rom:offer-declined', {
+			roomId: room.id,
+			from: user.id,
+			...(typeof data.reason === 'string' ? { reason: data.reason } : {})
+		});
 	});
 
 	socket.on('rom:chunk', (data: ChunkMessage) => {

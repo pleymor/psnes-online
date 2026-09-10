@@ -16,6 +16,7 @@
 import { get } from 'svelte/store';
 import { socket } from '$lib/api/socket';
 import { myRoom } from '$lib/rooms/my-room';
+import { games, loadGames } from '$lib/stores/games';
 import { createSharing, type Sharing } from '$lib/roms/sharing';
 import { resolveQuietly, keepReceived } from '$lib/roms/provider';
 import { registerGame } from '$lib/roms/local-library';
@@ -59,6 +60,14 @@ export function sharing(): Sharing {
 
     resolve: (crc32) => resolveQuietly(crc32, { requestPermission: false }),
 
+    /*
+     * La bibliothèque, et pas ce que l'appareil sait ouvrir.
+     *
+     * `/api/games` est déjà en mémoire dans le store `games` : la question
+     * « ce jeu est-il à moi » se lit dedans sans requête.
+     */
+    inLibrary: async (crc32) => get(games).some((g) => g.crc32 === crc32),
+
     receive(crc32, roomId) {
       const sock = get(socket);
       if (!sock) return Promise.reject(new Error('no socket to receive on'));
@@ -72,6 +81,13 @@ export function sharing(): Sharing {
       await keepReceived(bytes, { title });
       try {
         await registerGame(crc32, romFileName(title, crc32));
+        /*
+         * Et relire la bibliothèque, sinon la carte n'apparaît qu'au prochain
+         * chargement de page : la ligne existe côté serveur et rien sur
+         * l'écran ne le sait. Accepter doit se voir tout de suite - c'est la
+         * seule confirmation que le joueur reçoive.
+         */
+        await loadGames();
       } catch (err) {
         logger.warn('kept the shared game but could not add it to the library', err);
       }

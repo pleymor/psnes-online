@@ -339,3 +339,37 @@ test('une offre que personne ne peut recevoir le dit a celui qui l a faite', () 
   assert.equal((answers[0].payload as { reason: string }).reason, 'unreachable');
   assert.equal(wire.delivered.some(d => d.event === 'rom:offer'), false);
 });
+
+test('un refus transmet sa raison', () => {
+  const rooms = new Map([['room-1', room()]]);
+  const wire = relay(rooms);
+  wire.connect(asUser(HOST));
+  wire.connect(asUser(GUEST));
+
+  wire.send(GUEST, 'rom:offer-declined', {
+    roomId: 'room-1', to: HOST, reason: 'already-here'
+  });
+
+  /*
+   * Le relais reconstruisait la charge utile avec `roomId` et `from` seulement,
+   * donc « il a deja ce jeu » arrivait indistinguable d un « non merci »
+   * clique par une personne. C est ce qui a rendu indecidable, le 2026-09-10,
+   * un « rien ne s affiche » cote destinataire : la seule information qui
+   * expliquait l ecran vide etait jetee en route.
+   */
+  const answers = wire.delivered.filter(d => d.event === 'rom:offer-declined');
+  assert.equal((answers[0].payload as { reason?: string }).reason, 'already-here');
+});
+
+test('un refus sans raison reste sans raison', () => {
+  const rooms = new Map([['room-1', room()]]);
+  const wire = relay(rooms);
+  wire.connect(asUser(HOST));
+  wire.connect(asUser(GUEST));
+
+  wire.send(GUEST, 'rom:offer-declined', { roomId: 'room-1', to: HOST });
+
+  // Un vrai « non merci » n a pas de raison a donner, et n en inventera pas.
+  const answers = wire.delivered.filter(d => d.event === 'rom:offer-declined');
+  assert.equal((answers[0].payload as { reason?: string }).reason, undefined);
+});

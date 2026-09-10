@@ -19,6 +19,23 @@
   export let partnerName = '';
   /** Une offre pour CE jeu attend déjà une réponse. */
   export let sharePending = false;
+  /**
+   * La réponse reçue à une offre pour CE jeu, ou null.
+   *
+   * `'already-here'` quand l'ami a déjà le jeu, `'unreachable'` quand personne
+   * n'était joignable, `null` pour un vrai « non merci ». Affichée parce que
+   * c'est la seule chose qui explique un écran resté vide chez l'autre, et
+   * que celui qui a besoin de l'explication est celui qui attend : le
+   * 2026-09-10, elle existait et n'arrivait nulle part.
+   */
+  export let shareAnswer: string | null | undefined = undefined;
+
+  $: answerKey = ((): TranslationKey | null => {
+    if (shareAnswer === undefined) return null;
+    if (shareAnswer === 'already-here') return 'shareAlreadyHas';
+    if (shareAnswer === 'unreachable') return 'shareUnreachable';
+    return 'shareRefused';
+  })();
 
   const dispatch = createEventDispatcher();
 
@@ -193,6 +210,11 @@
               ? t($language, 'shareWaiting', { name: partnerName })
               : t($language, 'shareGame', { name: partnerName })}
           </button>
+          {#if answerKey && !sharePending}
+            <p class="share-answer">
+              {t($language, answerKey, { name: partnerName })}
+            </p>
+          {/if}
         {/if}
 
         {#if game.crc32 && (saves.length > 0 || game.sramUpdatedAt)}
@@ -210,6 +232,12 @@
 </div>
 
 <style>
+  .share-answer {
+    margin: 0.4rem 0 0;
+    font-size: 0.8rem;
+    color: #9a9ab0;
+  }
+
   .share:disabled {
     opacity: 0.6;
     cursor: default;

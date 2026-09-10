@@ -30,6 +30,7 @@ function harness(over: Partial<Parameters<typeof createSharing>[0]> = {}) {
 
 	const asked: string[] = [];
 	const deps = {
+		inLibrary: async () => false,
 		emit: (event: string, payload: unknown) => {
 			emitted.push({ event, payload });
 			return true;
@@ -59,7 +60,7 @@ test('rien n est propose tant qu aucune offre n arrive', () => {
 test('une offre recue nomme le jeu et l ami', async () => {
 	const { sharing } = harness();
 
-	await sharing.offerReceived(OFFER);
+	assert.equal(await sharing.offerReceived(OFFER), 'asked');
 
 	assert.deepEqual(get(sharing.offered), OFFER);
 });
@@ -169,13 +170,14 @@ test('une offre repond sur le salon qu elle nomme, pas sur celui que le client c
 	]);
 });
 
-test('un jeu deja sur l appareil est refuse, pas ignore', async () => {
-	const { sharing, emitted } = harness({ resolve: async () => ROM });
+test('un jeu deja dans la bibliotheque est refuse, pas ignore', async () => {
+	const { sharing, emitted } = harness({ inLibrary: async () => true });
 
-	await sharing.offerReceived(OFFER);
+	const decision = await sharing.offerReceived(OFFER);
 
 	// Se taire laissait l offrant sur « En attente de… » pour toujours, sans
 	// que personne puisse savoir pourquoi.
+	assert.equal(decision, 'already-here');
 	assert.equal(get(sharing.offered), null, 'la question ne se pose pas');
 	assert.deepEqual(emitted, [
 		{
@@ -183,6 +185,36 @@ test('un jeu deja sur l appareil est refuse, pas ignore', async () => {
 			payload: { roomId: 'room-1', to: 'friend-1', reason: 'already-here' }
 		}
 	]);
+});
+
+test('des octets lisibles sans fiche de bibliotheque ne suppriment pas la question', async () => {
+	/*
+	 * `resolveQuietly` repond « cet appareil peut-il ouvrir ce dump », pas
+	 * « ce jeu est-il dans ta bibliotheque ». Le dossier de ROMs du joueur
+	 * peut contenir le fichier sans que psnes en sache rien : il dira
+	 * sincerement qu il n a pas le jeu, et supprimer la question lui refuse
+	 * justement la fiche que le partage devait lui donner. Signale le
+	 * 2026-09-10 : « mon ami n a pas ce jeu, du moins pas sur ce pc ».
+	 */
+	const { sharing, emitted } = harness({ resolve: async () => ROM, inLibrary: async () => false });
+
+	const decision = await sharing.offerReceived(OFFER);
+
+	assert.equal(decision, 'asked');
+	assert.deepEqual(get(sharing.offered), OFFER);
+	assert.deepEqual(emitted, []);
+});
+
+test('accepter un jeu dont les octets sont deja la saute le transfert', async () => {
+	const { sharing, kept, asked } = harness({ resolve: async () => ROM });
+	await sharing.offerReceived(OFFER);
+
+	await sharing.accept();
+
+	// Rien a transferer, seulement une fiche a inscrire - et quatre
+	// megaoctets qui ne traversent pas le reseau pour rien.
+	assert.deepEqual(asked, []);
+	assert.deepEqual(kept, [{ crc32: CRC, title: 'Umihara Kawase' }]);
 });
 
 test('offrir n attend rien si l emission n est pas partie', () => {
@@ -202,4 +234,39 @@ test('un refus pour cause d injoignable arrete l attente', () => {
 	sharing.declined();
 
 	assert.equal(get(sharing.waiting), null);
+});
+
+test('la raison du refus est retenue, pour pouvoir etre dite', async () => {
+	const { sharing } = harness();
+	sharing.offer(CRC, 'Umihara Kawase');
+
+	sharing.declined('already-here');
+
+	/*
+	 * « Il a deja ce jeu » est la seule information qui explique un ecran
+	 * reste vide chez l ami, et la personne qui en a besoin est celle qui
+	 * attend une reponse. Le 2026-09-10 elle existait, cote destinataire, et
+	 * n arrivait nulle part : le relais la jetait et rien ne l affichait.
+	 */
+	assert.deepEqual(get(sharing.answer), { crc32: CRC, reason: 'already-here' });
+});
+
+test('un vrai non merci ne porte pas de raison', () => {
+	const { sharing } = harness();
+	sharing.offer(CRC, 'Umihara Kawase');
+
+	sharing.declined();
+
+	assert.deepEqual(get(sharing.answer), { crc32: CRC, reason: null });
+});
+
+test('offrir a nouveau efface la reponse precedente', () => {
+	const { sharing } = harness();
+	sharing.offer(CRC, 'Umihara Kawase');
+	sharing.declined('already-here');
+
+	sharing.offer(CRC, 'Umihara Kawase');
+
+	// Sinon « il a deja ce jeu » resterait affiche sous un bouton qui attend.
+	assert.equal(get(sharing.answer), null);
 });
