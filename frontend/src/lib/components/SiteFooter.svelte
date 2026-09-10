@@ -37,13 +37,16 @@
 
 <style>
   .site-footer {
-    /* Bornée et centrée comme le reste des colonnes de texte du site - c'est
-       la largeur de `/docs`, la page où ce lien mène : une phrase de quatre
-       lignes sur toute la largeur d'un écran 27 pouces ne se lit pas. */
+    /* Bornée comme le reste des colonnes de texte du site - une phrase de
+       quatre lignes sur toute la largeur d'un écran 27 pouces ne se lit pas -
+       mais alignée à gauche et non centrée : sous une grille pleine largeur,
+       un bloc centré à 60rem flottait sans rapport avec ce qui le précédait.
+       Le compromis était signalé le matin même ; la reprise de la
+       bibliothèque l'a rendu visible. */
     width: 100%;
     max-width: 60rem;
-    margin: 0 auto;
-    padding: 0 1.5rem 3rem;
+    margin: 0;
+    padding: 0 0 3rem;
   }
 
   /* Le filet, en dégradé qui s'éteint aux deux bouts plutôt qu'en trait net.
@@ -60,8 +63,8 @@
     background: linear-gradient(
       90deg,
       transparent,
-      rgba(255, 255, 255, 0.13) 15%,
-      rgba(255, 255, 255, 0.13) 85%,
+      var(--edge) 15%,
+      var(--edge) 85%,
       transparent
     );
   }
@@ -74,17 +77,14 @@
     gap: 0.75rem 1.25rem;
   }
 
+  /* Silkscreen et non un dégradé : le bas de page signe avec la même
+     écriture que les tuiles, et le dégradé violet était le tell générique
+     que la reprise a chassé partout ailleurs. */
   .wordmark {
-    /* Le dégradé du titre de l'accueil et de celui de `/docs`, en petit : ce
-       qui signe le bas de page appartient à la même famille que ce qui signe
-       le haut. */
-    font-size: 0.95rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    font-family: 'Silkscreen', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    color: var(--ridge);
   }
 
   nav {
@@ -96,20 +96,26 @@
   /* La pastille du sommaire de `/docs`, à l'identique. C'était un lien bleu
      souligné au survol, la seule occurrence de ce style sur le site. */
   a {
-    padding: 0.35rem 0.85rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 999px;
-    color: #c8c8d0;
+    padding: 0.35rem 0.8rem;
+    border: 1px solid var(--edge);
+    /* La pilule appartenait à l'ancien langage. */
+    border-radius: 0;
+    color: var(--shell);
     text-decoration: none;
-    font-size: 0.9rem;
-    transition: border-color 0.15s, background 0.15s, color 0.15s;
+    font-size: 0.8rem;
+    transition: border-color 0.15s, color 0.15s;
   }
 
   a:hover,
   a:focus-visible {
-    border-color: rgba(102, 126, 234, 0.8);
-    background: rgba(102, 126, 234, 0.12);
-    color: #fff;
+    border-color: var(--brand-lift);
+    color: var(--label);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    a {
+      transition: none;
+    }
   }
 
   .notice {
@@ -120,8 +126,8 @@
        rétrogradé par sa place et son cadre, jamais en le rendant plus pâle
        ou plus petit. */
     padding-left: 0.9rem;
-    border-left: 2px solid rgba(102, 126, 234, 0.3);
-    color: #8a8a96;
+    border-left: 2px solid var(--brand);
+    color: var(--muted);
     font-size: 0.85rem;
     line-height: 1.6;
     max-width: 46rem;

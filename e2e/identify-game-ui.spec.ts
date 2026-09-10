@@ -17,6 +17,11 @@
  * pointing the dump at a different entry, and correcting the entry itself.
  */
 
+/*
+ * `.details` et non `.cover` : depuis la reprise visuelle de la
+ * bibliothèque, cliquer une jaquette LANCE le jeu - c'est le modèle de
+ * l'étagère - et la fiche s'ouvre par l'affordance en coin de la tuile.
+ */
 import { test, expect, type BrowserContext } from '@playwright/test';
 import { loginDev, apiFetch, keepRomOnDevice } from './helpers';
 import { makePng } from './png-fixture';
@@ -69,7 +74,7 @@ test.describe('identifying a game in the browser', () => {
 			await expect(card).toBeVisible();
 			await expect(card.locator('.needs-identification')).toBeVisible();
 
-			await card.locator('.cover').click();
+			await card.locator('.details').click();
 			await page.locator('.identify').click();
 
 			// Scoped to the modal: the library grew a search field of its own,
@@ -115,7 +120,7 @@ test.describe('identifying a game in the browser', () => {
 
 		try {
 			await page.goto('/');
-			await page.locator('.game-card', { hasText: 'yyy-handwritten' }).locator('.cover').click();
+			await page.locator('.game-card', { hasText: 'yyy-handwritten' }).locator('.details').click();
 			await page.locator('.identify').click();
 			await page.locator('.link').click();
 
@@ -165,7 +170,7 @@ test.describe('identifying a game in the browser', () => {
 
 		try {
 			await page.goto('/');
-			await page.locator('.game-card', { hasText: 'Wrongly Named Game' }).locator('.cover').click();
+			await page.locator('.game-card', { hasText: 'Wrongly Named Game' }).locator('.details').click();
 			await page.locator('.identify').click();
 
 			await page.locator('.modal input[type="search"]').fill('ActRaiser');
@@ -203,7 +208,7 @@ test.describe('identifying a game in the browser', () => {
 
 		try {
 			await page.goto('/');
-			await page.locator('.game-card', { hasText: 'ActRaiser' }).locator('.cover').click();
+			await page.locator('.game-card', { hasText: 'ActRaiser' }).locator('.details').click();
 			await page.locator('.identify').click();
 
 			// Offered here too. Most games in a library are shipped entries, so
@@ -246,7 +251,7 @@ test.describe('identifying a game in the browser', () => {
 
 		try {
 			await page.goto('/');
-			await page.locator('.game-card', { hasText: 'Umihra Kawase' }).locator('.cover').click();
+			await page.locator('.game-card', { hasText: 'Umihra Kawase' }).locator('.details').click();
 			await page.locator('.identify').click();
 
 			await page.getByRole('button', { name: 'Correct this entry' }).click();

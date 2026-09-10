@@ -20,6 +20,15 @@
   /** Une offre pour CE jeu attend déjà une réponse. */
   export let sharePending = false;
   /**
+   * Le salon et la suppression, arrivés ici depuis la carte.
+   *
+   * La grille portait trois boutons par jeu - vingt-sept pour neuf - dont
+   * une action destructrice affichée en permanence. La jaquette est la carte
+   * maintenant, et cliquer un jeu le lance ; ces deux-là, plus rares et l'une
+   * dangereuse, vivent derrière la fiche.
+   */
+  export let roomDisabled = false;
+  /**
    * La réponse reçue à une offre pour CE jeu, ou null.
    *
    * `'already-here'` quand l'ami a déjà le jeu, `'unreachable'` quand personne
@@ -217,6 +226,29 @@
           {/if}
         {/if}
 
+        <div class="secondary">
+          <button class="room" on:click={() => dispatch('room')} disabled={roomDisabled}>
+            {t($language, 'roomButton')}
+          </button>
+          <!-- Une icône, plus un libellé porté par aria-label : le nom
+               accessible ne doit pas disparaître avec le mot. SVG et non
+               emoji, pour qu'un contrôle ne puisse pas s'afficher en carré
+               vide selon la police du système. -->
+          <button
+            class="delete"
+            on:click={() => dispatch('delete')}
+            aria-label={t($language, 'delete')}
+            title={t($language, 'delete')}
+          >
+            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
+                 stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+              <path d="M2.5 4.5h11M6.5 4.5V3a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 .5.5v1.5" />
+              <path d="M4 4.5l.7 8.2a.8.8 0 0 0 .8.8h5a.8.8 0 0 0 .8-.8l.7-8.2" />
+              <path d="M6.8 7v4M9.2 7v4" />
+            </svg>
+          </button>
+        </div>
+
         {#if game.crc32 && (saves.length > 0 || game.sramUpdatedAt)}
           <!-- Only once there is something to carry. An empty file offered
                beside a game with no progress is an invitation to think
@@ -232,6 +264,49 @@
 </div>
 
 <style>
+  .secondary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+
+  .room,
+  .delete {
+    background: transparent;
+    border: 1px solid #3d3d52;
+    color: #b7b7cc;
+    border-radius: 6px;
+    padding: 0.45rem 1rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .delete {
+    display: grid;
+    place-items: center;
+    padding: 0.45rem 0.6rem;
+    margin-left: auto;
+  }
+
+  .room:hover:not(:disabled) {
+    border-color: #667eea;
+    color: #fff;
+  }
+
+  /* La seule action irréversible de cet écran : elle ne se colore qu'au
+     moment où le curseur la vise, pour ne pas réclamer l'attention au
+     repos. */
+  .delete:hover {
+    border-color: #b3403f;
+    color: #ff9a99;
+  }
+
+  .room:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
   .share-answer {
     margin: 0.4rem 0 0;
     font-size: 0.8rem;

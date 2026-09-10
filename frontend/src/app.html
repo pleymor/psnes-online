@@ -7,6 +7,24 @@
     <link rel="icon" href="%sveltekit.assets%/favicon-16.png" sizes="16x16" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
+    <!--
+      Silkscreen, et pas Press Start 2P : celle-ci est la police 8-bit par
+      défaut de tout projet rétro - donc un tell plutôt qu'un choix - et elle
+      est NES, pas SNES. Silkscreen est plus blocky, plus proche des
+      logotypes 16-bit, et elle a des minuscules, ce qui évite les capitales
+      forcées. Réservée aux petits titres : une police pixel en paragraphe
+      est illisible, et le corps de texte reste en sans système.
+
+      `display=swap` pour que le texte s'affiche tout de suite dans la police
+      de secours plutôt que de laisser un trou pendant le chargement.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+
     <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#5647cb" />
     <meta name="description" content="Play SNES games online with friends" />
