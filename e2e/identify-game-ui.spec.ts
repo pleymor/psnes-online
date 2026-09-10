@@ -21,6 +21,12 @@
  * `.details` et non `.cover` : depuis la reprise visuelle de la
  * bibliothèque, cliquer une jaquette LANCE le jeu - c'est le modèle de
  * l'étagère - et la fiche s'ouvre par l'affordance en coin de la tuile.
+ *
+ * Et `[title*="..."]` et non `hasText` : la tuile n'est plus que la
+ * jaquette, donc une carte identifiée ne contient plus aucun texte à
+ * chercher - c'est précisément le cas que ces tests fabriquent, puisqu'ils
+ * téléversent une jaquette. Le nom du jeu vit dans l'attribut `title`,
+ * qui est aussi ce qui le rend joignable au survol et au lecteur d'écran.
  */
 import { test, expect, type BrowserContext } from '@playwright/test';
 import { loginDev, apiFetch, keepRomOnDevice } from './helpers';
@@ -70,7 +76,7 @@ test.describe('identifying a game in the browser', () => {
 		try {
 			await page.goto('/');
 
-			const card = page.locator('.game-card', { hasText: 'zzz-unknown-dump' });
+			const card = page.locator('.game-card[title*="zzz-unknown-dump"]');
 			await expect(card).toBeVisible();
 			await expect(card.locator('.needs-identification')).toBeVisible();
 
@@ -91,7 +97,7 @@ test.describe('identifying a game in the browser', () => {
 			await expect(first).toContainText('ActRaiser');
 			await first.click();
 
-			const relabelled = page.locator('.game-card', { hasText: 'ActRaiser' });
+			const relabelled = page.locator('.game-card[title*="ActRaiser"]');
 			await expect(relabelled).toBeVisible();
 			await expect(relabelled.locator('.needs-identification')).toHaveCount(0);
 
@@ -120,7 +126,7 @@ test.describe('identifying a game in the browser', () => {
 
 		try {
 			await page.goto('/');
-			await page.locator('.game-card', { hasText: 'yyy-handwritten' }).locator('.details').click();
+			await page.locator('.game-card[title*="yyy-handwritten"]').locator('.details').click();
 			await page.locator('.identify').click();
 			await page.locator('.link').click();
 
@@ -137,7 +143,7 @@ test.describe('identifying a game in the browser', () => {
 
 			await page.locator('.primary').click();
 
-			const relabelled = page.locator('.game-card', { hasText: 'Hand Written Game' });
+			const relabelled = page.locator('.game-card[title*="Hand Written Game"]');
 			await expect(relabelled).toBeVisible();
 			await expect(relabelled.locator('.needs-identification')).toHaveCount(0);
 
@@ -170,7 +176,7 @@ test.describe('identifying a game in the browser', () => {
 
 		try {
 			await page.goto('/');
-			await page.locator('.game-card', { hasText: 'Wrongly Named Game' }).locator('.details').click();
+			await page.locator('.game-card[title*="Wrongly Named Game"]').locator('.details').click();
 			await page.locator('.identify').click();
 
 			await page.locator('.modal input[type="search"]').fill('ActRaiser');
@@ -180,8 +186,8 @@ test.describe('identifying a game in the browser', () => {
 
 			// This is the click that used to come back 409 and close the window
 			// without a word, leaving the card exactly as it was.
-			await expect(page.locator('.game-card', { hasText: 'ActRaiser' })).toBeVisible();
-			await expect(page.locator('.game-card', { hasText: 'Wrongly Named Game' })).toHaveCount(0);
+			await expect(page.locator('.game-card[title*="ActRaiser"]')).toBeVisible();
+			await expect(page.locator('.game-card[title*="Wrongly Named Game"]')).toHaveCount(0);
 		} finally {
 			await apiFetch(cookie, `/api/games/${game.id}`, { method: 'DELETE' });
 		}
@@ -208,7 +214,7 @@ test.describe('identifying a game in the browser', () => {
 
 		try {
 			await page.goto('/');
-			await page.locator('.game-card', { hasText: 'ActRaiser' }).locator('.details').click();
+			await page.locator('.game-card[title*="ActRaiser"]').locator('.details').click();
 			await page.locator('.identify').click();
 
 			// Offered here too. Most games in a library are shipped entries, so
@@ -219,7 +225,7 @@ test.describe('identifying a game in the browser', () => {
 			await page.locator('.fields input').nth(2).fill('Quintet');
 			await page.locator('.primary').click();
 
-			await expect(page.locator('.game-card', { hasText: 'ActRaiser' })).toBeVisible();
+			await expect(page.locator('.game-card[title*="ActRaiser"]')).toBeVisible();
 
 			const mine = (await (await apiFetch(cookie, '/api/games')).json())
 				.find((g: { id: string }) => g.id === game.id);
@@ -251,7 +257,7 @@ test.describe('identifying a game in the browser', () => {
 
 		try {
 			await page.goto('/');
-			await page.locator('.game-card', { hasText: 'Umihra Kawase' }).locator('.details').click();
+			await page.locator('.game-card[title*="Umihra Kawase"]').locator('.details').click();
 			await page.locator('.identify').click();
 
 			await page.getByRole('button', { name: 'Correct this entry' }).click();
@@ -264,7 +270,7 @@ test.describe('identifying a game in the browser', () => {
 			await page.locator('.fields input').first().fill('Umihara Kawase');
 			await page.locator('.primary').click();
 
-			await expect(page.locator('.game-card', { hasText: 'Umihara Kawase' })).toBeVisible();
+			await expect(page.locator('.game-card[title*="Umihara Kawase"]')).toBeVisible();
 
 			// The id did not change: correcting is not creating. Everything
 			// already attached to this entry - its cover, its credit, the other

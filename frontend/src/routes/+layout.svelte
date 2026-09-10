@@ -311,16 +311,11 @@
        une carte qui grandirait sans le pas ferait passer les planches au
        travers.
 
-       `--info-h` vaut une ligne de titre, l'interligne, et la ligne des
-       sauvegardes - cette dernière réservée même quand il n'y en a pas,
-       sinon deux cartes voisines n'ont pas la même hauteur. Deux lignes
-       de titre, essayées d'abord, laissaient sous presque chaque carte
-       une bande de crème vide de la hauteur d'une ligne : à 376 px une
-       ligne tient une quarantaine de caractères, et le catalogue rend
-       des titres courts parce qu'il retire les suffixes de région. Le
-       nom entier reste en infobulle et dans la fiche. */
+       Il n'y a plus qu'une mesure depuis que la tuile n'est que la
+       jaquette : la hauteur de rangée se déduit entièrement de la largeur
+       et du format 10/7. `--info-h`, qui réservait la bande de titre, est
+       partie avec elle. */
     --card-w: 376px;
-    --info-h: 2.65rem;
   }
 
   :global(body) {

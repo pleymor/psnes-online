@@ -92,7 +92,7 @@ test.describe('resuming from a save', () => {
 
 		try {
 			await page.goto('/');
-			await page.locator('.game-card', { hasText: 'resume-wiring' }).locator('.details').click();
+			await page.locator('.game-card[title*="resume-wiring"]').locator('.details').click();
 
 			const section = page.locator('.resume');
 			await expect(section).toBeVisible();
