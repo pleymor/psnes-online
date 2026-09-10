@@ -107,7 +107,7 @@
   </div>
 
   <div class="info">
-    <h2>{game.title}</h2>
+    <h2 title={game.title}>{game.title}</h2>
     <!-- Le compte seulement s'il y en a. « 0 sauvegardes » neuf fois de suite
          n'apprenait rien et occupait une ligne sur chaque carte. -->
     {#if (game.saves?.length ?? 0) > 0}
@@ -279,11 +279,17 @@
     }
   }
 
+  /* Hauteur réservée, et non hauteur subie : le pas des étagères de
+     `.games-grid` est constant, donc deux cartes voisines doivent finir
+     à la même hauteur - qu'un titre tienne sur une ligne ou deux, qu'il
+     y ait des sauvegardes ou pas. */
   .info {
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
     padding: 0 0.1rem;
+    height: var(--info-h);
+    overflow: hidden;
   }
 
   /* Silkscreen en petit titre seulement. En paragraphe elle serait
@@ -295,17 +301,28 @@
      seule chose de cette page qu'il faut lire sans effort, et c'est aussi
      le texte le plus répété à l'écran. Les deux polices pixel restent sur
      le décor, qui porte des mots courts et connus d'avance. */
+  /* Une ligne puis des points de suspension. Un titre coupé net à
+     mi-hauteur de lettre serait pire que coupé proprement, et le nom
+     entier reste lisible en infobulle comme dans la fiche du jeu. */
   .info h2 {
     margin: 0;
     font-size: 1.05rem;
     font-weight: 600;
     line-height: 1.3;
     color: var(--ink);
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .saves {
     margin: 0;
     font-size: 0.85rem;
+    /* Explicite : `--info-h` compte cette ligne, donc son interligne ne
+       peut pas dépendre de ce que la page hérite. */
+    line-height: 1.4;
     color: var(--ink-2);
   }
 </style>
