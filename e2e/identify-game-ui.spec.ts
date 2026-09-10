@@ -72,12 +72,16 @@ test.describe('identifying a game in the browser', () => {
 			await card.locator('.cover').click();
 			await page.locator('.identify').click();
 
+			// Scoped to the modal: the library grew a search field of its own,
+			// so a bare `input[type="search"]` now matches two elements.
+			const catalogue = page.locator('.modal input[type="search"]');
+
 			// Seeded with the game's own title, so the field is never empty and
 			// the ordinary case needs no typing at all.
-			await expect(page.locator('input[type="search"]')).toHaveValue(/zzz-unknown-dump/);
+			await expect(catalogue).toHaveValue(/zzz-unknown-dump/);
 
 			// ActRaiser is the first entry of the shipped catalogue.
-			await page.locator('input[type="search"]').fill('ActRaiser');
+			await catalogue.fill('ActRaiser');
 			const first = page.locator('.result').first();
 			await expect(first).toContainText('ActRaiser');
 			await first.click();
@@ -164,7 +168,7 @@ test.describe('identifying a game in the browser', () => {
 			await page.locator('.game-card', { hasText: 'Wrongly Named Game' }).locator('.cover').click();
 			await page.locator('.identify').click();
 
-			await page.locator('input[type="search"]').fill('ActRaiser');
+			await page.locator('.modal input[type="search"]').fill('ActRaiser');
 			const first = page.locator('.result').first();
 			await expect(first).toContainText('ActRaiser');
 			await first.click();

@@ -34,6 +34,7 @@
   import LinkRom from '$lib/components/LinkRom.svelte';
   import IdentifyGame from '$lib/components/IdentifyGame.svelte';
   import { sharing } from '$lib/stores/sharing';
+  import { searchGames } from '$lib/games/search';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import SiteFooter from '$lib/components/SiteFooter.svelte';
@@ -175,7 +176,18 @@
    * Le store `games` reste ce que le compte possède : le panneau ROM du profil
    * s'en sert pour dire combien de jeux ne sont pas ici.
    */
-  $: shownGames = resolvable === null ? $games : deviceLibrary($games, resolvable);
+  /**
+   * Ce que cet appareil peut ouvrir, puis ce que le joueur cherche.
+   *
+   * Deux filtres et pas un : le premier est une contrainte de l'appareil, le
+   * second une intention. Les garder distincts est ce qui permet à l'état
+   * vide de dire laquelle des deux a vidé la grille.
+   */
+  $: onThisDevice = resolvable === null ? $games : deviceLibrary($games, resolvable);
+  $: shownGames = searchGames(onThisDevice, gameQuery);
+
+  /** Ce que le joueur a tapé dans la bibliothèque. */
+  let gameQuery = '';
   /*
    * The other member of my group, if there is one.
    *
@@ -452,6 +464,18 @@
             <p class="sync-note">{syncNote}</p>
           {/if}
         </div>
+        {#if onThisDevice.length > 0 || gameQuery.trim()}
+          <!-- Offert dès qu'il y a quelque chose à filtrer, et gardé tant
+               qu'une recherche est en cours : le retirer sous le curseur
+               parce qu'elle ne trouve rien enlèverait le moyen de l'effacer. -->
+          <input
+            class="library-search"
+            type="search"
+            bind:value={gameQuery}
+            placeholder={t($language, 'searchLibrary')}
+            aria-label={t($language, 'searchLibrary')}
+          />
+        {/if}
         {#if folderKnown}
           <button
             class="rescan"
@@ -511,14 +535,23 @@
                  dit à quelqu'un qui a deux cents jeux qu'il n'en a aucun. Ici on
                  nomme le compte, et le lien mène là où l'on désigne un
                  fichier. -->
-            {#if $games.length > 0}
+            {#if gameQuery.trim() && onThisDevice.length > 0}
+              <!-- Un troisième vide : ni une bibliothèque vide, ni un appareil
+                   qui ne peut rien ouvrir, mais une recherche trop étroite -
+                   et le remède est un bouton, pas un lien vers le profil. -->
+              <h2>{t($language, 'noGameMatches', { query: gameQuery.trim() })}</h2>
+              <button class="empty-cta" on:click={() => (gameQuery = '')}>
+                {t($language, 'clearSearch')}
+              </button>
+            {:else if $games.length > 0}
               <h2>{t($language, 'noneOnThisDevice', { count: $games.length })}</h2>
               <p>{t($language, 'noneOnThisDeviceHint')}</p>
+              <a class="empty-cta" href="/profile">{t($language, 'romSource')}</a>
             {:else}
               <h2>{t($language, 'emptyLibrary')}</h2>
               <p>{t($language, 'startUploading')}</p>
+              <a class="empty-cta" href="/profile">{t($language, 'romSource')}</a>
             {/if}
-            <a class="empty-cta" href="/profile">{t($language, 'romSource')}</a>
           </div>
         {:else}
           <div class="games-grid">
@@ -811,6 +844,32 @@
 
   /* Repris de .group-action, qui occupe le même bord du même en-tête : deux
      boutons voisins dessinés différemment se lisent comme deux natures. */
+  /* Le voisin de `.rescan`, et volontairement du même métal : ce sont deux
+     outils de la même barre, et deux styles y liraient comme deux endroits.
+     `appearance: none` parce qu'un `type="search"` non bridé porte encore la
+     croix et les coins arrondis natifs de WebKit, blancs sur ce fond. */
+  .library-search {
+    appearance: none;
+    -webkit-appearance: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 0.375rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    min-width: 12rem;
+    flex-shrink: 1;
+  }
+
+  .library-search::placeholder {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .library-search:focus {
+    outline: none;
+    border-color: rgba(102, 126, 234, 0.8);
+  }
+
   .rescan {
     display: inline-flex;
     align-items: center;
