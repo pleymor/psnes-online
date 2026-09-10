@@ -27,7 +27,8 @@ import {
 	romBytes,
 	storedDirectory,
 	supportsDirectoryPicker,
-	writeRomToFolder
+	writeRomToFolder,
+	type FolderWrite
 } from './local-library.js';
 import { romFileName } from './rom-file.js';
 import {
@@ -114,7 +115,16 @@ export interface KeepReceivedOptions {
 	 */
 	title?: string;
 	/** Un seam, pour la raison que `useKeptFiles` donne : ceci veut le disque. */
-	writeToFolder?: (name: string, bytes: Uint8Array) => Promise<boolean>;
+	writeToFolder?: (name: string, bytes: Uint8Array) => Promise<FolderWrite>;
+	/**
+	 * Ce que le dossier a fait du fichier.
+	 *
+	 * Rapporté plutôt que tu : « le fichier n'est pas dans mon dossier de
+	 * roms » avait quatre causes possibles et renonçait sans un mot. Ce module
+	 * n'a pas le contexte qui rendrait une ligne de log lisible, l'appelant si
+	 * - la même division que `onMiss`.
+	 */
+	onFolder?: (outcome: FolderWrite) => void;
 }
 
 export async function keepReceived(
@@ -139,7 +149,13 @@ export async function keepReceived(
 	 * sur le panneau ROMs du profil.
 	 */
 	const write = options.writeToFolder ?? writeRomToFolder;
-	await write(romFileName(options.title ?? '', checksum), bytes);
+	// L'écriture d'abord, le rapport ensuite. `options.onFolder?.(await …)`
+	// n'évalue PAS son argument quand le rappel est absent - l'appel optionnel
+	// court-circuite tout - donc cette forme-là cessait d'écrire dans le
+	// dossier pour chaque appelant qui ne passe pas de rappel. Attrapé par un
+	// test qui existait déjà.
+	const outcome = await write(romFileName(options.title ?? '', checksum), bytes);
+	options.onFolder?.(outcome);
 
 	return checksum;
 }

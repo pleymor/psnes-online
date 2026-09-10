@@ -445,3 +445,42 @@ test('un dossier qui refuse n empeche pas de garder', async () => {
 	assert.deepEqual(await kept.checksums(), [checksum]);
 	useKeptFiles(null);
 });
+
+test('garder dit pourquoi le dossier n a pas recu le fichier', async () => {
+	const { keepReceived, useKeptFiles } = await provider();
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+	useKeptFiles(memoryKeptFiles());
+
+	const seen: string[] = [];
+	await keepReceived(rom(35), {
+		title: 'Refuse',
+		writeToFolder: async () => 'no-permission',
+		onFolder: (outcome: string) => seen.push(outcome)
+	});
+
+	/*
+	 * « Le fichier n est pas dans mon dossier de roms » n etait pas
+	 * diagnosticable : `writeRomToFolder` rendait un booleen et renoncait sans
+	 * un mot, alors qu il y a quatre raisons distinctes de renoncer - et une
+	 * seule, `no-permission`, a un remede que le joueur peut appliquer
+	 * lui-meme sur sa page de profil. Signale le 2026-09-10.
+	 */
+	assert.deepEqual(seen, ['no-permission']);
+	useKeptFiles(null);
+});
+
+test('un dossier qui a recu le fichier le dit aussi', async () => {
+	const { keepReceived, useKeptFiles } = await provider();
+	const { memoryKeptFiles } = await import('../../frontend/src/lib/roms/kept-files.js');
+	useKeptFiles(memoryKeptFiles());
+
+	const seen: string[] = [];
+	await keepReceived(rom(36), {
+		title: 'Written',
+		writeToFolder: async () => 'written',
+		onFolder: (outcome: string) => seen.push(outcome)
+	});
+
+	assert.deepEqual(seen, ['written']);
+	useKeptFiles(null);
+});

@@ -69,7 +69,11 @@ export interface KeepOffer {
 export function createKeepOffer(deps: KeepOfferDeps = {}): KeepOffer {
 	const keep =
 		deps.keep ??
-		((bytes: Uint8Array, title?: string) => keepReceived(bytes, { title }));
+		((bytes: Uint8Array, title?: string) =>
+			keepReceived(bytes, {
+				title,
+				onFolder: (outcome) => logger.info('the ROM folder', { outcome })
+			}));
 	const available = deps.available ?? keptFilesAvailable;
 	/*
 	 * `registerGame` veut un nom de fichier, et un jeu reçu n'en a pas : les
