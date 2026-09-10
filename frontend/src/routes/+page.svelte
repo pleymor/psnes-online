@@ -879,6 +879,11 @@
     border: 3px solid var(--edge);
     border-radius: 9px;
     font-family: var(--display);
+    /* Pixelify ne descend pas sous 17 px sans se refermer : ses fûts font
+       un pixel et ses contreformes se bouchent. Tout ce qui la porte est
+       calé au-dessus de ce plancher, et c'est pour ça que le corps de
+       texte, lui, ne la porte pas. */
+    font-size: 1.1rem;
   }
 
   .group-who {
@@ -887,7 +892,7 @@
 
   .group-hint {
     color: #b9b9cc;
-    font-size: 0.9rem;
+    font-size: 1.05rem;
   }
 
   .group-action {
@@ -898,7 +903,7 @@
     border-radius: 7px;
     cursor: pointer;
     font-family: var(--display);
-    font-size: 0.85rem;
+    font-size: 1.05rem;
   }
 
   .group-action:hover {
@@ -929,8 +934,8 @@
     padding: 0.3rem 0.6rem;
     border-radius: 0;
     font-family: var(--display);
-    font-size: 0.9rem;
-    min-width: 12rem;
+    font-size: 1.1rem;
+    min-width: 13rem;
     flex-shrink: 1;
   }
 
@@ -961,7 +966,7 @@
     border-radius: 9px;
     cursor: pointer;
     font-family: var(--display);
-    font-size: 0.9rem;
+    font-size: 1.1rem;
     flex-shrink: 0;
   }
 
@@ -998,7 +1003,7 @@
   .sync-note {
     margin: 0.25rem 0 0 0;
     font-family: var(--display);
-    font-size: 0.9rem;
+    font-size: 1.1rem;
     color: var(--label);
     text-shadow: 2px 2px 0 var(--deep);
   }
@@ -1018,7 +1023,7 @@
      employait - la couleur ne fait pas le contraste, l'ombre le fait. */
   h1 {
     font-family: var(--display);
-    font-size: 1.75rem;
+    font-size: 2.1rem;
     font-weight: 700;
     letter-spacing: 0;
     margin: 0 0 0.2rem 0;
@@ -1028,7 +1033,7 @@
 
   .subtitle {
     font-family: var(--display);
-    font-size: 0.95rem;
+    font-size: 1.15rem;
     color: var(--label);
     text-shadow: 2px 2px 0 var(--deep);
     margin: 0;
@@ -1071,7 +1076,7 @@
 
   .empty-state h2 {
     font-family: var(--display);
-    font-size: 1.6rem;
+    font-size: 1.95rem;
     margin: 0 0 0.75rem 0;
     color: var(--ink);
   }
@@ -1092,7 +1097,7 @@
     padding: 0.8rem 2rem;
     border-radius: 10px;
     font-family: var(--display);
-    font-size: 1.05rem;
+    font-size: 1.25rem;
     transition: transform 0.2s;
   }
 
