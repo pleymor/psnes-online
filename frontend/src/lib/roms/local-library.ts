@@ -180,18 +180,42 @@ export async function ensureWriteAccess(handle: FileSystemDirectoryHandle): Prom
 }
 
 /**
+ * Why the player's folder did not receive the file - or that it did.
+ *
+ * A boolean was not enough, and that cost a round trip on 2026-09-10: "le
+ * fichier n'est pas dans mon dossier de roms" had four possible causes and
+ * only one of them, `no-permission`, has a remedy the player can apply
+ * themselves. On the same model as `MissReason` in `provider.ts`.
+ */
+export type FolderWrite =
+	/** The file is in the folder. */
+	| 'written'
+	/** No directory picker in this browser; the device store is all there is. */
+	| 'no-picker'
+	/** No folder has ever been chosen on this device. */
+	| 'no-folder'
+	/** A folder is stored, but writing to it was never granted - profile page. */
+	| 'no-permission'
+	/** The write itself failed: a folder that moved, a full disk, a refused name. */
+	| 'failed';
+
+/**
  * Writes a ROM into the player's folder, if that is possible without asking.
  *
- * Best effort by design, and it says so by returning a boolean rather than
- * throwing: this runs while a game is on screen, the answer changes nothing
+ * Best effort by design, and it says so by returning an outcome rather than
+ * throwing: this can run while a game is on screen, the answer changes nothing
  * the player asked for - the bytes are kept in the device store either way -
  * and the one thing it must not do is interrupt.
  */
-export async function writeRomToFolder(name: string, bytes: Uint8Array): Promise<boolean> {
+export async function writeRomToFolder(name: string, bytes: Uint8Array): Promise<FolderWrite> {
 	try {
-		if (!supportsDirectoryPicker()) return false;
+		if (!supportsDirectoryPicker()) return 'no-picker';
 		const handle = await storedDirectory();
-		if (!handle || !(await hasWriteAccess(handle))) return false;
+		if (!handle) return 'no-folder';
+		// La permission d'écriture est distincte de celle de lecture, et aucun
+		// dossier choisi avant le 2026-09-10 ne l'a accordée : le sélecteur
+		// demandait `mode: 'read'`. Le geste vit sur le panneau ROMs du profil.
+		if (!(await hasWriteAccess(handle))) return 'no-permission';
 
 		const file = await handle.getFileHandle(name, { create: true });
 		const writable = await (
@@ -199,12 +223,13 @@ export async function writeRomToFolder(name: string, bytes: Uint8Array): Promise
 		).createWritable();
 		await writable.write(bytes);
 		await writable.close();
-		return true;
+		return 'written';
 	} catch {
 		// A folder that moved, a disk that is full, a name the filesystem
-		// refuses. None of it is worth a word on screen: the game is running
-		// and the bytes are safe in the device store.
-		return false;
+		// refuses. None of it is worth a word on screen - the bytes are safe
+		// in the device store - but the caller logs it, so it is no longer
+		// invisible.
+		return 'failed';
 	}
 }
 

@@ -78,7 +78,14 @@ export function sharing(): Sharing {
       // Accepter, c'est avoir le jeu : les octets ET la fiche. Garder sans
       // inscrire laissait le joueur sans carte à cliquer, ce que le
       // 2026-09-10 a déjà appris une fois.
-      await keepReceived(bytes, { title });
+      await keepReceived(bytes, {
+        title,
+        // Le dossier renonçait sans un mot, et « le fichier n'est pas dans
+        // mon dossier de roms » avait quatre causes possibles. `no-permission`
+        // est la seule qui ait un remède que le joueur applique lui-même,
+        // sur le panneau ROMs de son profil.
+        onFolder: (outcome) => logger.info('the ROM folder', { outcome })
+      });
       try {
         await registerGame(crc32, romFileName(title, crc32));
         /*

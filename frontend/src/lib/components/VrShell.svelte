@@ -2067,7 +2067,10 @@
    */
   async function keepAndRegister(bytes: Uint8Array, crc32: string): Promise<void> {
     const title = $myRoom?.gameTitle ?? '';
-    await keepReceived(bytes, { title });
+    await keepReceived(bytes, {
+      title,
+      onFolder: (outcome) => logger.info('the ROM folder', { outcome })
+    });
     try {
       await registerGame(crc32, romFileName(title, crc32));
     } catch (err) {
