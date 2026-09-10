@@ -106,6 +106,7 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
   const games = db.prepare(`
     SELECT g.*,
            k.metadataId AS linkedMetadataId,
+           m.altTitle AS metaAltTitle, m.source AS metaSource,
            m.title AS metaTitle, m.genre AS metaGenre, m.publisher AS metaPublisher,
            m.developer AS metaDeveloper, m.releaseDate AS metaReleaseDate,
            m.players AS metaPlayers, m.region AS metaRegion,
@@ -117,6 +118,7 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
     ORDER BY g.uploadedAt DESC
   `).all(userId) as (GameRow & {
     linkedMetadataId: string | null;
+    metaAltTitle: string | null; metaSource: string | null;
     metaTitle: string | null; metaGenre: string | null; metaPublisher: string | null;
     metaDeveloper: string | null; metaReleaseDate: string | null; metaPlayers: string | null;
     metaRegion: string | null; metaDescription: string | null; metaCoverUrl: string | null;
@@ -161,6 +163,16 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
       ...mergeIdentity(game, identity),
       saves: byGame.get(row.id) ?? [],
       metadataId: row.linkedMetadataId,
+      /*
+       * Beside the merged fields rather than among them, and on purpose.
+       * `mergeIdentity` produces a Game, and neither of these is one: they
+       * exist so the correction form can open filled in - `altTitle` is the
+       * one descriptive field nothing displays, so it is the one a form would
+       * silently blank - and so the library knows whether correcting is even
+       * offered, since a shipped row would lose the edit at the next deploy.
+       */
+      metadataAltTitle: row.metaAltTitle,
+      metadataSource: row.metaSource,
       needsIdentification: needsIdentification(game, identity)
     };
   });
@@ -192,6 +204,33 @@ export function findGameByChecksum(db: Database, userId: string, crc32: string):
   const row = db.prepare(`SELECT * FROM "Game" WHERE userId = ? AND crc32 = ?`)
     .get(userId, crc32) as GameRow | undefined;
   return row ? toGame(row) : null;
+}
+
+/**
+ * Whether this player holds a dump that the given catalogue entry describes.
+ *
+ * The permission to correct an entry, expressed as a query. A catalogue entry
+ * reaches every owner of the CRC32 it is claimed by, so the person who can see
+ * that it is wrong is any one of them - and equally, someone who owns none of
+ * them has no business rewriting what everyone else reads. Contributing it is
+ * deliberately not the test: the player who wrote a typo is rarely the one who
+ * notices it.
+ *
+ * The join goes through the link table rather than through `Game.crc32` alone,
+ * because owning a game is not owning the catalogue: the dump has to be
+ * claimed by THIS entry.
+ */
+export function ownsDumpLinkedTo(db: Database, userId: string, metadataId: string): boolean {
+  // Truthiness, not `!== undefined`: bun:sqlite answers a miss with null, and
+  // `null !== undefined` is true - which made this return "yes" for everyone.
+  const row = db.prepare(`
+    SELECT 1 AS ok
+      FROM "Game" g
+      JOIN "GameMetadataChecksum" k ON k.crc32 = g.crc32
+     WHERE g.userId = ? AND k.metadataId = ?
+     LIMIT 1
+  `).get(userId, metadataId) as { ok: number } | null;
+  return Boolean(row);
 }
 
 export function findOtherGameWithChecksum(

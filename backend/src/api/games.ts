@@ -10,7 +10,7 @@ import {
 import { findGameMetadataById, insertCommunityMetadata } from '../db/game-metadata.js';
 import { deleteSave, findSaveOwnership } from '../db/saves.js';
 import { canDeleteSave } from '../saves/can-delete.js';
-import { findLinkByChecksum, linkChecksum } from '../db/metadata-links.js';
+import { findLinkByChecksum, claimChecksum } from '../db/metadata-links.js';
 import { invalidateMetadataCache } from '../services/metadata-loader.js';
 import { sanitiseEntry } from './entry-input.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -124,7 +124,7 @@ gamesRouter.patch('/:gameId/checksum', asyncHandler(async (req, res) => {
 }));
 
 /**
- * Says which game a ROM is, for everyone.
+ * Says which game a ROM is, for everyone - and says it again when it was wrong.
  *
  * Either the player points at an entry that already exists, or they write one.
  * Both end in the same place: a row in "GameMetadataChecksum" claiming this
@@ -132,6 +132,15 @@ gamesRouter.patch('/:gameId/checksum', asyncHandler(async (req, res) => {
  * player, which is why it reaches every other owner of the same dump - and why
  * creating an entry without linking it is not offered: the entry exists
  * *because* a ROM was looking for it.
+ *
+ * A dump that is already claimed used to be answered with 409, whatever was
+ * asked. That made the first answer final: pick the wrong game once and
+ * nothing could re-point it, and the `entry` branch below was unreachable too,
+ * so writing a corrected entry failed the same way. Meanwhile the library
+ * offered "complete the entry" on every identified game - a button that could
+ * not succeed. `claimChecksum` is an upsert now, and anyone who holds the dump
+ * may re-point it: a wrong entry is wrong for all of them, and the person
+ * looking at it is the person who can see that it is wrong.
  */
 gamesRouter.post('/:gameId/identify', asyncHandler(async (req, res) => {
   const user = req.user as User;
@@ -145,27 +154,19 @@ gamesRouter.post('/:gameId/identify', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Link a ROM to this game before identifying it' });
   }
 
+  // Pressing the button twice, or two tabs agreeing, writes nothing: the
+  // answer is already the one being given, and re-running the upsert would
+  // only move the credit for a correction nobody made.
   const claimed = findLinkByChecksum(db, game.crc32);
-  if (claimed) {
-    if (claimed.metadataId === metadataId) {
-      // Idempotent rather than a conflict: pressing the button twice, or two
-      // tabs agreeing, is not an error.
-      return res.json({ metadataId: claimed.metadataId });
-    }
-    // Not really a failure. If this dump is claimed, its metadata already
-    // applies everywhere - so the caller is looking at a stale library, and the
-    // useful answer is what the dump actually is.
-    return res.status(409).json({
-      error: 'This ROM has already been identified',
-      metadata: findGameMetadataById(db, claimed.metadataId)
-    });
+  if (claimed && claimed.metadataId === metadataId) {
+    return res.json({ metadataId: claimed.metadataId });
   }
 
   if (typeof metadataId === 'string') {
     if (!findGameMetadataById(db, metadataId)) {
       return res.status(404).json({ error: 'No such catalogue entry' });
     }
-    linkChecksum(db, { crc32: game.crc32, metadataId, contributedBy: user.id });
+    claimChecksum(db, { crc32: game.crc32, metadataId, contributedBy: user.id });
     logger.info({ crc32: game.crc32, metadataId, by: user.id }, 'ROM linked to a catalogue entry');
     return res.json({ metadataId });
   }
@@ -174,7 +175,7 @@ gamesRouter.post('/:gameId/identify', asyncHandler(async (req, res) => {
     const checksum = game.crc32;
     const created = db.transaction(() => {
       const meta = insertCommunityMetadata(db, sanitiseEntry(entry, game.title), user.id);
-      linkChecksum(db, { crc32: checksum, metadataId: meta.id, contributedBy: user.id });
+      claimChecksum(db, { crc32: checksum, metadataId: meta.id, contributedBy: user.id });
       return meta;
     })();
     // The cache feeds the title matcher and the search: without this the entry

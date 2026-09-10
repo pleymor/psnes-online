@@ -11,10 +11,16 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { migratedDb, insertUser } from './helpers.js';
 import {
-  findGameMetadataById, insertCommunityMetadata, setCover, findCover,
-  listGameMetadata, countGameMetadata
+  findGameMetadataById, insertCommunityMetadata, updateCommunityMetadata, setCover, findCover,
+  listGameMetadata, countGameMetadata, insertGameMetadataBatch
 } from '../src/db/game-metadata.js';
-import { findLinkByChecksum, linkChecksum } from '../src/db/metadata-links.js';
+import { findLinkByChecksum, claimChecksum } from '../src/db/metadata-links.js';
+
+/** How many claims exist for a dump - one, or the primary key has stopped working. */
+function countLinks(db: ReturnType<typeof migratedDb>, crc32: string): number {
+  return (db.prepare(`SELECT COUNT(*) AS n FROM "GameMetadataChecksum" WHERE crc32 = ?`)
+    .get(crc32) as { n: number }).n;
+}
 
 const EMPTY = {
   altTitle: null, genre: null, publisher: null, developer: null,
@@ -54,7 +60,7 @@ test('a checksum links to an entry and is found again', () => {
   const user = insertUser(db);
   const meta = insertCommunityMetadata(db, { title: 'Rendering Ranger R2', ...EMPTY }, user.id);
 
-  const link = linkChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: user.id });
+  const link = claimChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: user.id });
 
   assert.equal(link.metadataId, meta.id);
   assert.ok(link.createdAt instanceof Date);
@@ -62,26 +68,89 @@ test('a checksum links to an entry and is found again', () => {
   assert.equal(findLinkByChecksum(db, 'CAFEBABE'), null);
 });
 
-test('one dump cannot belong to two games', () => {
+test('one dump belongs to one game: a second claim replaces the first', () => {
   const db = migratedDb();
   const user = insertUser(db);
   const first = insertCommunityMetadata(db, { title: 'First', ...EMPTY }, user.id);
   const second = insertCommunityMetadata(db, { title: 'Second', ...EMPTY }, user.id);
-  linkChecksum(db, { crc32: 'DEADBEEF', metadataId: first.id, contributedBy: user.id });
+  claimChecksum(db, { crc32: 'DEADBEEF', metadataId: first.id, contributedBy: user.id });
 
-  // Refused by the primary key, not by an application guard someone could
-  // forget to write at the next call site.
-  assert.throws(
-    () => linkChecksum(db, { crc32: 'DEADBEEF', metadataId: second.id, contributedBy: user.id }),
-    /UNIQUE constraint failed/
-  );
+  claimChecksum(db, { crc32: 'DEADBEEF', metadataId: second.id, contributedBy: user.id });
+
+  // The primary key still holds the invariant - one row per dump - but the
+  // conflict resolves to a correction instead of throwing. A dump that was
+  // said to be the wrong game has to be sayable again.
+  assert.equal(findLinkByChecksum(db, 'DEADBEEF')!.metadataId, second.id);
+  assert.equal(countLinks(db, 'DEADBEEF'), 1, 'a correction must not leave two claims behind');
+});
+
+test('correcting a claim credits whoever corrected it', () => {
+  const db = migratedDb();
+  const wrote = insertUser(db);
+  const fixed = insertUser(db);
+  const wrong = insertCommunityMetadata(db, { title: 'Wrong', ...EMPTY }, wrote.id);
+  const right = insertCommunityMetadata(db, { title: 'Right', ...EMPTY }, wrote.id);
+  claimChecksum(db, { crc32: 'DEADBEEF', metadataId: wrong.id, contributedBy: wrote.id });
+
+  const link = claimChecksum(db, { crc32: 'DEADBEEF', metadataId: right.id, contributedBy: fixed.id });
+
+  // The claim is a live statement about the world, so the credit follows the
+  // person standing behind it now, not the one who got it wrong.
+  assert.equal(link.metadataId, right.id);
+  assert.equal(link.contributedBy, fixed.id);
+});
+
+test('a community entry can be rewritten in place', () => {
+  const db = migratedDb();
+  const user = insertUser(db);
+  const meta = insertCommunityMetadata(db, { title: 'Typo Here', ...EMPTY, publisher: 'Wrong' }, user.id);
+
+  const fixed = updateCommunityMetadata(db, meta.id, {
+    title: 'Umihara Kawase', ...EMPTY, publisher: 'TNN', releaseDate: '1994'
+  })!;
+
+  // The id is what every link points at, so a correction must keep it: the
+  // alternative is a new entry and a re-point, which loses the covers and the
+  // credit already attached here.
+  assert.equal(fixed.id, meta.id);
+  assert.equal(fixed.title, 'Umihara Kawase');
+  assert.equal(fixed.publisher, 'TNN');
+  assert.equal(fixed.releaseDate, '1994');
+  assert.equal(findGameMetadataById(db, meta.id)!.title, 'Umihara Kawase');
+});
+
+test('rewriting an entry clears the fields left blank', () => {
+  const db = migratedDb();
+  const user = insertUser(db);
+  const meta = insertCommunityMetadata(db, { title: 'Full', ...EMPTY, genre: 'Wrong', region: 'Wrong' }, user.id);
+
+  updateCommunityMetadata(db, meta.id, { title: 'Full', ...EMPTY });
+
+  // The form sends every field every time, so an emptied box means "this was
+  // wrong", not "leave it alone". A merge would make a wrong value unremovable.
+  assert.equal(findGameMetadataById(db, meta.id)!.genre, null);
+  assert.equal(findGameMetadataById(db, meta.id)!.region, null);
+});
+
+test('a shipped catalogue row cannot be rewritten', () => {
+  const db = migratedDb();
+  insertGameMetadataBatch(db, [{ title: 'Shipped', crc32: 'DEADBEEF' }]);
+  const shipped = listGameMetadata(db)[0];
+
+  const refused = updateCommunityMetadata(db, shipped.id, { title: 'Vandalised', ...EMPTY });
+
+  // The JSON refresh deletes and re-inserts every catalogue row, so an edit
+  // here would survive exactly until the next deploy. Refusing says so now
+  // rather than losing the work silently later.
+  assert.equal(refused, null);
+  assert.equal(findGameMetadataById(db, shipped.id)!.title, 'Shipped');
 });
 
 test('deleting an entry takes its links with it', () => {
   const db = migratedDb();
   const user = insertUser(db);
   const meta = insertCommunityMetadata(db, { title: 'Doomed', ...EMPTY }, user.id);
-  linkChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: user.id });
+  claimChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: user.id });
 
   db.prepare(`DELETE FROM "GameMetadata" WHERE id = ?`).run(meta.id);
 
@@ -92,7 +161,7 @@ test('deleting an account keeps the contribution and drops only the credit', () 
   const db = migratedDb();
   const user = insertUser(db);
   const meta = insertCommunityMetadata(db, { title: 'Survivor', ...EMPTY }, user.id);
-  linkChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: user.id });
+  claimChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: user.id });
 
   db.prepare(`DELETE FROM "User" WHERE id = ?`).run(user.id);
 

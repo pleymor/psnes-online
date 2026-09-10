@@ -9,6 +9,12 @@
  * The image is deliberately 1400px wide, so the 512px cap has to bite and the
  * bytes that reach the server are the resized ones, not the file that was
  * picked.
+ *
+ * The last two cover the way back out. Identifying used to be a one-way door -
+ * the server answered 409 to anything about a dump already claimed - so a
+ * wrong answer was permanent, and the client made it worse by closing the
+ * window on the message explaining why. Both halves of the way out are here:
+ * pointing the dump at a different entry, and correcting the entry itself.
  */
 
 import { test, expect, type BrowserContext } from '@playwright/test';
@@ -132,6 +138,82 @@ test.describe('identifying a game in the browser', () => {
 			expect(await img.getAttribute('src')).toMatch(/^\/api\/covers\/[0-9a-f-]+\?v=\d+$/);
 
 			expect(problems, problems.join(' | ')).toEqual([]);
+		} finally {
+			await apiFetch(cookie, `/api/games/${game.id}`, { method: 'DELETE' });
+		}
+	});
+
+	test('a dump named as the wrong game can be pointed at the right one', async ({
+		page,
+		context
+	}) => {
+		const cookie = await loginDev('1');
+		const game = await addUnidentifiedGame(cookie, 'xxx-mistaken.sfc');
+		// Identified through the API: what this test is about is the second
+		// answer, not the first.
+		const wrong = await apiFetch(cookie, `/api/games/${game.id}/identify`, {
+			method: 'POST',
+			body: JSON.stringify({ entry: { title: 'Wrongly Named Game' } })
+		});
+		expect(wrong.ok).toBeTruthy();
+		await seatCookie(context, cookie);
+		await keepRomOnDevice(page, game.crc32);
+
+		try {
+			await page.goto('/');
+			await page.locator('.game-card', { hasText: 'Wrongly Named Game' }).locator('.cover').click();
+			await page.locator('.identify').click();
+
+			await page.locator('input[type="search"]').fill('ActRaiser');
+			const first = page.locator('.result').first();
+			await expect(first).toContainText('ActRaiser');
+			await first.click();
+
+			// This is the click that used to come back 409 and close the window
+			// without a word, leaving the card exactly as it was.
+			await expect(page.locator('.game-card', { hasText: 'ActRaiser' })).toBeVisible();
+			await expect(page.locator('.game-card', { hasText: 'Wrongly Named Game' })).toHaveCount(0);
+		} finally {
+			await apiFetch(cookie, `/api/games/${game.id}`, { method: 'DELETE' });
+		}
+	});
+
+	test('an entry that is right but wrong can be corrected in place', async ({ page, context }) => {
+		const cookie = await loginDev('1');
+		const game = await addUnidentifiedGame(cookie, 'www-typo.sfc');
+		const written = await apiFetch(cookie, `/api/games/${game.id}/identify`, {
+			method: 'POST',
+			body: JSON.stringify({ entry: { title: 'Umihra Kawase', genre: 'Platform' } })
+		});
+		expect(written.ok).toBeTruthy();
+		const { metadataId } = await written.json();
+		await seatCookie(context, cookie);
+		await keepRomOnDevice(page, game.crc32);
+
+		try {
+			await page.goto('/');
+			await page.locator('.game-card', { hasText: 'Umihra Kawase' }).locator('.cover').click();
+			await page.locator('.identify').click();
+
+			await page.getByRole('button', { name: 'Correct this entry' }).click();
+
+			// Filled in with what the entry says today. A form that opened empty
+			// would blank every field the player did not retype.
+			await expect(page.locator('.fields input').first()).toHaveValue('Umihra Kawase');
+			await expect(page.locator('.fields input').nth(1)).toHaveValue('Platform');
+
+			await page.locator('.fields input').first().fill('Umihara Kawase');
+			await page.locator('.primary').click();
+
+			await expect(page.locator('.game-card', { hasText: 'Umihara Kawase' })).toBeVisible();
+
+			// The id did not change: correcting is not creating. Everything
+			// already attached to this entry - its cover, its credit, the other
+			// players' games - stays attached.
+			const after = await apiFetch(cookie, '/api/games');
+			const mine = (await after.json()).find((g: { id: string }) => g.id === game.id);
+			expect(mine.metadataId).toBe(metadataId);
+			expect(mine.title).toBe('Umihara Kawase');
 		} finally {
 			await apiFetch(cookie, `/api/games/${game.id}`, { method: 'DELETE' });
 		}

@@ -22,6 +22,18 @@ export interface Game {
    * makes one player's answer reach everyone holding the same dump.
    */
   metadataId?: string | null;
+  /**
+   * Le titre alternatif de la fiche, et d'où elle vient.
+   *
+   * À part des champs fusionnés au-dessus, parce qu'ils ne décrivent pas le
+   * jeu : ils servent au formulaire de correction. `metadataAltTitle` est le
+   * seul champ descriptif que rien n'affiche, donc le seul qu'un formulaire
+   * effacerait sans que personne le voie ; `metadataSource` dit si corriger
+   * est même proposé - une fiche livrée avec le catalogue perdrait l'édition
+   * au déploiement suivant.
+   */
+  metadataAltTitle?: string | null;
+  metadataSource?: string | null;
   /** Whether nothing at all is known about this game, so the player can say. */
   needsIdentification?: boolean;
   /**

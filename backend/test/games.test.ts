@@ -4,12 +4,12 @@ import { migratedDb, insertUser } from './helpers.js';
 import {
   listGamesWithSaveSummaries, listGamesFor, findGameById, findGameWithSaves,
   findGameByChecksum, findOtherGameWithChecksum, countGamesFor, createGame,
-  updateGameChecksum, updateGameMetadata, deleteGame, findOwnedGameId,
+  updateGameChecksum, updateGameMetadata, deleteGame, findOwnedGameId, ownsDumpLinkedTo,
   findOwnedGameForRoom, saveSram, findSram
 } from '../src/db/games.js';
 import { createSave } from '../src/db/saves.js';
 import { insertCommunityMetadata } from '../src/db/game-metadata.js';
-import { linkChecksum } from '../src/db/metadata-links.js';
+import { claimChecksum } from '../src/db/metadata-links.js';
 
 const NO_METADATA = {
   genre: null, publisher: null, developer: null, releaseDate: null,
@@ -222,7 +222,7 @@ test('the library resolves a game through its checksum link', () => {
   const meta = contribute(db, user.id, {
     title: 'Super Mario World', genre: 'Platform', publisher: 'Nintendo', players: '2'
   });
-  linkChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: user.id });
+  claimChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: user.id });
 
   const [listed] = listGamesWithSaveSummaries(db, user.id);
 
@@ -244,7 +244,7 @@ test('another player with the same dump gets the same identity for free', () => 
   createGame(db, { title: 'copy.sfc', filename: 'copy.sfc', crc32: 'DEADBEEF', userId: two.id, ...NO_METADATA });
 
   const meta = contribute(db, one.id, { title: 'Rendering Ranger R2' });
-  linkChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: one.id });
+  claimChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: one.id });
 
   const [seenByTwo] = listGamesWithSaveSummaries(db, two.id);
 
@@ -287,4 +287,93 @@ test('a game with no checksum at all does not break the join', () => {
 
   assert.equal(listed.metadataId, null);
   assert.equal(listed.title, 'Legacy');
+});
+
+/*
+ * Who may correct a catalogue entry.
+ *
+ * The decision on 2026-09-09 was that anyone holding the dump may, because a
+ * wrong entry is wrong for every one of them and the person looking at it is
+ * the person who can see that it is wrong. "Holding the dump" is the whole
+ * check, and it has to be a real one: the entry reaches every owner of that
+ * CRC32, so a stranger being able to rewrite it would let anybody edit
+ * anything in the catalogue by knowing an id.
+ */
+
+test('someone holding the dump may correct the entry it points at', () => {
+  const db = migratedDb();
+  const user = insertUser(db);
+  createGame(db, { title: 'rom.sfc', filename: 'rom.sfc', crc32: 'DEADBEEF', userId: user.id, ...NO_METADATA });
+  const meta = contribute(db, user.id, { title: 'Umihara Kawase' });
+  claimChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: user.id });
+
+  assert.equal(ownsDumpLinkedTo(db, user.id, meta.id), true);
+});
+
+test('holding the dump is what counts, not having contributed the entry', () => {
+  const db = migratedDb();
+  const wrote = insertUser(db);
+  const holds = insertUser(db);
+  createGame(db, { title: 'copy.sfc', filename: 'copy.sfc', crc32: 'DEADBEEF', userId: holds.id, ...NO_METADATA });
+  const meta = contribute(db, wrote.id, { title: 'Typo' });
+  claimChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: wrote.id });
+
+  // The second player never wrote a word of this entry and can still fix it:
+  // it describes their game too, and they are the one reading it.
+  assert.equal(ownsDumpLinkedTo(db, holds.id, meta.id), true);
+});
+
+test('someone without the dump may not touch the entry', () => {
+  const db = migratedDb();
+  const owner = insertUser(db);
+  const stranger = insertUser(db);
+  createGame(db, { title: 'rom.sfc', filename: 'rom.sfc', crc32: 'DEADBEEF', userId: owner.id, ...NO_METADATA });
+  const meta = contribute(db, owner.id, { title: 'Umihara Kawase' });
+  claimChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: owner.id });
+
+  assert.equal(ownsDumpLinkedTo(db, stranger.id, meta.id), false);
+});
+
+test('a library of other games is not a licence to edit this entry', () => {
+  const db = migratedDb();
+  const user = insertUser(db);
+  createGame(db, { title: 'other.sfc', filename: 'other.sfc', crc32: 'CAFEBABE', userId: user.id, ...NO_METADATA });
+  const mine = contribute(db, user.id, { title: 'Mine' });
+  const theirs = contribute(db, user.id, { title: 'Someone else\'s' });
+  claimChecksum(db, { crc32: 'CAFEBABE', metadataId: mine.id, contributedBy: user.id });
+
+  // Owning a game is not owning the catalogue: the link has to lead to THIS
+  // entry, not merely exist.
+  assert.equal(ownsDumpLinkedTo(db, user.id, theirs.id), false);
+});
+
+test('the library carries what a correction form needs to open filled in', () => {
+  const db = migratedDb();
+  const user = insertUser(db);
+  createGame(db, { title: 'rom.sfc', filename: 'rom.sfc', crc32: 'DEADBEEF', userId: user.id, ...NO_METADATA });
+  const meta = contribute(db, user.id, { title: 'Umihara Kawase', altTitle: '\u3046\u307f\u306f\u3089\u304b\u308f\u305b' });
+  claimChecksum(db, { crc32: 'DEADBEEF', metadataId: meta.id, contributedBy: user.id });
+
+  const [listed] = listGamesWithSaveSummaries(db, user.id);
+
+  /*
+   * `altTitle` is the one descriptive field the listing did not carry, because
+   * nothing displayed it - and a correction form that silently blanks a field
+   * it never received is worse than no form. `source` decides whether the form
+   * is offered at all: a shipped row cannot be edited, since the JSON refresh
+   * would delete the edit at the next deploy.
+   */
+  assert.equal(listed.metadataAltTitle, '\u3046\u307f\u306f\u3089\u304b\u308f\u305b');
+  assert.equal(listed.metadataSource, 'community');
+});
+
+test('a game nothing has claimed carries neither', () => {
+  const db = migratedDb();
+  const user = insertUser(db);
+  createGame(db, { title: 'unknown.sfc', filename: 'unknown.sfc', crc32: 'CAFEBABE', userId: user.id, ...NO_METADATA });
+
+  const [listed] = listGamesWithSaveSummaries(db, user.id);
+
+  assert.equal(listed.metadataAltTitle, null);
+  assert.equal(listed.metadataSource, null);
 });

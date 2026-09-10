@@ -3,7 +3,9 @@ import { User } from '../types/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 import { getDb } from '../db/sqlite.js';
-import { findGameMetadataById, setCover } from '../db/game-metadata.js';
+import { findGameMetadataById, setCover, updateCommunityMetadata } from '../db/game-metadata.js';
+import { ownsDumpLinkedTo } from '../db/games.js';
+import { sanitiseEntry } from './entry-input.js';
 import { cachedCatalogue, invalidateMetadataCache } from '../services/metadata-loader.js';
 import { rankCatalogue } from '../services/catalogue-search.js';
 import { imageKindOf } from '../utils/image-kind.js';
@@ -21,6 +23,48 @@ metadataRouter.use(requireAuth);
 metadataRouter.get('/search', asyncHandler(async (req, res) => {
   const q = typeof req.query.q === 'string' ? req.query.q : '';
   res.json(rankCatalogue(cachedCatalogue(), q));
+}));
+
+/**
+ * Fixing an entry that is wrong.
+ *
+ * Identifying a dump used to be a one-way door: the link could not be
+ * re-pointed and the entry itself could not be touched, so a typo, a wrong
+ * publisher or a half-filled row stayed that way for everyone holding the
+ * dump. Re-pointing lives on `POST /games/:id/identify`; this is the other
+ * half, for when the entry is the right one and merely wrong.
+ *
+ * Anyone holding the dump may write here - the decision on 2026-09-09 - and
+ * `ownsDumpLinkedTo` is the whole of it. Contributing the entry is
+ * deliberately not the test: the player who wrote a typo is rarely the one
+ * who notices it, and the entry describes every one of their games equally.
+ * The cost, named at the time, is that nothing records who changed what.
+ *
+ * PUT and not PATCH because `sanitiseEntry` replaces every descriptive field:
+ * the form sends all of them, so an emptied box means "this was wrong".
+ */
+metadataRouter.put('/:metadataId', asyncHandler(async (req, res) => {
+  const user = req.user as User;
+  const db = getDb();
+
+  const existing = findGameMetadataById(db, req.params.metadataId);
+  if (!existing) return res.status(404).json({ error: 'No such catalogue entry' });
+  if (!ownsDumpLinkedTo(db, user.id, existing.id)) {
+    return res.status(403).json({ error: 'Only a player who has this game can correct its entry' });
+  }
+
+  const updated = updateCommunityMetadata(db, existing.id, sanitiseEntry(req.body, existing.title));
+  if (!updated) {
+    // `updateCommunityMetadata` refuses a shipped row, and says why: the JSON
+    // refresh would delete the edit at the next deploy. Pointing the dump at a
+    // new entry is the way to correct one of those.
+    return res.status(409).json({ error: 'This entry ships with the catalogue and cannot be edited' });
+  }
+
+  // The cache feeds the title matcher and the search, so a correction that
+  // does not invalidate it is invisible until the container restarts.
+  invalidateMetadataCache();
+  res.json({ metadata: updated });
 }));
 
 /**
@@ -44,8 +88,11 @@ metadataRouter.put(
 
     const entry = findGameMetadataById(db, req.params.metadataId);
     if (!entry) return res.status(404).json({ error: 'No such catalogue entry' });
-    if (entry.contributedBy !== user.id) {
-      return res.status(403).json({ error: 'Not authorized' });
+    // The same rule as the edit above, and for the same reason: this was
+    // `contributedBy === user.id`, which would have let a player fix every
+    // word of an entry except its picture.
+    if (!ownsDumpLinkedTo(db, user.id, entry.id)) {
+      return res.status(403).json({ error: 'Only a player who has this game can correct its entry' });
     }
 
     // A Content-Type outside the three above is never parsed here, so the body

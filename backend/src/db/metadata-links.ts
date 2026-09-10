@@ -40,21 +40,32 @@ export function findLinkByChecksum(db: Database, crc32: string): MetadataLink | 
 }
 
 /**
- * Claims a checksum for an entry.
+ * Claims a checksum for an entry, or re-points a claim that was wrong.
  *
- * Throws on a checksum already claimed: `crc32` is the primary key, because a
- * CRC32 names an exact dump and so belongs to at most one game. Callers read
- * the existing link first and turn the collision into an answer the player can
- * act on, rather than letting this throw reach them.
+ * `crc32` is the primary key, because a CRC32 names an exact dump and so
+ * belongs to at most one game - and that invariant is the reason this is an
+ * upsert rather than two functions. A player who says a dump is the wrong
+ * game has to be able to say otherwise afterwards, and the alternative to
+ * replacing the row is a second row the key would refuse anyway.
+ *
+ * `contributedBy` follows the correction. The row is a live statement about
+ * the world, not a record of who said it first, so the credit belongs to
+ * whoever is standing behind it now.
+ *
+ * `createdAt` does not move: it says when this dump was first identified,
+ * which stays true across a correction.
  */
-export function linkChecksum(
-  db: Database,
-  input: { crc32: string; metadataId: string; contributedBy: string | null }
+export function claimChecksum(
+	db: Database,
+	input: { crc32: string; metadataId: string; contributedBy: string | null }
 ): MetadataLink {
-  const now = Date.now();
-  db.prepare(`
-    INSERT INTO "GameMetadataChecksum" (crc32, metadataId, contributedBy, createdAt)
-    VALUES (@crc32, @metadataId, @contributedBy, @now)
-  `).run({ ...input, now });
-  return findLinkByChecksum(db, input.crc32)!;
+	const now = Date.now();
+	db.prepare(`
+		INSERT INTO "GameMetadataChecksum" (crc32, metadataId, contributedBy, createdAt)
+		VALUES (@crc32, @metadataId, @contributedBy, @now)
+		ON CONFLICT(crc32) DO UPDATE SET
+			metadataId = excluded.metadataId,
+			contributedBy = excluded.contributedBy
+	`).run({ ...input, now });
+	return findLinkByChecksum(db, input.crc32)!;
 }

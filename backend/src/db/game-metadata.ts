@@ -194,6 +194,42 @@ export function insertCommunityMetadata(
 }
 
 /**
+ * Rewrites an entry a player wrote.
+ *
+ * Every descriptive column is replaced, not merged: the form sends all of them
+ * every time, so a box left empty means "this was wrong" rather than "leave it
+ * alone". A merge would make a wrong value impossible to remove.
+ *
+ * `source = 'community'` in the WHERE is the whole of the authorisation this
+ * layer performs, and it is not about who may edit - `ownsDumpLinkedTo` answers
+ * that upstream. It is about what an edit would be worth: the JSON refresh
+ * deletes and re-inserts every catalogue row (`deleteCatalogueMetadata`), so an
+ * edit to a shipped one survives exactly until the next deploy. Returning null
+ * says so now instead of losing the work silently later.
+ *
+ * The cover is untouched: it has its own write in `setCover`, and it is the one
+ * field the form does not carry.
+ */
+export function updateCommunityMetadata(
+  db: Database,
+  id: string,
+  entry: CommunityEntryInput
+): GameMetadata | null {
+  const changed = db.prepare(`
+    UPDATE "GameMetadata"
+       SET title = @title, altTitle = @altTitle, genre = @genre,
+           publisher = @publisher, developer = @developer,
+           releaseDate = @releaseDate, players = @players, region = @region,
+           description = @description, updatedAt = @now
+     WHERE id = @id AND source = 'community'
+  `).run({ id, now: Date.now(), ...entry });
+
+  // bun:sqlite reports the rows the statement touched; zero means the id was
+  // unknown or the row is a shipped one, and both answer "no".
+  return changed.changes === 0 ? null : findGameMetadataById(db, id);
+}
+
+/**
  * Stores a cover and returns the URL that serves it.
  *
  * The URL carries the write's timestamp. Without it the response could not be
