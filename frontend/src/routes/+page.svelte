@@ -856,6 +856,10 @@
        sous les panneaux gris foncé de /profile, /docs et /room, qui
        peignent les leurs et n'ont pas été refaits. */
     background: var(--sky);
+    /* Le pied de page termine cette colonne, donc il en prend la largeur
+       au lieu de son plafond de lecture de 60 rem. Il hérite par la
+       propriété, seule voie qui traverse le scopage de Svelte. */
+    --footer-width: none;
   }
 
   .page-header {

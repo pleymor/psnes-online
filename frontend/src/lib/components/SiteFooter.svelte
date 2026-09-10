@@ -44,7 +44,15 @@
        Le compromis était signalé le matin même ; la reprise de la
        bibliothèque l'a rendu visible. */
     width: 100%;
-    max-width: 60rem;
+    /* 60 rem par défaut, pour la page de connexion : là le pied de page
+       est à la racine du document, donc sans plafond il barrerait un
+       écran de 27 pouces d'un bout à l'autre. La bibliothèque, elle, le
+       relève à la largeur de sa colonne de contenu - une plaque plus
+       courte que la grille qu'elle termine se lisait comme un décalage.
+       Une propriété personnalisée et non une prop : elle traverse la
+       frontière du composant, que le scopage de Svelte ferme au CSS du
+       parent. */
+    max-width: var(--footer-width, 60rem);
     margin: 2.5rem 0 3rem;
     padding: 1.25rem 1.25rem 1.5rem;
     background: var(--panel);
