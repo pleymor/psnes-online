@@ -62,6 +62,20 @@ export interface SharingDeps {
 	 */
 	inLibrary(crc32: string): Promise<boolean>;
 	/**
+	 * Demander au dossier du joueur le droit d'y écrire, si ce n'est pas déjà
+	 * accordé.
+	 *
+	 * Appelé en premier dans `accept`, et c'est une contrainte du navigateur
+	 * plutôt qu'un choix : `requestPermission` exige une activation
+	 * transitoire, et chaque `await` la consomme - demandée après le transfert
+	 * elle serait rejetée. C'est aussi le bon moment humainement, et c'est
+	 * tout l'intérêt d'avoir sorti le partage du lancement : personne ne joue,
+	 * donc une boîte de dialogue native ne fait caler personne. La question
+	 * posée à côté d'une partie, elle, n'en demande toujours pas - voir
+	 * `keep-offer.ts`.
+	 */
+	grantFolderWrite(): Promise<void>;
+	/**
 	 * Attend le transfert, une fois la demande partie.
 	 *
 	 * Le salon vient de l'offre, comme la réponse : la demande d'acceptation
@@ -170,6 +184,10 @@ export function createSharing(deps: SharingDeps): Sharing {
 			// prend le relais, et une carte qui reste pendant l'envoi invite à
 			// re-cliquer.
 			offered.set(null);
+
+			// Avant tout `await` qui compte : l'activation du clic est ce qui
+			// autorise l'invite, et elle ne survit pas au transfert.
+			await deps.grantFolderWrite();
 
 			try {
 				/*
