@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { getDb } from '../db/sqlite.js';
 import {
   countGameMetadata, insertGameMetadataBatch, listGameMetadata,
-  findGameMetadataByChecksum as findMetadataRowByChecksum, deleteCatalogueMetadata
+  findGameMetadataByChecksum as findMetadataRowByChecksum, syncCatalogue
 } from '../db/game-metadata.js';
 import { createLogger } from '../utils/logger.js';
 import type { GameMetadata } from '../db/types.js';
@@ -218,11 +218,23 @@ export async function findGameMetadataByChecksum(checksum: string): Promise<any 
  * malformed entry leaves the previous catalogue exactly as it was, instead of
  * an empty table between a committed delete and an insert that never happens.
  *
- * The delete is limited to the rows this file owns. Anything a player
- * contributed is not the file's to reclaim, and an unqualified delete here is
- * what would silently swallow every contribution on the next refresh.
+ * Run on purpose, never at startup. It used to run at every backend start -
+ * every deploy - and the owner's call on 2026-09-10 was to stop that: a
+ * catalogue that rewrites itself whenever a container restarts is a catalogue
+ * nobody can build on. `db/catalogue-cli.ts` is the way in now.
+ *
+ * Nothing shipped is deleted and recreated any more: `syncCatalogue` matches
+ * the file against the rows by title and updates them in place. Delete and
+ * reinsert minted a new id per row on every backend start - every deploy - and
+ * `GameMetadataChecksum.metadataId` is `ON DELETE CASCADE`, so every game
+ * identified against a shipped entry lost its identification, and every cover
+ * a player had uploaded went with the row. That is the whole of "je perds mes
+ * jaquettes et descriptions à chaque deploy", reported on 2026-09-10.
+ *
+ * What a player contributed is still not the file's to reclaim: `syncCatalogue`
+ * only ever touches `source = 'catalogue'`.
  */
-export async function refreshGameMetadata(metadataPath: string = DEFAULT_METADATA_PATH): Promise<void> {
+export async function refreshGameMetadata(metadataPath: string = DEFAULT_METADATA_PATH): Promise<boolean> {
   logger.info('Refreshing game metadata...');
 
   let entries: GameMetadataEntry[];
@@ -234,21 +246,21 @@ export async function refreshGameMetadata(metadataPath: string = DEFAULT_METADAT
     } else {
       logger.error({ err: error }, 'Failed to read game metadata file, keeping existing catalogue');
     }
-    return;
+    return false;
   }
 
   const db = getDb();
   try {
     db.transaction(() => {
-      deleteCatalogueMetadata(db);
-      insertGameMetadataBatch(db, toMetadataInputs(entries));
+      syncCatalogue(db, toMetadataInputs(entries));
     })();
   } catch (error) {
     logger.error({ err: error }, 'Failed to refresh game metadata, keeping existing catalogue');
-    return;
+    return false;
   }
 
   // Clear and reload the cache only once the new catalogue has actually landed.
   metadataCache = listGameMetadata(db);
   logger.info({ count: metadataCache.length }, 'Refreshed metadata entries in memory');
+  return true;
 }

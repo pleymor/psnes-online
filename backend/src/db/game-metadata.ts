@@ -119,6 +119,82 @@ export function insertGameMetadataBatch(db: Database, entries: GameMetadataInput
   return run(entries);
 }
 
+/**
+ * Brings the shipped catalogue in line with the file, without destroying it.
+ *
+ * This used to be a DELETE of every `source = 'catalogue'` row followed by an
+ * INSERT of the file, and `insertGameMetadataBatch` mints a fresh
+ * `randomUUID()` per row - so every shipped entry changed identity at every
+ * backend start, which is every deploy. `GameMetadataChecksum.metadataId` is
+ * `ON DELETE CASCADE`, and a player's uploaded cover lives in the row itself,
+ * so both went with it. Production on 2026-09-10 had 65 games in libraries,
+ * 1475 catalogue rows and **2 surviving links** - the only two pointing at
+ * community entries. Reported as "je perds mes jaquettes et descriptions à
+ * chaque deploy", and that is exactly what it was.
+ *
+ * The title is the key. The file carries no id, no crc32 and no md5 - only
+ * titles, and all 1475 of them are distinct - so it is the only stable handle
+ * there is. A title the file renames therefore still reads as one entry
+ * leaving and another arriving, and the link on the old one is lost; that is
+ * a real limit, and the remedy is an id in the file, not a cleverer match.
+ *
+ * A cover a player uploaded is never overwritten. The file carries its own
+ * `coverUrl`, and reapplying it would erase the one image here that cannot be
+ * regenerated from anything.
+ */
+export function syncCatalogue(db: Database, entries: GameMetadataInput[]): void {
+  const existing = db.prepare(`
+    SELECT id, title, cover IS NOT NULL AS hasCover FROM "GameMetadata" WHERE source = 'catalogue'
+  `).all() as { id: string; title: string; hasCover: number }[];
+  const byTitle = new Map(existing.map(row => [row.title, row]));
+
+  const update = db.prepare(`
+    UPDATE "GameMetadata"
+       SET altTitle = @altTitle, genre = @genre, publisher = @publisher,
+           developer = @developer, releaseDate = @releaseDate, players = @players,
+           region = @region, description = @description, crc32 = @crc32, md5 = @md5,
+           updatedAt = @now
+     WHERE id = @id
+  `);
+  // Two statements rather than one with a CASE: the cover columns are the
+  // whole difference, and a row the player has illustrated must not have its
+  // `coverUrl` rewritten to the file's.
+  const updateWithCover = db.prepare(`
+    UPDATE "GameMetadata"
+       SET altTitle = @altTitle, genre = @genre, publisher = @publisher,
+           developer = @developer, releaseDate = @releaseDate, players = @players,
+           region = @region, description = @description, crc32 = @crc32, md5 = @md5,
+           coverUrl = @coverUrl, updatedAt = @now
+     WHERE id = @id
+  `);
+  const insert = db.prepare(INSERT);
+  const remove = db.prepare(`DELETE FROM "GameMetadata" WHERE id = ?`);
+
+  const now = Date.now();
+  const seen = new Set<string>();
+
+  for (const entry of entries) {
+    const row = normalise(entry);
+    seen.add(row.title);
+    const found = byTitle.get(row.title);
+
+    if (!found) {
+      insert.run({ id: randomUUID(), now, ...row });
+    } else if (found.hasCover) {
+      const { coverUrl, ...rest } = row;
+      update.run({ ...rest, id: found.id, now });
+    } else {
+      updateWithCover.run({ ...row, id: found.id, now });
+    }
+  }
+
+  // Only the titles the file has actually dropped. Their links go with them,
+  // which is right: the entry they named no longer exists.
+  for (const row of existing) {
+    if (!seen.has(row.title)) remove.run(row.id);
+  }
+}
+
 export function listGameMetadata(db: Database): GameMetadata[] {
   const rows = db.prepare(`SELECT ${COLUMNS} FROM "GameMetadata"`).all() as MetadataRow[];
   return rows.map(toMetadata);
@@ -130,16 +206,6 @@ export function findGameMetadataByChecksum(db: Database, checksum: string): Game
   return row ? toMetadata(row) : null;
 }
 
-/**
- * Drops the rows the JSON file owns, and only those.
- *
- * The refresh path deletes the catalogue and reinserts it from the file. Before
- * the source column existed this was an unqualified DELETE, so anything a
- * player had contributed vanished on the next refresh.
- */
-export function deleteCatalogueMetadata(db: Database): void {
-  db.prepare(`DELETE FROM "GameMetadata" WHERE source = 'catalogue'`).run();
-}
 
 /**
  * What a player may fill in.
@@ -202,10 +268,11 @@ export function insertCommunityMetadata(
  *
  * `source = 'community'` in the WHERE is the whole of the authorisation this
  * layer performs, and it is not about who may edit - `ownsDumpLinkedTo` answers
- * that upstream. It is about what an edit would be worth: the JSON refresh
- * deletes and re-inserts every catalogue row (`deleteCatalogueMetadata`), so an
- * edit to a shipped one survives exactly until the next deploy. Returning null
- * says so now instead of losing the work silently later.
+ * that upstream. It is about what an edit would be worth: `syncCatalogue`
+ * overwrites every shipped row from the file, so an edit to one survives only
+ * until the next catalogue sync. Returning null says so now instead of losing
+ * the work silently later - and the UI answers it by writing a community copy
+ * and pointing the dump at that instead.
  *
  * The cover is untouched: it has its own write in `setCover`, and it is the one
  * field the form does not carry.

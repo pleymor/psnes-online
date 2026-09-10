@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { migratedDb } from './helpers.js';
 import {
   countGameMetadata, listGameMetadata,
-  findGameMetadataByChecksum, deleteCatalogueMetadata, insertGameMetadataBatch
+  findGameMetadataByChecksum, insertGameMetadataBatch
 } from '../src/db/game-metadata.js';
 
 const ENTRY = {
@@ -64,15 +64,6 @@ test('the batch insert loads a whole catalogue at once', () => {
   assert.equal(countGameMetadata(db), 200);
 });
 
-test('refreshing clears the catalogue', () => {
-  const db = migratedDb();
-  insertGameMetadataBatch(db, [ENTRY]);
-
-  deleteCatalogueMetadata(db);
-
-  assert.equal(countGameMetadata(db), 0);
-});
-
 test('a batch that fails partway through leaves nothing behind', () => {
   const db = migratedDb();
   // "title" is NOT NULL: the third row breaks the whole batch. If the batch
@@ -115,20 +106,6 @@ test('a batch insert is catalogue-owned by default', () => {
   assert.equal(listed.source, 'catalogue');
   assert.equal(listed.contributedBy, null);
   assert.equal(listed.hasCover, false);
-});
-
-test('deleting the catalogue leaves the community rows standing', () => {
-  const db = migratedDb();
-  insertGameMetadataBatch(db, [ENTRY]);
-  insertCommunityRow(db, 'A game a player added');
-
-  // This is the whole point of the source column: refreshGameMetadata wipes
-  // and reloads the JSON catalogue, and a contribution must survive it.
-  deleteCatalogueMetadata(db);
-
-  const remaining = listGameMetadata(db);
-  assert.equal(remaining.length, 1);
-  assert.equal(remaining[0].title, 'A game a player added');
 });
 
 test('listing the catalogue does not carry the cover bytes', () => {
