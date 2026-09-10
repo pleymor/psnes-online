@@ -89,6 +89,7 @@
     resolvableHere, resolveQuietly, remember, keepReceived, type MissReason
   } from '$lib/roms/provider';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
+  import { registerGame } from '$lib/roms/local-library';
   import type { PanelMesh } from '$lib/vr/panel-mesh';
   import { loadCore, AudioSink, SocketTransport, UpgradingTransport, type SessionEvent, type Transport } from '$lib/znet';
   import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
@@ -2058,6 +2059,16 @@
     if (!bytes) return;
 
     await keepReceived(bytes);
+    // Et la ligne de bibliothèque, sinon garder n'est qu'une demi-promesse :
+    // les octets sont sur le casque et le joueur n'a aucune carte à lancer.
+    // La même règle que les salons plats, tenue par `keep-offer.ts` là-bas.
+    // Avalé comme l'écriture elle-même : la question est déjà refermée.
+    try {
+      const title = $myRoom?.gameTitle ?? '';
+      await registerGame(crc32, `${title || crc32}.sfc`);
+    } catch (err) {
+      logger.warn('kept the ROM but could not add it to the library', err);
+    }
     // Relu, sinon l'écran continuerait d'annoncer un envoi pour un jeu qui est
     // désormais sur l'appareil - et la question resterait posée.
     resolvable = await resolvableHere();

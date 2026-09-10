@@ -9,6 +9,13 @@
  *
  * Ce qui est testé ici est le contrat, pas IndexedDB : `keep` est un seam, sur
  * le modèle de `readAndKeep` dans `provider.ts`.
+ *
+ * `register` en est un second, ajouté le 2026-09-10. Garder n'écrivait que les
+ * octets sur l'appareil, sans ligne de bibliothèque - donc l'invité qui avait
+ * répondu oui n'avait toujours aucune carte à cliquer, et ne pouvait pas
+ * lancer seul le jeu qu'il venait d'accepter. Signalé exactement comme ça :
+ * « j'ai cliqué sur garder le jeu et je n'ai toujours pas le jeu dans la
+ * bibliothèque ».
  */
 
 import { test } from 'bun:test';
@@ -32,9 +39,25 @@ function spy() {
 	};
 }
 
-const deps = (keep: (bytes: Uint8Array) => Promise<string>, available = true) => ({
+/** Une bibliothèque qui note ce qu'on lui demande d'inscrire. */
+function registrar() {
+	const registered: Array<{ checksum: string; title: string }> = [];
+	return {
+		registered,
+		register: async (checksum: string, title: string) => {
+			registered.push({ checksum, title });
+		}
+	};
+}
+
+const deps = (
+	keep: (bytes: Uint8Array) => Promise<string>,
+	available = true,
+	register: (checksum: string, title: string) => Promise<void> = async () => {}
+) => ({
 	keep,
-	available: () => available
+	available: () => available,
+	register
 });
 
 test('rien n est demandé tant qu aucun transfert n a eu lieu', () => {
@@ -108,4 +131,46 @@ test('une seconde ROM, dans une autre room, se demande pour elle-même', () => {
 	offer.received('bbbb2222', new Uint8Array([4, 5, 6]));
 
 	assert.equal(get(offer.asked), 'bbbb2222');
+});
+
+test('accepter inscrit aussi le jeu dans la bibliotheque', async () => {
+	const store = spy();
+	const library = registrar();
+	const offer = createKeepOffer(deps(store.keep, true, library.register));
+	offer.received(CRC, ROM, 'Donkey Kong Country');
+
+	await offer.accept();
+
+	// Garder les octets sans inscrire le jeu laisse l invite avec un fichier
+	// qu il ne peut atteindre : aucune carte a cliquer, donc aucun lancement
+	// possible en solo. Le titre vient du salon, faute de nom de fichier.
+	assert.deepEqual(library.registered, [{ checksum: CRC, title: 'Donkey Kong Country' }]);
+	assert.equal(store.kept.length, 1);
+});
+
+test('refuser n inscrit rien', () => {
+	const library = registrar();
+	const offer = createKeepOffer(deps(spy().keep, true, library.register));
+	offer.received(CRC, ROM, 'Donkey Kong Country');
+
+	offer.decline();
+
+	assert.deepEqual(library.registered, []);
+});
+
+test('une inscription qui echoue ne fait pas echouer le fait de garder', async () => {
+	const store = spy();
+	const offer = createKeepOffer(
+		deps(store.keep, true, async () => {
+			throw new Error('hors ligne');
+		})
+	);
+	offer.received(CRC, ROM, 'Donkey Kong Country');
+
+	// La question est deja refermee quand l ecriture part - `keepQuietly` avale
+	// ses echecs par choix, et une promesse rejetee ici remonterait en
+	// unhandled rejection dans une page qui joue.
+	await offer.accept();
+
+	assert.equal(store.kept.length, 1, 'les octets sont sur l appareil quoi qu il arrive');
 });
