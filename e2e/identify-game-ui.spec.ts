@@ -178,6 +178,56 @@ test.describe('identifying a game in the browser', () => {
 		}
 	});
 
+	test('a shipped catalogue entry is corrected by copying it, not by editing it', async ({
+		page,
+		context
+	}) => {
+		const cookie = await loginDev('1');
+		const game = await addUnidentifiedGame(cookie, 'vvv-shipped.sfc');
+		// ActRaiser ships with the catalogue, so its row is deleted and
+		// re-inserted by every JSON refresh: an edit to it would live exactly
+		// until the next deploy. Correcting one has to produce a copy.
+		const [shipped] = await (
+			await apiFetch(cookie, '/api/metadata/search?q=ActRaiser')
+		).json();
+		await apiFetch(cookie, `/api/games/${game.id}/identify`, {
+			method: 'POST',
+			body: JSON.stringify({ metadataId: shipped.id })
+		});
+		await seatCookie(context, cookie);
+		await keepRomOnDevice(page, game.crc32);
+
+		try {
+			await page.goto('/');
+			await page.locator('.game-card', { hasText: 'ActRaiser' }).locator('.cover').click();
+			await page.locator('.identify').click();
+
+			// Offered here too. Most games in a library are shipped entries, so
+			// hiding it for those left the feature invisible to nearly everyone.
+			await page.getByRole('button', { name: 'Correct this entry' }).click();
+			await expect(page.locator('.fields input').first()).toHaveValue('ActRaiser');
+
+			await page.locator('.fields input').nth(2).fill('Quintet');
+			await page.locator('.primary').click();
+
+			await expect(page.locator('.game-card', { hasText: 'ActRaiser' })).toBeVisible();
+
+			const mine = (await (await apiFetch(cookie, '/api/games')).json())
+				.find((g: { id: string }) => g.id === game.id);
+			expect(mine.publisher).toBe('Quintet');
+			// A copy, and the dump follows it. The shipped row is left alone.
+			expect(mine.metadataId).not.toBe(shipped.id);
+
+			const stillShipped = await (
+				await apiFetch(cookie, '/api/metadata/search?q=ActRaiser')
+			).json();
+			const original = stillShipped.find((m: { id: string }) => m.id === shipped.id);
+			expect(original.publisher).toBe(shipped.publisher);
+		} finally {
+			await apiFetch(cookie, `/api/games/${game.id}`, { method: 'DELETE' });
+		}
+	});
+
 	test('an entry that is right but wrong can be corrected in place', async ({ page, context }) => {
 		const cookie = await loginDev('1');
 		const game = await addUnidentifiedGame(cookie, 'www-typo.sfc');
