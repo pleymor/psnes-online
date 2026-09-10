@@ -38,10 +38,58 @@
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import SiteFooter from '$lib/components/SiteFooter.svelte';
+  import { columnsThatFit, rowBottoms } from '$lib/games/shelves';
   import { createLogger } from '$lib/utils/logger';
   import { setPageTitle } from '$lib/utils/page-title';
 
   const logger = createLogger('HomePage');
+
+  /*
+   * Les mesures de l'étagère, et pourquoi elles vivent ici plutôt qu'en CSS.
+   *
+   * Les planches étaient un fond répété, donc entièrement calculables en
+   * `calc()`. Un fond n'a pas de bords : pas de bouts à arrondir. Chaque
+   * étagère est maintenant un élément, ce qui demande de savoir combien il
+   * y en a - un compte que seul JavaScript peut faire, puisqu'il dépend de
+   * la largeur mesurée.
+   *
+   * D'où le risque, et sa parade : deux jeux de nombres, un en CSS et un en
+   * TypeScript, dériveraient en silence et feraient passer les planches à
+   * travers les jaquettes. Les nombres sont donc déclarés une seule fois,
+   * ici, et descendent dans la feuille de style par des propriétés
+   * personnalisées posées sur la grille. Le CSS ne connaît aucune valeur
+   * qu'il ne tienne pas de ces lignes.
+   */
+  const CARD_W = 376;
+  const COL_GAP = 28;
+  /** Le dessus de la tablette qui passe derrière les cartouches. */
+  const DECK_BACK = 14;
+  /** Celui qui reste devant, entre la boîte et le chant. */
+  const DECK_FRONT = 14;
+  /** Le chant, vu de face. */
+  const LIP = 18;
+  /** L'ombre portée sous la planche. */
+  const CAST = 12;
+  /** Le ciel qui respire avant la rangée suivante. */
+  const SKY = 12;
+  /** `box-sizing: border-box` est global : la jaquette fait 0,7 fois sa largeur. */
+  const ROW_H = CARD_W * 0.7;
+  /** Tout ce qui pend sous la ligne des cartouches. Le dessus arrière n'en est pas. */
+  const SHELF_GAP = DECK_FRONT + LIP + CAST + SKY;
+
+  /** Mesurée, pas devinée : c'est elle qui dit combien de jeux par rangée. */
+  let gridWidth = 0;
+
+  const SHELF_VARS = [
+    `--card-w:${CARD_W}px`,
+    `--col-gap:${COL_GAP}px`,
+    `--row-h:${ROW_H}px`,
+    `--shelf-gap:${SHELF_GAP}px`,
+    `--deck-back:${DECK_BACK}px`,
+    `--deck-front:${DECK_FRONT}px`,
+    `--lip:${LIP}px`,
+    `--cast:${CAST}px`
+  ].join(';');
 
   // Two screens live at this address, and only one of them is the library.
   $: setPageTitle($language, $user ? t($language, 'library') : null);
@@ -218,6 +266,22 @@
    */
   $: onThisDevice = resolvable === null ? $games : deviceLibrary($games, resolvable);
   $: shownGames = searchGames(onThisDevice, gameQuery);
+
+  /*
+   * Le haut de chaque étagère, en pixels depuis le haut de la grille.
+   *
+   * `rowBottoms` rend la ligne sur laquelle les cartouches reposent ; la
+   * planche remonte de son dessus arrière au-dessus d'elle. Les deux
+   * dépendances sont nommées ici même - le nombre de jeux et la largeur
+   * mesurée - donc Svelte recalcule à l'ajout d'un jeu comme au
+   * redimensionnement de la fenêtre.
+   */
+  $: shelfTops = rowBottoms({
+    count: shownGames.length,
+    columns: columnsThatFit(gridWidth, CARD_W, COL_GAP),
+    rowHeight: ROW_H,
+    rowGap: SHELF_GAP
+  }).map(bottom => bottom - DECK_BACK);
 
   /** Ce que le joueur a tapé dans la bibliothèque. */
   let gameQuery = '';
@@ -607,7 +671,16 @@
             {/if}
           </div>
         {:else}
-          <div class="games-grid">
+          <!--
+            Les étagères d'abord dans le DOM, donc peintes sous les cartes :
+            le dessus de la tablette doit passer DERRIÈRE les jaquettes, et
+            ne se voir que dans l'écart entre deux voisines et aux bouts de
+            la rangée. Hors flux, donc elles ne prennent aucune case.
+          -->
+          <div class="games-grid" style={SHELF_VARS} bind:clientWidth={gridWidth}>
+            {#each shelfTops as top}
+              <div class="shelf" style="top: {top}px" aria-hidden="true"></div>
+            {/each}
             {#each shownGames as game}
               <GameCard
                 {game}
@@ -1050,117 +1123,98 @@
   }
 
   .games-grid {
+    /* Le repère des étagères, qui sont hors flux. */
+    position: relative;
     display: grid;
     /* Pistes fixes, donc auto-fill laisse un reste à presque toutes les
        largeurs de fenêtre. `start` poussait tout ce reste à droite, ce qui
        se lisait comme une bibliothèque collée au bord gauche ; `center` le
        partage. Les cartes gardent leur taille - seul le bloc de pistes
-       bouge. */
+       bouge. `columnsThatFit` refait cette arithmétique en TypeScript pour
+       compter les rangées, et `shelves.test.ts` la tient. */
     grid-template-columns: repeat(auto-fill, var(--card-w));
-    column-gap: 1.75rem;
+    column-gap: var(--col-gap);
     row-gap: var(--shelf-gap);
     justify-content: center;
-
-    /*
-     * Les étagères.
-     *
-     * Une planche sous chaque rangée, sur toute la largeur - y compris
-     * sous une rangée incomplète, parce qu'une étagère qui s'arrête au
-     * dernier jeu se lit comme une ombre et pas comme un meuble.
-     *
-     * C'est un fond répété, donc à pas constant : d'où `grid-auto-rows`
-     * fixe et le titre plafonné à deux lignes dans `GameCard`. La hauteur
-     * de rangée est calculée depuis `--card-w` et non écrite en dur, pour
-     * que les deux ne puissent pas se désaccorder en silence.
-     *
-     * `box-sizing: border-box` est global, donc `aspect-ratio` sur la
-     * jaquette porte sur sa boîte de bordure : la hauteur de jaquette est
-     * exactement 0,7 fois la largeur intérieure de la carte.
-     */
-    /* La tuile n'est que la jaquette, sans cadre ni bande de titre : la
-       hauteur de rangée est donc exactement la largeur au format 10/7.
-       L'ombre portée de la carte ne compte pas, elle ne prend pas de place
-       dans le flux. */
-    --row-h: calc(var(--card-w) * 0.7);
-    /* Ce qui descend sous la ligne des cartouches, et rien de plus : 14 px
-       de dessus devant elles, 18 px de chant, 12 px d'ombre portée, 12 px
-       de ciel. Les 14 px de dessus qui passent DERRIÈRE sont dans la
-       hauteur de la rangée, pas dans cet écart. */
-    --shelf-gap: 3.5rem;
-    --pitch: calc(var(--row-h) + var(--shelf-gap));
-
     grid-auto-rows: var(--row-h);
-    /* La dernière planche est dans la bande de la dernière rangée : sans
-       cette réserve en bas, la boîte s'arrête avant elle. */
+    /* La dernière planche pend sous la dernière rangée : sans cette
+       réserve, elle passerait sur le pied de page. */
     padding-bottom: var(--shelf-gap);
+  }
 
-    /*
-     * Le bois, en bandes horizontales. Pas de veines verticales : un fond
-     * répété ne peut pas borner un second axe, et le bois de cette époque
-     * était de toute façon tramé en bandes.
-     *
-     * 30 px d'épaisseur, et c'est mesuré : à 22 px la planche se lisait
-     * comme un bâton, faute de place pour y distinguer un dessus, un chant
-     * et une ombre.
-     *
-     * LA PROFONDEUR, et pourquoi elle ne passe pas par une perspective.
-     *
-     * Un `rotateX` ferait converger les côtés : l'étagère serait plus
-     * étroite au fond que la rangée de jaquettes posée dessus. Sur un
-     * meuble plaqué contre un mur, cette forme-là se lit comme une erreur,
-     * pas comme du relief. Ce qui donne le volume est ailleurs, et tient
-     * en quatre bandes :
-     *
-     * 1. LE DESSUS, 28 px, et il passe DES DEUX CÔTÉS des cartouches.
-     *    C'est le point qui manquait : une tablette dont le dessus ne
-     *    commence qu'au pied des boîtes les pose contre le mur du fond,
-     *    pas dessus. Quatorze pixels passent donc derrière elles - cachés
-     *    par les jaquettes, mais visibles dans l'écart entre deux voisines
-     *    et aux deux bouts de la rangée, et c'est précisément là que l'oeil
-     *    lit la profondeur - et quatorze devant, où la boîte est en retrait
-     *    du chant. Le bord arrière du dessus fait une arête franche contre
-     *    le ciel : c'est le fond de la tablette.
-     *
-     *    Le dégradé n'est pas un simple sombre-vers-clair : le plus sombre
-     *    est sur la ligne des cartouches, qui portent ombre des deux côtés,
-     *    et ça s'éclaircit vers le fond comme vers le chant.
-     * 2. L'ARÊTE, deux pixels d'encre, qui sépare ce dessus du chant. Sans
-     *    elle les deux plans se lisent comme une seule bande bicolore.
-     * 3. LE CHANT, 16 px de bois vu de face, avec son tramage.
-     * 4. L'OMBRE PORTÉE, douze pixels qui s'éteignent sur le ciel : c'est
-     *    elle qui dit qu'il y a du vide derrière, donc une planche devant.
-     *
-     * La cinquième pièce n'est pas ici mais sur la carte : l'ombre de
-     * CONTACT que chaque cartouche projette sur ce dessus. Une surface
-     * éclairée sans rien qui pose dessus reste un aplat ; ce sont les
-     * ombres qui la posent sous les objets. Voir `.game-card::after`.
-     *
-     * `rgba(0, 0, 0, 0)` et non `transparent` pour éteindre l'ombre : le
-     * mot-clé s'interpole en noir transparent et laisse un voile gris sur
-     * les couleurs qu'il rejoint.
-     */
-    --deck-back: 14px;
-    --deck-front: 14px;
-    --plank: 32px;
-    --cast: 12px;
-    background-image: linear-gradient(
+  /*
+   * Une tablette, et non plus un motif.
+   *
+   * LA PROFONDEUR, et pourquoi elle ne passe pas par une perspective.
+   *
+   * Un `rotateX` ferait converger les côtés : l'étagère serait plus étroite
+   * au fond que la rangée de jaquettes posée dessus. Sur un meuble plaqué
+   * contre un mur, cette forme-là se lit comme une erreur, pas comme du
+   * relief. Ce qui donne le volume tient en quatre bandes :
+   *
+   * 1. LE DESSUS, 28 px, et il passe DES DEUX CÔTÉS des cartouches. Une
+   *    tablette dont le dessus commence au pied des boîtes les pose contre
+   *    le mur du fond, pas dessus. Quatorze pixels passent derrière elles -
+   *    cachés par les jaquettes, mais visibles dans l'écart entre deux
+   *    voisines et aux deux bouts de la rangée, et c'est précisément là que
+   *    l'oeil lit la profondeur - et quatorze devant, où la boîte est en
+   *    retrait du chant. Le dégradé n'est pas un simple sombre-vers-clair :
+   *    le plus sombre est sur la ligne des cartouches, qui portent ombre des
+   *    deux côtés, et ça s'éclaircit vers le fond comme vers le chant.
+   * 2. L'ARÊTE, deux pixels d'encre, entre ce dessus et le chant. Sans elle
+   *    les deux plans se lisent comme une seule bande bicolore.
+   * 3. LE CHANT, 18 px de bois vu de face, avec son tramage.
+   * 4. L'OMBRE PORTÉE, douze pixels qui s'éteignent sur le ciel : c'est elle
+   *    qui dit qu'il y a du vide derrière, donc une planche devant.
+   *
+   * La cinquième pièce n'est pas ici mais sur la carte : l'ombre de CONTACT
+   * que chaque cartouche projette sur ce dessus. Une surface éclairée sans
+   * rien qui pose dessus reste un aplat. Voir `.game-card::after`.
+   */
+  .shelf {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: calc(var(--deck-back) + var(--deck-front) + var(--lip));
+    /* Les bouts arrondis, la raison d'être de tout ce passage en éléments :
+       une planche se termine, un motif répété non. */
+    border-radius: 7px;
+    background: linear-gradient(
       180deg,
-      transparent 0 calc(var(--row-h) - var(--deck-back)),
-      #a5713e calc(var(--row-h) - var(--deck-back)),
-      #86592c var(--row-h),
-      #e6c288 calc(var(--row-h) + var(--deck-front)),
-      var(--ink) calc(var(--row-h) + var(--deck-front)) calc(var(--row-h) + 16px),
-      #c08a4c calc(var(--row-h) + 16px) calc(var(--row-h) + 19px),
-      #a8683c calc(var(--row-h) + 19px) calc(var(--row-h) + 23px),
-      #8b4f28 calc(var(--row-h) + 23px) calc(var(--row-h) + 24px),
-      #a8683c calc(var(--row-h) + 24px) calc(var(--row-h) + 27px),
-      #8b4f28 calc(var(--row-h) + 27px) calc(var(--row-h) + 30px),
-      #5c3018 calc(var(--row-h) + 30px) calc(var(--row-h) + var(--plank)),
-      rgba(0, 0, 0, 0.34) calc(var(--row-h) + var(--plank)),
-      rgba(0, 0, 0, 0) calc(var(--row-h) + var(--plank) + var(--cast))
+      #a5713e 0,
+      #86592c var(--deck-back),
+      #e6c288 calc(var(--deck-back) + var(--deck-front)),
+      var(--ink) calc(var(--deck-back) + var(--deck-front))
+        calc(var(--deck-back) + var(--deck-front) + 2px),
+      #c08a4c calc(var(--deck-back) + var(--deck-front) + 2px)
+        calc(var(--deck-back) + var(--deck-front) + 5px),
+      #a8683c calc(var(--deck-back) + var(--deck-front) + 5px)
+        calc(var(--deck-back) + var(--deck-front) + 9px),
+      #8b4f28 calc(var(--deck-back) + var(--deck-front) + 9px)
+        calc(var(--deck-back) + var(--deck-front) + 10px),
+      #a8683c calc(var(--deck-back) + var(--deck-front) + 10px)
+        calc(var(--deck-back) + var(--deck-front) + 13px),
+      #8b4f28 calc(var(--deck-back) + var(--deck-front) + 13px)
+        calc(var(--deck-back) + var(--deck-front) + 16px),
+      #5c3018 calc(var(--deck-back) + var(--deck-front) + 16px)
     );
-    background-size: 100% var(--pitch);
-    background-repeat: repeat;
+    pointer-events: none;
+  }
+
+  /* L'ombre portée, en retrait des deux bouts : une planche aux angles
+     arrondis ne projette pas une ombre à angles droits, et l'ombre d'un
+     objet posé devant un mur est toujours un peu plus courte que lui.
+     `rgba(0, 0, 0, 0)` et non `transparent`, qui s'interpole en noir
+     transparent et laisserait un voile gris sur le ciel. */
+  .shelf::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 6px;
+    right: 6px;
+    height: var(--cast);
+    border-radius: 0 0 5px 5px;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.34), rgba(0, 0, 0, 0));
   }
 
   /* Une boîte à message. L'ancienne était un voile blanc à 2 % : sur le
@@ -1348,14 +1402,17 @@
     }
 
     .games-grid {
-      /* Une piste fluide n'a plus de hauteur prévisible, donc le pas fixe
-         dériverait dans les cartes. Les planches s'éteignent ici plutôt
-         que de traverser une jaquette. */
+      /* Une piste fluide n'a plus de hauteur prévisible, donc les planches
+         posées à un pas fixe dériveraient dans les cartes. Elles s'éteignent
+         ici plutôt que de traverser une jaquette. */
       grid-template-columns: 1fr;
       grid-auto-rows: auto;
       gap: 1rem;
       padding-bottom: 0;
-      background-image: none;
+    }
+
+    .shelf {
+      display: none;
     }
 
     .toast {
