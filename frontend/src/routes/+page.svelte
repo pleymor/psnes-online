@@ -1052,9 +1052,68 @@
        se lisait comme une bibliothèque collée au bord gauche ; `center` le
        partage. Les cartes gardent leur taille - seul le bloc de pistes
        bouge. */
-    grid-template-columns: repeat(auto-fill, 376px);
-    gap: 1.75rem;
+    grid-template-columns: repeat(auto-fill, var(--card-w));
+    column-gap: 1.75rem;
+    row-gap: var(--shelf-gap);
     justify-content: center;
+
+    /*
+     * Les étagères.
+     *
+     * Une planche sous chaque rangée, sur toute la largeur - y compris
+     * sous une rangée incomplète, parce qu'une étagère qui s'arrête au
+     * dernier jeu se lit comme une ombre et pas comme un meuble.
+     *
+     * C'est un fond répété, donc à pas constant : d'où `grid-auto-rows`
+     * fixe et le titre plafonné à deux lignes dans `GameCard`. La hauteur
+     * de rangée est calculée depuis `--card-w` et non écrite en dur, pour
+     * que les deux ne puissent pas se désaccorder en silence.
+     *
+     * `box-sizing: border-box` est global, donc `aspect-ratio` sur la
+     * jaquette porte sur sa boîte de bordure : la hauteur de jaquette est
+     * exactement 0,7 fois la largeur intérieure de la carte.
+     */
+    --card-frame: 22px; /* 2 x 3px de bordure + 2 x 8px de marge interne */
+    --cover-h: calc((var(--card-w) - var(--card-frame)) * 0.7);
+    --row-h: calc(var(--cover-h) + 0.35rem + var(--info-h) + var(--card-frame));
+    /* De quoi poser la planche et laisser respirer la rangée suivante :
+       30 px de bois et 14 px de ciel. */
+    --shelf-gap: 2.75rem;
+    --pitch: calc(var(--row-h) + var(--shelf-gap));
+
+    grid-auto-rows: var(--row-h);
+    /* La dernière planche est dans la bande de la dernière rangée : sans
+       cette réserve en bas, la boîte s'arrête avant elle. */
+    padding-bottom: var(--shelf-gap);
+
+    /*
+     * Le bois, en bandes horizontales : filet d'encre, chant clair, corps,
+     * une ligne de tramage, corps plus sombre, ombre, filet d'encre. Pas de
+     * veines verticales - un fond répété ne peut pas borner un second axe,
+     * et le bois de cette époque était de toute façon tramé en bandes.
+     * La planche commence pile au bas de la carte, dont l'ombre dure de
+     * 4 px tombe donc dessus : c'est ce contact qui fait « posé sur ».
+     *
+     * 30 px d'épaisseur, et c'est mesuré : à 22 px la planche se lisait
+     * comme un bâton, faute de place pour y distinguer un chant, un corps
+     * et une ombre.
+     */
+    --plank: 30px;
+    background-image: linear-gradient(
+      180deg,
+      transparent 0 var(--row-h),
+      var(--ink) var(--row-h) calc(var(--row-h) + 2px),
+      #d8a860 calc(var(--row-h) + 2px) calc(var(--row-h) + 6px),
+      #a8683c calc(var(--row-h) + 6px) calc(var(--row-h) + 14px),
+      #8b4f28 calc(var(--row-h) + 14px) calc(var(--row-h) + 15px),
+      #a8683c calc(var(--row-h) + 15px) calc(var(--row-h) + 18px),
+      #8b4f28 calc(var(--row-h) + 18px) calc(var(--row-h) + 24px),
+      #5c3018 calc(var(--row-h) + 24px) calc(var(--row-h) + 28px),
+      var(--ink) calc(var(--row-h) + 28px) calc(var(--row-h) + var(--plank)),
+      transparent calc(var(--row-h) + var(--plank))
+    );
+    background-size: 100% var(--pitch);
+    background-repeat: repeat;
   }
 
   /* Une boîte à message. L'ancienne était un voile blanc à 2 % : sur le
@@ -1242,8 +1301,14 @@
     }
 
     .games-grid {
+      /* Une piste fluide n'a plus de hauteur prévisible, donc le pas fixe
+         dériverait dans les cartes. Les planches s'éteignent ici plutôt
+         que de traverser une jaquette. */
       grid-template-columns: 1fr;
+      grid-auto-rows: auto;
       gap: 1rem;
+      padding-bottom: 0;
+      background-image: none;
     }
 
     .toast {

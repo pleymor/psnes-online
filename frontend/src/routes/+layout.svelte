@@ -303,6 +303,24 @@
        ligne. Le corps de texte long reste en sans système : aucune des deux
        n'est faite pour un paragraphe. */
     --display: 'Pixelify Sans', ui-sans-serif, system-ui, sans-serif;
+
+    /* La largeur d'une cartouche sur l'étagère, et la hauteur réservée à
+       son texte. Partagées entre `.games-grid`, qui en déduit le pas de
+       ses planches, et `GameCard`, qui doit tenir dedans. Une seule
+       source : le fond des étagères est répété, donc à pas constant, et
+       une carte qui grandirait sans le pas ferait passer les planches au
+       travers.
+
+       `--info-h` vaut une ligne de titre, l'interligne, et la ligne des
+       sauvegardes - cette dernière réservée même quand il n'y en a pas,
+       sinon deux cartes voisines n'ont pas la même hauteur. Deux lignes
+       de titre, essayées d'abord, laissaient sous presque chaque carte
+       une bande de crème vide de la hauteur d'une ligne : à 376 px une
+       ligne tient une quarantaine de caractères, et le catalogue rend
+       des titres courts parce qu'il retire les suffixes de région. Le
+       nom entier reste en infobulle et dans la fiche. */
+    --card-w: 376px;
+    --info-h: 2.65rem;
   }
 
   :global(body) {
