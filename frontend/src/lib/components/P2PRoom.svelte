@@ -162,11 +162,14 @@
   let serving = new Set<string>();
 
   /** Answers whichever player has no copy of the cartridge. See LockstepRoom. */
-  async function onRomRequested(data: { roomId: string; from: string }) {
+  async function onRomRequested(data: { roomId: string; from: string; crc32?: string }) {
     if (data?.roomId !== roomId) return;
     if (serving.has(data.from)) return;
 
-    const rom = loadedRom ?? (gameCrc32 ? await resolveQuietly(gameCrc32) : null);
+    // Le dump demandé, pas celui du salon. Voir LockstepRoom.
+    const wanted = data.crc32 ?? gameCrc32;
+    const rom = (wanted === gameCrc32 ? loadedRom : null)
+      ?? (wanted ? await resolveQuietly(wanted) : null);
     if (!rom) {
       $socket?.emit('rom:unavailable', {
         roomId,

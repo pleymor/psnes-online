@@ -44,6 +44,19 @@ const MAX_CHUNK_BYTES = 48 * 1024;
  */
 const MAX_ROM_BYTES = 12 * 1024 * 1024;
 
+/** Everyone in the room but the caller, and reachable right now. */
+function othersInRoom(
+	room: Room,
+	userId: string,
+	getUserSocket: (id: string) => string | undefined
+): { id: string; socketId: string }[] {
+	return room.players
+		.map((p) => p.userId)
+		.filter((id) => id !== userId)
+		.map((id) => ({ id, socketId: getUserSocket(id) }))
+		.filter((peer): peer is { id: string; socketId: string } => Boolean(peer.socketId));
+}
+
 interface ChunkMessage {
 	roomId: string;
 	to: string;
@@ -102,15 +115,11 @@ export function registerRomTransferHandlers(
 	 * player. Whoever has the file answers; whoever has not says so, and the
 	 * asker falls back to picking the file by hand.
 	 */
-	socket.on('rom:request', (data: { roomId: string }) => {
+	socket.on('rom:request', (data: { roomId: string; crc32?: string }) => {
 		const room = getMemberRoom(rooms, data?.roomId, user.id, 'rom:request');
 		if (!room) return;
 
-		const others = room.players
-			.map((p) => p.userId)
-			.filter((id) => id !== user.id)
-			.map((id) => ({ id, socketId: getUserSocket(id) }))
-			.filter((peer): peer is { id: string; socketId: string } => Boolean(peer.socketId));
+		const others = othersInRoom(room, user.id, getUserSocket);
 
 		if (others.length === 0) {
 			socket.emit('rom:unavailable', {
@@ -126,8 +135,56 @@ export function registerRomTransferHandlers(
 
 		logger.info({ roomId: room.id, from: user.pseudo }, 'A player asked the room for the ROM');
 		for (const peer of others) {
-			io.to(peer.socketId).emit('rom:request', { roomId: room.id, from: user.id });
+			// `crc32` only when it was asked for. Without it the request means
+			// "the game this room is for", which is what every in-game request
+			// means and must go on meaning; a share from the library names its
+			// own dump, because the room often carries no game at all.
+			io.to(peer.socketId).emit('rom:request', {
+				roomId: room.id,
+				from: user.id,
+				...(typeof data.crc32 === 'string' ? { crc32: data.crc32 } : {})
+			});
 		}
+	});
+
+	/**
+	 * Offering one of your games to the other player, from the library.
+	 *
+	 * Sharing used to exist only inside a running game, triggered by the guest
+	 * missing the file at launch - so it was a side effect, arriving at the
+	 * one moment two people were waiting on each other. The owner's call on
+	 * 2026-09-10 was to decouple the two.
+	 *
+	 * A group is a room, so nothing changes here: the same membership guard
+	 * carries the offer, and the recipient's acceptance is an ordinary
+	 * `rom:request`, which is what registers their consent to receive bytes.
+	 */
+	socket.on('rom:offer', (data: { roomId: string; crc32: string; title?: string }) => {
+		const room = getMemberRoom(rooms, data?.roomId, user.id, 'rom:offer');
+		if (!room) return;
+		if (typeof data.crc32 !== 'string' || !data.crc32) return;
+
+		logger.info({ roomId: room.id, from: user.pseudo, crc32: data.crc32 }, 'A player offered a game');
+		for (const peer of othersInRoom(room, user.id, getUserSocket)) {
+			io.to(peer.socketId).emit('rom:offer', {
+				roomId: room.id,
+				crc32: data.crc32,
+				title: data.title ?? '',
+				from: user.id
+			});
+		}
+	});
+
+	/** "No thanks", so the offering side stops waiting on an answer. */
+	socket.on('rom:offer-declined', (data: { roomId: string; to: string }) => {
+		const room = getMemberRoom(rooms, data?.roomId, user.id, 'rom:offer-declined');
+		if (!room) return;
+		if (!room.players.some((p) => p.userId === data.to)) return;
+
+		const target = getUserSocket(data.to);
+		if (!target) return;
+
+		io.to(target).emit('rom:offer-declined', { roomId: room.id, from: user.id });
 	});
 
 	socket.on('rom:chunk', (data: ChunkMessage) => {

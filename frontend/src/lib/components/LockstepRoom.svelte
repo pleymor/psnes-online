@@ -1084,11 +1084,21 @@
    * two or three copies of the same question are normal at boot. Serving each
    * of them would push the ROM two or three times over.
    */
-  async function onRomRequested(data: { roomId: string; from: string }) {
+  async function onRomRequested(data: { roomId: string; from: string; crc32?: string }) {
     if (data?.roomId !== roomId) return;
     if (serving.has(data.from)) return;
 
-    const rom = loadedRom ?? (gameCrc32 ? await resolveQuietly(gameCrc32) : null);
+    /*
+     * Le dump demandé, et pas forcément celui de cette partie.
+     *
+     * Un jeu partagé depuis la bibliothèque nomme le sien, et `loadedRom`
+     * porte celui du salon : le servir pour une autre demande enverrait des
+     * octets d'un autre jeu, que le destinataire rejetterait sur le checksum
+     * - ou pire, accepterait s'il ne le vérifiait pas.
+     */
+    const wanted = data.crc32 ?? gameCrc32;
+    const rom = (wanted === gameCrc32 ? loadedRom : null)
+      ?? (wanted ? await resolveQuietly(wanted) : null);
     if (!rom) {
       logger.warn('A player asked for the ROM but this machine has no copy either');
       $socket?.emit('rom:unavailable', {
