@@ -137,19 +137,47 @@
      d'encre, titre en dessous. Le cadre prenait la place de ce qu'il
      encadrait : à trois jaquettes par rangée, ce qu'on vient regarder
      c'est le carton, pas la menuiserie autour. Ce qui reste du meuble,
-     c'est l'étagère sous la rangée, et l'ombre portée DURE d'un seul
-     décalage - pas un halo flou - qui fait que la cartouche se pose
-     dessus au lieu de flotter au-dessus. */
+     c'est l'étagère sous la rangée, et l'ombre de contact ci-dessous. */
   .game-card {
     position: relative;
     display: flex;
     background: none;
     border: none;
     padding: 0;
-    box-shadow: 0 4px 0 rgba(0, 0, 0, 0.22);
     cursor: pointer;
     /* Le focus clavier doit se voir : la carte entière est un contrôle. */
     outline-offset: 3px;
+  }
+
+  /*
+   * L'ombre que la cartouche projette sur le dessus de la tablette.
+   *
+   * C'était un `box-shadow: 0 4px 0` : un trait dur, de la même épaisseur
+   * partout, qui disait « il y a quelque chose sous cette carte » sans
+   * dire quoi. Le dessus de l'étagère fait maintenant 22 px de bois
+   * éclairé, et une surface éclairée sur laquelle rien ne projette reste
+   * un aplat - ce sont les ombres qui posent les objets dessus.
+   *
+   * Deux temps, comme un pixel artist les dessine : trois pixels denses au
+   * contact, là où rien ne passe entre la cartouche et le bois, puis une
+   * extinction sur toute la profondeur de la tablette. `top: 100%` la met
+   * sous la carte sans rien prendre au flux, donc le pas des étagères ne
+   * bouge pas.
+   */
+  .game-card::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    height: 20px;
+    background: linear-gradient(
+      180deg,
+      rgba(26, 12, 0, 0.55) 0 3px,
+      rgba(26, 12, 0, 0.3),
+      rgba(26, 12, 0, 0)
+    );
+    pointer-events: none;
   }
 
   .game-card:focus-visible {

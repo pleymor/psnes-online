@@ -1082,9 +1082,10 @@
        L'ombre portée de la carte ne compte pas, elle ne prend pas de place
        dans le flux. */
     --row-h: calc(var(--card-w) * 0.7);
-    /* De quoi poser la planche, son ombre, et laisser respirer la rangée
-       suivante : 30 px de bois, 12 px d'ombre portée, 10 px de ciel. */
-    --shelf-gap: 3.25rem;
+    /* De quoi poser la tablette entière, son ombre, et laisser respirer la
+       rangée suivante : 22 px de dessus, 18 px de chant, 12 px d'ombre
+       portée, 12 px de ciel. */
+    --shelf-gap: 4rem;
     --pitch: calc(var(--row-h) + var(--shelf-gap));
 
     grid-auto-rows: var(--row-h);
@@ -1101,43 +1102,53 @@
      * comme un bâton, faute de place pour y distinguer un dessus, un chant
      * et une ombre.
      *
-     * LA PROFONDEUR tient à trois choses, et à rien d'autre - aucune
-     * perspective, aucune transformation :
+     * LA PROFONDEUR, et pourquoi elle ne passe pas par une perspective.
      *
-     * 1. Le DESSUS de la planche, sur ses sept premiers pixels, éclairé et
-     *    dégradé vers le fond. C'est la seule bande douce du profil ; tout
-     *    le reste est à arêtes franches. Une surface qui reçoit la lumière
-     *    ne peut pas être un aplat, sinon elle reste un trait.
+     * Un `rotateX` ferait converger les côtés : l'étagère serait plus
+     * étroite au fond que la rangée de jaquettes posée dessus. Sur un
+     * meuble plaqué contre un mur, cette forme-là se lit comme une erreur,
+     * pas comme du relief. Ce qui donne le volume est ailleurs, et tient
+     * en quatre bandes :
+     *
+     * 1. LE DESSUS, 22 px, et c'est lui qu'on ne voyait pas. Une cartouche
+     *    posée sur une tablette est en retrait du chant, donc il y a
+     *    toujours une bande de bois éclairée DEVANT elle. À 7 px c'était un
+     *    reflet sur une arête ; à 22 px c'est une surface, et la tablette
+     *    devient un objet qu'on regarde d'un peu au-dessus. Elle est
+     *    dégradée du sombre au fond - à l'ombre des cartouches - vers le
+     *    clair au bord.
      * 2. L'ARÊTE, deux pixels d'encre, qui sépare ce dessus du chant. Sans
-     *    elle les deux se lisent comme une seule bande bicolore.
-     * 3. L'OMBRE PORTÉE sous la planche, douze pixels qui s'éteignent sur
-     *    le ciel. C'est l'indice le plus fort des trois : c'est lui qui
-     *    dit qu'il y a du vide derrière, et donc une planche devant.
+     *    elle les deux plans se lisent comme une seule bande bicolore.
+     * 3. LE CHANT, 16 px de bois vu de face, avec son tramage.
+     * 4. L'OMBRE PORTÉE, douze pixels qui s'éteignent sur le ciel : c'est
+     *    elle qui dit qu'il y a du vide derrière, donc une planche devant.
      *
-     * Les sept pixels du dessus ne sont pas un chiffre rond : l'ombre dure
-     * des cartouches en mange quatre, et il en faut assez pour qu'il reste
-     * de la surface éclairée à voir entre deux jaquettes.
+     * La cinquième pièce n'est pas ici mais sur la carte : l'ombre de
+     * CONTACT que chaque cartouche projette sur ce dessus. Une surface
+     * éclairée sans rien qui pose dessus reste un aplat ; ce sont les
+     * ombres qui la posent sous les objets. Voir `.game-card::after`.
      *
      * `rgba(0, 0, 0, 0)` et non `transparent` pour éteindre l'ombre : le
      * mot-clé s'interpole en noir transparent et laisse un voile gris sur
      * les couleurs qu'il rejoint.
      */
-    --plank: 30px;
+    --deck: 22px;
+    --plank: 40px;
     --cast: 12px;
     background-image: linear-gradient(
       180deg,
       transparent 0 var(--row-h),
-      #e6c288 var(--row-h),
-      #cfa468 calc(var(--row-h) + 7px),
-      var(--ink) calc(var(--row-h) + 7px) calc(var(--row-h) + 9px),
-      #c08a4c calc(var(--row-h) + 9px) calc(var(--row-h) + 12px),
-      #a8683c calc(var(--row-h) + 12px) calc(var(--row-h) + 16px),
-      #8b4f28 calc(var(--row-h) + 16px) calc(var(--row-h) + 17px),
-      #a8683c calc(var(--row-h) + 17px) calc(var(--row-h) + 21px),
-      #8b4f28 calc(var(--row-h) + 21px) calc(var(--row-h) + 25px),
-      #5c3018 calc(var(--row-h) + 25px) calc(var(--row-h) + 28px),
-      var(--ink) calc(var(--row-h) + 28px) calc(var(--row-h) + var(--plank)),
-      rgba(0, 0, 0, 0.32) calc(var(--row-h) + var(--plank)),
+      #9c6a38 var(--row-h),
+      #c99a5e calc(var(--row-h) + 9px),
+      #e6c288 calc(var(--row-h) + var(--deck)),
+      var(--ink) calc(var(--row-h) + var(--deck)) calc(var(--row-h) + 24px),
+      #c08a4c calc(var(--row-h) + 24px) calc(var(--row-h) + 27px),
+      #a8683c calc(var(--row-h) + 27px) calc(var(--row-h) + 31px),
+      #8b4f28 calc(var(--row-h) + 31px) calc(var(--row-h) + 32px),
+      #a8683c calc(var(--row-h) + 32px) calc(var(--row-h) + 35px),
+      #8b4f28 calc(var(--row-h) + 35px) calc(var(--row-h) + 38px),
+      #5c3018 calc(var(--row-h) + 38px) calc(var(--row-h) + var(--plank)),
+      rgba(0, 0, 0, 0.34) calc(var(--row-h) + var(--plank)),
       rgba(0, 0, 0, 0) calc(var(--row-h) + var(--plank) + var(--cast))
     );
     background-size: 100% var(--pitch);
