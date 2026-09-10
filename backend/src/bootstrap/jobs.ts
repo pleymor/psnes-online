@@ -5,7 +5,7 @@ import { getDb } from '../db/sqlite.js';
 import { deleteExpiredInvitations, deleteInvitationsForRoom } from '../db/invitations.js';
 import { sweepAnonymousUsers } from '../db/users.js';
 import { abandonedRoomIds } from '../rooms/abandonment.js';
-import { refreshGameMetadata } from '../services/metadata-loader.js';
+import { loadGameMetadata } from '../services/metadata-loader.js';
 import { ensureAvatarsDir } from '../utils/avatar.js';
 import { logger } from '../utils/logger.js';
 
@@ -107,17 +107,29 @@ export function startBackgroundJobs(rooms: Map<string, Room>): void {
 
 /**
  * Warms up caches that are nice to have hot but must not delay the port
- * opening: the avatars directory and the in-memory game metadata.
+ * opening: the avatars directory and the game catalogue on a fresh database.
+ *
+ * `loadGameMetadata` and not `refreshGameMetadata`, since 2026-09-10. The
+ * refresh rewrote the whole shipped catalogue at every start - every deploy -
+ * and it minted a new id per row, so every game a player had identified
+ * against a shipped entry lost its identification and every cover uploaded
+ * onto one was deleted with the row. Production had 65 games and two
+ * surviving links. Loading only fills an empty catalogue, so a running
+ * database is never touched.
+ *
+ * The cost, chosen by the owner: a change to `snes-metadata.json` no longer
+ * reaches production on its own. `bun src/db/catalogue-cli.ts` applies it,
+ * without destroying anything - see that file.
  */
 export async function warmStartupCaches(): Promise<void> {
   // Ensure avatars directory exists
   await ensureAvatarsDir();
   logger.info('📁 Avatars directory ready');
 
-  // Refresh game metadata at startup (reload from JSON file)
+  // Only ever fills an empty catalogue; an existing one is left alone.
   try {
-    await refreshGameMetadata();
+    await loadGameMetadata();
   } catch (error) {
-    logger.warn('⚠️  Failed to refresh game metadata, but server is still running');
+    logger.warn('⚠️  Failed to load game metadata, but server is still running');
   }
 }
