@@ -303,19 +303,6 @@
        ligne. Le corps de texte long reste en sans système : aucune des deux
        n'est faite pour un paragraphe. */
     --display: 'Pixelify Sans', ui-sans-serif, system-ui, sans-serif;
-
-    /* La largeur d'une cartouche sur l'étagère, et la hauteur réservée à
-       son texte. Partagées entre `.games-grid`, qui en déduit le pas de
-       ses planches, et `GameCard`, qui doit tenir dedans. Une seule
-       source : le fond des étagères est répété, donc à pas constant, et
-       une carte qui grandirait sans le pas ferait passer les planches au
-       travers.
-
-       Il n'y a plus qu'une mesure depuis que la tuile n'est que la
-       jaquette : la hauteur de rangée se déduit entièrement de la largeur
-       et du format 10/7. `--info-h`, qui réservait la bande de titre, est
-       partie avec elle. */
-    --card-w: 376px;
   }
 
   :global(body) {
