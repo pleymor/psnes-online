@@ -261,16 +261,48 @@
    * environ 5,9:1, pour ce qui doit se lire.
    */
   :global(:root) {
-    --shell: #dcd8cb;
-    --label: #efece3;
-    --ridge: #b6af9c;
+    /* Le HUD, repris de la barre d'état de Super Mario World : un bandeau
+       presque noir, tenu par un filet doré. C'est lui qui porte le nom du
+       joueur, la recherche et les compteurs, sur toutes les pages. */
+    --panel: #101018;
+    --edge: #f8d030;
+    --label: #ffffff;
+
+    /* Le ciel. Il n'appartient qu'à la bibliothèque - `.main-content` le
+       pose - et surtout pas à `body` : /profile, /docs et /room peignent
+       leurs propres panneaux sombres, qui sur du bleu se liraient comme un
+       demi-portage abandonné en route. */
+    --sky: #7cb8f0;
+    --deep: #1d4a86;
+
+    /* La boîte à message : crème, encre brune. Les cartouches de la grille
+       en sont faites, et rien d'autre. */
+    --shell: #f7efd2;
+    --ink: #3a2a10;
+    --ink-2: #6b5b3c;
+
+    /* Les deux verbes du monde : le tuyau vert fait avancer, la carapace
+       rouge annule. Chacun avec son ombre moulée d'un ton plus sombre. */
+    --go: #48a838;
+    --go-deep: #1e5c18;
+    --stop: #d84028;
+    --stop-deep: #7a1c10;
+
+    /* Inchangés : la marque reste la cartouche de `icon.svg`, parce que
+       c'est l'application qui est nommée là, pas le thème. */
     --brand: #5647cb;
     --brand-lift: #8f81f0;
-    --deep: #2b2266;
     --ground: #131319;
-    --panel: #1c1c22;
-    --edge: #2e2e38;
+    --ridge: #b6af9c;
     --muted: #8f8fa6;
+
+    /* Deux polices, deux emplois. Pixelify porte ce qui se lit en phrase :
+       elle a des minuscules et des contreformes ouvertes, donc elle tient à
+       14 px là où une vraie police pixel se referme. Silkscreen reste pour
+       les toutes petites étiquettes du HUD, où l'on lit un mot, pas une
+       ligne. Le corps de texte long reste en sans système : aucune des deux
+       n'est faite pour un paragraphe. */
+    --display: 'Pixelify Sans', ui-sans-serif, system-ui, sans-serif;
   }
 
   :global(body) {

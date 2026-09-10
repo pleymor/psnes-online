@@ -572,7 +572,17 @@
       <div class="content-wrapper">
         {#if shownGames.length === 0}
           <div class="empty-state">
-            <div class="empty-icon">🎮</div>
+            <div class="empty-icon" aria-hidden="true">
+              <svg viewBox="0 0 32 32" width="56" height="56">
+                <rect width="32" height="32" rx="5" fill="var(--ink)" opacity="0.15" />
+                <path
+                  d="M10 6H22V18H14V26H10ZM14 10H18V14H14Z"
+                  fill="var(--ink)"
+                  fill-rule="evenodd"
+                  opacity="0.45"
+                />
+              </svg>
+            </div>
             <!-- Deux vides différents, et les confondre serait le mensonge que
                  cet écran existe pour arrêter : « votre bibliothèque est vide »
                  dit à quelqu'un qui a deux cents jeux qu'il n'en a aucun. Ici on
@@ -842,6 +852,10 @@
   .main-content {
     flex: 1;
     padding: 2rem;
+    /* Le ciel s'arrête à la bibliothèque. Posé sur `body`, il passerait
+       sous les panneaux gris foncé de /profile, /docs et /room, qui
+       peignent les leurs et n'ont pas été refaits. */
+    background: var(--sky);
   }
 
   .page-header {
@@ -853,39 +867,42 @@
     flex-wrap: wrap;
   }
 
+  /* Le même bandeau que la barre, en morceau détaché : noir cerné d'or.
+     Il dit qui est là, ce qui est de l'information de HUD. */
   .group-strip {
     display: flex;
     align-items: center;
     gap: 0.75rem;
     flex-wrap: wrap;
-    padding: 0.625rem 1rem;
-    background: rgba(102, 126, 234, 0.12);
-    border: 1px solid rgba(102, 126, 234, 0.35);
-    border-radius: 10px;
+    padding: 0.55rem 0.9rem;
+    background: var(--panel);
+    border: 3px solid var(--edge);
+    border-radius: 9px;
+    font-family: var(--display);
   }
 
   .group-who {
-    font-weight: 600;
     color: #fff;
   }
 
   .group-hint {
-    color: #9aa0b5;
-    font-size: 0.875rem;
+    color: #b9b9cc;
+    font-size: 0.9rem;
   }
 
   .group-action {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--stop);
     color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    padding: 0.375rem 0.75rem;
-    border-radius: 6px;
+    border: 2px solid var(--stop-deep);
+    padding: 0.25rem 0.7rem;
+    border-radius: 7px;
     cursor: pointer;
-    font-size: 0.875rem;
+    font-family: var(--display);
+    font-size: 0.85rem;
   }
 
   .group-action:hover {
-    background: rgba(255, 255, 255, 0.16);
+    background: #e85a44;
   }
 
   /* Repris de .group-action, qui occupe le même bord du même en-tête : deux
@@ -898,54 +915,58 @@
     display: contents;
   }
 
+  /* La boîte réserve du HUD : le carré doré cerné de blanc, lui-même cerné
+     de noir. Dans le jeu c'est la case où l'on garde ce dont on va se
+     servir - ce qui est exactement ce qu'un champ de recherche contient.
+     Le double cerne se fait en `box-shadow`, faute de deux bordures. */
   .library-search {
     appearance: none;
     -webkit-appearance: none;
-    background: var(--ground);
-    color: var(--label);
-    border: 1px solid var(--edge);
-    padding: 0.4rem 0.7rem;
-    /* Angles à zéro comme les tuiles : la pilule arrondie venait de l'autre
-       langage. */
+    background: var(--edge);
+    color: #5a4400;
+    border: 3px solid #ffffff;
+    box-shadow: 0 0 0 3px var(--panel);
+    padding: 0.3rem 0.6rem;
     border-radius: 0;
-    font-size: 0.8rem;
+    font-family: var(--display);
+    font-size: 0.9rem;
     min-width: 12rem;
     flex-shrink: 1;
   }
 
   .library-search::placeholder {
-    color: var(--muted);
+    color: #8a6c00;
   }
 
   .library-search:focus {
     outline: none;
-    border-color: var(--brand-lift);
+    box-shadow: 0 0 0 3px var(--panel), 0 0 0 6px var(--brand-lift);
   }
 
   /* Le même métal que tout le reste, angles à zéro. Il portait son propre
      gris translucide et son propre rayon, ce qui en faisait un objet de plus
      dans une page qui en avait déjà trop. */
+  /* Le tuyau vert : bord foncé, biseau clair en haut, ombre interne en bas.
+     Deux `inset` suffisent à donner le moulé - c'est ce relief qui dit
+     « ceci s'enfonce », que le rectangle gris ne disait pas. */
   .rescan {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    background: var(--panel);
-    color: var(--shell);
-    border: 1px solid var(--edge);
-    padding: 0.4rem 0.7rem;
-    border-radius: 0;
+    background: var(--go);
+    color: #ffffff;
+    border: 3px solid var(--go-deep);
+    box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.27);
+    padding: 0.4rem 0.85rem;
+    border-radius: 9px;
     cursor: pointer;
-    font-size: 0.8rem;
+    font-family: var(--display);
+    font-size: 0.9rem;
     flex-shrink: 0;
   }
 
   .rescan:hover:not(:disabled) {
-    border-color: var(--brand-lift);
-    color: var(--label);
-  }
-
-  .rescan:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.16);
+    background: #56c043;
   }
 
   .rescan:disabled {
@@ -976,8 +997,10 @@
 
   .sync-note {
     margin: 0.25rem 0 0 0;
-    font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.6);
+    font-family: var(--display);
+    font-size: 0.9rem;
+    color: var(--label);
+    text-shadow: 2px 2px 0 var(--deep);
   }
 
   /* Sous 480px l'en-tête passe en colonne : le libellé mangerait la largeur du
@@ -990,18 +1013,24 @@
      Un dégradé violet sur un mot est le tell générique par excellence, et il
      dépensait le seul accent de la page sur ce qui n'avait pas besoin d'être
      regardé - les jaquettes, si. Silkscreen le rattache à l'étagère. */
+  /* Blanc avec une ombre portée dure, jamais du gris : sur un ciel, un
+     texte gris est illisible, et c'est exactement la parade que le jeu
+     employait - la couleur ne fait pas le contraste, l'ombre le fait. */
   h1 {
-    font-family: 'Silkscreen', monospace;
-    font-size: 1.35rem;
-    font-weight: 400;
-    letter-spacing: 0.02em;
-    margin: 0 0 0.35rem 0;
+    font-family: var(--display);
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    margin: 0 0 0.2rem 0;
     color: var(--label);
+    text-shadow: 3px 3px 0 var(--deep);
   }
 
   .subtitle {
-    font-size: 0.8rem;
-    color: var(--muted);
+    font-family: var(--display);
+    font-size: 0.95rem;
+    color: var(--label);
+    text-shadow: 2px 2px 0 var(--deep);
     margin: 0;
   }
 
@@ -1022,40 +1051,47 @@
     justify-content: center;
   }
 
+  /* Une boîte à message. L'ancienne était un voile blanc à 2 % : sur le
+     noir il se voyait à peine, sur un ciel il ne se voit plus du tout. */
   .empty-state {
     text-align: center;
-    padding: 6rem 2rem;
-    background: rgba(255, 255, 255, 0.02);
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 4rem 2rem;
+    background: var(--shell);
+    border: 3px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 0 4px 0 rgba(0, 0, 0, 0.22);
   }
 
   .empty-icon {
-    font-size: 4rem;
+    display: flex;
+    justify-content: center;
     margin-bottom: 1rem;
-    opacity: 0.3;
   }
 
   .empty-state h2 {
-    font-size: 1.75rem;
+    font-family: var(--display);
+    font-size: 1.6rem;
     margin: 0 0 0.75rem 0;
-    color: #fff;
+    color: var(--ink);
   }
 
   .empty-state p {
-    font-size: 1.125rem;
-    color: #888;
+    font-size: 1rem;
+    color: var(--ink-2);
     margin: 0 0 2rem 0;
   }
 
   .empty-cta {
     display: inline-block;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--go);
+    border: 3px solid var(--go-deep);
+    box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.27);
     color: white;
     text-decoration: none;
-    padding: 1rem 2.5rem;
-    border-radius: 8px;
-    font-size: 1.125rem;
+    padding: 0.8rem 2rem;
+    border-radius: 10px;
+    font-family: var(--display);
+    font-size: 1.05rem;
     transition: transform 0.2s;
   }
 

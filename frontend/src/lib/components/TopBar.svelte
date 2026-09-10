@@ -365,7 +365,9 @@
     gap: 1rem;
     padding: 0.5rem 1rem;
     background: var(--panel);
-    border-bottom: 1px solid #2e2e2e;
+    /* Trois pixels d'or, pas un liseré gris : c'est ce trait qui fait lire
+       le bandeau comme une barre d'état plutôt que comme un en-tête. */
+    border-bottom: 3px solid var(--edge);
   }
 
   .left {
