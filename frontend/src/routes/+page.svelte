@@ -107,6 +107,33 @@
     folderKnown = !!(await storedDirectory().catch(() => undefined));
   });
 
+  /**
+   * Complète les fiches des jeux du compte depuis le catalogue.
+   *
+   * Repliée dans le rescan plutôt que sur son propre bouton du profil, à la
+   * demande du propriétaire : « rescanner le dossier » veut dire « remets ma
+   * bibliothèque d'aplomb », et une fiche manquante en fait partie autant
+   * qu'un fichier ajouté. Deux gestes pour une intention, dont un caché sur
+   * une autre page, c'était un de trop.
+   *
+   * Avalée en cas d'échec : ce n'est pas la raison du clic, et le rescan a
+   * déjà fait le travail qui l'était.
+   */
+  async function fillInMetadata(): Promise<number> {
+    try {
+      const res = await fetch('/api/games/refresh-metadata', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (!res.ok) return 0;
+      const result = await res.json();
+      return typeof result?.updated === 'number' ? result.updated : 0;
+    } catch (err) {
+      logger.warn('could not fill in the metadata during a rescan', err);
+      return 0;
+    }
+  }
+
   async function rescanFolder(): Promise<void> {
     syncing = true;
     syncNote = '';
@@ -142,6 +169,10 @@
         return;
       }
 
+      // Après l'inscription, pour que les jeux tout juste ajoutés en
+      // profitent aussi.
+      const filled = await fillInMetadata();
+
       // Les deux listes que la grille croise : ce que le compte possède, et ce
       // que cet appareil sait résoudre. Rafraîchir l'une sans l'autre laisse un
       // jeu ajouté invisible, ou un jeu retiré encore affiché.
@@ -149,6 +180,7 @@
       await refreshResolvable();
 
       const parts: string[] = [];
+      if (filled > 0) parts.push(t($language, 'metadataFilled', { count: filled }));
       if (result.added > 0) parts.push(`${result.added} ${t($language, 'gamesAdded')}`);
       if (result.removed > 0) parts.push(`${result.removed} ${t($language, 'gamesRemoved')}`);
       if (parts.length > 0) {

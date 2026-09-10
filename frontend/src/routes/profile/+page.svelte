@@ -51,8 +51,6 @@
   let controlsConfig: ControlsConfig | null = null;
   let controlsError = '';
   let shader = '';
-  let refreshing = false;
-  let refreshMessage = '';
   let configBusy = false;
   let configMessage = '';
   let configError = '';
@@ -346,30 +344,6 @@
     }
   }
 
-  async function refreshMetadata(): Promise<void> {
-    refreshing = true;
-    refreshMessage = '';
-    try {
-      const res = await fetch('/api/games/refresh-metadata', {
-        method: 'POST',
-        credentials: 'include'
-      });
-      if (res.ok) {
-        const result = await res.json();
-        refreshMessage = t($language, 'metadataUpdated', {
-          updated: result.updated,
-          skipped: result.skipped
-        });
-      } else {
-        refreshMessage = t($language, 'metadataUpdateFailed');
-      }
-    } catch {
-      refreshMessage = t($language, 'metadataUpdateFailed');
-    } finally {
-      refreshing = false;
-    }
-  }
-
   async function logout(): Promise<void> {
     loggingOut = true;
     logoutMessage = '';
@@ -536,14 +510,6 @@
         {#each configNotices as notice}
           <p class="note">{t($language, NOTICES[notice])}</p>
         {/each}
-      </section>
-
-      <section class="card">
-        <h2>{t($language, 'library')}</h2>
-        <button on:click={refreshMetadata} disabled={refreshing}>
-          {refreshing ? t($language, 'updating') : t($language, 'updateMetadata')}
-        </button>
-        {#if refreshMessage}<p class="note">{refreshMessage}</p>{/if}
       </section>
 
       <!-- Next to the ROM folder panel on purpose: both answer "what of mine
