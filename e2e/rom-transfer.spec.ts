@@ -179,6 +179,81 @@ test.describe('ROM transfer', () => {
 		guest.emit('room:leave', { roomId: room.id });
 	});
 
+	test('a game offered from the library crosses to the other player', async () => {
+		/*
+		 * The whole point of decoupling sharing from launching: this needs no
+		 * emulator, no ROM on disk and no running match, so unlike the in-game
+		 * transfer it can be driven end to end. The owner asked for the
+		 * decoupling on 2026-09-10; this is the protocol it added.
+		 */
+		const room = await roomWithBoth('ROM Share');
+		const original = rom(23, 80 * 1024);
+		const dump = crc32(original);
+
+		const offered = waitForEvent<{ roomId: string; crc32: string; title: string; from: string }>(
+			guest,
+			'rom:offer',
+			5000
+		);
+		host.emit('rom:offer', { roomId: room.id, crc32: dump, title: 'Umihara Kawase' });
+		const offer = await offered;
+
+		expect(offer?.crc32).toBe(dump);
+		expect(offer?.title).toBe('Umihara Kawase');
+		expect(offer?.from).toBeTruthy();
+
+		// Accepting IS the request, which is what registers consent with the
+		// relay before a single byte is allowed through.
+		const asked = waitForEvent<{ roomId: string; from: string; crc32: string }>(
+			host,
+			'rom:request',
+			5000
+		);
+		guest.emit('rom:request', { roomId: room.id, crc32: dump });
+		const request = await asked;
+
+		// Named, because a group's room usually carries no game at all - so
+		// "the game this room is for" would have been nothing.
+		expect(request?.crc32).toBe(dump);
+
+		const assembler = new ChunkAssembler();
+		const complete = new Promise<Uint8Array>((resolve, reject) => {
+			guest.on('rom:chunk', (message: ChunkMessage) => {
+				const done = assembler.accept({
+					seq: message.seq,
+					total: message.total,
+					byteLength: message.byteLength,
+					payload: message.payload
+				});
+				if (done) resolve(done);
+			});
+			setTimeout(() => reject(new Error('the transfer never completed')), 15_000);
+		});
+
+		for (const chunk of toChunks(original)) {
+			host.emit('rom:chunk', { ...chunk, roomId: room.id, to: request!.from });
+		}
+
+		expect(crc32(await complete)).toBe(dump);
+
+		guest.off('rom:chunk');
+		host.emit('room:leave', { roomId: room.id });
+		guest.emit('room:leave', { roomId: room.id });
+	});
+
+	test('a refused offer reaches the player who made it', async () => {
+		const room = await roomWithBoth('ROM Share Declined');
+
+		const told = waitForEvent<{ roomId: string; from: string }>(host, 'rom:offer-declined', 5000);
+		guest.emit('rom:offer-declined', { roomId: room.id, to: 'dev-user-1' });
+
+		// Without this the sender's button waits on an answer already given.
+		expect((await told)?.roomId).toBe(room.id);
+
+		host.emit('room:leave', { roomId: room.id });
+		guest.emit('room:leave', { roomId: room.id });
+	});
+
 	test('a stranger cannot request a ROM from a room it is not in', async () => {
 		const room = await createRoom(host, 'ROM Transfer Stranger');
 

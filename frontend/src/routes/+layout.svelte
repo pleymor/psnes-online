@@ -8,9 +8,13 @@
   import { startLogShipping } from '$lib/utils/log-shipper';
   import { createLogger } from '$lib/utils/logger';
   import { linkState } from '$lib/stores/connection';
+  import { myRoom } from '$lib/rooms/my-room';
+  import { inGame } from '$lib/stores/in-game';
+  import { sharing } from '$lib/stores/sharing';
   import { vrActive } from '$lib/vr/entry';
   import NotificationToast from '$lib/components/NotificationToast.svelte';
   import InvitationCard from '$lib/components/InvitationCard.svelte';
+  import ShareOffer from '$lib/components/ShareOffer.svelte';
   import PseudoGate from '$lib/components/PseudoGate.svelte';
   import VrShell from '$lib/components/VrShell.svelte';
 
@@ -65,15 +69,58 @@
     void goto(`/room/${roomId}${query}`);
   }
 
+  /**
+   * Le partage, écouté ici et pas dans la bibliothèque.
+   *
+   * Une offre doit atteindre le joueur là où il est - la page de profil, la
+   * documentation - exactement l'argument qui a mis `InvitationCard` dans ce
+   * layout. `roms/sharing.ts` porte la règle ; ceci ne fait que brancher la
+   * socket dessus.
+   */
+  const share = sharing();
+
+  function onShareOffered(offer: { roomId: string; crc32: string; title: string; from: string }) {
+    if (!offer || offer.roomId !== get(myRoom)?.id) return;
+    void share.offerReceived({ crc32: offer.crc32, title: offer.title, from: offer.from });
+  }
+
+  function onShareRequested(data: { roomId: string; from: string; crc32?: string }) {
+    // Sans `crc32` c'est une demande de partie, et une salle s'en occupe déjà.
+    if (!data?.crc32 || data.roomId !== get(myRoom)?.id) return;
+    // Et seulement hors salon : dans une partie, `LockstepRoom` répond, avec
+    // ses octets déjà chargés et son garde contre les doubles envois.
+    if (get(inGame)) return;
+    void share.requested(data.from, data.crc32);
+  }
+
+  function onShareDeclined(data: { roomId: string }) {
+    if (data?.roomId !== get(myRoom)?.id) return;
+    share.declined();
+  }
+
+  const shareOffered = share.offered;
+
+  /** Le pseudo de celui qui offre : le relais donne un identifiant, pas un nom. */
+  $: offeringFriend =
+    $myRoom?.players?.find((p) => p.userId === $shareOffered?.from)?.pseudo ?? '';
+
   /** Held so `onDestroy` can take the listener off the shared socket. */
   let navigator: Awaited<ReturnType<typeof waitForSocket>> = null;
 
   onMount(async () => {
     navigator = await waitForSocket();
     navigator?.on('room:opened', handleRoomOpened);
+    navigator?.on('rom:offer', onShareOffered);
+    navigator?.on('rom:request', onShareRequested);
+    navigator?.on('rom:offer-declined', onShareDeclined);
   });
 
-  onDestroy(() => navigator?.off('room:opened', handleRoomOpened));
+  onDestroy(() => {
+    navigator?.off('room:opened', handleRoomOpened);
+    navigator?.off('rom:offer', onShareOffered);
+    navigator?.off('rom:request', onShareRequested);
+    navigator?.off('rom:offer-declined', onShareDeclined);
+  });
 
   /**
    * The gate, and with it the inertness of everything behind it.
@@ -166,6 +213,7 @@
   whatever the player is doing.
 -->
 <InvitationCard />
+<ShareOffer sharing={share} fromName={offeringFriend} />
 
 <!-- Above the <slot />, so a navigation underneath cannot unmount a running
      session. See the component's own header. -->

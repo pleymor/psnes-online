@@ -9,6 +9,16 @@
   import type { TranslationKey } from '$lib/i18n/translations';
 
   export let game: Game;
+  /**
+   * Le pseudo de l'ami du groupe, ou vide s'il n'y a pas de groupe.
+   *
+   * Le bouton d'envoi n'existe que quand il y a quelqu'un à qui envoyer :
+   * offrir un jeu à personne n'a pas de sens, et le relais refuserait de
+   * toute façon - tout passe par l'appartenance au salon.
+   */
+  export let partnerName = '';
+  /** Une offre pour CE jeu attend déjà une réponse. */
+  export let sharePending = false;
 
   const dispatch = createEventDispatcher();
 
@@ -168,6 +178,23 @@
           </button>
         {/if}
 
+        {#if game.crc32 && partnerName}
+          <!--
+            Envoyer le jeu à l'ami du groupe.
+            
+            Ici plutôt que sur la carte : la carte porte déjà Jouer, Salon et
+            Supprimer, et ceci est une action rare - c'est là que vivent les
+            autres. Le partage n'était jusqu'ici qu'un effet de bord du
+            lancement, déclenché par l'absence de fichier chez l'invité au
+            pire moment ; ce bouton est le geste délibéré qui le remplace.
+          -->
+          <button class="share" on:click={() => dispatch('share')} disabled={sharePending}>
+            {sharePending
+              ? t($language, 'shareWaiting', { name: partnerName })
+              : t($language, 'shareGame', { name: partnerName })}
+          </button>
+        {/if}
+
         {#if game.crc32 && (saves.length > 0 || game.sramUpdatedAt)}
           <!-- Only once there is something to carry. An empty file offered
                beside a game with no progress is an invitation to think
@@ -183,6 +210,11 @@
 </div>
 
 <style>
+  .share:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
   .export-saves {
     margin-top: 0.5rem;
     width: 100%;
@@ -207,7 +239,12 @@
     color: #9aa0b4;
   }
 
-  .identify {
+  /* `.share` rend le même bouton que `.identify` : ce sont deux actions de
+     même poids au même endroit, et le rendu a montré ce qu'aucun test ne
+     voyait - `.share` sans règle prenait le bouton brut du navigateur, blanc
+     et carré, à côté de son voisin. */
+  .identify,
+  .share {
     margin-top: 1rem;
     align-self: flex-start;
     background: transparent;
@@ -219,7 +256,8 @@
     cursor: pointer;
   }
 
-  .identify:hover {
+  .identify:hover,
+  .share:hover:not(:disabled) {
     border-color: #667eea;
     color: #fff;
   }

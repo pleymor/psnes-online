@@ -240,8 +240,20 @@ export function receiveRom(options: ReceiveOptions): Promise<Uint8Array> {
 
 		socket.on('rom:chunk', onChunk as never);
 		socket.on('rom:unavailable', onUnavailable as never);
-		socket.emit('rom:request', { roomId });
-		retry = setInterval(() => socket.emit('rom:request', { roomId }), retryEvery);
+
+		/*
+		 * The request names the dump it wants.
+		 *
+		 * It used to carry the room id alone, which meant "the game this room
+		 * is for" - true of every request until sharing left the room. A game
+		 * offered from a library is not the room's game, and a group's room
+		 * often carries no game at all, so the answer would have been the
+		 * wrong bytes or none. The relay passes the field through and an
+		 * answering peer prefers it over the room's own game.
+		 */
+		const ask = { roomId, crc32: expectedCrc32 };
+		socket.emit('rom:request', ask);
+		retry = setInterval(() => socket.emit('rom:request', ask), retryEvery);
 		arm(requestTimeout);
 	});
 }

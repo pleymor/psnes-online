@@ -2151,7 +2151,7 @@
    * `resolveQuietly` silencieux prend le relais depuis le cache ou le store
    * des fichiers gardés.
    */
-  async function onRomRequested(data: { roomId: string; from: string }): Promise<void> {
+  async function onRomRequested(data: { roomId: string; from: string; crc32?: string }): Promise<void> {
     const sock = $socket;
     const room = $myRoom;
     if (!sock || !data || !room || data.roomId !== room.id) return;
@@ -2159,8 +2159,10 @@
     // soit son rôle, et ce casque répond s'il tient la cartouche.
     if (serving.has(data.from)) return;
 
-    const crc32 = room.gameCrc32;
-    const rom = loadedRom ?? (crc32 ? await resolveQuietly(crc32, { requestPermission: false }) : null);
+    // Le dump demandé, pas celui du salon. Voir LockstepRoom.
+    const crc32 = data.crc32 ?? room.gameCrc32;
+    const rom = (crc32 === room.gameCrc32 ? loadedRom : null)
+      ?? (crc32 ? await resolveQuietly(crc32, { requestPermission: false }) : null);
     if (!rom) {
       // Dit plutôt que tu : sans ça l'autre attend le timeout de `receiveRom`
       // devant un écran qui ne dit rien.

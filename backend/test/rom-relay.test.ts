@@ -215,3 +215,105 @@ test('two overlapping answers still deliver every piece', () => {
     .map(d => (d.payload as { seq: number }).seq);
   assert.deepEqual([...new Set(seqs)].sort(), [0, 1, 2, 3]);
 });
+
+/*
+ * Offrir un jeu depuis la bibliotheque.
+ *
+ * Le transfert n existait qu a l interieur d une partie, declenche par
+ * l absence de fichier au moment du lancement - donc partager etait un effet
+ * de bord, a l instant precis ou deux joueurs attendaient. Le proprietaire a
+ * demande le 2026-09-10 de le decorreler : un joueur envoie un de ses jeux a
+ * l ami de son groupe, depuis la bibliotheque, quand personne n attend.
+ *
+ * Un groupe EST un salon, donc rien ne change cote autorisation : les memes
+ * gardes portent l offre. Ce qui manquait au protocole tient en deux
+ * evenements et un champ.
+ */
+
+test('une offre atteint l autre joueur, en nommant qui l envoie', () => {
+  const rooms = new Map([['room-1', room()]]);
+  const wire = relay(rooms);
+  wire.connect(asUser(HOST));
+  wire.connect(asUser(GUEST));
+
+  wire.send(HOST, 'rom:offer', { roomId: 'room-1', crc32: 'DEADBEEF', title: 'Umihara Kawase' });
+
+  const offers = wire.delivered.filter(d => d.event === 'rom:offer');
+  assert.equal(offers.length, 1);
+  assert.equal(offers[0].to, `socket:${GUEST}`);
+  assert.deepEqual(offers[0].payload, {
+    roomId: 'room-1', crc32: 'DEADBEEF', title: 'Umihara Kawase', from: HOST
+  });
+});
+
+test('une offre n est jamais renvoyee a celui qui l a faite', () => {
+  const rooms = new Map([['room-1', room()]]);
+  const wire = relay(rooms);
+  wire.connect(asUser(HOST));
+
+  wire.send(HOST, 'rom:offer', { roomId: 'room-1', crc32: 'DEADBEEF', title: 'X' });
+
+  assert.equal(wire.delivered.some(d => d.to === `socket:${HOST}`), false);
+});
+
+test('un etranger au salon n offre rien', () => {
+  const rooms = new Map([['room-1', room()]]);
+  const wire = relay(rooms);
+  wire.connect(asUser('outsider'));
+
+  wire.send('outsider', 'rom:offer', { roomId: 'room-1', crc32: 'DEADBEEF', title: 'X' });
+
+  assert.equal(wire.delivered.length, 0);
+});
+
+test('la demande nomme le dump voulu, pas seulement le salon', () => {
+  const rooms = new Map([['room-1', room()]]);
+  const wire = relay(rooms);
+  wire.connect(asUser(HOST));
+  wire.connect(asUser(GUEST));
+
+  wire.send(GUEST, 'rom:request', { roomId: 'room-1', crc32: 'DEADBEEF' });
+
+  // Sans ce champ la demande veut dire « envoie-moi le jeu DU SALON », ce qui
+  // est faux des que le jeu partage n est pas celui que le salon porte - et en
+  // bibliotheque, le salon n en porte souvent aucun.
+  const asked = wire.delivered.find(d => d.event === 'rom:request')!;
+  assert.deepEqual(asked.payload, { roomId: 'room-1', from: GUEST, crc32: 'DEADBEEF' });
+});
+
+test('une demande sans dump reste ce qu elle etait', () => {
+  const rooms = new Map([['room-1', room()]]);
+  const wire = relay(rooms);
+  wire.connect(asUser(HOST));
+  wire.connect(asUser(GUEST));
+
+  wire.send(GUEST, 'rom:request', { roomId: 'room-1' });
+
+  // Le flux en partie ne doit pas bouger d un cheveu.
+  const asked = wire.delivered.find(d => d.event === 'rom:request')!;
+  assert.deepEqual(asked.payload, { roomId: 'room-1', from: GUEST });
+});
+
+test('un refus revient a celui qui a offert', () => {
+  const rooms = new Map([['room-1', room()]]);
+  const wire = relay(rooms);
+  wire.connect(asUser(HOST));
+  wire.connect(asUser(GUEST));
+
+  wire.send(GUEST, 'rom:offer-declined', { roomId: 'room-1', to: HOST });
+
+  // Sans ca le bouton de l expediteur attendrait une reponse qui ne vient pas.
+  const declined = wire.delivered.filter(d => d.event === 'rom:offer-declined');
+  assert.equal(declined.length, 1);
+  assert.equal(declined[0].to, `socket:${HOST}`);
+});
+
+test('un refus ne s adresse qu a un membre du salon', () => {
+  const rooms = new Map([['room-1', room()]]);
+  const wire = relay(rooms);
+  wire.connect(asUser(GUEST));
+
+  wire.send(GUEST, 'rom:offer-declined', { roomId: 'room-1', to: 'outsider' });
+
+  assert.equal(wire.delivered.length, 0);
+});

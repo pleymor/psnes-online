@@ -33,6 +33,7 @@
   import GameDetailsModal from '$lib/components/GameDetailsModal.svelte';
   import LinkRom from '$lib/components/LinkRom.svelte';
   import IdentifyGame from '$lib/components/IdentifyGame.svelte';
+  import { sharing } from '$lib/stores/sharing';
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import SiteFooter from '$lib/components/SiteFooter.svelte';
@@ -46,6 +47,17 @@
 
   let selectedGame: Game | null = null;
   let gameToIdentify: Game | null = null;
+
+  /**
+   * Le partage, dont la bibliothèque n'est qu'un des deux bouts.
+   *
+   * L'offre entrante est écoutée dans le layout, pour atteindre le joueur où
+   * qu'il soit ; l'envoi part d'ici, parce que c'est ici qu'on regarde ses
+   * jeux. Une seule conversation, donc `stores/sharing.ts` et pas deux
+   * instances.
+   */
+  const share = sharing();
+  const shareWaiting = share.waiting;
   let showToast = false;
   let toastMessage = '';
   let toastType: 'success' | 'error' = 'success';
@@ -545,6 +557,11 @@
          library's own copy, which is what the modal reads from next time. -->
     <GameDetailsModal
       game={selectedGame}
+      partnerName={myPartner?.pseudo ?? ''}
+      sharePending={$shareWaiting !== null && $shareWaiting === selectedGame.crc32}
+      on:share={() => {
+        if (selectedGame?.crc32) share.offer(selectedGame.crc32, selectedGame.title);
+      }}
       on:close={() => selectedGame = null}
       on:identify={() => { gameToIdentify = selectedGame; selectedGame = null; }}
       on:resume={(e) => { const g = selectedGame; selectedGame = null; if (g) playGame(g, e.detail); }}
