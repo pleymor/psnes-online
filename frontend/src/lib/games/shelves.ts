@@ -33,6 +33,22 @@ export function columnsThatFit(width: number, cardWidth: number, columnGap: numb
 	return Math.max(1, fits);
 }
 
+/**
+ * La largeur qu'une piste a vraiment, qui n'est pas toujours celle demandée.
+ *
+ * Le CSS la plafonne : `min(<largeur de carte>, 100%)`. Une jaquette de SNES
+ * garde son format et ne s'étire pas pour remplir un écran, mais elle ne
+ * peut pas non plus déborder d'un téléphone plus étroit qu'elle - alors elle
+ * cède. Les planches se posent donc sur cette largeur-ci, pas sur la valeur
+ * nominale, sans quoi elles traverseraient les jaquettes dès qu'elle cède.
+ *
+ * Le miroir exact de la fonction CSS, et c'est tout ce qu'elle est.
+ */
+export function trackWidth(width: number, cardWidth: number): number {
+	if (!(width > 0)) return 0;
+	return Math.min(cardWidth, width);
+}
+
 export interface RowLayout {
 	/** Combien de jaquettes la grille montre. */
 	count: number;
