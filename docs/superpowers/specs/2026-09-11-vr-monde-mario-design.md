@@ -46,7 +46,7 @@ goût.
 4. **L'écran est réglable en distance, jusqu'à 4,3 m.**
    `SCREEN_DISTANCES = [2.0, 2.5, 3.0, 3.6, 4.3]`, cinq angles jusqu'à 80°,
    cinq hauteurs, deux formes, **et deux rapports de pixel**. Mesuré sur les
-   100 combinaisons : **le point le plus lointain de l'écran est à 5,281 m**
+   500 combinaisons (5×5×5×2×2) : **le point le plus lointain de l'écran est à 5,281 m**
    (plat, 80°, 4,3 m, décalé de 0,4 m, pixels carrés).
 
    Le rapport compte et c'est un piège : `aspectRatioOf` renvoie 4/3 en `crt`
@@ -339,8 +339,8 @@ sphère en `BackSide`, couleur `0x0a0a12`, dont on anime l'opacité de 0 à 1.**
 Son rayon est l'arbitrage central de cette section :
 
 ```
-point le plus lointain de l'écran (mesuré sur 100 crans) : 5,281 m
-RIDEAU                                                   : 5,5 m   (marge 0,22 m)
+point le plus lointain de l'écran (mesuré sur 500 crans) : 5,281 m
+RIDEAU                                                   : 5,5 m   (0,22 m de dégagement obtenu, pour un minimum requis CURTAIN_MARGIN de 0,15 m)
 DÉRIVE D'ANCRE (réserve, voir ci-dessous)                : 0,8 m
 DÉCOR_PROCHE (rien de décor en deçà)                     : 6,5 m
 ```
@@ -416,7 +416,7 @@ tiennent-ils d'aussi près.
   qu'aucune relecture n'attrape :
   1. rien de décor en deçà de `DÉCOR_PROCHE` ;
   2. `RIDEAU` strictement entre l'écran et le décor — le test **recalcule le
-     pire cas sur les 100 combinaisons de crans** (`SCREEN_DISTANCES` ×
+     pire cas sur les 500 combinaisons de crans** (`SCREEN_DISTANCES` ×
      `SCREEN_ANGLES` × `SCREEN_HEIGHTS` × courbe/plat × `crt`/`square`)
      plutôt que de constater 5,281 m. Ajouter un cran de distance, ou un
      rapport de pixel plus haut, fera donc rougir ce test en nommant la

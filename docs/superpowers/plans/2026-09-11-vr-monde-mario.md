@@ -762,9 +762,9 @@ const ASPECTS: readonly PixelAspect[] = ['crt', 'square'];
  *
  * C'est le nombre dont dépend le rayon du rideau, et il n'est pas devinable :
  * l'écran est réglable en distance, en angle, en hauteur, en forme et en
- * rapport de pixel, soit cent combinaisons. Calculé plutôt que constaté, pour
- * qu'un sixième cran de distance fasse rougir le test au lieu de masquer
- * silencieusement l'image du jeu.
+ * rapport de pixel, soit cinq cents combinaisons (5×5×5×2×2). Calculé plutôt
+ * que constaté, pour qu'un sixième cran de distance fasse rougir le test au
+ * lieu de masquer silencieusement l'image du jeu.
  *
  * Deux pièges déjà payés, tous deux dans le sens dangereux :
  *
@@ -822,9 +822,9 @@ git commit -m "$(cat <<'EOF'
 Calculer la portée maximale de l'écran au lieu de la deviner
 
 Le rideau qui masquera le décor doit passer derrière l'écran de jeu quel que
-soit son réglage. L'écran est réglable sur cent combinaisons - cinq distances
-jusqu'à 4,3 m, cinq angles, cinq hauteurs, deux formes, deux rapports de
-pixel - et son coin le plus lointain atteint 5,281 m.
+soit son réglage. L'écran est réglable sur cinq cents combinaisons - cinq
+distances jusqu'à 4,3 m, cinq angles, cinq hauteurs, deux formes, deux
+rapports de pixel - et son coin le plus lointain atteint 5,281 m.
 
 Le test recalcule ce pire cas plutôt que de constater le nombre : un sixième
 cran de distance le fera rougir en nommant la cause, au lieu de masquer
