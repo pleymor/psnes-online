@@ -27,7 +27,8 @@ import {
 } from './composition';
 import { curtainAtMillis, elapsedFor, type FadeTarget } from './fade';
 import { packAtlas, uvOf, type Atlas } from './atlas';
-import { scenery, type Prop } from './placement';
+import { scenery, props, type Prop, type BoxProp } from './placement';
+import { boxGeometry } from './box';
 
 export interface DecorOptions {
   /** Mètres sous l'œil, de `floor.ts`. */
@@ -178,6 +179,49 @@ function quadFor(
   return mesh;
 }
 
+/**
+ * La boîte d'un objet proche : la jumelle de `quadFor`, même arithmétique de
+ * position, mais une `BufferGeometry` à cinq faces produite par
+ * `boxGeometry` (`box.ts`) plutôt qu'un `PlaneGeometry`.
+ *
+ * Pas de `computeVertexNormals()` : rien n'est éclairé dans cette scène
+ * (`scene.ts` dit pourquoi), donc les normales ne serviraient qu'à occuper de
+ * la mémoire.
+ */
+function boxFor(
+  prop: BoxProp,
+  atlas: Atlas,
+  material: THREE.Material,
+  floorHeight: number
+): THREE.Mesh {
+  const raster = rasterise(ALL_ART[prop.front]);
+  const width = raster.width / ART_PIXELS_PER_METRE;
+  const height = raster.height / ART_PIXELS_PER_METRE;
+
+  const data = boxGeometry({
+    width,
+    height,
+    depth: prop.depth,
+    front: uvOf(atlas, prop.front),
+    side: uvOf(atlas, prop.side),
+    top: uvOf(atlas, prop.top)
+  });
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(data.uvs, 2));
+  geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(
+    prop.radius * Math.sin(prop.azimuth),
+    -floorHeight + prop.standing + height / 2,
+    -prop.radius * Math.cos(prop.azimuth)
+  );
+  mesh.rotation.y = -prop.azimuth;
+  return mesh;
+}
+
 export function createDecor(opts: DecorOptions): Decor {
   const decor = new THREE.Group();
 
@@ -257,6 +301,17 @@ export function createDecor(opts: DecorOptions): Decor {
     quadGeometries.push(mesh.geometry);
     decor.add(mesh);
     if (prop.facing === 'billboard') billboards.push(mesh);
+  }
+
+  /*
+   * Les objets proches, en boîte : même atlas, même matériau que les quads du
+   * relief - un seul bind de plus n'apporterait rien, et `boxFor` en est la
+   * jumelle exacte pour la position.
+   */
+  for (const prop of props()) {
+    const mesh = boxFor(prop, atlas, quadMaterial, opts.floorHeight);
+    quadGeometries.push(mesh.geometry);
+    decor.add(mesh);
   }
 
   // Réutilisés à chaque image plutôt qu'alloués dedans : cette boucle tourne

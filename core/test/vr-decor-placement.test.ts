@@ -7,7 +7,7 @@
  */
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { scenery } from '../../frontend/src/lib/vr/decor/placement.js';
+import { scenery, props } from '../../frontend/src/lib/vr/decor/placement.js';
 import { DECOR_NEAR, SKY_RADIUS } from '../../frontend/src/lib/vr/decor/composition.js';
 import { ALL_ART } from '../../frontend/src/lib/vr/decor/art/index.js';
 
@@ -53,4 +53,31 @@ test('les nuages flottent et le reste est posé', () => {
 
 test('la composition est déterministe', () => {
   assert.deepEqual(scenery(), scenery());
+});
+
+test('aucun objet proche ne vient devant le rideau', () => {
+  for (const prop of props()) {
+    assert.ok(prop.radius >= DECOR_NEAR, `${prop.front} à ${prop.radius} m`);
+  }
+});
+
+test('tout objet proche désigne trois motifs qui existent', () => {
+  for (const prop of props()) {
+    for (const art of [prop.front, prop.side, prop.top]) {
+      assert.ok(ALL_ART[art], `motif inconnu : ${art}`);
+    }
+  }
+});
+
+test('les objets proches restent dans la zone où la stéréo voit le volume', () => {
+  // La spec §6 : la boîte se justifie sous douze mètres. Plus loin, elle coûte
+  // quatre faces pour un volume que personne ne perçoit, et il faut repasser
+  // en quad plat.
+  for (const prop of props()) {
+    assert.ok(prop.radius <= 12, `${prop.front} à ${prop.radius} m ne mérite plus une boîte`);
+  }
+});
+
+test('un objet proche a une profondeur réelle', () => {
+  for (const prop of props()) assert.ok(prop.depth > 0.1, `${prop.front} est plat`);
 });

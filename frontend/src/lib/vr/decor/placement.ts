@@ -64,3 +64,99 @@ export function scenery(): readonly Prop[] {
     { art: 'cloud', azimuth: at(10.3), radius: RINGS.clouds, standing: 8, facing: 'billboard' }
   ];
 }
+
+/**
+ * Les objets qu'on voit en volume, montés en boîte.
+ *
+ * Le rayon est borné à douze mètres et le test le tient : au-delà, la stéréo
+ * ne perçoit plus l'épaisseur, et la boîte coûterait quatre faces pour rien.
+ * C'est la règle de la spec §6, et elle a une conséquence pratique - déplacer
+ * un tuyau plus loin ne se fait pas en changeant un nombre ici, mais en le
+ * repassant en quad plat.
+ */
+export interface BoxProp {
+  readonly front: string;
+  readonly side: string;
+  readonly top: string;
+  readonly azimuth: number;
+  readonly radius: number;
+  /** Mètres entre le sol et le BAS de l'objet, comme `Prop.standing`. */
+  readonly standing: number;
+  /** Mètres. Un tuyau est aussi profond que large. */
+  readonly depth: number;
+}
+
+export function props(): readonly BoxProp[] {
+  return [
+    // Un tuyau complet : le fût, puis la lèvre posée dessus.
+    {
+      front: 'pipeShaft',
+      side: 'pipeShaftSide',
+      top: 'pipeShaftSide',
+      azimuth: at(1.1),
+      radius: RINGS.pipes,
+      standing: 0,
+      depth: 1
+    },
+    {
+      front: 'pipeLip',
+      side: 'pipeLipSide',
+      top: 'pipeLipSide',
+      azimuth: at(1.1),
+      radius: RINGS.pipes,
+      standing: 1.5,
+      depth: 1.25
+    },
+
+    {
+      front: 'pipeShaft',
+      side: 'pipeShaftSide',
+      top: 'pipeShaftSide',
+      azimuth: at(7.4),
+      radius: RINGS.pipes,
+      standing: 0,
+      depth: 1
+    },
+    {
+      front: 'pipeLip',
+      side: 'pipeLipSide',
+      top: 'pipeLipSide',
+      azimuth: at(7.4),
+      radius: RINGS.pipes,
+      standing: 1.5,
+      depth: 1.25
+    },
+
+    // La rangée de blocs `?`, à hauteur de frappe : 1,2 m au-dessus de l'œil,
+    // donc `standing` vaut la hauteur du sol plus 1,2 - mais le sol n'est pas
+    // connu ici, et c'est voulu. `build.ts` ajoute -floorHeight ; ce qui suit
+    // est donc la hauteur AU-DESSUS DU SOL, comme pour tout le reste.
+    {
+      front: 'questionBlock',
+      side: 'blockSide',
+      top: 'blockSide',
+      azimuth: at(11.6),
+      radius: RINGS.props,
+      standing: 2.4,
+      depth: 1
+    },
+    {
+      front: 'questionBlock',
+      side: 'blockSide',
+      top: 'blockSide',
+      azimuth: at(0),
+      radius: RINGS.props,
+      standing: 2.4,
+      depth: 1
+    },
+    {
+      front: 'questionBlock',
+      side: 'blockSide',
+      top: 'blockSide',
+      azimuth: at(0.4),
+      radius: RINGS.props,
+      standing: 2.4,
+      depth: 1
+    }
+  ];
+}
