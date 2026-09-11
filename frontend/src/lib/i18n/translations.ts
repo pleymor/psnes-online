@@ -526,6 +526,17 @@ export const translations = {
     vrScreenShape: 'Shape',
     vrScreenFlat: 'Flat',
     vrScreenCurved: 'Curved',
+    vrRelief: 'Depth',
+    vrReliefStrength: 'Strength',
+    vrReliefBackdrop: 'Backdrop',
+    vrReliefSprites: 'Sprites',
+    /*
+     * Which half of a background this row is. A background is drawn at two
+     * priorities and the SNES composites them either side of the sprites, so
+     * « BG1 » alone would name two rows at once.
+     */
+    vrReliefFront: 'front',
+    vrReliefBehind: 'behind',
     vrRemapHeading: 'Controls',
     vrRemapPress: 'Press a button — right stick click to cancel',
     vrRemapDone: 'Back',
@@ -1081,6 +1092,12 @@ export const translations = {
     vrScreenShape: 'Forme',
     vrScreenFlat: 'Plat',
     vrScreenCurved: 'Incurvé',
+    vrRelief: 'Relief',
+    vrReliefStrength: 'Intensité',
+    vrReliefBackdrop: 'Fond',
+    vrReliefSprites: 'Sprites',
+    vrReliefFront: 'devant',
+    vrReliefBehind: 'derrière',
     vrRemapHeading: 'Contrôles',
     vrRemapPress: 'Pressez un bouton — clic du stick droit pour annuler',
     vrRemapDone: 'Retour',

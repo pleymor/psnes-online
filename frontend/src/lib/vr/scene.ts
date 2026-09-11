@@ -118,7 +118,18 @@ export function createVrScene(opts: {
   scene.add(world);
 
   const screen = createVrScreen(layout.screen);
-  world.add(screen.mesh);
+  /*
+   * The whole stack, spread into the world rather than added as a group.
+   *
+   * A `THREE.Group` would be tidier and would break the pointer: `aimedAt`
+   * below calls `intersectObjects(targets, false)`, and that `false` is "do
+   * not recurse", so a group in the target list is tested for a hit on the
+   * group itself - which has no geometry - and the launch screen becomes
+   * unpressable with nothing thrown and nothing logged. The planes are fixed
+   * at construction and never added to or removed from, so this one line is
+   * the whole of it.
+   */
+  world.add(...screen.meshes);
 
   /*
    * The anchor, and the one automatic application of it.
@@ -237,7 +248,10 @@ export function createVrScene(opts: {
     const targets: THREE.Object3D[] = aimable(panels, panelGroup.visible).map(
       (panel) => panel.mesh
     );
-    if (screen.isPanel()) targets.push(screen.mesh);
+    // `pressTargets()` rather than `isPanel()` and a mesh: the screen is ten
+    // planes now, and only one of them ever carries a panel. It answers with
+    // that one or with nothing, so the rule stays in the module that knows it.
+    targets.push(...screen.pressTargets());
     if (targets.length === 0) return null;
 
     for (const controller of controllers) {
@@ -257,9 +271,19 @@ export function createVrScene(opts: {
       if (!first?.uv) continue;
       const uv = { x: first.uv.x, y: first.uv.y };
 
-      // The screen is not in `panels`, so it needs its own lookup rather than
-      // a `find` that would silently return undefined and skip the controller.
-      if (first.object === screen.mesh) {
+      /*
+       * The screen is not in `panels`, so it needs its own lookup rather than
+       * a `find` that would silently return undefined and skip the controller.
+       *
+       * `owns` rather than an identity test against one mesh. This line used
+       * to read `first.object === screen.mesh`, and the moment the screen
+       * became a stack that comparison started falling through to the `panels`
+       * lookup below, which finds nothing and skips the controller - a launch
+       * screen that draws perfectly and cannot be pressed, with no error
+       * anywhere. Asking the screen whether the hit is one of its own is the
+       * question that stays true however many planes it grows.
+       */
+      if (screen.owns(first.object)) {
         const size = screen.panelSize();
         if (!size) continue;
         const onScreen = hit(screen.regions, uv, size);
