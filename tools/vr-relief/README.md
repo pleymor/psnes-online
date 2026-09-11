@@ -62,8 +62,20 @@ Trois choses se sont révélées non négociables, chacune après un faux dépar
 - **La priorité ne nomme pas un calque sans le mode BG.** En mode 1 BG1 vaut
   47/43 ; en mode 3, 43 est BG2. D'où `pn_depth_bg_mode()`.
 
-## Ce qui n'a pas été mesuré
+## Le coût dans le casque
 
-Le coût dans un casque. Rien ici n'a jamais tourné sur un Quest, et la page
-n'est pas un test de performance : elle affiche une frame figée. Six plans en
-plein écran avec du recouvrement, ce n'est pas six quads gratuits.
+La crainte était que dix plans en plein écran avec du recouvrement, chacun
+échantillonnant deux textures, ne tiennent pas la cadence. **Essayé sur un
+Quest en production le 2026-09-11 : la cadence tient.** C'est un constat du
+propriétaire du casque, pas un relevé chiffré — personne n'a lu un compteur
+de frames — mais c'en est un de première main, là où tout le reste de ce
+fichier vient d'une machine de bureau.
+
+L'optimisation qui était préparée n'a donc pas eu à être faite : ne créer que
+les plans réellement présents dans la frame plutôt que les dix. Un plan sur
+deux ne sert à rien dans un jeu donné, et `slot-mask.ts` renvoie déjà la
+liste dans `present`. Elle reste le premier levier si un jeu plus chargé fait
+céder la cadence un jour.
+
+La page, elle, ne dira jamais rien du coût : elle affiche une frame figée.
+

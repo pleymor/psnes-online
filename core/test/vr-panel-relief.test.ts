@@ -32,6 +32,7 @@ import {
   DEFAULT_RELIEF,
   RELIEF_DISTANCES,
   RELIEF_SPACINGS,
+  stepSpacing,
   type ReliefPreset
 } from '../../frontend/src/lib/vr/relief-preset.js';
 import { VR_SLOT_KEYS, type VrSlotKey } from '../../frontend/src/lib/vr/layer-map.js';
@@ -109,10 +110,23 @@ test('the strength row is there even when the frame has no layers to speak of', 
   // One flat plane is what a core with no layer plane gives, and the strength
   // is still the knob that says so. Losing it would leave a panel with a Back
   // button on it and nothing else.
+  //
+  // Only the « + » though: the preset ships at the bottom rung, so « − » is at
+  // the end of its ladder and is drawn without being aimable, which is the
+  // same rule every other row obeys.
   const list = ids({ preset: DEFAULT_RELIEF, slots: ['backdrop'] });
-  assert.ok(list.includes('spacing-less'));
+  assert.ok(!list.includes('spacing-less'), 'a butted step kept its target');
   assert.ok(list.includes('spacing-more'));
   assert.ok(list.includes('close'));
+});
+
+test('once the strength is off the floor, both of its steps answer', () => {
+  // The counterpart of the test above, and the one that would catch a panel
+  // that dropped « − » for good rather than only at the bottom of the ladder.
+  const raised = stepSpacing(DEFAULT_RELIEF, 1);
+  const list = ids({ preset: raised, slots: ['backdrop'] });
+  assert.ok(list.includes('spacing-less'));
+  assert.ok(list.includes('spacing-more'));
 });
 
 test('the order of the rows is the order the picture is stacked in', () => {

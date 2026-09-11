@@ -135,8 +135,24 @@ const DEFAULT_SLOTS: Record<VrSlotKey, number> = {
 	sprite: 0.18
 };
 
+/**
+ * Off until asked for, and on in one press.
+ *
+ * The strength starts at its zero rung, so a game looks exactly as it did
+ * before this existed until the player goes and turns it on. Relief is a taste
+ * rather than a correction: nobody's SNES had it, and a picture that quietly
+ * stopped being flat is a change made on the player's behalf.
+ *
+ * The slot distances keep their values underneath rather than being zeroed
+ * with it, and that is the whole point of putting the strength in front of
+ * them. Zeroing the ten would leave a player who wants relief building the
+ * stack a rung at a time before seeing anything at all, and having to guess
+ * the proportions between backgrounds that the hardware already states. One
+ * press on the strength gives the whole diorama, correctly proportioned; the
+ * rows are there to disagree with it afterwards.
+ */
 export const DEFAULT_RELIEF: ReliefPreset = {
-	spacing: 1,
+	spacing: 0,
 	slots: DEFAULT_SLOTS
 };
 

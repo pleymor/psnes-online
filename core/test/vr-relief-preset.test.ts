@@ -275,7 +275,9 @@ test('spacing scales every distance, and zero flattens the picture', () => {
 test('listing walks every game, and skips entries it cannot read', () => {
   const store = storage();
   const mario = stepSlot(DEFAULT_RELIEF, 'sprite', 1);
-  const zelda = stepSpacing(DEFAULT_RELIEF, -1);
+  // Up, not down: the default ships at the bottom rung, so stepping down is a
+  // no-op and writing the default removes the key rather than storing it.
+  const zelda = stepSpacing(DEFAULT_RELIEF, 1);
   writeReliefPreset(store, MARIO, mario);
   writeReliefPreset(store, ZELDA, zelda);
   store.setItem('psnes-vr-screen', JSON.stringify({ distance: 2.5 }));
