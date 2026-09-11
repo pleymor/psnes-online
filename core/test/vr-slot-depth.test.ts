@@ -29,6 +29,16 @@ type Key = (typeof VR_SLOT_KEYS)[number];
 
 const at = (depths: number[], key: Key) => depths[VR_SLOT_KEYS.indexOf(key)];
 
+/*
+ * The shipped preset with the strength turned up.
+ *
+ * The default ships at zero strength, so every slot resolves to the glass and
+ * nothing below would have anything to compare. What these tests are about is
+ * the ORDER the ladder puts the layers in, which only exists once a player has
+ * asked for relief - so they ask for it.
+ */
+const ON: ReliefPreset = { ...DEFAULT_RELIEF, spacing: 1 };
+
 /** The shipped preset with a few slots moved, and optionally a strength. */
 function preset(over: Partial<Record<Key, number>> = {}, spacing = 1): ReliefPreset {
   return { spacing, slots: { ...DEFAULT_RELIEF.slots, ...over } };
@@ -39,7 +49,9 @@ test('the answer is one offset per slot, in the order the mask is written in', (
   // entry i. A different length or a different order is a picture whose layers
   // are at each other's distances, which looks like the depths being wrong
   // rather than like an index being wrong.
-  const depths = slotDepths();
+  // At full strength a slot's depth IS its rung, so a misplaced entry shows up
+  // as a mismatched number rather than as ten zeroes agreeing with each other.
+  const depths = slotDepths(ON);
   assert.equal(depths.length, VR_SLOT_KEYS.length);
   for (const [index, key] of VR_SLOT_KEYS.entries()) {
     assert.equal(depths[index], DEFAULT_RELIEF.slots[key], `${key} is not at index ${index}`);
@@ -48,14 +60,31 @@ test('the answer is one offset per slot, in the order the mask is written in', (
 
 test('called with nothing, it is the shipped preset', () => {
   // The screen is built when the session opens and the game is chosen
-  // afterwards, so there is a window in which no preset has been read yet. It
-  // must be the default rather than a flat picture, or the relief would look
-  // like it only switches on when the settings panel is opened.
+  // afterwards, so there is a window in which no preset has been read yet.
   assert.deepEqual(slotDepths(), slotDepths(DEFAULT_RELIEF));
 });
 
-test('the default stack runs from the backdrop out to the sprites', () => {
-  const depths = slotDepths();
+test('the shipped default is flat, so no game changes on its own', () => {
+  /*
+   * Relief is a taste, not a correction - nobody's SNES had it. A picture that
+   * quietly stopped being flat would be a change made on the player's behalf,
+   * so the strength ships at its zero rung and every slot resolves to the
+   * glass until someone turns it up.
+   *
+   * The distances underneath are NOT zeroed with it, which is what the next
+   * test rests on: one press on the strength has to give the whole diorama,
+   * correctly proportioned, rather than a player building ten rows by hand
+   * before seeing anything.
+   */
+  for (const depth of slotDepths()) assert.equal(depth, 0);
+  assert.ok(
+    VR_SLOT_KEYS.some((key) => DEFAULT_RELIEF.slots[key]! > 0),
+    'the ladder must survive underneath the zero strength'
+  );
+});
+
+test('turned up, the stack runs from the backdrop out to the sprites', () => {
+  const depths = slotDepths(ON);
   assert.equal(at(depths, 'backdrop'), 0);
   assert.ok(at(depths, 'bg3.lo') > at(depths, 'backdrop'));
   assert.ok(at(depths, 'bg2.lo') > at(depths, 'bg3.lo'));
@@ -71,7 +100,7 @@ test('a status bar is painted on the glass, not floated in front of it', () => {
    * head moves, and - because a slot is only drawn where it won the pixel - it
    * cuts a glyph-shaped hole through everything behind it.
    */
-  const depths = slotDepths();
+  const depths = slotDepths(ON);
   assert.equal(at(depths, 'bg3.hi'), 0);
   assert.ok(at(depths, 'bg3.lo') > 0, 'the clouds and the status bar must not share a distance');
 });
@@ -80,7 +109,7 @@ test('the two halves of one background stay at one distance', () => {
   // High and low are two passes over the same scrolling surface. Splitting
   // them would tear one plane in half along whatever the artist gave priority
   // to. BG3 is the exception above, and only because the hardware flag says so.
-  const depths = slotDepths();
+  const depths = slotDepths(ON);
   assert.equal(at(depths, 'bg1.hi'), at(depths, 'bg1.lo'));
   assert.equal(at(depths, 'bg2.hi'), at(depths, 'bg2.lo'));
   assert.equal(at(depths, 'bg4.hi'), at(depths, 'bg4.lo'));
