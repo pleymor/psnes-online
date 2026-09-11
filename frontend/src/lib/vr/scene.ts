@@ -26,6 +26,7 @@ import { createPanelMesh, type PanelMesh } from './panel-mesh';
 import { aimable, hit, type PanelSize } from './panel';
 import type { PointerTarget } from './pointer';
 import { TRIGGER } from './pad';
+import { ROOM_DARK, CAMERA_FAR } from './decor/composition';
 
 export interface VrScene {
   screen: VrScreen;
@@ -124,9 +125,9 @@ export function createVrScene(opts: {
   // Every material is unlit MeshBasicMaterial, so there are no lights. The
   // background is near-black rather than black: a faint gradient gives the eye
   // something to fix on and stops the screen looking like it floats in a void.
-  scene.background = new THREE.Color(0x0a0a12);
+  scene.background = new THREE.Color(ROOM_DARK);
 
-  const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 50);
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.05, CAMERA_FAR);
 
   /*
    * Everything the player looks at, on one group that can be moved.

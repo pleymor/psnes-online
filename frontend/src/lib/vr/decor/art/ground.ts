@@ -33,7 +33,7 @@ export const GROUND_BRICK: Art = {
     'bbbbkkbbbbbbkkbb',
     'bbbbkkbbbbbbkkbb',
     'bbbbkkbbbbbbkkbb',
-    'kkkkkkkkkkkkkkkk'
+    'bbbbkkbbbbbbkkbb'
   ]
 };
 

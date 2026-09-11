@@ -20,6 +20,28 @@ import { aspectRatioOf, type PixelAspect } from '$lib/znet/fit';
 /** Seize pixels d'art par mètre : la résolution native d'une tuile SMB. */
 export const ART_PIXELS_PER_METRE = 16;
 
+/**
+ * Combien de fois la tuile du sol se répète d'un bord à l'autre du disque.
+ *
+ * Les uv d'un `CircleGeometry` couvrent 0..1 d'un bord à l'autre, donc c'est
+ * le DIAMÈTRE en mètres - une tuile par mètre. Ici plutôt que dans `build.ts`
+ * parce que c'est la même affirmation que `ART_PIXELS_PER_METRE`, et que deux
+ * énoncés d'un même fait dérivent tôt ou tard.
+ */
+export function floorRepeat(): number {
+  return SKY_RADIUS * 2;
+}
+
+/** La couleur de fond de `scene.ts`. Le rideau la porte aussi, pour que la
+ *  fin du fondu soit exactement la salle noire d'aujourd'hui - une seule
+ *  déclaration plutôt que le même littéral recopié à 3000 lignes de distance. */
+export const ROOM_DARK = 0x0a0a12;
+
+/** Le `far` de la `PerspectiveCamera` de `scene.ts`. Partagé pour que le test
+ *  qui vérifie que le ciel tient dessous ne porte pas sa propre copie du
+ *  nombre qu'il garde. */
+export const CAMERA_FAR = 50;
+
 /** Sous les yeux, en mètres, quand le casque refuse de dire où est le sol. */
 export const FLOOR_FALLBACK = 1.2;
 
@@ -71,9 +93,9 @@ const ASPECTS: readonly PixelAspect[] = ['crt', 'square'];
  *
  * C'est le nombre dont dépend le rayon du rideau, et il n'est pas devinable :
  * l'écran est réglable en distance, en angle, en hauteur, en forme et en
- * rapport de pixel, soit cent combinaisons. Calculé plutôt que constaté, pour
- * qu'un sixième cran de distance fasse rougir le test au lieu de masquer
- * silencieusement l'image du jeu.
+ * rapport de pixel, soit cinq cents combinaisons (5×5×5×2×2). Calculé plutôt
+ * que constaté, pour qu'un sixième cran de distance fasse rougir le test au
+ * lieu de masquer silencieusement l'image du jeu.
  *
  * Deux pièges déjà payés, tous deux dans le sens dangereux :
  *

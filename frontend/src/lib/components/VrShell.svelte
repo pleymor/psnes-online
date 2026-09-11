@@ -166,6 +166,20 @@
     });
     if (height === null) return;
 
+    /*
+     * La seule trace qui dise si le pari de `local-floor` a tenu.
+     *
+     * Un plancher refusé et un plancher mal mesuré donnent le même sol trop
+     * haut, et rien dans le casque ne les distingue. Cette ligne-là est
+     * l'instrument de la première session : `refused` veut dire que la sonde
+     * du 2026-09-07 avait raison et qu'il faut un réglage, `measured` avec
+     * une hauteur plausible veut dire que le pari a tenu.
+     */
+    logger.info('vr decor floor', {
+      source: session.floorSpace ? 'measured' : 'refused',
+      height
+    });
+
     decor = createDecor({ floorHeight: height, maxAnisotropy: scene.maxAnisotropy() });
     scene.addDecor(decor.decor);
     scene.addCurtain(decor.curtain);

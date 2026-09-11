@@ -17,12 +17,8 @@ import * as THREE from 'three';
 import { rasterise, type Art } from './pixels';
 import { GROUND_BRICK } from './art/ground';
 import { COLOURS } from './palette';
-import { SKY_RADIUS, CURTAIN_RADIUS } from './composition';
-import { curtain as curtainAt, elapsedFor, type FadeTarget } from './fade';
-
-/** La couleur du fond de `scene.ts`. Le rideau la porte, pour que la fin du
- *  fondu soit exactement la salle noire d'aujourd'hui. */
-const DARK = 0x0a0a12;
+import { SKY_RADIUS, CURTAIN_RADIUS, ROOM_DARK, floorRepeat } from './composition';
+import { curtainAtMillis, elapsedFor, type FadeTarget } from './fade';
 
 export interface DecorOptions {
   /** Mètres sous l'œil, de `floor.ts`. */
@@ -105,14 +101,16 @@ export function createDecor(opts: DecorOptions): Decor {
    * de s'en approcher. C'est ce qui garantit qu'il n'y a pas de fente à
    * l'horizon, sans bande de raccord ni réglage à trouver.
    *
-   * La répétition vaut le diamètre en mètres, parce que les uv d'un
-   * `CircleGeometry` couvrent 0..1 d'un bord à l'autre : soixante répétitions
-   * sur soixante mètres font bien une tuile par mètre.
+   * La répétition vaut `floorRepeat()` (`composition.ts`) : le diamètre en
+   * mètres, parce que les uv d'un `CircleGeometry` couvrent 0..1 d'un bord à
+   * l'autre.
    */
   const floorTexture = tileTexture(GROUND_BRICK, opts.maxAnisotropy);
-  floorTexture.repeat.set(SKY_RADIUS * 2, SKY_RADIUS * 2);
+  floorTexture.repeat.set(floorRepeat(), floorRepeat());
   const floorGeometry = new THREE.CircleGeometry(SKY_RADIUS, 64);
-  const floorMaterial = new THREE.MeshBasicMaterial({ map: floorTexture });
+  // `transparent: true` : le sol est le seul objet du décor en deçà du rayon
+  // du rideau (voir plus bas), donc lui seul a besoin de son propre fondu.
+  const floorMaterial = new THREE.MeshBasicMaterial({ map: floorTexture, transparent: true });
   const floor = new THREE.Mesh(floorGeometry, floorMaterial);
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -opts.floorHeight;
@@ -121,12 +119,15 @@ export function createDecor(opts: DecorOptions): Decor {
   /*
    * Le rideau. `depthWrite: false` parce qu'il est transparent : il doit se
    * mélanger par-dessus le décor qu'il masque, pas creuser un trou dans le
-   * tampon de profondeur devant les panneaux - qui sont plus proches, opaques,
-   * et dessinés avant lui.
+   * tampon de profondeur. Les panneaux, eux, sont AUSSI transparents
+   * (`panel-mesh.ts`) - ce n'est donc pas l'opacité qui les fait dessiner
+   * avant le rideau, c'est le tri de three : les objets transparents sont
+   * dessinés du plus proche au plus lointain, et à ~2 m ils précèdent de
+   * toute façon un rideau à 5,5 m.
    */
   const curtainGeometry = new THREE.SphereGeometry(CURTAIN_RADIUS, 16, 12);
   const curtainMaterial = new THREE.MeshBasicMaterial({
-    color: DARK,
+    color: ROOM_DARK,
     side: THREE.BackSide,
     transparent: true,
     opacity: 0,
@@ -178,11 +179,24 @@ export function createDecor(opts: DecorOptions): Decor {
 
     update(t: number): void {
       if (settled) return;
-      // three passe l'horodatage XR en millisecondes ; `fade.ts` compte en
-      // secondes.
       if (startedAt === null) startedAt = t;
-      const step = curtainAt(offset + (t - startedAt) / 1000, target);
+      // `curtainAtMillis` (`fade.ts`) porte la conversion ms → s : `t` vient
+      // du runtime XR en millisecondes, mais `offset` est déjà en secondes
+      // (`elapsedFor`), d'où l'addition avant la conversion plutôt qu'après.
+      const step = curtainAtMillis((t - startedAt) + offset * 1000, target);
       curtainMaterial.opacity = step.opacity;
+      /*
+       * Le sol, lui, ne passe PAS derrière le rideau.
+       *
+       * C'est un disque centré sur le joueur : sa partie proche est à un
+       * mètre de ses yeux, donc bien en deçà des 5,5 m de la sphère, et une
+       * sphère en `BackSide` ne peut rien masquer de plus proche que son
+       * propre rayon. Sans ce fondu-là, tout s'assombrit autour de soi
+       * pendant que le sol reste en pleine lumière, puis disparaît d'un coup
+       * quand `visible` bascule - l'à-coup exact que ce module existe pour
+       * supprimer, sur la plus grande surface du champ de vision.
+       */
+      floorMaterial.opacity = 1 - step.opacity;
       if (!step.done) return;
 
       settled = true;

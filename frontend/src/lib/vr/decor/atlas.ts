@@ -16,6 +16,10 @@
  * l'algorithme le plus simple qui ne gaspille pas, et le gaspillage n'a de
  * toute façon aucune importance ici - quelques dizaines de motifs de seize à
  * soixante-quatre pixels tiennent dans une texture de 256 ou 512.
+ *
+ * Sans appelant en production pour l'instant : `build.ts` dessine encore
+ * `GROUND_BRICK` directement, hors atlas. Ce module et `GROUND_GRASS` ne sont
+ * exercés que par les tests jusqu'au lot 2, qui les consomme.
  */
 import { rasterise, type Art } from './pixels';
 

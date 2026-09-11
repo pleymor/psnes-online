@@ -38,3 +38,21 @@ export function elapsedFor(opacity: number, to: FadeTarget): number {
   const progress = to === 'dark' ? clamped : 1 - clamped;
   return progress * FADE_SECONDS;
 }
+
+/** three passe l'horodatage XR en millisecondes ; ce module compte en
+ *  secondes. */
+const MILLISECONDS_PER_SECOND = 1000;
+
+/**
+ * `curtain`, mais à partir d'un horodatage XR - en millisecondes.
+ *
+ * La conversion vivait dans `build.ts`, le seul fichier de `decor/` qu'aucun
+ * test ne peut exécuter (il importe three). Elle appartient ici : c'est ce
+ * module qui compte en secondes, donc c'est lui qui doit savoir convertir.
+ */
+export function curtainAtMillis(
+  elapsedMs: number,
+  to: FadeTarget
+): { opacity: number; done: boolean } {
+  return curtain(elapsedMs / MILLISECONDS_PER_SECOND, to);
+}

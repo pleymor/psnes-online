@@ -22,10 +22,10 @@ import {
   DECOR_NEAR,
   SKY_RADIUS,
   RINGS,
-  ART_PIXELS_PER_METRE
+  ART_PIXELS_PER_METRE,
+  CAMERA_FAR,
+  floorRepeat
 } from '../../frontend/src/lib/vr/decor/composition.js';
-
-const CAMERA_FAR = 50; // `scene.ts`
 
 test('le pire cas de l_écran est celui qui a été mesuré', () => {
   assert.ok(
@@ -67,4 +67,8 @@ test('le ciel tient sous le far de la caméra', () => {
 
 test('une tuile d_un mètre fait seize pixels d_art', () => {
   assert.equal(ART_PIXELS_PER_METRE, 16);
+});
+
+test('la tuile du sol se répète une fois par mètre, soit le diamètre du disque', () => {
+  assert.equal(floorRepeat(), SKY_RADIUS * 2);
 });
