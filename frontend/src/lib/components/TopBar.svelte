@@ -21,8 +21,41 @@
    * this bar. They are now a card mounted in the layout (`InvitationCard`), which
    * appears by itself wherever the player happens to be.
    */
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { page } from '$app/stores';
+
+  const dispatch = createEventDispatcher<{ searchopen: void; searchclose: void }>();
+
+  /*
+   * La recherche dépliée, et le reste de la barre effacé.
+   *
+   * Mesuré avant d'être décidé : le contenu de cette barre fait 393 px de
+   * large, donc sur un écran de 390 la page se met à défiler latéralement et
+   * la marque est rognée en un trait. Sous 480 px la recherche se replie donc
+   * en une loupe, et l'ouvrir efface Amis, le VR et l'avatar - il n'y a pas
+   * de place pour les deux, et « tout, en plus petit » n'existe pas ici.
+   *
+   * `searching` ne fait rien au-dessus du point de rupture : les règles qui
+   * le lisent vivent toutes dans la requête média, donc sur un large écran la
+   * barre reste ce qu'elle était, quoi que vaille ce drapeau.
+   */
+  let searching = false;
+
+  function openSearch() {
+    searching = true;
+    dispatch('searchopen');
+  }
+
+  /*
+   * Refermer efface la requête, et c'est la page qui s'en charge - la barre
+   * ne connaît pas le champ, elle ne fait que lui prêter sa place. Sans cet
+   * effacement la bibliothèque resterait filtrée sans que rien à l'écran ne
+   * dise pourquoi : un mode caché, et la pire sorte.
+   */
+  function closeSearch() {
+    searching = false;
+    dispatch('searchclose');
+  }
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
@@ -240,7 +273,9 @@
   }
 </script>
 
-<header class="top-bar">
+<svelte:window on:keydown={(e) => { if (e.key === 'Escape' && searching) closeSearch(); }} />
+
+<header class="top-bar" class:searching>
   <div class="left">
     <!--
       The brand still goes home, because it always has and people who know that
@@ -292,17 +327,50 @@
     <slot name="tool" />
   </div>
 
+  {#if $$slots.tool}
+    <!-- Rendus seulement si la page a mis quelque chose à replier : sur
+         /profile et /docs il n'y a pas de recherche, donc pas de loupe.
+         Le CSS les cache au-dessus du point de rupture ; ils n'existent
+         que pour l'écran étroit. -->
+    <button class="icon-button search-toggle" on:click={openSearch} title={t($language, 'searchLibrary')} aria-label={t($language, 'searchLibrary')}>
+      <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.5" />
+        <path d="M10.5 10.5L14 14" />
+      </svg>
+    </button>
+    <button class="icon-button search-close" on:click={closeSearch} title={t($language, 'close')} aria-label={t($language, 'close')}>
+      <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 4L12 12M12 4L4 12" />
+      </svg>
+    </button>
+  {/if}
+
   <div class="right">
     {#if headsetHere}
       <!-- Capability, never a user agent: this button appears on a Quest and
            on a PC with a headset plugged in, and the "two controllers and
            nothing else" assumption only has to hold inside the session. -->
       <button
-        class="bar-button"
+        class="bar-button vr"
         title={t($language, 'vrSeatedTitle')}
+        aria-label={t($language, 'enterVr')}
         on:click={enterVr}
       >
-        {t($language, 'enterVr')}
+        <!-- Un cardboard dessiné, pas un emoji : sur une machine sans police
+             emoji un 🥽 rend un tofu, ce qui est arrivé ici. Deux oculaires
+             dans un boîtier, ce qui est ce qu'on reconnaît d'un casque à
+             cette taille. -->
+        <svg class="vr-glyph" viewBox="0 0 24 16" width="24" height="16" aria-hidden="true">
+          <rect x="0.9" y="1.9" width="22.2" height="12.2" rx="3.5"
+                fill="none" stroke="currentColor" stroke-width="1.8" />
+          <circle cx="7.4" cy="8" r="2.6" fill="currentColor" />
+          <circle cx="16.6" cy="8" r="2.6" fill="currentColor" />
+          <path d="M12 10.6c-0.7 0-1.1-0.5-1.1-1.3s0.4-1.3 1.1-1.3 1.1 0.5 1.1 1.3-0.4 1.3-1.1 1.3z"
+                fill="currentColor" />
+        </svg>
+        <span class="vr-label">{t($language, 'enterVr')}</span>
       </button>
       <!-- Beside the button, not under it: this bar is a centred flex row and a
            second line would change its height on every page. Only rendered
@@ -310,8 +378,23 @@
       <span class="vr-hint">{t($language, 'vrSeatedHint')}</span>
     {/if}
 
-    <button class="bar-button" class:on={showFriends} on:click={toggleFriends}>
-      {t($language, 'friends')}
+    <button
+      class="bar-button friends"
+      class:on={showFriends}
+      title={t($language, 'friends')}
+      aria-label={t($language, 'friends')}
+      on:click={toggleFriends}
+    >
+      <!-- Deux silhouettes, dessinées : c'est ce qu'on reconnaît d'une liste
+           d'amis à 17 px, et ça ne dépend d'aucune police installée. -->
+      <svg class="friends-glyph" viewBox="0 0 20 16" width="20" height="16"
+           fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+           aria-hidden="true">
+        <circle cx="7.5" cy="5" r="3" />
+        <path d="M1.8 14c0-2.8 2.5-4.6 5.7-4.6s5.7 1.8 5.7 4.6" />
+        <path d="M14 3.2a3 3 0 0 1 0 5.6M15.6 9.8c1.7.6 2.8 2 2.8 4" />
+      </svg>
+      <span class="friends-label">{t($language, 'friends')}</span>
     </button>
 
     <a class="avatar" href="/profile" title={$user?.pseudo ?? ''}>
@@ -352,6 +435,27 @@
   .page-tool {
     /* Ne prend de la place que si la page en met quelque chose. */
     display: contents;
+  }
+
+  /* La loupe et la croix n'existent que sur écran étroit : au-dessus du
+     point de rupture la recherche est dans la barre en permanence, et une
+     loupe qui l'ouvrirait n'ouvrirait rien. */
+  .icon-button {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 0.25rem 0.55rem;
+    background: var(--ground);
+    border: var(--btn-border) solid var(--edge);
+    box-shadow: var(--btn-bevel);
+    color: var(--shell);
+    border-radius: var(--btn-radius);
+    cursor: pointer;
+  }
+
+  .vr-glyph {
+    display: none;
   }
 
   .top-bar {
@@ -469,12 +573,16 @@
     white-space: nowrap;
   }
 
+  .friends-glyph {
+    display: none;
+  }
+
   .avatar {
     width: 2rem;
     height: 2rem;
     border-radius: 50%;
     overflow: hidden;
-    background: #333;
+    background: var(--ground);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -508,9 +616,76 @@
      the one that says where it goes: dropping the labelled link and keeping the
      logo would be exactly the bug this change exists to fix, on the screen size
      where it bites hardest. */
+  /*
+   * L'écran étroit, et le nombre vient d'une mesure : le contenu de cette
+   * barre fait 393 px, donc à 390 la page défile latéralement et la marque
+   * est rognée en un trait. 480 couvre ça, et c'est le point de rupture que
+   * ce fichier utilisait déjà - un troisième nombre n'apprendrait rien.
+   *
+   * La marque part en entier, et non plus seulement quand un retour la
+   * double : c'est le seul élément de la barre qui ne fasse rien qu'un
+   * autre ne fasse déjà.
+   */
   @media (max-width: 480px) {
-    .brand.redundant {
+    .brand {
       display: none;
+    }
+
+    /* Le VR garde son icône et perd son mot. */
+    .vr-label {
+      display: none;
+    }
+
+    .vr-glyph {
+      display: block;
+    }
+
+    .page-tool {
+      display: none;
+    }
+
+    .search-toggle {
+      display: inline-flex;
+    }
+
+    /* Amis passe à son icône, comme le VR. Le retour, lui, garde ses mots :
+       ce fichier porte la conclusion qu'un retour qu'il faut deviner n'en
+       est pas un, et la flèche y est une décoration à côté du mot, pas un
+       substitut. La place se prend donc ailleurs. */
+    .friends-label {
+      display: none;
+    }
+
+    .friends-glyph {
+      display: block;
+    }
+
+    /* Et sur le peu qui reste : la barre se resserre. Mesuré à 416 px de
+       contenu pour 390 de large sur /profile, où il n'y a rien à replier. */
+    .top-bar {
+      gap: 0.5rem;
+      padding: 0.5rem 0.6rem;
+    }
+
+    .bar-button {
+      padding: 0.25rem 0.55rem;
+    }
+
+    /* Dépliée, la recherche prend la barre : il n'y a pas de place pour
+       elle ET pour le reste, et la rétrécir jusqu'à ce que tout tienne la
+       rendrait inutilisable pour tout le monde. */
+    .top-bar.searching .page-tool {
+      display: contents;
+    }
+
+    .top-bar.searching .left,
+    .top-bar.searching .right,
+    .top-bar.searching .search-toggle {
+      display: none;
+    }
+
+    .top-bar.searching .search-close {
+      display: inline-flex;
     }
   }
 

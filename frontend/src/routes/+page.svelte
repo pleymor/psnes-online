@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { user, userLoading } from '$lib/stores/user';
   import { games, loadGames } from '$lib/stores/games';
   import type { Game } from '$lib/stores/games';
@@ -79,6 +79,21 @@
 
   /** Mesurée, pas devinée : c'est elle qui dit combien de jeux par rangée. */
   let gridWidth = 0;
+
+  /*
+   * Le champ de recherche, tenu pour pouvoir lui donner le focus.
+   *
+   * Sur écran étroit la barre replie la recherche derrière une loupe ; sans
+   * ce focus, l'ouvrir demanderait deux appuis - un pour déplier, un pour
+   * entrer dans le champ. `tick` parce que le champ n'est visible qu'après
+   * que Svelte a appliqué le changement d'état de la barre.
+   */
+  let searchInput: HTMLInputElement | null = null;
+
+  async function focusSearch() {
+    await tick();
+    searchInput?.focus();
+  }
 
   const SHELF_VARS = [
     `--card-w:${CARD_W}px`,
@@ -547,7 +562,10 @@
 {:else}
   <!-- Library page for authenticated users -->
   <div class="app-layout">
-    <TopBar>
+    <!-- Refermer la recherche efface la requête : la barre prête sa place au
+         champ mais ne le connaît pas, donc c'est ici que ça se passe. Sans
+         cela la bibliothèque resterait filtrée sans que rien ne dise pourquoi. -->
+    <TopBar on:searchopen={focusSearch} on:searchclose={() => (gameQuery = '')}>
       <!--
         Dans la barre plutôt que dans l'en-tête : elle est `sticky`, donc la
         recherche reste atteignable pendant tout le défilement d'une longue
@@ -563,6 +581,7 @@
           <input
             class="library-search"
             type="search"
+            bind:this={searchInput}
             bind:value={gameQuery}
             placeholder={t($language, 'searchLibrary')}
             aria-label={t($language, 'searchLibrary')}
@@ -1014,6 +1033,15 @@
     font-size: 1.1rem;
     min-width: 13rem;
     flex-shrink: 1;
+  }
+
+  /* Dépliée sur un écran étroit, elle a toute la barre : `min-width` doit
+     donc céder, sinon 13 rem la forceraient à déborder à nouveau. */
+  @media (max-width: 480px) {
+    .library-search {
+      flex: 1;
+      min-width: 0;
+    }
   }
 
   .library-search::placeholder {

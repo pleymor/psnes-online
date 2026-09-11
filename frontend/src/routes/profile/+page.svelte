@@ -571,6 +571,27 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   }
 
+  /* Sur un téléphone, l'avatar cède la moitié de la place qu'il prenait :
+     c'est une illustration, et ce qui se lit à côté ne l'est pas. */
+  @media (max-width: 480px) {
+    .identity {
+      gap: 1rem;
+    }
+
+    .avatar {
+      width: 4rem;
+      height: 4rem;
+    }
+  }
+
+  /* `min-width` vaut `auto` sur un élément flex, donc ce bloc refusait de
+     descendre sous sa largeur de contenu et poussait la page à déborder -
+     mesuré à 416 px de contenu pour 360 de large, et la même valeur à 320,
+     ce qui est la signature d'une largeur qui ne cède pas. */
+  .who {
+    min-width: 0;
+  }
+
   .avatar {
     width: 5.5rem;
     height: 5.5rem;
