@@ -199,13 +199,18 @@ deux surfaces se touchent sur la même couleur.
 Les rayons, tous sous le `far` de 50 m de la caméra (§0) :
 
 ```
-DÉCOR_PROCHE   6 m      rien de décor en deçà
+DÉCOR_PROCHE   6,5 m    rien de décor en deçà (§8)
 objets proches 7 – 9 m  blocs, pièces, tuyaux (boîtes)
 goombas        11 – 14 m
 nuages         15 m
 collines       20 m
-DÔME / SOL     30 m     le sol s'arrête exactement là, sur la même couleur
+DÔME / SOL     30 m     le sol s'arrête exactement là
 ```
+
+Le disque du sol a **le même rayon que le dôme**, donc il le transperce
+légèrement au lieu de s'en approcher : c'est ce qui garantit l'absence de
+fente, sans bande de raccord ni réglage. La ligne d'horizon qui en résulte,
+franche, est celle d'un décor SNES.
 
 ## 5. L'art : format, densité, atlas
 
@@ -336,8 +341,20 @@ Son rayon est l'arbitrage central de cette section :
 ```
 point le plus lointain de l'écran (mesuré sur 100 crans) : 5,281 m
 RIDEAU                                                   : 5,5 m   (marge 0,22 m)
-DÉCOR_PROCHE (rien de décor en deçà)                     : 6,0 m
+DÉRIVE D'ANCRE (réserve, voir ci-dessous)                : 0,8 m
+DÉCOR_PROCHE (rien de décor en deçà)                     : 6,5 m
 ```
+
+**Le rideau vit dans le groupe `world`, pas dans `room`.** C'est obligé : son
+dégagement intérieur est mesuré contre l'écran, qui est ancré, donc le rideau
+doit l'être aussi. Mais le décor, lui, vit dans `room`, dont le `y` ne suit pas
+l'ancre (§4.1) — **les deux origines s'écartent donc verticalement** à chaque
+recentrage fait à une autre hauteur (jouer assis, puis se lever et recentrer).
+
+D'où la réserve de 0,8 m entre le rideau et le décor. Sans elle, un décor à 6 m
+de l'origine de `room` peut se retrouver à moins de 5,5 m de celle de `world` —
+donc **devant** le rideau censé le cacher, et réapparaître au milieu d'une
+partie. `composition.ts` tient la règle `RIDEAU + DÉRIVE ≤ DÉCOR_PROCHE`.
 
 Le rideau masque donc **exactement le décor et rien d'autre** : l'écran de jeu
 et les pupitres restent devant lui quel que soit le réglage du joueur. Et quand
