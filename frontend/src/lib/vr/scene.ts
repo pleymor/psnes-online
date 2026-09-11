@@ -51,6 +51,17 @@ export interface VrScene {
    * et ne peut pas vivre dans `room` avec ce qu'il masque.
    */
   addCurtain(object: THREE.Object3D): void;
+  /** `renderer.capabilities.getMaxAnisotropy()`, dont le sol a besoin. */
+  maxAnisotropy(): number;
+  /**
+   * L'origine de `space`, exprimée dans l'espace de référence de CETTE scène.
+   *
+   * Existe pour mesurer le plancher (`decor/floor.ts`) sans que le reste de
+   * l'app ait à connaître `XRFrame`. Rend `null` hors image ou tant que le
+   * suivi n'est pas prêt, ce que l'appelant doit traiter comme « redemande »
+   * et non comme « pas de sol ».
+   */
+  poseIn(space: unknown): { y: number } | null;
   /**
    * Re-places the scene in front of the player, at the next frame.
    *
@@ -451,6 +462,27 @@ export function createVrScene(opts: {
     },
     addDecor: (object) => void room.add(object),
     addCurtain: (object) => void world.add(object),
+
+    maxAnisotropy: () => renderer.capabilities.getMaxAnisotropy(),
+
+    poseIn(space: unknown): { y: number } | null {
+      const frame = renderer.xr.getFrame();
+      // L'espace de three, pas celui de `xr-session.ts` : c'est celui dans
+      // lequel tout, dans cette boucle, est exprimé.
+      const reference = renderer.xr.getReferenceSpace();
+      if (!frame || !reference || !space) return null;
+      /*
+       * L'ORDRE des arguments est le piège, et l'inverser ne jette pas - ça
+       * rend l'opposé. `getPose(space, baseSpace)` donne la pose de `space`
+       * VUE DEPUIS `baseSpace` : on veut l'origine du plancher vue depuis
+       * l'œil, donc un y négatif. L'inverse donnerait l'œil vu depuis le
+       * plancher, donc un y positif - que `floor.ts` refuse comme « sol au
+       * plafond », ce qui est précisément le garde-fou prévu pour ça.
+       */
+      const pose = frame.getPose(space as XRSpace, reference);
+      return pose ? { y: pose.transform.position.y } : null;
+    },
+
     recenter: () => void (recenterPending = true),
     reshapeScreen(shape: ScreenShape): void {
       layout.screen = screenPlacement(opts.aspect, shape);

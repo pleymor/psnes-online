@@ -34,6 +34,8 @@
   import { vrRequested, vrActive } from '$lib/vr/entry';
   import { openVrSession, type VrSession } from '$lib/vr/xr-session';
   import { createVrScene, type VrScene } from '$lib/vr/scene';
+  import { createDecor, type Decor } from '$lib/vr/decor/build';
+  import { measureFloor } from '$lib/vr/decor/floor';
   import { readAspectPreference } from '$lib/stores/aspect-preference';
   import { notifications } from '$lib/services/notification';
   import { language } from '$lib/stores/language';
@@ -137,6 +139,39 @@
 
   let session: VrSession | null = null;
   let scene: VrScene | null = null;
+  let decor: Decor | null = null;
+  /** Le lobby est-il à l'écran. Vrai à l'ouverture : aucune partie ne tourne. */
+  let decorShowing = true;
+
+  /** Les six sites qui basculent lobby/jeu passent par ici, et rien d'autre. */
+  function showDecor(visible: boolean): void {
+    decorShowing = visible;
+    decor?.setVisible(visible);
+  }
+
+  /**
+   * Construit le décor dès que le plancher est mesurable.
+   *
+   * Appelée à chaque image tant qu'elle n'a pas abouti. `measureFloor` rend
+   * `null` tant que le suivi n'a pas donné de pose - les toutes premières
+   * images d'une session - et construire avec le repli à ce moment-là ferait
+   * de 1,20 m le cas normal plutôt que le cas dégradé. Quelques images de
+   * retard sont invisibles : le décor naît caché.
+   */
+  function ensureDecor(): void {
+    if (decor || !scene || !session) return;
+    const height = measureFloor({
+      floorSpace: () => session?.floorSpace ?? null,
+      poseOf: (space) => scene?.poseIn(space) ?? null
+    });
+    if (height === null) return;
+
+    decor = createDecor({ floorHeight: height, maxAnisotropy: scene.maxAnisotropy() });
+    scene.addDecor(decor.decor);
+    scene.addCurtain(decor.curtain);
+    decor.setVisible(decorShowing);
+  }
+
   /** Guards `leave()` against re-entrant calls - see the header. */
   let leaving = false;
 
@@ -747,6 +782,7 @@
       launchFor = null;
       scene.screen.regions.length = 0;
       scene.screen.showTestPattern();
+      showDecor(true);
       return;
     }
 
@@ -1351,6 +1387,7 @@
         closeTablet();
         if (scene) scene.screen.regions.length = 0;
         scene?.screen.showPicture();
+        showDecor(false);
         scene?.panelsVisible(false);
         return;
       }
@@ -1869,6 +1906,7 @@
         // distance du réglage dès qu'ils portent quelque chose, donc le joueur
         // ne voit jamais l'image plate se déplier.
         loadReliefFor(game.crc32);
+        showDecor(false);
         scene?.panelsVisible(false);
         /*
          * Le drapeau, pas le gouverneur : un gouverneur neuf est déjà à 1 et
@@ -2520,6 +2558,7 @@
       // qui se lit bien dépend de l'optique et de la distance choisie, donc il
       // ne suit pas le joueur chez son ami. Voir `relief-preset.ts`.
       loadReliefFor(crc32);
+      showDecor(false);
       scene?.panelsVisible(false);
       // The engine does not start its own governor - `solo-engine.ts` does not
       // either, and `SoloRoom.svelte`'s own `boot()` and this file's `launch()`
@@ -2646,6 +2685,7 @@
     if (scene) {
       scene.screen.regions.length = 0;
       scene.screen.showTestPattern();
+      showDecor(true);
     }
   }
 
@@ -3022,12 +3062,17 @@
        * finds nothing to do rather than throwing on it.
        */
       scene.onFrame(frame);
+      scene.onFrame((t) => {
+        ensureDecor();
+        decor?.update(t);
+      });
       vrActive.set(true);
 
 
       // Until a game is launched, this is what the screen carries - and what
       // makes a wrong distance or height obvious.
       scene.screen.showTestPattern();
+      showDecor(true);
 
       library = scene.addPanel('library', scene.layout.library, LIBRARY_PANEL_SIZE);
       resolvable = await resolvableHere();
@@ -3256,6 +3301,8 @@
     // takes it.
     void audio?.stop();
     audio = null;
+    decor?.dispose();
+    decor = null;
     scene?.dispose();
     scene = null;
     session = null;
