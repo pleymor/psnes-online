@@ -45,11 +45,18 @@ goût.
    connue dans cette scène.
 4. **L'écran est réglable en distance, jusqu'à 4,3 m.**
    `SCREEN_DISTANCES = [2.0, 2.5, 3.0, 3.6, 4.3]`, cinq angles jusqu'à 80°,
-   cinq hauteurs. Mesuré sur les 50 combinaisons : **le point le plus lointain
-   de l'écran est à 5,175 m** (plat, 80°, 4,3 m, décalé de 0,4 m). Ce nombre
-   commande toute la profondeur du décor, et une première version de cette
-   conception l'avait fixée à 3,5 m en croyant l'écran à 2,5 m — ce qui aurait
-   masqué l'image du jeu sur les deux crans les plus éloignés.
+   cinq hauteurs, deux formes, **et deux rapports de pixel**. Mesuré sur les
+   100 combinaisons : **le point le plus lointain de l'écran est à 5,281 m**
+   (plat, 80°, 4,3 m, décalé de 0,4 m, pixels carrés).
+
+   Le rapport compte et c'est un piège : `aspectRatioOf` renvoie 4/3 en `crt`
+   mais **8/7 en `square`**, et le plus petit rapport donne l'écran le plus
+   *haut*, donc le coin le plus lointain. Ne mesurer que le 4/3 donne 5,175 m
+   — 11 cm d'erreur dans le sens dangereux.
+
+   Ce nombre commande toute la profondeur du décor, et une première version de
+   cette conception l'avait fixée à 3,5 m en croyant l'écran à 2,5 m — ce qui
+   aurait masqué l'image du jeu sur les deux crans les plus éloignés.
 
 ## 1. L'approche retenue, et les deux écartées
 
@@ -327,9 +334,9 @@ sphère en `BackSide`, couleur `0x0a0a12`, dont on anime l'opacité de 0 à 1.**
 Son rayon est l'arbitrage central de cette section :
 
 ```
-point le plus lointain de l'écran (mesuré sur 50 crans) : 5,175 m
-RIDEAU                                                  : 5,5 m
-DÉCOR_PROCHE (rien de décor en deçà)                    : 6,0 m
+point le plus lointain de l'écran (mesuré sur 100 crans) : 5,281 m
+RIDEAU                                                   : 5,5 m   (marge 0,22 m)
+DÉCOR_PROCHE (rien de décor en deçà)                     : 6,0 m
 ```
 
 Le rideau masque donc **exactement le décor et rien d'autre** : l'écran de jeu
@@ -392,10 +399,11 @@ tiennent-ils d'aussi près.
   qu'aucune relecture n'attrape :
   1. rien de décor en deçà de `DÉCOR_PROCHE` ;
   2. `RIDEAU` strictement entre l'écran et le décor — le test **recalcule le
-     pire cas sur les 50 combinaisons de crans** (`SCREEN_DISTANCES` ×
-     `SCREEN_ANGLES` × `SCREEN_HEIGHTS` × courbe/plat) plutôt que de constater
-     5,175 m. Ajouter un cran de distance fera donc rougir ce test en nommant
-     la cause ;
+     pire cas sur les 100 combinaisons de crans** (`SCREEN_DISTANCES` ×
+     `SCREEN_ANGLES` × `SCREEN_HEIGHTS` × courbe/plat × `crt`/`square`)
+     plutôt que de constater 5,281 m. Ajouter un cran de distance, ou un
+     rapport de pixel plus haut, fera donc rougir ce test en nommant la
+     cause ;
   3. le sol ne reçoit pas le `y` de l'ancre.
 - `motion.ts` — un goomba fait demi-tour à ses bornes et n'en sort jamais ; la
   cadence est 8 Hz et pas 72.
