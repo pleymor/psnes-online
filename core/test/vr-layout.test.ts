@@ -24,7 +24,12 @@ import {
   angularWidth,
   pixelsPerDegree,
   verticalSpan,
-  QUEST_3_PIXELS_PER_DEGREE
+  counterRuns,
+  COUNTER_BLOCK_WIDTH,
+  COUNTER_DEPTH,
+  QUEST_3_PIXELS_PER_DEGREE,
+  type CounterRun,
+  type Placement
 } from '../../frontend/src/lib/vr/layout.js';
 import { TABLET_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/controls.js';
 import { LIBRARY_PANEL_SIZE } from '../../frontend/src/lib/vr/panels/library.js';
@@ -532,5 +537,120 @@ test('quel que soit le reglage, il reste de l image au-dessus de la tablette', (
       `a ${shape.distance} m / ${shape.angle} deg / ${shape.height * 100} cm il ne reste ` +
         `que ${(reste * 100).toFixed(0)}% de l image au-dessus`
     );
+  }
+});
+
+/*
+ * Le comptoir. Trois tronçons, et rien de ce qui les décide n'est écrit deux
+ * fois : chaque sommet est le bord bas de son panneau, donc déplacer un
+ * pupitre déplace son bloc.
+ *
+ * Le premier test RECALCULE ce bord bas avec sa propre arithmétique plutôt que
+ * d'appeler l'aide de `layout.ts`. C'est volontaire : un test qui réutilise la
+ * fonction qu'il vérifie ne vérifie que lui-même.
+ */
+
+/** Le milieu du bord bas d'un panneau, recalculé ici et non importé. */
+function bottomOf(placement: Placement): [number, number, number] {
+  const [x, y, z] = placement.position;
+  const [pitch, yaw] = placement.rotation;
+  const half = placement.height / 2;
+  // Rotation de (0, -half, 0) par X puis Y : l'ordre `YXZ` de `panel-mesh.ts`.
+  const dy = -half * Math.cos(pitch);
+  const dz = -half * Math.sin(pitch);
+  return [x + dz * Math.sin(yaw), y + dy, z + dz * Math.cos(yaw)];
+}
+
+/** Les quatre coins d'un tronçon vus de dessus. */
+function planCorners(run: CounterRun): Array<[number, number]> {
+  const tangent: [number, number] = [Math.cos(run.facing), Math.sin(run.facing)];
+  const away: [number, number] = [Math.sin(run.facing), -Math.cos(run.facing)];
+  const halfWidth = COUNTER_BLOCK_WIDTH / 2;
+  const corners: Array<[number, number]> = [];
+  for (const along of [halfWidth, -halfWidth]) {
+    // La profondeur est CENTRÉE sur le bord bas du panneau : le plateau
+    // déborde vers le joueur autant qu'il s'enfonce derrière, comme un
+    // bureau dont l'écran est au fond. Le faire partir du bord en
+    // s'éloignant laissait 2,8 cm de trou à chaque jonction.
+    for (const out of [-COUNTER_DEPTH / 2, COUNTER_DEPTH / 2]) {
+      corners.push([
+        run.top[0] + tangent[0] * along + away[0] * out,
+        run.top[2] + tangent[1] * along + away[1] * out
+      ]);
+    }
+  }
+  return corners;
+}
+
+/** Le point est-il dans le rectangle du tronçon, vu de dessus. */
+function inside(run: CounterRun, point: [number, number]): boolean {
+  const dx = point[0] - run.top[0];
+  const dz = point[1] - run.top[2];
+  const along = dx * Math.cos(run.facing) + dz * Math.sin(run.facing);
+  const out = dx * Math.sin(run.facing) - dz * Math.cos(run.facing);
+  return (
+    Math.abs(along) <= COUNTER_BLOCK_WIDTH / 2 + 1e-9 &&
+    Math.abs(out) <= COUNTER_DEPTH / 2 + 1e-9
+  );
+}
+
+test('le comptoir a un tronçon par pupitre, et rien de plus', () => {
+  assert.equal(counterRuns(sceneLayout('crt', DEFAULT_SHAPE)).length, 3);
+});
+
+test('le sommet de chaque tronçon est le bord bas de son pupitre', () => {
+  const layout = sceneLayout('crt', DEFAULT_SHAPE);
+  const runs = counterRuns(layout);
+  const panels = [layout.library, layout.profile, layout.friends];
+  for (let i = 0; i < panels.length; i++) {
+    const wanted = bottomOf(panels[i]);
+    for (let axis = 0; axis < 3; axis++) {
+      assert.ok(
+        Math.abs(runs[i].top[axis] - wanted[axis]) < 1e-9,
+        `tronçon ${i}, axe ${axis} : ${runs[i].top[axis]} au lieu de ${wanted[axis]}`
+      );
+    }
+  }
+});
+
+test('le bandeau du profil pend plus bas que les deux latéraux', () => {
+  // Le fait qui impose le décrochement du fond. S'il disparaissait - un
+  // bandeau remonté, une inclinaison changée - le comptoir deviendrait plat et
+  // ce test le dirait avant le casque.
+  const runs = counterRuns(sceneLayout('crt', DEFAULT_SHAPE));
+  assert.ok(runs[1].top[1] < runs[0].top[1] - 0.05, `${runs[1].top[1]} contre ${runs[0].top[1]}`);
+  assert.ok(Math.abs(runs[0].top[1] - runs[2].top[1]) < 1e-9, 'les latéraux sont jumeaux');
+});
+
+test('chaque tronçon fait face au joueur, comme le pupitre qu_il porte', () => {
+  const layout = sceneLayout('crt', DEFAULT_SHAPE);
+  const runs = counterRuns(layout);
+  const panels = [layout.library, layout.profile, layout.friends];
+  for (let i = 0; i < panels.length; i++) {
+    assert.ok(
+      Math.abs(runs[i].facing - -panels[i].rotation[1]) < 1e-9,
+      `tronçon ${i} regarde ${runs[i].facing}, son pupitre ${-panels[i].rotation[1]}`
+    );
+  }
+});
+
+test('le U est continu : deux tronçons voisins se recouvrent', () => {
+  /*
+   * L'assertion qui remplace trois affirmations fausses de la spec. Deux
+   * rectangles tournés de 60 degrés l'un par rapport à l'autre ne se comparent
+   * pas en mesurant la distance entre deux milieux d'arêtes - c'est l'erreur
+   * qui a fait croire d'abord à un intervalle de 4,2 cm à boucher avec des
+   * blocs d'angle, puis à un décalage de 2,1 cm. Ici on teste ce qui compte :
+   * au moins un coin de l'un tombe dans l'autre.
+   */
+  const runs = counterRuns(sceneLayout('crt', DEFAULT_SHAPE));
+  for (const [a, b] of [
+    [runs[0], runs[1]],
+    [runs[1], runs[2]]
+  ]) {
+    const touching =
+      planCorners(a).some((corner) => inside(b, corner)) ||
+      planCorners(b).some((corner) => inside(a, corner));
+    assert.ok(touching, `trou dans le comptoir entre ${a.facing} et ${b.facing}`);
   }
 });

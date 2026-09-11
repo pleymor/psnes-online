@@ -338,3 +338,75 @@ export function verticalSpan(placement: Placement): { top: number; bottom: numbe
 
   return { top: angle(upY, upZ), bottom: angle(-upY, -upZ) };
 }
+
+/**
+ * Le comptoir qui porte les trois pupitres.
+ *
+ * Rien ici n'est un choix de composition : chaque tronçon se déduit du panneau
+ * qu'il porte. C'est ce qui rend l'écart IMPOSSIBLE plutôt que surveillé -
+ * déplacer un pupitre déplace son bloc, et aucune position n'est écrite deux
+ * fois.
+ *
+ * Ce module ne connaît ni three ni `decor/`, et ne doit pas les connaître :
+ * `decor/composition.ts` importe déjà `SIZE_REFERENCE_DISTANCE` d'ici, donc la
+ * dépendance inverse ferait un cycle.
+ */
+
+/**
+ * Un bloc fait un mètre de large.
+ *
+ * Déclaré ici parce que c'est une décision de composition - le comptoir est
+ * pavé de blocs d'un mètre, comme un mur de Mario - mais l'art doit s'y
+ * conformer, et `vr-decor-art.test.ts` tient les deux ensemble.
+ */
+export const COUNTER_BLOCK_WIDTH = 1;
+
+/**
+ * La profondeur du plateau, comptée depuis le bord bas du panneau en
+ * S'ÉLOIGNANT du joueur : c'est la largeur de plateau qu'il voit.
+ *
+ * Le seul nombre libre de tout le comptoir. Tout le reste est dérivé.
+ */
+export const COUNTER_DEPTH = 0.35;
+
+export interface CounterRun {
+  /** Le centre de la face du DESSUS, en mètres depuis l'œil. */
+  readonly top: [number, number, number];
+  /**
+   * L'azimut vers lequel la face avant regarde - PAS celui où le bloc est
+   * posé. `boxYaw` (`decor/box.ts`) en tire le lacet, pour que le piège
+   * +Z/-Z reste enfermé à un seul endroit du dépôt.
+   */
+  readonly facing: number;
+}
+
+/**
+ * Le milieu du bord bas d'un panneau, en mètres depuis l'œil.
+ *
+ * `verticalSpan` fait la même rotation plus haut mais rend des ANGLES et
+ * ignore le lacet, d'où cette seconde fonction plutôt qu'un partage forcé. Son
+ * commentaire vaut ici : le signe de la composante z est ce qui se trompe, et
+ * avec un tangage négatif elle est POSITIVE, donc le bord bas se rapproche du
+ * joueur.
+ */
+function bottomEdge(placement: Placement): [number, number, number] {
+  const [x, y, z] = placement.position;
+  const [pitch, yaw] = placement.rotation;
+  const half = placement.height / 2;
+  const downY = -half * Math.cos(pitch);
+  const downZ = -half * Math.sin(pitch);
+  return [x + downZ * Math.sin(yaw), y + downY, z + downZ * Math.cos(yaw)];
+}
+
+/**
+ * Les trois tronçons, dans l'ordre du tour : gauche, fond, droite.
+ *
+ * L'ordre n'est pas cosmétique - le test de continuité compare les voisins
+ * deux à deux, et il n'a de sens que si la liste suit le U.
+ */
+export function counterRuns(layout: SceneLayout): readonly CounterRun[] {
+  return [layout.library, layout.profile, layout.friends].map((panel) => ({
+    top: bottomEdge(panel),
+    facing: -panel.rotation[1]
+  }));
+}
