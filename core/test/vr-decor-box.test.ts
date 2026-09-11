@@ -67,3 +67,57 @@ test('la façade porte les uv de la façade', () => {
 test('une dimension nulle est refusée', () => {
   assert.throws(() => boxGeometry({ ...SPEC, depth: 0 }), /profondeur/);
 });
+
+test('chaque face est enroulée vers l_extérieur', () => {
+  /*
+   * Le seul test qui aurait attrapé le défaut que ce module a failli avoir.
+   *
+   * L'enroulement s'inverse sans rien casser de visible depuis un terminal :
+   * les comptes de sommets sont bons, les positions sont bonnes, les uv sont
+   * bonnes. Ce qui change est le SIGNE de la normale, donc three cesse de
+   * dessiner la face - et l'objet devient invisible plutôt que faux, ce qui
+   * envoie chercher dans le graphe de scène, les matériaux ou le placement,
+   * partout sauf ici.
+   *
+   * Aucun GPU n'est nécessaire pour le dire : le produit vectoriel de deux
+   * arêtes donne la normale, et son produit scalaire avec l'axe sortant de la
+   * face doit être positif.
+   */
+  const box = boxGeometry(SPEC);
+  // Dans l'ordre d'émission de `boxGeometry` : façade, arrière, flanc gauche,
+  // flanc droit, dessus.
+  const OUTWARD: readonly (readonly [number, number, number])[] = [
+    [0, 0, -1],
+    [0, 0, 1],
+    [-1, 0, 0],
+    [1, 0, 0],
+    [0, 1, 0]
+  ];
+
+  const at = (i: number): [number, number, number] => [
+    box.positions[i * 3],
+    box.positions[i * 3 + 1],
+    box.positions[i * 3 + 2]
+  ];
+  const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const cross = (a: number[], b: number[]) => [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0]
+  ];
+  const dot = (a: number[], b: readonly number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+  for (let face = 0; face < OUTWARD.length; face++) {
+    for (let triangle = 0; triangle < 2; triangle++) {
+      const base = face * 6 + triangle * 3;
+      const p0 = at(box.indices[base]);
+      const p1 = at(box.indices[base + 1]);
+      const p2 = at(box.indices[base + 2]);
+      const normal = cross(sub(p1, p0), sub(p2, p0));
+      assert.ok(
+        dot(normal, OUTWARD[face]) > 0,
+        `face ${face}, triangle ${triangle} : normale ${normal} contre sortante ${OUTWARD[face]}`
+      );
+    }
+  }
+});
