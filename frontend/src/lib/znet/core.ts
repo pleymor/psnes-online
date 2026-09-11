@@ -24,6 +24,9 @@ export interface PsnesCoreModule {
 	_pn_video_width(): number;
 	_pn_video_height(): number;
 	_pn_video_stride(): number;
+	_pn_depth(): number;
+	_pn_depth_bg_mode(): number;
+	_pn_depth_bg3_prio(): number;
 	_pn_audio(): number;
 	_pn_audio_frames(): number;
 	_pn_sample_rate(): number;
@@ -69,6 +72,28 @@ export interface VideoSurface {
 	width: number;
 	height: number;
 	stride: number;
+}
+
+/**
+ * A live view of the core's layer plane, with no copy.
+ *
+ * One byte per pixel, saying which of the SNES's planes drew it. Same rules as
+ * `VideoSurface`: `data` points into wasm memory and dies at the next core
+ * call, and `stride` is the row length so the padding past `width` must be
+ * skipped by the reader. Unlike the video buffer, a pixel here is one byte,
+ * not four, so a row starts at `y * stride` and not `y * stride * 4`.
+ *
+ * `mode` and `bg3Priority` come along because the byte does not name a layer on
+ * its own - the same value is BG1 in one mode and BG2 in another. Feed the pair
+ * to `slotTable()` in `$lib/vr/layer-map` to turn bytes into slots.
+ */
+export interface DepthSurface {
+	data: Uint8Array;
+	width: number;
+	height: number;
+	stride: number;
+	mode: number;
+	bg3Priority: boolean;
 }
 
 export class PsnesCore {
@@ -195,6 +220,32 @@ export class PsnesCore {
 		// a heap growth, and a stale view is a silent read of the wrong memory.
 		const data = this.module.HEAPU8.subarray(base, base + stride * height * 4);
 		return { data, width, height, stride };
+	}
+
+	/**
+	 * Which layer drew each pixel of the frame `videoSurface()` describes.
+	 *
+	 * The core fills this as it composites, so it is only meaningful for the
+	 * frame just rendered. It shares the video buffer's stride, but at one byte
+	 * per pixel rather than four, which is why the length is not scaled by 4.
+	 */
+	depthSurface(): DepthSurface {
+		const width = this.module._pn_video_width();
+		const height = this.module._pn_video_height();
+		const stride = this.module._pn_video_stride();
+		const base = this.module._pn_depth();
+		// A fresh subarray each call, for the same reason as `videoSurface`: a
+		// heap growth detaches the old view, and reading a stale one shows the
+		// layers of whichever frame was current when the heap last grew.
+		const data = this.module.HEAPU8.subarray(base, base + stride * height);
+		return {
+			data,
+			width,
+			height,
+			stride,
+			mode: this.module._pn_depth_bg_mode(),
+			bg3Priority: this.module._pn_depth_bg3_prio() !== 0
+		};
 	}
 
 	/** Interleaved stereo samples produced by the last `runFrame`. */
