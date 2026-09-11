@@ -108,11 +108,13 @@ fi
 EXPORTS='[
 "_pn_init","_pn_load_rom","_pn_unload","_pn_reset","_pn_run_frame",
 "_pn_video","_pn_video_width","_pn_video_height","_pn_video_stride",
+"_pn_depth","_pn_depth_bg_mode","_pn_depth_bg3_prio",
 "_pn_audio","_pn_audio_frames","_pn_sample_rate","_pn_fps",
 "_pn_frame_count","_pn_set_frame_count",
 "_pn_state_size","_pn_state_save","_pn_state_load","_pn_state_crc",
 "_pn_sram","_pn_sram_size","_pn_wram","_pn_wram_size","_pn_wram_crc",
 "_pn_debug_rand","_pn_debug_time","_pn_debug_reset_entropy",
+"_pn_gfx_zbuffer","_pn_gfx_subzbuffer","_pn_gfx_screen","_pn_gfx_real_ppl","_pn_gfx_screen_size",
 "_malloc","_free"
 ]'
 EXPORTS="$(echo "$EXPORTS" | tr -d ' \n')"
@@ -133,6 +135,14 @@ docker_run "emcc -O3 -std=c11 \
   -c src/psnes_core.c -o build/psnes_core.o"
 docker_run "emcc -O3 -std=c11 -c src/determinism.c -o build/determinism.o"
 
+# The depth accessors, on the other hand, must be C++: they read snes9x's own
+# GFX struct and so include its headers the way snes9x does.
+docker_run "em++ -O3 \
+  -I vendor/snes9x \
+  -I vendor/snes9x/libretro \
+  -I vendor/snes9x/libretro/libretro-common/include \
+  -c src/gfx_depth.cpp -o build/gfx_depth.o"
+
 # The libretro makefile names its ar archive .bc, which emcc treats as a
 # bitcode *source* file and tries to compile. Renaming is enough for it to be
 # recognised as the archive it actually is.
@@ -141,7 +151,7 @@ cp "$CORE_DIR/$ARCHIVE" "$CORE_DIR/build/libsnes9x.a"
 # Linking goes through em++: the snes9x archive is C++ and needs libc++.
 log "linking psnes_core.mjs"
 docker_run "em++ -O3 \
-  build/psnes_core.o build/determinism.o build/libsnes9x.a \
+  build/psnes_core.o build/determinism.o build/gfx_depth.o build/libsnes9x.a \
   $WRAPS \
   -s MODULARIZE=1 \
   -s EXPORT_ES6=1 \
