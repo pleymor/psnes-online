@@ -12,10 +12,15 @@
  */
 import type { Art } from '../pixels';
 import { GROUND_BRICK, GROUND_TURF } from './ground';
+import { HILL_LARGE, HILL_SMALL, BUSH, CLOUD } from './scenery';
 
 export const ALL_ART: Readonly<Record<string, Art>> = {
   groundBrick: GROUND_BRICK,
-  groundTurf: GROUND_TURF
+  groundTurf: GROUND_TURF,
+  hillLarge: HILL_LARGE,
+  hillSmall: HILL_SMALL,
+  bush: BUSH,
+  cloud: CLOUD
 };
 
 export type ArtName = keyof typeof ALL_ART;
