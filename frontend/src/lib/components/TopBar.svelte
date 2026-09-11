@@ -27,6 +27,22 @@
   const dispatch = createEventDispatcher<{ searchopen: void; searchclose: void }>();
 
   /*
+   * Le retour d'un écran qui possède son propre départ.
+   *
+   * `way-back.ts` tient la liste des écrans où rentrer est une navigation
+   * et rien d'autre, et exclut le salon : `releaseGame` y détache le jeu,
+   * rend le siège quand on est seul, et oublie le salon mémorisé avant de
+   * naviguer. Un `<a href="/">` dans la barre ne ferait rien de tout cela
+   * et ramènerait le joueur à la bibliothèque encore assis dans un salon
+   * que le serveur croit occupé - le mode de panne exact contre lequel ce
+   * module a été écrit.
+   *
+   * D'où cette prop plutôt qu'une entrée de plus dans la liste : la page
+   * prête son action, la barre ne fait que lui donner une place.
+   */
+  export let onBack: (() => void) | null = null;
+
+  /*
    * La recherche dépliée, et le reste de la barre effacé.
    *
    * Mesuré avant d'être décidé : le contenu de cette barre fait 393 px de
@@ -314,15 +330,53 @@
       d'un chemin de retour en ont un, nommé : `way-back.ts` dit lesquels
       et pourquoi le salon n'en fait pas partie.
     -->
-    {#if back}
+    {#if onBack}
       <!--
-        Said in words, and wearing the bar's own button shape: the whole finding
-        behind this is that a way back which has to be guessed at is not one.
-        The arrow is decoration next to the label, not a substitute for it.
+        Une flèche seule, à la demande du propriétaire, et sur les deux
+        écrans qui ont un retour.
+
+        Ce fichier portait la conclusion inverse : « un retour qu'il faut
+        deviner n'en est pas un », la flèche y étant une décoration à côté
+        du mot. Elle a été prise quand la marque était le seul autre chemin
+        et qu'elle ne se lisait pas comme tel. Depuis, la marque a disparu
+        et la gauche de la barre est vide : la flèche y est seule, à
+        l'endroit le plus conventionnel d'une interface, et non plus une
+        icône parmi d'autres qu'il faudrait distinguer. Le nom continue
+        d'être dit - infobulle et `aria-label` - et le salon garde en plus
+        son bouton nommé dans la page.
+
+        Ce qui reste non négociable est en dessous : la nature du contrôle.
       -->
-      <a class="bar-button back" href={back.href}>
-        <span aria-hidden="true">←</span>
-        {t($language, back.label)}
+      <button
+        class="bar-button back arrow"
+        on:click={onBack}
+        title={t($language, 'backToLibrary')}
+        aria-label={t($language, 'backToLibrary')}
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 2.5L4.5 8l5.5 5.5" />
+        </svg>
+      </button>
+    {:else if back}
+      <!--
+        La même flèche, et une balise différente - c'est tout ce qui sépare
+        les deux branches, et ce n'est pas cosmétique. Ici rentrer N'EST
+        qu'une navigation, donc un vrai lien : il s'ouvre dans un onglet,
+        se copie, se survole. Dans un salon ce serait un mensonge, et
+        `top-bar.spec.ts` épingle la distinction en regardant le nom de la
+        balise.
+      -->
+      <a
+        class="bar-button back arrow"
+        href={back.href}
+        title={t($language, back.label)}
+        aria-label={t($language, back.label)}
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 2.5L4.5 8l5.5 5.5" />
+        </svg>
       </a>
     {/if}
   </div>
@@ -479,8 +533,7 @@
    * du bouton, qui vient de `--btn-size`, donc changer l'un ne peut plus
    * désaccorder l'autre. La largeur se déduit du viewBox.
    */
-  .vr-glyph,
-  .friends-glyph,
+  .bar-button svg,
   .icon-button svg {
     height: 1.25em;
     width: auto;
@@ -566,14 +619,22 @@
     transform: translateY(1px);
   }
 
-  /* A link that has to read as a control, so it borrows the shape of the one
-     control the bar already had rather than introducing a second one. */
+  /* Un contrôle qui doit se lire comme tel, donc il emprunte la forme des
+     boutons de la barre plutôt que d'en introduire une seconde. */
   .back {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
     text-decoration: none;
     white-space: nowrap;
+  }
+
+  /* Une flèche n'a pas besoin de la largeur d'un mot - mais elle garde la
+     hauteur commune, donc seule la marge horizontale cède. Un raccourci
+     `padding` complet la rendrait plus courte que ses voisines, ce qui est
+     exactement la faute déjà corrigée deux fois dans cette barre. */
+  .back.arrow {
+    padding-inline: 0.55rem;
   }
 
   .friends-glyph {

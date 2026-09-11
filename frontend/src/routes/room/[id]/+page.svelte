@@ -786,7 +786,11 @@
 
        Retirée pour une session anonyme : elle porte la bibliothèque, les amis
        et le profil, dont aucune route ne lui répondra. -->
-  <TopBar />
+  <!-- La barre emprunte l'action de cette page : `releaseGame` rend le siège
+     et oublie le salon avant de naviguer, ce qu'un lien vers `/` ne ferait
+     pas. Voir la prop `onBack` de TopBar et l'exclusion du salon dans
+     `way-back.ts`. -->
+<TopBar onBack={releaseGame} />
 {/if}
 
 <div class="room-container">
