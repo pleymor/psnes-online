@@ -41,9 +41,38 @@
    */
   let searching = false;
 
-  function openSearch() {
+  /*
+   * Ouvrir, c'est entrer dans le champ - il n'y a pas de bouton pour ça.
+   *
+   * Le champ ne disparaît jamais : sur écran étroit il se réduit à la
+   * largeur de sa loupe, qui est dessinée dans son propre fond. Un bouton
+   * séparé aurait été un objet de plus à comprendre pour ouvrir une chose
+   * qui était déjà là.
+   *
+   * `focusin` plutôt qu'un `on:focus` posé sur le champ : le champ
+   * appartient à la page, pas à la barre, et la barre n'a pas à le
+   * connaître pour savoir que le focus est entré chez elle.
+   */
+  function onFocusIn(event: FocusEvent) {
+    if (!(event.target as HTMLElement)?.closest?.('.page-tool')) return;
     searching = true;
     dispatch('searchopen');
+  }
+
+  /*
+   * Sortir du champ ne referme QUE s'il est vide.
+   *
+   * Refermer efface la requête ; le faire alors que le joueur vient de
+   * taper trois lettres et d'aller regarder sa grille lui reprendrait son
+   * filtre sans qu'il ait rien demandé. Mais laisser la barre dépliée sur
+   * un champ vide, c'est cacher Amis et l'avatar pour rien - un état dont
+   * on ne sort plus sans savoir qu'il faut cliquer la croix.
+   */
+  function onFocusOut(event: FocusEvent) {
+    const field = event.target as HTMLInputElement | null;
+    if (!field?.closest?.('.page-tool')) return;
+    if (field.value?.trim()) return;
+    closeSearch();
   }
 
   /*
@@ -275,32 +304,16 @@
 
 <svelte:window on:keydown={(e) => { if (e.key === 'Escape' && searching) closeSearch(); }} />
 
-<header class="top-bar" class:searching>
+<header class="top-bar" class:searching on:focusin={onFocusIn} on:focusout={onFocusOut}>
   <div class="left">
     <!--
-      The brand still goes home, because it always has and people who know that
-      convention keep using it. It is no longer the only thing that does.
+      Plus de marque ici. Elle menait à la bibliothèque, ce qu'une
+      convention du web fait sans l'annoncer - donc une affordance qui
+      n'en avait pas l'air, et le seul élément de cette barre qui ne
+      faisait rien qu'un autre ne fasse déjà. Les écrans qui ont besoin
+      d'un chemin de retour en ont un, nommé : `way-back.ts` dit lesquels
+      et pourquoi le salon n'en fait pas partie.
     -->
-    <!--
-      La vraie marque, et non une manette générique.
-      
-      C'était 🎮 + « PSNES » : un emoji qui n'est pas le logo de
-      l'application, et dont le rendu dépend de la police du système. La
-      La marque de `static/favicon.svg`, et non la cartouche entière de
-      `icon.svg` : ce fichier porte lui-même la règle - « below 48px the
-      shell cannot be both honest and legible » - et une barre fait 26 px.
-      Essayé avec la coque d'abord, illisible, exactement comme annoncé.
-
-      Le mot disparaît avec l'emoji : une marque qui se voit n'a pas besoin
-      d'être aussi épelée à côté.
-    -->
-    <a class="brand" class:redundant={!!back} href="/" aria-label="psnes">
-      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
-        <rect width="32" height="32" rx="5" fill="var(--brand)" />
-        <path d="M10 6H22V18H14V26H10ZM14 10H18V14H14Z" fill="var(--label)" fill-rule="evenodd" />
-      </svg>
-    </a>
-
     {#if back}
       <!--
         Said in words, and wearing the bar's own button shape: the whole finding
@@ -328,17 +341,9 @@
   </div>
 
   {#if $$slots.tool}
-    <!-- Rendus seulement si la page a mis quelque chose à replier : sur
-         /profile et /docs il n'y a pas de recherche, donc pas de loupe.
-         Le CSS les cache au-dessus du point de rupture ; ils n'existent
-         que pour l'écran étroit. -->
-    <button class="icon-button search-toggle" on:click={openSearch} title={t($language, 'searchLibrary')} aria-label={t($language, 'searchLibrary')}>
-      <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linecap="round" aria-hidden="true">
-        <circle cx="7" cy="7" r="4.5" />
-        <path d="M10.5 10.5L14 14" />
-      </svg>
-    </button>
+    <!-- Rendue seulement si la page a mis quelque chose dans la barre, et
+         cachée au-dessus du point de rupture : elle n'existe que pour
+         refermer un champ qui a pris toute la place. -->
     <button class="icon-button search-close" on:click={closeSearch} title={t($language, 'close')} aria-label={t($language, 'close')}>
       <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor"
            stroke-width="2" stroke-linecap="round" aria-hidden="true">
@@ -370,12 +375,7 @@
           <path d="M12 10.6c-0.7 0-1.1-0.5-1.1-1.3s0.4-1.3 1.1-1.3 1.1 0.5 1.1 1.3-0.4 1.3-1.1 1.3z"
                 fill="currentColor" />
         </svg>
-        <span class="vr-label">{t($language, 'enterVr')}</span>
       </button>
-      <!-- Beside the button, not under it: this bar is a centred flex row and a
-           second line would change its height on every page. Only rendered
-           where the button is, so a PC with no headset never sees it. -->
-      <span class="vr-hint">{t($language, 'vrSeatedHint')}</span>
     {/if}
 
     <button
@@ -454,8 +454,36 @@
     cursor: pointer;
   }
 
+  /* Le casque est une icône à toutes les largeurs, et plus seulement sur
+     téléphone. Le bouton portait « Passer en VR » en toutes lettres à côté
+     du glyphe : deux fois la même chose, dans une barre qui manque de place
+     jusque sur un grand écran - et le dessin dit ce que le mot disait, ce
+     qui n'est pas vrai de tous les libellés (le retour, lui, garde les
+     siens, et le commentaire de `.back` dit pourquoi).
+     
+     Le nom reste dans `aria-label` et dans l'infobulle, et la phrase qui
+     explique le mode assis est toujours là, à côté, au-dessus de 640 px. */
   .vr-glyph {
-    display: none;
+    display: block;
+  }
+
+  /*
+   * Tous les glyphes de la barre font la hauteur d'une ligne de texte.
+   *
+   * Mesuré, et c'est la même faute qu'« Amis » contre « Rescanner » : un
+   * dessin de 16 px posé dans un bouton donne une boîte de 30 px de haut
+   * quand son voisin, qui contient un mot, en fait 37. Deux boutons côte à
+   * côte de hauteurs différentes ne se lisent pas comme le même objet.
+   *
+   * `1.25em` plutôt qu'une valeur en pixels : la hauteur suit alors le corps
+   * du bouton, qui vient de `--btn-size`, donc changer l'un ne peut plus
+   * désaccorder l'autre. La largeur se déduit du viewBox.
+   */
+  .vr-glyph,
+  .friends-glyph,
+  .icon-button svg {
+    height: 1.25em;
+    width: auto;
   }
 
   .top-bar {
@@ -481,19 +509,6 @@
     min-width: 0;
   }
 
-  .brand {
-    display: inline-flex;
-    align-items: center;
-    text-decoration: none;
-    /* La cible reste confortable alors que la marque a rétréci. */
-    padding: 0.25rem;
-  }
-
-  .brand:focus-visible {
-    outline: 2px solid var(--brand-lift);
-    outline-offset: 2px;
-  }
-
   .right {
     display: flex;
     align-items: center;
@@ -510,6 +525,10 @@
   .bar-button {
     display: inline-flex;
     align-items: center;
+    /* Explicite, et c'est ce qui met glyphes et mots à la même hauteur :
+       un dessin de 1,25em dans un bouton dont la boîte de ligne est
+       implicite donnait 38 px là où son voisin en faisait 37. */
+    line-height: 1.25;
     background: var(--ground);
     border: var(--btn-border) solid var(--edge);
     box-shadow: var(--btn-bevel);
@@ -524,22 +543,6 @@
   .bar-button:hover {
     background: var(--panel);
     color: var(--label);
-  }
-
-  /* Quiet on purpose: it is a caption for the button next to it, not a
-     control, and the bar already has enough things asking to be pressed. */
-  .vr-hint {
-    color: #8a8a98;
-    font-size: 0.78rem;
-    white-space: nowrap;
-  }
-
-  /* The bar is tight on a phone, and this is the one thing in it that is
-     advice rather than function - so it is the first thing to go. */
-  @media (max-width: 640px) {
-    .vr-hint {
-      display: none;
-    }
   }
 
   /*
@@ -627,25 +630,26 @@
    * autre ne fasse déjà.
    */
   @media (max-width: 480px) {
-    .brand {
-      display: none;
-    }
-
-    /* Le VR garde son icône et perd son mot. */
-    .vr-label {
-      display: none;
-    }
-
-    .vr-glyph {
-      display: block;
-    }
-
-    .page-tool {
-      display: none;
-    }
-
-    .search-toggle {
-      display: inline-flex;
+    /*
+     * Le champ prend tout ce qui reste, et jamais moins.
+     *
+     * Il avait d'abord été réduit à la largeur de sa loupe, ce qui en
+     * faisait un bouton déguisé : 46 px de champ sur une barre de 390, et
+     * 250 px de noir à côté qui ne servaient à rien. `flex: 1` le laisse
+     * absorber tout l'espace que les autres ne prennent pas, et `min-width`
+     * doit céder pour ça - c'est lui, à 13 rem, qui faisait déborder la
+     * page de trois pixels au départ.
+     *
+     * Entrer dedans efface ensuite Amis, le VR et l'avatar, donc il gagne
+     * encore leur place : rien à écrire pour cet état, il ne reste que lui.
+     *
+     * `:global()` parce que le champ appartient à la page : la barre lui
+     * prête sa place et décide donc de sa largeur, sans rien savoir
+     * d'autre de lui.
+     */
+    .page-tool :global(input[type='search']) {
+      flex: 1;
+      min-width: 0;
     }
 
     /* Amis passe à son icône, comme le VR. Le retour, lui, garde ses mots :
@@ -660,6 +664,7 @@
       display: block;
     }
 
+
     /* Et sur le peu qui reste : la barre se resserre. Mesuré à 416 px de
        contenu pour 390 de large sur /profile, où il n'y a rien à replier. */
     .top-bar {
@@ -671,16 +676,8 @@
       padding: 0.25rem 0.55rem;
     }
 
-    /* Dépliée, la recherche prend la barre : il n'y a pas de place pour
-       elle ET pour le reste, et la rétrécir jusqu'à ce que tout tienne la
-       rendrait inutilisable pour tout le monde. */
-    .top-bar.searching .page-tool {
-      display: contents;
-    }
-
     .top-bar.searching .left,
-    .top-bar.searching .right,
-    .top-bar.searching .search-toggle {
+    .top-bar.searching .right {
       display: none;
     }
 

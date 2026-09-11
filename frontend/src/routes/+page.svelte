@@ -583,7 +583,6 @@
             type="search"
             bind:this={searchInput}
             bind:value={gameQuery}
-            placeholder={t($language, 'searchLibrary')}
             aria-label={t($language, 'searchLibrary')}
           />
         {/if}
@@ -1023,29 +1022,37 @@
   .library-search {
     appearance: none;
     -webkit-appearance: none;
-    background: var(--edge);
+    /*
+     * La loupe est dans le champ, pas à côté.
+     *
+     * Elle a d'abord été un bouton séparé qui faisait apparaître le champ ;
+     * c'était un objet de plus à comprendre pour ouvrir une chose qui
+     * pouvait rester là. Réduit à sa loupe sur un écran étroit, le champ
+     * est sa propre affordance. Le libellé « Chercher dans tes jeux » est
+     * parti avec elle : l'icône dit la même chose sans occuper de mot, et
+     * le nom reste dans `aria-label`, pour qui ne voit pas l'image.
+     *
+     * Un data URI plutôt qu'un fichier : trois cents octets ne méritent pas
+     * une requête. La couleur du trait est écrite dedans, parce qu'un fond
+     * SVG n'hérite pas de `currentColor`.
+     */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a6c00' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='4.5'/%3E%3Cpath d='M10.5 10.5L14 14'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 0.55rem center;
+    background-size: 1rem;
+    background-color: var(--edge);
     color: #5a4400;
     border: 3px solid #ffffff;
     box-shadow: 0 0 0 3px var(--panel);
-    padding: 0.3rem 0.6rem;
+    /* La marge gauche est dans le raccourci, et pas à côté : déclarée
+       séparément AVANT lui, elle était remise à zéro par lui, et la loupe
+       se retrouvait sous le premier mot du libellé. */
+    padding: 0.3rem 0.6rem 0.3rem 2.1rem;
     border-radius: 0;
     font-family: var(--display);
     font-size: 1.1rem;
     min-width: 13rem;
     flex-shrink: 1;
-  }
-
-  /* Dépliée sur un écran étroit, elle a toute la barre : `min-width` doit
-     donc céder, sinon 13 rem la forceraient à déborder à nouveau. */
-  @media (max-width: 480px) {
-    .library-search {
-      flex: 1;
-      min-width: 0;
-    }
-  }
-
-  .library-search::placeholder {
-    color: #8a6c00;
   }
 
   .library-search:focus {

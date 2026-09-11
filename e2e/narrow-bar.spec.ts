@@ -46,7 +46,7 @@ test.describe('la barre sur un écran étroit', () => {
 		}
 	});
 
-	test('la loupe ouvre la recherche, et la refermer efface la requête', async ({ page, context }) => {
+	test('le champ prend la barre quand on y entre, et la refermer efface la requête', async ({ page, context }) => {
 		const cookie = await loginDev('1');
 		await context.addCookies(
 			cookie.split('; ').map(pair => {
@@ -71,23 +71,28 @@ test.describe('la barre sur un écran étroit', () => {
 		await page.waitForLoadState('networkidle');
 		await expect(page.locator('.game-card')).toHaveCount(2);
 
-		// Repliée, la recherche n'est pas à l'écran : c'est la loupe qui l'est.
-		await expect(page.locator('.library-search')).toBeHidden();
-		await page.locator('.search-toggle').click();
+		// Le champ est là tout le temps, et il prend toute la place que les
+		// autres ne prennent pas - il avait d'abord été réduit à la largeur de
+		// sa loupe, ce qui en faisait un bouton déguisé avec 250 px de vide à
+		// côté.
+		const field = page.locator('.library-search');
+		await expect(field).toBeVisible();
+		const collapsed = (await field.boundingBox())!.width;
+		expect(collapsed).toBeGreaterThan(150);
 
-		// Le focus vient avec l'ouverture : sans lui, taper demanderait deux
-		// appuis, et c'est le genre de détail qu'on ne remarque qu'à l'usage.
-		await expect(page.locator('.library-search')).toBeFocused();
-		// La barre n'a plus la place pour autre chose, et le dit.
+		await field.click();
+		// Entrer dedans efface le reste de la barre, donc il gagne leur place.
 		await expect(page.locator('.friends')).toBeHidden();
+		expect((await field.boundingBox())!.width).toBeGreaterThan(collapsed);
 
-		await page.locator('.library-search').fill('mario');
+		await field.fill('mario');
 		await expect(page.locator('.game-card')).toHaveCount(1);
 
 		await page.keyboard.press('Escape');
 		// Refermer efface : une bibliothèque filtrée sans champ visible serait
 		// un mode caché, et personne ne saurait pourquoi il manque des jeux.
 		await expect(page.locator('.game-card')).toHaveCount(2);
-		await expect(page.locator('.search-toggle')).toBeVisible();
+		// Et la barre rend leur place à Amis et à l'avatar.
+		await expect(page.locator('.friends')).toBeVisible();
 	});
 });
