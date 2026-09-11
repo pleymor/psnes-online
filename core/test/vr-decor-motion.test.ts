@@ -72,3 +72,51 @@ test('la plante ne dépasse jamais sa course', () => {
     assert.ok(at >= 0 && at <= o.travel + 1e-9, `t=${t} donne ${at}`);
   }
 });
+
+/*
+ * Les refus.
+ *
+ * Pourquoi ce module jette au lieu de rendre un nombre douteux : ses divisions
+ * portent sur des données écrites à la main dans `placement.ts`, et un zéro y
+ * produit `Infinity` ou `NaN`. Un `NaN` dans une position three ne fait pas une
+ * créature mal placée, il la fait DISPARAÎTRE - trois heures ont été passées ce
+ * 2026-09-11 sur des boîtes invisibles pour une cause voisine. Le même choix
+ * que `box.ts` et `pixels.ts`, pour la même raison : jeter en nommant le
+ * coupable, plutôt que de laisser un objet manquant dans un casque à des
+ * heures de sa cause.
+ *
+ * Le coût par image est nul en pratique : des comparaisons, aucune allocation.
+ */
+
+test('une cadence ou un nombre d_images impossible jette', () => {
+  assert.throws(() => spriteFrame(0, { frames: 0, hz: 8 }), /images/);
+  assert.throws(() => spriteFrame(0, { frames: 2.5, hz: 8 }), /images/);
+  assert.throws(() => spriteFrame(0, { frames: 2, hz: 0 }), /cadence/);
+});
+
+test('un segment de patrouille vide ou une vitesse nulle jettent', () => {
+  assert.throws(() => patrol(0, { from: -3, to: 3, speed: 0 }), /vitesse/);
+  assert.throws(() => patrol(0, { from: -3, to: 3, speed: -1 }), /vitesse/);
+  // Bornes égales ou inversées : le premier donne une période nulle, donc un
+  // modulo par zéro ; le second fait marcher le goomba à reculons hors de son
+  // segment, et c'est la faute de signe qu'une relecture ne voit pas.
+  assert.throws(() => patrol(0, { from: 3, to: 3, speed: 1 }), /segment/);
+  assert.throws(() => patrol(0, { from: 3, to: -3, speed: 1 }), /segment/);
+});
+
+test('une dérive sans longueur de boucle jette', () => {
+  assert.throws(() => drift(0, { start: 0, speed: 1, wrap: 0 }), /boucle/);
+});
+
+test('une plante incohérente jette, et dit laquelle des quatre règles est en cause', () => {
+  const sane = { period: 6, outFor: 2.4, travel: 1.1, rise: 0.4 };
+  assert.throws(() => piranha(0, { ...sane, period: 0 }), /période/);
+  assert.throws(() => piranha(0, { ...sane, rise: 0 }), /montée/);
+  assert.throws(() => piranha(0, { ...sane, travel: 0 }), /course/);
+  assert.throws(() => piranha(0, { ...sane, travel: -1 }), /course/);
+  // Sortie plus longue que la période : la plante ne rentre jamais.
+  assert.throws(() => piranha(0, { ...sane, outFor: 7 }), /fenêtre/);
+  // Montée et descente qui ne tiennent pas dans la fenêtre : les deux rampes
+  // se chevauchent et la tête saute au lieu de monter.
+  assert.throws(() => piranha(0, { ...sane, outFor: 0.6 }), /rampes/);
+});
