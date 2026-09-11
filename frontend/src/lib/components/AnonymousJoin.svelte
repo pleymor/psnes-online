@@ -175,15 +175,12 @@
     border-color: #e2565c;
   }
 
+  /* Rejoindre, donc vert. */
   button {
-    padding: 0.8rem 1rem;
-    border: 0;
-    border-radius: 0.5rem;
-    background: #667eea;
-    color: #fff;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
+    padding: 0.55rem 1rem;
+    background: var(--go);
+    border-color: var(--go-deep);
+    color: #ffffff;
   }
 
   button:disabled {

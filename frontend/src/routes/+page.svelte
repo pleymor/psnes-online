@@ -875,14 +875,14 @@
     font-weight: 600;
   }
 
+  /* L'action de cet écran, donc verte. C'était le dégradé violet, qui ne
+     correspondait à aucune couleur de l'application. */
   .login-btn {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    padding: 1rem 2rem;
-    font-size: 1.125rem;
-    border-radius: 8px;
-    cursor: pointer;
+    background: var(--go);
+    border-color: var(--go-deep);
+    color: #ffffff;
+    padding: 0.7rem 1.8rem;
+    font-size: 1.2rem;
     transition: transform 0.2s;
   }
 
@@ -1363,30 +1363,24 @@
     justify-content: flex-end;
   }
 
+  /* Renoncer n'est pas annuler une action déjà lancée : sombre et non
+     rouge, le rouge est réservé à ce qui détruit. */
   .btn-cancel {
-    background: rgba(68, 68, 68, 0.8);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    padding: 0.75rem 1.5rem;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 1rem;
-    transition: all 0.2s;
+    padding: 0.55rem 1.4rem;
+    transition: background 0.2s;
   }
 
   .btn-cancel:hover {
-    background: rgba(88, 88, 88, 0.8);
+    background: var(--edge);
+    color: var(--panel);
   }
 
   .btn-confirm-delete {
-    background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
-    color: white;
-    border: none;
-    padding: 0.75rem 1.5rem;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 1rem;
-    transition: all 0.2s;
+    background: var(--stop);
+    border-color: var(--stop-deep);
+    color: #ffffff;
+    padding: 0.55rem 1.4rem;
+    transition: background 0.2s;
   }
 
   .btn-confirm-delete:hover {

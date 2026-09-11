@@ -1089,9 +1089,11 @@
   }
 
   .btn-setup.on {
-    background: #3a4a5a;
-    border-color: #667eea;
-    color: #fff;
+    /* Enfoncée, comme la touche du HUD : le biseau s'inverse et le libellé
+       passe à l'or. Le vert et le rouge restent des verbes. */
+    box-shadow: inset 0 4px 0 rgba(0, 0, 0, 0.4), inset 0 -4px 0 rgba(255, 255, 255, 0.08);
+    color: var(--edge);
+    transform: translateY(1px);
   }
 
   .panel {
@@ -1209,13 +1211,8 @@
 
   .btn-clear-save {
     flex-shrink: 0;
-    background: transparent;
-    color: #8ab4f8;
-    border: 1px solid #3d3d52;
-    border-radius: 6px;
-    padding: 0.3rem 0.7rem;
-    font-size: 0.8rem;
-    cursor: pointer;
+    padding: 0.15rem 0.7rem;
+    font-size: 0.9rem;
   }
 
   .btn-clear-save:hover {
@@ -1237,15 +1234,14 @@
     margin-top: 2rem;
   }
 
+  /* L'action du salon, et la plus verte de toutes : on lance la partie. */
   .btn-start {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    padding: 1rem 2rem;
-    font-size: 1.125rem;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.2s;
+    background: var(--go);
+    border-color: var(--go-deep);
+    color: #ffffff;
+    padding: 0.7rem 1.8rem;
+    font-size: 1.2rem;
+    transition: background 0.2s;
   }
 
   .btn-start:hover:not(:disabled) {
@@ -1253,11 +1249,10 @@
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
   }
 
+  /* Le plancher éteint déjà les boutons désactivés ; il ne reste que le
+     curseur, qui dit pourquoi le clic ne fait rien. */
   .btn-start:disabled {
-    background: #333;
-    color: #666;
     cursor: not-allowed;
-    opacity: 0.5;
   }
 
   /* Un <a>, que le plancher de `:global(button)` n'atteint pas : la

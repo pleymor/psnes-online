@@ -690,20 +690,14 @@
   }
 
   .menu-items button {
-    background: #444;
-    color: white;
-    border: 2px solid transparent;
-    padding: 1rem;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 1rem;
-    transition: all 0.2s;
+    padding: 0.7rem 1rem;
+    transition: background 0.2s, transform 0.2s;
   }
 
   .menu-items button:hover,
   .menu-items button.selected {
-    background: #555;
-    border: 2px solid #667eea;
+    background: var(--edge);
+    color: var(--panel);
     transform: translateX(8px);
   }
 
@@ -765,15 +759,9 @@
   }
 
   .nudge {
-    background: #444;
-    color: #fff;
-    border: 2px solid transparent;
-    border-radius: 8px;
     width: 2.75rem;
-    padding: 0.6rem 0;
-    font-size: 1.1rem;
+    padding: 0.35rem 0;
     line-height: 1;
-    cursor: pointer;
   }
 
   .nudge:hover:not(:disabled),
@@ -789,13 +777,7 @@
 
   .back-button {
     margin-top: 1rem;
-    background: #444;
-    color: white;
-    border: none;
-    padding: 0.75rem 1.5rem;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 1rem;
+    padding: 0.55rem 1.5rem;
     width: 100%;
   }
 

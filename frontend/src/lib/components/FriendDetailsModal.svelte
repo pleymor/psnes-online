@@ -255,15 +255,13 @@
     justify-content: center;
   }
 
+  /* Retirer un ami détruit quelque chose : rouge, comme partout. */
   .btn-remove {
-    background: #f44336;
-    color: white;
-    border: none;
-    padding: 0.75rem 2rem;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 1rem;
-    transition: all 0.2s;
+    background: var(--stop);
+    border-color: var(--stop-deep);
+    color: #ffffff;
+    padding: 0.55rem 1.6rem;
+    transition: background 0.2s;
   }
 
   .btn-remove:hover {

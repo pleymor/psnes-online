@@ -186,8 +186,8 @@
   /* Always on screen, never hover-only: a hover affordance does not exist on
      a touch screen, which is where this was least discoverable. */
   .slot-action {
-    font-size: 0.8rem;
-    color: #667eea;
+    font-size: 0.9rem;
+    color: var(--edge);
   }
 
   .player:hover:not(:disabled) .slot-action {

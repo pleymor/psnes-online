@@ -543,15 +543,20 @@
     color: #ccc;
   }
 
+  /* Le `<select>` est dans le lot, et le plancher ne l'atteint pas : la
+     recette est donc écrite ici, mais tirée des jetons plutôt que recopiée -
+     c'est la divergence entre deux copies qui avait déjà été corrigée une
+     fois dans la barre. */
   .sources select,
   .sources button,
   .actions button {
-    background: #333;
-    color: #eee;
-    border: 1px solid #555;
-    border-radius: 6px;
-    padding: 0.35rem 0.7rem;
-    font-size: 0.85rem;
+    background: var(--ground);
+    color: var(--shell);
+    border: var(--btn-border) solid var(--edge);
+    border-radius: var(--btn-radius);
+    box-shadow: var(--btn-bevel);
+    padding: 0.2rem 0.7rem;
+    font-size: 0.9rem;
     cursor: pointer;
   }
 

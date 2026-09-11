@@ -36,40 +36,35 @@
 <style>
   .language-selector {
     display: inline-flex;
-    padding: 0.2rem;
-    gap: 0.2rem;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
+    padding: 0.25rem;
+    gap: 0.25rem;
+    background: var(--panel);
+    border: 2px solid var(--edge);
+    border-radius: 12px;
   }
 
+  /* Un segment de choix, pas une action : il ne prend ni le vert ni le
+     rouge, et son état actif se dit comme celui de la barre - enfoncé, et
+     l'or pour libellé. */
   .choice {
     background: transparent;
     border: none;
+    box-shadow: none;
     border-radius: 8px;
-    padding: 0.45rem 0.9rem;
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: #aaa;
-    cursor: pointer;
+    padding: 0.15rem 0.9rem;
+    color: var(--muted);
     transition:
       background 0.15s,
       color 0.15s;
   }
 
   .choice:hover:not(.on) {
-    background: rgba(255, 255, 255, 0.06);
-    color: #ddd;
+    color: var(--shell);
   }
 
   .choice.on {
-    /* Pas le #667eea de la marque : sous du blanc à 14.4px il donne 3.66:1, là
-       où AA en demande 4.5. Même teinte (229°), assombrie jusqu'à 4.96:1 -
-       assez de marge pour que l'arrondi d'un moteur de rendu ne la repasse pas
-       sous le seuil. Le dégradé des boutons garde son #667eea : axe ne mesure
-       pas un fond dégradé, et le changer ici seul suffit à ce que le choix
-       actif se lise. */
-    background: #4764e6;
-    color: #fff;
+    background: var(--ground);
+    box-shadow: inset 0 4px 0 rgba(0, 0, 0, 0.4), inset 0 -4px 0 rgba(255, 255, 255, 0.08);
+    color: var(--edge);
   }
 </style>
