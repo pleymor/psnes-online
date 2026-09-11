@@ -165,8 +165,12 @@ function lectern(azimuth: number): Placement {
  *
  * 2.5 m because that is what shipped: at the default the two readings agree to
  * the last decimal, so no player's screen moves for this correction.
+ *
+ * Exportée depuis que `decor/composition.ts` calcule la portée maximale de
+ * l'écran : c'est la distance à laquelle `screenPlacement` lit la taille, donc
+ * la recopier là-bas ferait deux vérités pour un seul nombre.
  */
-const SIZE_REFERENCE_DISTANCE = 2.5;
+export const SIZE_REFERENCE_DISTANCE = 2.5;
 
 /**
  * Where the screen is, from what the player chose.
