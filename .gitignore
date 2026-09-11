@@ -76,3 +76,7 @@ core/build/
 .claude/settings.local.json
 .claude/worktrees/
 .shot.mjs
+
+# The relief probe regenerates these from any ROM in about a minute.
+tools/vr-relief/generated/
+tools/vr-relief/page/demo.js

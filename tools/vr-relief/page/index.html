@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="fr">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Relief VR — sonde</title>
+		<style>
+			:root {
+				color-scheme: dark;
+				--ink: #e3e7f0;
+				--dim: #8d94a6;
+				--line: #242936;
+				--panel: #161a23;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			body {
+				margin: 0;
+				background: #0d0f14;
+				color: var(--ink);
+				font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, sans-serif;
+			}
+			header {
+				padding: 18px 20px 14px;
+				border-bottom: 1px solid var(--line);
+			}
+			h1 {
+				margin: 0 0 4px;
+				font-size: 16px;
+			}
+			header p {
+				margin: 0;
+				color: var(--dim);
+				font-size: 13px;
+			}
+			.layout {
+				display: grid;
+				grid-template-columns: minmax(0, 1fr) 300px;
+				gap: 20px;
+				padding: 20px;
+				align-items: start;
+			}
+			@media (max-width: 860px) {
+				.layout {
+					grid-template-columns: minmax(0, 1fr);
+				}
+			}
+			#stage {
+				width: 100%;
+				aspect-ratio: 4 / 3;
+				display: block;
+				border-radius: 10px;
+				border: 1px solid var(--line);
+				cursor: grab;
+				touch-action: none;
+			}
+			#stage:active {
+				cursor: grabbing;
+			}
+			aside {
+				background: var(--panel);
+				border: 1px solid var(--line);
+				border-radius: 10px;
+				padding: 16px;
+			}
+			label {
+				display: block;
+				margin-bottom: 12px;
+			}
+			.label-row {
+				display: flex;
+				justify-content: space-between;
+				gap: 8px;
+				font-size: 12px;
+				color: var(--dim);
+				margin-bottom: 4px;
+			}
+			.label-row b {
+				color: var(--ink);
+				font-weight: 600;
+				font-variant-numeric: tabular-nums;
+			}
+			input[type='range'],
+			select,
+			textarea {
+				width: 100%;
+			}
+			select,
+			button,
+			textarea {
+				background: #1f2531;
+				color: var(--ink);
+				border: 1px solid var(--line);
+				border-radius: 6px;
+				padding: 6px 8px;
+				font: inherit;
+			}
+			textarea {
+				font-family: ui-monospace, SFMono-Regular, monospace;
+				font-size: 11px;
+				min-height: 150px;
+				resize: vertical;
+			}
+			button {
+				cursor: pointer;
+				width: 100%;
+			}
+			.check {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				font-size: 13px;
+				margin-bottom: 14px;
+			}
+			.check input {
+				width: auto;
+			}
+			hr {
+				border: 0;
+				border-top: 1px solid var(--line);
+				margin: 16px 0;
+			}
+			h2 {
+				font-size: 12px;
+				color: var(--dim);
+				font-weight: 600;
+				margin: 0 0 10px;
+				text-transform: uppercase;
+				letter-spacing: 0.06em;
+			}
+			#depthmap {
+				width: 100%;
+				image-rendering: pixelated;
+				border-radius: 6px;
+				border: 1px solid var(--line);
+				display: block;
+			}
+			.note {
+				color: var(--dim);
+				font-size: 12px;
+				margin: 8px 0 0;
+			}
+			code {
+				font-family: ui-monospace, monospace;
+				font-size: 12px;
+				color: var(--ink);
+			}
+		</style>
+	</head>
+	<body>
+		<header>
+			<h1>Relief VR — sonde jetable</h1>
+			<p>
+				Une frame réelle de Super Mario Bros en plans séparés, un par couple
+				(calque, priorité) que le PPU a réellement utilisé. Glisser sur l'image pour tourner.
+			</p>
+		</header>
+
+		<div class="layout">
+			<canvas id="stage"></canvas>
+
+			<aside>
+				<h2>Z-index par calque <code id="mode-out"></code></h2>
+				<div id="slots"></div>
+
+				<hr />
+
+				<label>
+					<span class="label-row">Échelle d'ensemble <b id="spacing-out"></b></span>
+					<input id="spacing" type="range" min="0" max="0.12" step="0.005" value="0.05" />
+				</label>
+
+				<label class="check">
+					<input id="fill" type="checkbox" checked />
+					Calques complets (trous rebouchés)
+				</label>
+
+				<label>
+					<span class="label-row">Angle de vue <b id="angle-out"></b></span>
+					<input id="angle" type="range" min="-60" max="60" step="1" value="0" />
+				</label>
+
+				<label>
+					<span class="label-row">Décalage œil <b id="eye-out"></b></span>
+					<input id="eye" type="range" min="-0.1" max="0.1" step="0.002" value="0" />
+				</label>
+
+				<label>
+					<span class="label-row">Frame</span>
+					<select id="frame"></select>
+				</label>
+
+				<button id="reset">Revenir de face</button>
+
+				<hr />
+
+				<h2>Preset</h2>
+				<textarea id="preset" readonly></textarea>
+
+				<hr />
+
+				<h2>Plan des calques</h2>
+				<img id="depthmap" alt="calques en fausses couleurs" />
+				<p class="note">
+					Décocher « calques complets » montre les trous : ce que le PPU n'a jamais
+					dessiné derrière ce qui était devant.
+				</p>
+			</aside>
+		</div>
+
+		<script src="demo.js"></script>
+	</body>
+</html>
