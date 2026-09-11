@@ -244,7 +244,20 @@ export function layoutReliefPanel(state: ReliefPanelState): Region[] {
   return regions;
 }
 
-/** The position dots, centred under the value box. */
+/**
+ * The position dots, centred under the value box and sized to fit it.
+ *
+ * The size is derived rather than fixed because the ladder's length is not
+ * this module's to know: it lives in `relief-preset.ts`, it has already grown
+ * once, and a hard-coded dot size turns the next lengthening into a row of
+ * dots wider than the box it belongs to - a cosmetic fault nothing tests and
+ * nobody sees until a headset is on. Deriving it means the row fits by
+ * construction, whatever the ladder becomes.
+ *
+ * The floor is 4 px. Below that a dot stops reading as a filled position in a
+ * row of empty ones, which is the whole of what it has to say, and a ladder
+ * long enough to hit the floor wants rethinking rather than shrinking.
+ */
 function drawRungs(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -252,11 +265,12 @@ function drawRungs(
   count: number,
   at: number
 ): void {
-  const span = count * DOT_SIZE + (count - 1) * DOT_GAP;
+  const size = Math.max(4, Math.min(DOT_SIZE, Math.floor((VALUE_W - (count - 1) * DOT_GAP) / count)));
+  const span = count * size + (count - 1) * DOT_GAP;
   const left = x + (VALUE_W - span) / 2;
   for (let i = 0; i < count; i++) {
     ctx.fillStyle = i === at ? SMW.accent : SMW.sandDark;
-    ctx.fillRect(left + i * (DOT_SIZE + DOT_GAP), y, DOT_SIZE, DOT_SIZE);
+    ctx.fillRect(left + i * (size + DOT_GAP), y, size, size);
   }
 }
 
