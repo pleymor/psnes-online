@@ -59,21 +59,30 @@ export interface ReliefPreset {
  * composited in: the sky would come out in front of the ground, and no setting
  * of the other nine slots could put it back.
  *
- * 30 cm is the top, and the ceiling is the occlusion holes rather than taste.
- * A layer is only drawn where it won the pixel, so everything in front of it
- * leaves a hole in it, and `tools/vr-relief` fills those holes by dilating the
- * layer into them because the frame does not record what was really behind.
- * The fill is a smear that stays hidden while the layer in front still covers
- * it. Past roughly 30 cm of separation it stops covering it as soon as the
- * player leans, and the smear is what they see through the gap.
+ * 60 cm is the top. The ladder used to stop at 30, and the reason written here
+ * was the dilation smear: `tools/vr-relief` fills a layer's occlusion holes by
+ * growing the layer into them, and that guess stays hidden only while the
+ * layer in front still covers it. The reasoning was sound and it was about the
+ * wrong renderer. The probe dilates; the screen does not. What ships draws
+ * each layer strictly where it won the pixel and leaves the holes open, so
+ * there is no smear to keep covered and the ceiling was paying for a cost this
+ * path does not have.
+ *
+ * What does bound it is the room. A slot's distance is multiplied by the
+ * strength, so the reach is the two together: 60 cm at 1.5 puts a plane 90 cm
+ * in front of the picture, and the nearest screen the player can choose sits
+ * at 2 m. That leaves the frontmost plane over a metre away, which is still a
+ * screen across the room rather than something in the face. Raising the
+ * strength's ceiling as well would compound with this one, and compounding two
+ * ladders is how a plane ends up behind the eyes.
  *
  * The rungs are finer near the bottom because that is where the effect is
  * decided: the first few centimetres are the difference between a flat picture
- * and a diorama, while the difference between 22 and 26 cm is a matter of
+ * and a diorama, while the difference between 44 and 52 cm is a matter of
  * degree.
  */
 export const RELIEF_DISTANCES: readonly number[] = [
-	0, 0.02, 0.05, 0.08, 0.1, 0.13, 0.15, 0.18, 0.22, 0.26, 0.3
+	0, 0.02, 0.05, 0.08, 0.1, 0.13, 0.15, 0.18, 0.22, 0.26, 0.3, 0.36, 0.44, 0.52, 0.6
 ];
 
 /**
