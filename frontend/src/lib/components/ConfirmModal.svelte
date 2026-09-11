@@ -140,19 +140,20 @@
     transform: translateY(0);
   }
 
+  /* Rien à dire de plus que le plancher : renoncer est l'option neutre. */
   .btn-secondary {
-    background: var(--bg-tertiary, #2a2a2a);
-    color: var(--text-primary, #fff);
-    border: 1px solid var(--border-color, #444);
+    background: var(--panel);
   }
 
   .btn-secondary:hover {
-    background: var(--bg-hover, #333);
+    background: var(--edge);
+    color: var(--panel);
   }
 
   .btn-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: var(--go);
+    border-color: var(--go-deep);
+    color: #ffffff;
   }
 
   .btn-primary:hover {

@@ -148,14 +148,11 @@
      tout - donc le bouton brut du navigateur, blanc et carré, à côté de son
      voisin habillé. Signalé le 2026-09-10 : « ya plein de boutons sans style
      comme Télécharger mes sauvegardes ». */
-  button {
-    background: #333;
-    border: 2px solid transparent;
-    color: #fff;
-    padding: 0.4rem 0.75rem;
-    border-radius: 6px;
-    cursor: pointer;
-  }
+  /* Plus de règle de forme ici : celle-ci écrasait le plancher sans le
+     vouloir. Une règle `button` écrite DANS un composant porte la classe de
+     portée de Svelte, donc sa spécificité (0,1,1) bat celle du plancher
+     (0,0,1) - et ce panneau restait à l'ancien langage alors que le reste
+     de l'application avait changé. Ce qu'il n'a plus à dire, il l'hérite. */
 
   button:disabled {
     opacity: 0.5;

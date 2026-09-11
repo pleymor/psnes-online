@@ -135,13 +135,10 @@
   }
 
   .btn-new {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.875rem;
+    background: var(--go);
+    border-color: var(--go-deep);
+    color: #ffffff;
+    font-size: 0.95rem;
   }
 
   .btn-new:disabled {

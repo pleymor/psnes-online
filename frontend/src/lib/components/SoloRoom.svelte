@@ -1118,12 +1118,7 @@
   }
 
   .action {
-    background: #333;
-    border: 2px solid transparent;
-    color: #fff;
-    padding: 0.4rem 0.75rem;
-    border-radius: 6px;
-    cursor: pointer;
+    padding: 0.35rem 0.85rem;
   }
 
   .action:disabled {

@@ -363,12 +363,13 @@
 
   .tabs button,
   .actions button {
-    background: #333;
-    color: #eee;
-    border: 1px solid #555;
-    border-radius: 6px;
-    padding: 0.45rem 0.9rem;
-    font-size: 0.9rem;
+    background: var(--ground);
+    color: var(--shell);
+    border: var(--btn-border) solid var(--edge);
+    border-radius: var(--btn-radius);
+    box-shadow: var(--btn-bevel);
+    padding: 0.25rem 0.9rem;
+    font-size: 0.95rem;
     cursor: pointer;
   }
 

@@ -205,8 +205,9 @@
   }
 
   .accept {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: #fff;
+    background: var(--go);
+    border-color: var(--go-deep);
+    color: #ffffff;
   }
 
   .decline {

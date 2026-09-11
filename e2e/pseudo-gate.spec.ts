@@ -105,6 +105,16 @@ test.describe('the onboarding gate', () => {
   test('the profile shows the code that replaced the email', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('button', { name: /Dev User 1/ }).click();
+    /*
+     * Attendre que la connexion ait abouti avant de naviguer.
+     *
+     * Le clic lance un aller-retour réseau qui pose le cookie ; `goto` ne
+     * l'attend pas. Deux fois - le 2026-09-10 et le 2026-09-11 - ce test a
+     * échoué en affichant la page de connexion à `/profile`, et il repassait
+     * seul, ce qui est exactement la forme d'une course. La barre n'existe
+     * que pour quelqu'un de connecté : l'attendre, c'est attendre le cookie.
+     */
+    await expect(page.locator('.top-bar')).toBeVisible();
     await page.goto('/profile');
 
     await expect(page.getByText('DevOne#0001')).toBeVisible();

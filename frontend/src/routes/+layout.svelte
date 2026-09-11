@@ -283,9 +283,15 @@
 
     /* Les deux verbes du monde : le tuyau vert fait avancer, la carapace
        rouge annule. Chacun avec son ombre moulée d'un ton plus sombre. */
-    --go: #48a838;
+    /* Assombris par la mesure, pas au jugé. Les teintes de Super Mario World
+       telles quelles - #48A838 et #D84028 - donnent sous du blanc 3,03:1 et
+       4,48:1, là où AA demande 4,5 pour du texte normal. Comme ces deux
+       couleurs ne portent QUE des libellés blancs, c'est le libellé de
+       l'action principale de chaque écran qui passait sous le seuil. Même
+       teinte, descendue jusqu'à 4,73:1 et 5,57:1. */
+    --go: #2f8420;
     --go-deep: #1e5c18;
-    --stop: #d84028;
+    --stop: #c42f1c;
     --stop-deep: #7a1c10;
 
     /* Inchangés : la marque reste la cartouche de `icon.svg`, parce que

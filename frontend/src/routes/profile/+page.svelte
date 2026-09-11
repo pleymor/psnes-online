@@ -622,14 +622,12 @@
     color: #9fb4ff;
   }
 
+  /* Volontairement discret : c'est la doublure d'une valeur affichée juste
+     à côté, pas une action de la page. Il garde donc la forme commune et
+     seulement sa petite taille. */
   .copy {
-    padding: 0.2rem 0.6rem;
-    border: 1px solid #444;
-    border-radius: 6px;
-    background: transparent;
-    color: #ccc;
-    font-size: 0.72rem;
-    cursor: pointer;
+    padding: 0.1rem 0.6rem;
+    font-size: 0.85rem;
   }
 
   .copy:disabled {
@@ -671,16 +669,15 @@
     border-color: #b3564b;
   }
 
+  /* Enregistrer un pseudo fait avancer, donc vert - et le vert des jetons
+     est lui aussi descendu jusqu'au seuil de contraste, pour la même raison
+     qui avait fait assombrir le bleu qui était ici. */
   .rename-row button {
-    padding: 0 0.9rem;
-    border: 0;
-    border-radius: 6px;
-    /* Pas le #667eea de la marque : 3.66:1 sous du blanc, sous les 4.5
-       qu'AA demande. Même teinte, assombrie jusqu'à 4.96:1. */
-    background: #4764e6;
-    color: white;
-    font-size: 0.85rem;
-    cursor: pointer;
+    padding: 0.2rem 0.9rem;
+    background: var(--go);
+    border-color: var(--go-deep);
+    color: #ffffff;
+    font-size: 0.95rem;
   }
 
   .rename-row button:disabled {
@@ -745,8 +742,11 @@
   }
 
   .shader.on {
-    background: rgba(102, 126, 234, 0.15);
-    border-color: #667eea;
+    /* Enfoncée, comme la touche du HUD : le biseau s'inverse et le libellé
+       passe à l'or. Le vert et le rouge restent des verbes. */
+    box-shadow: inset 0 4px 0 rgba(0, 0, 0, 0.4), inset 0 -4px 0 rgba(255, 255, 255, 0.08);
+    color: var(--edge);
+    transform: translateY(1px);
   }
 
   .shot {
@@ -770,25 +770,27 @@
     color: #fff;
   }
 
+  /* La forme vient du plancher. Cette règle la redéclarait, et comme elle
+     porte la classe de portée de Svelte elle gagnait : c'est ce qui laissait
+     « Importer un fichier » et ses voisins en gris plat. Il ne reste que la
+     transition, qui est propre à cette page. */
   button {
-    background: #333;
-    border: 2px solid transparent;
-    color: #fff;
-    padding: 0.45rem 0.8rem;
-    border-radius: 8px;
-    cursor: pointer;
     transition:
       background 0.15s,
       border-color 0.15s;
   }
 
   button:hover:not(:disabled) {
-    background: #3d3d3d;
+    background: var(--edge);
+    color: var(--panel);
   }
 
   button.on {
-    background: #3a4a5a;
-    border-color: #667eea;
+    /* Enfoncée, comme la touche du HUD : le biseau s'inverse et le libellé
+       passe à l'or. Le vert et le rouge restent des verbes. */
+    box-shadow: inset 0 4px 0 rgba(0, 0, 0, 0.4), inset 0 -4px 0 rgba(255, 255, 255, 0.08);
+    color: var(--edge);
+    transform: translateY(1px);
   }
 
   button:disabled {
@@ -812,16 +814,24 @@
   /* The file input itself is unstyleable across browsers, so the label is the
      control and the input is hidden inside it - clicking the label opens the
      picker, and keyboard focus still lands on the input. */
+  /* Un <label> qui enveloppe un `<input type="file">`, parce qu'un champ de
+     fichier ne se laisse pas habiller. Le plancher de `:global(button)` ne
+     l'atteint donc pas, et c'est exactement ce qui le laissait en gris plat
+     à côté d'un « Exporter » déjà refait : la recette est ici, tirée des
+     jetons. */
   .import {
     position: relative;
     overflow: hidden;
     display: inline-flex;
     align-items: center;
-    background: #333;
-    border: 2px solid transparent;
-    color: #fff;
-    padding: 0.45rem 0.8rem;
-    border-radius: 8px;
+    background: var(--panel);
+    border: var(--btn-border) solid var(--edge);
+    box-shadow: var(--btn-bevel);
+    color: var(--shell);
+    font-family: var(--display);
+    font-size: var(--btn-size);
+    padding: var(--btn-pad);
+    border-radius: var(--btn-radius);
     cursor: pointer;
     transition: background 0.15s;
   }
@@ -884,7 +894,8 @@
   }
 
   .logout {
-    background: #7f1d1d;
+    background: var(--stop);
+    border-color: var(--stop-deep);
   }
 
   .logout:hover:not(:disabled) {

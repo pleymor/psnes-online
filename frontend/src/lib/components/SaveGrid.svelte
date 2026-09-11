@@ -328,7 +328,7 @@
 
   .action {
     flex: 0 0 auto;
-    color: #667eea;
+    color: var(--edge);
     font-size: 0.8125rem;
     text-transform: uppercase;
     letter-spacing: 0.03em;
@@ -401,13 +401,7 @@
   .btn-retry {
     display: block;
     margin: 0.75rem auto 0;
-    background: #444;
-    color: white;
-    border: none;
-    padding: 0.4rem 0.9rem;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.8125rem;
+    font-size: 0.95rem;
   }
 
   .btn-retry:hover {
