@@ -326,6 +326,91 @@ enregistrés par `index.ts` à chaque connexion authentifiée
   statut de présence (`user:{userId}:status`). C'est aussi la source dont
   `bootstrap/jobs.ts` restaure les rooms au redémarrage.
 
+## La VR : une présentation, pas un cinquième mode
+
+Le casque ne change rien à l'émulation. `VrShell.svelte` pilote les mêmes
+`createSoloEngine` et `createLockstepEngine` que `SoloRoom` et `LockstepRoom`,
+sur le même core wasm, et lancer un jeu à deux depuis la VR ouvre une room
+ordinaire que l'ami peut rejoindre à plat. Le tableau des quatre modes plus
+haut reste donc la bonne grille de lecture : la VR est une surface de sortie et
+d'entrée par-dessus, pas une cinquième ligne.
+
+Elle est montée une seule fois, dans `+layout.svelte`, au-dessus du `<slot />`
+— seul endroit présent quoi que fasse le joueur, et qu'une navigation ne
+démonte pas.
+
+**Le chemin d'entrée.** `support.ts` pose au navigateur la seule question
+honnête (`isSessionSupported`, jamais le user-agent). `prepare.ts` existe pour
+une loi empirique établie sur un vrai Quest 3 : **lire le dossier de ROMs
+depuis une session immersive ne marche jamais**, la permission accordée sur la
+page plate répondant « non accordée » une fois dans le casque. Les jeux sont
+donc rapatriés avant que le casque ne prenne la main, et `door.ts` demande la
+permission à la porte plutôt qu'au point d'usage — la boîte de dialogue native
+est dessinée par le navigateur, sur la page, c'est-à-dire exactement ce que le
+casque a remplacé. `xr-session.ts` ne demande que l'espace `local`, garanti par
+la spécification, et garantit qu'on ne sort qu'une fois.
+
+**La scène.** `scene.ts` détient le renderer et une seule politique : la boucle
+XR pompe le gouverneur puis rend. Elle ne décide jamais qu'une frame existe —
+c'est `FrameGovernor` qui le fait, à travers `frame-pump.ts`, et c'est ce qui
+tient l'émulateur à 60,0988 Hz sur un casque à 72 ou 90. `layout.ts` et
+`anchor.ts` concentrent toutes les distances et la position de la scène dans
+des modules qui n'importent pas three, donc testables sous Bun et réglables
+d'un seul fichier. `framebuffer-scale.ts` réclame la résolution native plutôt
+que celle que le runtime recommande avec un œil sur son propre budget.
+
+**Les panneaux.** Une session immersive n'a pas de DOM à réutiliser : un
+panneau est un canvas peint à la main plus une liste de rectangles
+(`panel.ts`, `panel-mesh.ts`). La mise en page est une fonction pure rendant
+des `Region[]`, donc testée sous Bun ; seuls les appels de dessin ne le sont
+pas. `panels/chrome.ts` porte l'habillage Super Mario World commun. Les menus
+d'options vivent sur une tablette flottante qui change de contenu plutôt que
+d'empiler des écrans. **Des crans, jamais de curseurs** : le pointeur est un
+laser tenu à bout de bras, viser un bouton est franc là où faire glisser une
+poignée ne l'est pas, et les bouts d'une échelle butent au lieu de boucler.
+
+**Les entrées.** `pad.ts` traduit deux manettes Touch en un masque SNES 12
+bits — les Touch parlent `xr-standard`, pas `standard`, et les axes n'ont pas
+le même sens. `bt-pad.ts` ajoute une manette Bluetooth **en plus** et non à la
+place. `pointer.ts` tient la détection de front sans laquelle une gâchette
+maintenue lancerait un jeu soixante-douze fois par seconde.
+
+### Le relief des calques
+
+Une frame SNES arrive plate, mais elle n'a pas été composée à plat : en
+dessinant, le PPU décide pour chaque pixel quel calque et quelle priorité l'ont
+emporté, et garde la réponse dans `GFX.ZBuffer`. Le core expose ce plan en
+lecture seule (`core/src/gfx_depth.cpp`, `pn_depth()`), et l'écran VR s'en sert
+pour séparer les calques dans l'espace : dix plans plats, un par couple
+(calque, priorité), chacun ne montrant que les pixels qu'il a gagnés.
+
+Quatre choses sont à savoir avant de toucher à ce chemin, chacune ayant d'abord
+produit une réponse plausible et fausse :
+
+- **Il faut lire les deux tampons de profondeur.** Beaucoup de jeux dessinent
+  l'essentiel de leurs calques sur le *sub-screen* et les ramènent par color
+  math ; `GFX.ZBuffer` seul rend un plan uniformément plat.
+- **libretro décale la frame de sept lignes** dans `GFX.Screen` (overscan).
+  `pn_depth()` retrouve le décalage depuis le pointeur qu'on lui passe.
+- **Un octet de priorité ne nomme pas un calque sans le mode BG** : en mode 1,
+  BG1 vaut 47/43 ; en mode 3, 43 est BG2. D'où `pn_depth_bg_mode()` et
+  `vr/layer-map.ts`.
+- **La distance appartient au couple, pas au calque.** Un calque peut être à
+  deux endroits : dans Super Mario All-Stars les nuages et la barre d'état sont
+  tous deux BG3, à deux priorités que le matériel compose aux deux extrémités
+  de l'ordre.
+
+Le réglage est retenu par jeu, sur l'appareil, sous la clé CRC32 de la ROM
+(`vr/relief-preset.ts`). Il part **éteint** : le relief est un goût, pas une
+correction, et une pression sur l'intensité donne le diorama entier,
+correctement proportionné.
+
+Ce qui n'est pas fait : les trous. Un calque n'est dessiné que là où il a gagné
+le pixel, donc ce qui est devant lui y laisse un trou, et rien dans la frame ne
+dit ce qu'il y avait derrière. Reboucher à 60 Hz n'est pas résolu. `tools/vr-relief/`
+garde la sonde qui a servi à établir tout ceci, avec le détail des trois
+approches pesées.
+
 ## Frontend : au-delà des modes
 
 **`frontend/src/lib/rooms/`** — logique partagée entre les composants de
@@ -362,7 +447,8 @@ psnes/
 ├── LOCKSTEP_NETPLAY.md      # référence netcode lockstep
 ├── README.md
 ├── core/                    # core wasm dédié au mode lockstep (snes9x + libretro frontend maison)
-│   └── src/psnes_core.c
+│   ├── src/psnes_core.c
+│   └── src/gfx_depth.cpp    # la seule fenêtre ouverte sur les internes de snes9x (lecture seule)
 ├── docs/
 │   ├── history/             # instantanés de travaux terminés (voir docs/history/README.md)
 │   ├── QUICKSTART.md
@@ -394,11 +480,14 @@ psnes/
 │       ├── netplay/                 # sync manager, rollback, buffers (mode dual)
 │       ├── webrtc/                   # p2p-manager.ts (signalisation + DataChannel)
 │       ├── emulator/                  # wrapper WasmEmulator, input-manager
+│       ├── vr/                          # session immersive : scène, écran, panneaux, manettes
+│       │   └── panels/                    # un panneau = un canvas peint + des Region[]
 │       └── api/, stores/, services/, config/, controls/, saves/, lobby/, games/, roms/, i18n/, utils/
 ├── e2e/                       # tests Playwright (dont probe-lockstep.mjs)
+├── tools/vr-relief/           # sonde du relief des calques (bun run vr:relief)
 └── scripts/                   # svelte-frozen-props.mjs, net-probe.sh, …
 ```
 
 ---
 
-**Dernière mise à jour :** 2026-08-26
+**Dernière mise à jour :** 2026-09-11
