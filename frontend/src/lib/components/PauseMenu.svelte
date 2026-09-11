@@ -755,7 +755,7 @@
 
   .frames-row input:focus-visible {
     outline: none;
-    border-color: #667eea;
+    border-color: var(--edge);
   }
 
   .nudge {
@@ -766,7 +766,7 @@
 
   .nudge:hover:not(:disabled),
   .nudge:focus-visible {
-    border-color: #667eea;
+    border-color: var(--edge);
     outline: none;
   }
 

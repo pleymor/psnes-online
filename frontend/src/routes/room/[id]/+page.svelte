@@ -1088,8 +1088,8 @@
   }
 
   .btn-setup:hover {
-    border-color: #667eea;
-    color: #fff;
+    border-color: var(--edge);
+    color: var(--label);
   }
 
   .btn-setup.on {
@@ -1248,9 +1248,11 @@
     transition: background 0.2s;
   }
 
+  /* Plus de halo coloré ni de saut : ce bouton est moulé, donc il répond
+     comme une touche - il s'éclaircit, et c'est tout. Un objet qui décolle
+     de la page au survol appartenait à l'autre langage. */
   .btn-start:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    background: #3ba029;
   }
 
   /* Le plancher éteint déjà les boutons désactivés ; il ne reste que le

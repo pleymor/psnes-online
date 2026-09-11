@@ -532,7 +532,7 @@
   }
 
   .result:hover:not(:disabled) {
-    border-color: #667eea;
+    border-color: var(--edge);
   }
 
   .thumb {

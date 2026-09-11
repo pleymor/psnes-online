@@ -93,15 +93,16 @@
     gap: 1.25rem;
   }
 
+  /* La même écriture que le titre de l'accueil, pour que cette page
+     appartienne au site plutôt que d'avoir l'air d'une annexe - c'était
+     déjà la raison, c'est le dégradé qui a changé de camp. */
   h1 {
     margin: 0 0 0.5rem;
-    font-size: 2rem;
-    /* Le dégradé du titre de l'accueil, pour que la page appartienne au site
-       plutôt que d'avoir l'air d'une annexe. */
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    font-family: 'Silkscreen', monospace;
+    font-size: 1.6rem;
+    font-weight: 400;
+    line-height: 1.4;
+    color: var(--label);
   }
 
   .intro {
@@ -131,9 +132,9 @@
 
   .toc a:hover,
   .toc a:focus-visible {
-    border-color: rgba(102, 126, 234, 0.8);
-    background: rgba(102, 126, 234, 0.12);
-    color: #fff;
+    border-color: var(--edge);
+    background: var(--edge);
+    color: var(--panel);
   }
 
   .card {

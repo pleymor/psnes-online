@@ -289,9 +289,11 @@
     margin-left: auto;
   }
 
+  /* L'or du HUD, et non le violet : c'est la couleur qui dit « ceci
+     répond » partout ailleurs dans cette interface depuis la reprise. */
   .room:hover:not(:disabled) {
-    border-color: #667eea;
-    color: #fff;
+    border-color: var(--edge);
+    color: var(--label);
   }
 
   /* La seule action irréversible de cet écran : elle ne se colore qu'au
@@ -334,8 +336,8 @@
   }
 
   .export-saves:hover:not(:disabled) {
-    border-color: #667eea;
-    color: #fff;
+    border-color: var(--edge);
+    color: var(--label);
   }
 
   .export-saves:disabled {
@@ -381,8 +383,8 @@
 
   .identify:hover,
   .share:hover:not(:disabled) {
-    border-color: #667eea;
-    color: #fff;
+    border-color: var(--edge);
+    color: var(--label);
   }
 
   .modal-overlay {
@@ -497,15 +499,17 @@
     min-width: 0;
   }
 
+  /* Plus de dégradé sur un mot : c'est le tell générique par excellence,
+     et il dépensait le seul accent de cette fiche sur son titre plutôt que
+     sur la jaquette qu'on vient regarder. La police d'affichage le rattache
+     au reste. */
   .title {
-    font-size: 2.25rem;
+    font-size: 2rem;
     margin: 0 0 1.5rem 0;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    font-family: var(--display);
     font-weight: 700;
     line-height: 1.2;
+    color: var(--label);
   }
 
   .description {
@@ -516,7 +520,7 @@
     padding: 1.5rem;
     background: rgba(0, 0, 0, 0.2);
     border-radius: 12px;
-    border-left: 3px solid #667eea;
+    border-left: 3px solid var(--edge);
   }
 
   .metadata-grid {
@@ -600,11 +604,11 @@
   }
 
   .modal-content::-webkit-scrollbar-thumb {
-    background: rgba(102, 126, 234, 0.5);
+    background: rgba(248, 208, 48, 0.45);
     border-radius: 4px;
   }
 
   .modal-content::-webkit-scrollbar-thumb:hover {
-    background: rgba(102, 126, 234, 0.7);
+    background: rgba(248, 208, 48, 0.75);
   }
 </style>

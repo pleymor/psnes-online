@@ -820,12 +820,17 @@
     max-width: 600px;
   }
 
+  /* Le titre de l'accueil, sans son dégradé : un mot en dégradé violet est
+     le tell générique que cette reprise a chassé de la bibliothèque, de la
+     fiche de jeu et de la documentation. Silkscreen le rattache à l'étagère
+     qu'on voit juste après s'être connecté. */
   .hero h1 {
-    font-size: 3rem;
+    font-family: 'Silkscreen', monospace;
+    font-size: 2rem;
+    font-weight: 400;
+    line-height: 1.4;
     margin-bottom: 1rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--label);
   }
 
   .hero p {
@@ -874,20 +879,18 @@
     flex-direction: column;
     align-items: center;
     gap: 0.75rem;
-    background: rgba(42, 42, 42, 0.95);
-    border: 2px solid rgba(102, 126, 234, 0.3);
-    padding: 1.5rem 1rem;
-    border-radius: 12px;
+    background: var(--ground);
+    border: var(--btn-border) solid var(--edge);
+    box-shadow: var(--btn-bevel);
+    padding: 1rem;
+    border-radius: var(--btn-radius);
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s;
     color: white;
   }
 
   .dev-user-btn:hover {
-    border-color: rgba(102, 126, 234, 0.8);
-    background: rgba(102, 126, 234, 0.1);
-    transform: translateY(-4px);
-    box-shadow: 0 8px 16px rgba(102, 126, 234, 0.2);
+    background: var(--panel);
   }
 
   .dev-user-avatar {
