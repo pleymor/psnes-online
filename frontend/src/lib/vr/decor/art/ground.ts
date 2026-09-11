@@ -37,24 +37,47 @@ export const GROUND_BRICK: Art = {
   ]
 };
 
-export const GROUND_GRASS: Art = {
-  palette: { ...BRICK_PALETTE, g: 'grass', d: 'grassDark' },
+/**
+ * Le sol sur lequel on marche : une SURFACE, vue du dessus.
+ *
+ * Corrigé le 2026-09-11 après une session sous casque. Le sol posait
+ * `GROUND_BRICK`, et le propriétaire l'a signalé d'un mot : « c'est bizarre
+ * d'avoir des briques ». Il avait raison, et la cause n'est pas le goût -
+ * c'est une confusion de projection. Une brique est un dessin d'ÉLÉVATION,
+ * vu de face ; c'est le bloc que Mario casse par en dessous. Un sol se voit
+ * du DESSUS, et par le dessus on ne voit jamais la face d'une brique, on voit
+ * une surface. Poser l'un pour l'autre donne un mur couché, ce qui est
+ * exactement ce que ça donnait.
+ *
+ * D'où deux propriétés que ce motif a et que l'autre n'avait pas :
+ *
+ * **Aucun contour.** Un bord sombre fait réapparaître, une fois carrelé, la
+ * grille régulière au mètre qu'on vient de supprimer - `vr-decor-art.test.ts`
+ * le vérifie maintenant pour toute tuile de sol.
+ *
+ * **Un semis, pas une trame.** Les touffes plus sombres sont irrégulières et
+ * ne touchent aucun bord, donc rien ne s'aligne d'une tuile à l'autre. Le
+ * motif se répète quand même tous les mètres ; si ça se remarque sous casque,
+ * la parade est une tuile de deux mètres (32 px), qui double la période.
+ */
+export const GROUND_TURF: Art = {
+  palette: { g: 'grass', d: 'grassDark' },
   rows: [
     'gggggggggggggggg',
+    'ggdgggggggddgggg',
     'gggggggggggggggg',
+    'gggggddgggggggdg',
+    'gdgggggggggggggg',
+    'gggggggggddggggg',
+    'ggggdggggggggggg',
+    'gggggggggggggddg',
     'gggggggggggggggg',
-    'dddddddddddddddd',
-    'kkkkkkkkkkkkkkkk',
-    'llllllkkllllllkk',
-    'llllllkkllllllkk',
-    'bbbbbbkkbbbbbbkk',
-    'bbbbbbkkbbbbbbkk',
-    'bbbbbbkkbbbbbbkk',
-    'kkkkkkkkkkkkkkkk',
-    'llkkllllllkkllll',
-    'llkkllllllkkllll',
-    'bbkkbbbbbbkkbbbb',
-    'bbkkbbbbbbkkbbbb',
-    'bbkkbbbbbbkkbbbb'
+    'gddggggggddggggg',
+    'gggggggggggggggg',
+    'ggggggddgggggggg',
+    'ggdggggggggggdgg',
+    'gggggggggggggggg',
+    'ggggggggddgggggg',
+    'gdgggggggggggggg'
   ]
 };

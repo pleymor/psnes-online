@@ -32,3 +32,26 @@ test('toute tuile de sol fait exactement un mètre, soit seize pixels d_art', ()
     assert.equal(raster.height, 16, `${name} fait ${raster.height} de haut`);
   }
 });
+
+test('la tuile posée au sol ne porte aucun contour', () => {
+  /*
+   * La leçon d'une session sous casque, le 2026-09-11.
+   *
+   * Le sol posait `GROUND_BRICK`, et le propriétaire l'a signalé d'un mot :
+   * « c'est bizarre d'avoir des briques ». La cause n'était pas le goût mais
+   * une confusion de projection - une brique est une ÉLÉVATION, vue de face,
+   * alors qu'un sol se voit du dessus. Et le symptôme le plus visible tenait
+   * au contour : carrelé, un bord sombre redessine une grille régulière tous
+   * les mètres, que l'œil lit comme un artefact plutôt que comme une matière.
+   *
+   * Ce test ne peut pas juger qu'un dessin ressemble à de l'herbe. Il tient la
+   * seule moitié qui soit mécanique, et c'est celle qui se re-brise le plus
+   * facilement : pas de contour sur la surface où l'on marche.
+   */
+  const turf = ALL_ART.groundTurf;
+  assert.ok(turf, 'groundTurf absent du registre');
+  assert.ok(
+    !Object.values(turf.palette).includes('outline'),
+    'un contour fait réapparaître la grille au mètre une fois la tuile carrelée'
+  );
+});

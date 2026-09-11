@@ -11,11 +11,11 @@
  * n'est ni vérifié ni rangé.**
  */
 import type { Art } from '../pixels';
-import { GROUND_BRICK, GROUND_GRASS } from './ground';
+import { GROUND_BRICK, GROUND_TURF } from './ground';
 
 export const ALL_ART: Readonly<Record<string, Art>> = {
   groundBrick: GROUND_BRICK,
-  groundGrass: GROUND_GRASS
+  groundTurf: GROUND_TURF
 };
 
 export type ArtName = keyof typeof ALL_ART;

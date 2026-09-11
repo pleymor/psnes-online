@@ -61,9 +61,16 @@ test('le rangement ne dépend pas de l_ordre où les motifs sont déclarés', ()
   // stables, donc `packAtlas(x)` égale `packAtlas(x)` même sans elle. Ce qui
   // la rend nécessaire, c'est qu'on réordonne un jour le registre - et la
   // planche de référence ne doit pas changer de disposition pour autant.
-  const a = { groundBrick: ALL_ART.groundBrick, groundGrass: ALL_ART.groundGrass };
-  const b = { groundGrass: ALL_ART.groundGrass, groundBrick: ALL_ART.groundBrick };
-  assert.deepEqual(packAtlas(a), packAtlas(b));
+  // Construit depuis le registre plutôt qu'en nommant des motifs : une
+  // première version épinglait deux noms en dur et est tombée le jour où l'un
+  // d'eux a été remplacé - un test qui se casse pour une raison sans rapport
+  // avec ce qu'il vérifie.
+  const entries = Object.entries(ALL_ART);
+  assert.ok(entries.length >= 2, 'il faut au moins deux motifs pour que l_ordre existe');
+  assert.deepEqual(
+    packAtlas(Object.fromEntries(entries)),
+    packAtlas(Object.fromEntries([...entries].reverse()))
+  );
 });
 
 test('un motif plus large que la première taille fait grandir la texture', () => {

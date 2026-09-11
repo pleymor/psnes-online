@@ -15,7 +15,7 @@
  */
 import * as THREE from 'three';
 import { rasterise, type Art } from './pixels';
-import { GROUND_BRICK } from './art/ground';
+import { GROUND_TURF } from './art/ground';
 import { COLOURS } from './palette';
 import { SKY_RADIUS, CURTAIN_RADIUS, ROOM_DARK, floorRepeat } from './composition';
 import { curtainAtMillis, elapsedFor, type FadeTarget } from './fade';
@@ -105,7 +105,7 @@ export function createDecor(opts: DecorOptions): Decor {
    * mètres, parce que les uv d'un `CircleGeometry` couvrent 0..1 d'un bord à
    * l'autre.
    */
-  const floorTexture = tileTexture(GROUND_BRICK, opts.maxAnisotropy);
+  const floorTexture = tileTexture(GROUND_TURF, opts.maxAnisotropy);
   floorTexture.repeat.set(floorRepeat(), floorRepeat());
   const floorGeometry = new THREE.CircleGeometry(SKY_RADIUS, 64);
   // `transparent: true` : le sol est le seul objet du décor en deçà du rayon
