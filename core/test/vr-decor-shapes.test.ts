@@ -7,7 +7,7 @@
  */
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mound, banded } from '../../frontend/src/lib/vr/decor/art/shapes.js';
+import { mound, banded, recolour } from '../../frontend/src/lib/vr/decor/art/shapes.js';
 import { rasterise } from '../../frontend/src/lib/vr/decor/pixels.js';
 
 const PALETTE = { body: 'hill', shade: 'hillDark', edge: 'outline' } as const;
@@ -74,4 +74,29 @@ test('des bandes qui ne finissent pas à la largeur sont refusées', () => {
 test('toutes les lignes d_une bande verticale sont identiques', () => {
   const art = banded(6, 3, [{ to: 6, colour: 'pipe' }]);
   assert.equal(new Set(art.rows).size, 1);
+});
+
+/*
+ * `recolour` : le même dessin dans d'autres couleurs.
+ *
+ * Les deux tests qui suivent gardent les deux seules choses qui pourraient
+ * être fausses sans se voir. Qu'il ne touche pas au DESSIN, parce qu'une
+ * variante de palette qui décalerait un pixel ferait trembler le bloc `?` à
+ * chaque battement. Et qu'il ne touche pas à la SOURCE, parce que les
+ * variantes coexistent avec elle dans le registre : une mutation ferait
+ * dépendre le rendu de l'ordre des imports.
+ */
+
+test('recolorer ne touche pas au dessin, seulement à la palette', () => {
+  const source = { palette: { a: 'block', b: 'outline' }, rows: ['ab', 'ba'] } as const;
+  const variant = recolour(source, { block: 'blockHi' });
+  assert.deepEqual(variant.rows, source.rows);
+  assert.equal(variant.palette.a, 'blockHi');
+  assert.equal(variant.palette.b, 'outline');
+});
+
+test('recolorer ne modifie pas la source', () => {
+  const source = { palette: { a: 'block' }, rows: ['a'] } as const;
+  recolour(source, { block: 'blockHi' });
+  assert.equal(source.palette.a, 'block');
 });

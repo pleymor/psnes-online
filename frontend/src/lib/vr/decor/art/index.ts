@@ -19,8 +19,17 @@ import {
   PIPE_LIP,
   PIPE_LIP_SIDE,
   QUESTION_BLOCK,
+  QUESTION_BLOCK_1,
+  QUESTION_BLOCK_2,
   BLOCK_SIDE
 } from './props';
+import {
+  GOOMBA_A,
+  GOOMBA_B,
+  PIRANHA_STEM,
+  PIRANHA_CLOSED,
+  PIRANHA_OPEN
+} from './creatures';
 
 export const ALL_ART: Readonly<Record<string, Art>> = {
   groundBrick: GROUND_BRICK,
@@ -34,7 +43,14 @@ export const ALL_ART: Readonly<Record<string, Art>> = {
   pipeLip: PIPE_LIP,
   pipeLipSide: PIPE_LIP_SIDE,
   questionBlock: QUESTION_BLOCK,
-  blockSide: BLOCK_SIDE
+  questionBlock1: QUESTION_BLOCK_1,
+  questionBlock2: QUESTION_BLOCK_2,
+  blockSide: BLOCK_SIDE,
+  goombaA: GOOMBA_A,
+  goombaB: GOOMBA_B,
+  piranhaStem: PIRANHA_STEM,
+  piranhaClosed: PIRANHA_CLOSED,
+  piranhaOpen: PIRANHA_OPEN
 };
 
 export type ArtName = keyof typeof ALL_ART;

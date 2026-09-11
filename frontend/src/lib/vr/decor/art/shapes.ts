@@ -126,3 +126,23 @@ export function banded(width: number, height: number, bands: readonly Band[]): A
 
   return { palette, rows: Array.from({ length: height }, () => row) };
 }
+
+/**
+ * Le même dessin, dans d'autres couleurs.
+ *
+ * C'est ce qui rend le pulsement du bloc `?` GRATUIT en travail de dessin : la
+ * NES animait ce bloc en changeant sa palette, pas sa forme, et on fait
+ * exactement pareil. Trois variantes du même motif entrent dans l'atlas, et
+ * l'animation ne fait que passer de l'une à l'autre - ce qui, avec un atlas,
+ * ne coûte que deux UV.
+ *
+ * Une copie, jamais une mutation : les variantes coexistent dans le registre
+ * avec leur source.
+ */
+export function recolour(art: Art, swap: Partial<Record<ColourName, ColourName>>): Art {
+  const palette: Record<string, ColourName> = {};
+  for (const [char, name] of Object.entries(art.palette)) {
+    palette[char] = swap[name] ?? name;
+  }
+  return { palette, rows: [...art.rows] };
+}

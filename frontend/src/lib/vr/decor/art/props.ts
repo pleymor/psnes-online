@@ -9,7 +9,7 @@
  * `banded` rend immédiat. C'est ce qui permet de monter ces objets en boîte
  * sans produire une seule image d'art supplémentaire.
  */
-import { banded } from './shapes';
+import { banded, recolour } from './shapes';
 import type { Art } from '../pixels';
 
 /** 1 m de large, 1,5 m de haut : le fût sous la lèvre. */
@@ -79,3 +79,16 @@ export const BLOCK_SIDE = banded(16, 16, [
   { to: 15, colour: 'brickDark' },
   { to: 16, colour: 'outline' }
 ]);
+
+/**
+ * Les trois temps du pulsement, sans un pixel de plus.
+ *
+ * Le corps passe du jaune au clair et revient. Exactement le cyclage de
+ * palette de l'original, et le poste d'animation le moins cher du lot : zéro
+ * image d'art produite. `QUESTION_BLOCK` lui-même est le premier temps.
+ */
+export const QUESTION_BLOCK_1 = recolour(QUESTION_BLOCK, {
+  block: 'blockHi',
+  blockHi: 'block'
+});
+export const QUESTION_BLOCK_2 = recolour(QUESTION_BLOCK, { block: 'brickDark' });
