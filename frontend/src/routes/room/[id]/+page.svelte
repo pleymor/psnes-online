@@ -1260,13 +1260,20 @@
     opacity: 0.5;
   }
 
+  /* Un <a>, que le plancher de `:global(button)` n'atteint pas : la
+     recette moulée est donc écrite ici. Sombre et non verte - retourner à
+     la bibliothèque est de la navigation, pas l'action de cet écran. */
   .btn-leave {
-    background: #333;
-    color: white;
-    border: none;
-    padding: 1rem 2rem;
-    font-size: 1.125rem;
-    border-radius: 8px;
+    display: inline-block;
+    background: var(--panel);
+    border: 3px solid var(--edge);
+    box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.25), inset 0 4px 0 rgba(255, 255, 255, 0.12);
+    color: var(--shell);
+    font-family: var(--display);
+    font-size: 1.1rem;
+    padding: 0.5rem 1.4rem;
+    border-radius: 9px;
+    text-decoration: none;
     cursor: pointer;
   }
 

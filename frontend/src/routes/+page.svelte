@@ -1031,18 +1031,17 @@
   /* Le tuyau vert : bord foncé, biseau clair en haut, ombre interne en bas.
      Deux `inset` suffisent à donner le moulé - c'est ce relief qui dit
      « ceci s'enfonce », que le rectangle gris ne disait pas. */
+  /* Le bouton dont tous les autres ont pris la forme. Il ne répète donc
+     plus le biseau, le rayon ni la police : tout cela est dans le plancher
+     de `:global(button)`, et il ne reste ici que sa couleur et sa mise en
+     ligne avec son icône. */
   .rescan {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
     background: var(--go);
+    border-color: var(--go-deep);
     color: #ffffff;
-    border: 3px solid var(--go-deep);
-    box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.27);
-    padding: 0.4rem 0.85rem;
-    border-radius: 9px;
-    cursor: pointer;
-    font-family: var(--display);
     font-size: 1.1rem;
     flex-shrink: 0;
   }

@@ -322,14 +322,28 @@
    * de type (0,0,1) perd contre n'importe quelle classe (0,1,0), donc ceci
    * ne prend jamais le pas sur un style existant : il ne fait que garantir
    * qu'aucun bouton ne puisse plus jamais tomber sur le style par défaut.
+   *
+   * C'est aussi devenu le seul endroit où la FORME du bouton est écrite :
+   * le rayon, le biseau moulé, la police, l'épaisseur du bord. Un composant
+   * qui veut un bouton vert n'a donc plus qu'à poser deux couleurs, et tout
+   * ce qu'il ne redéclare pas retombe ici. Cette dissymétrie est voulue :
+   * la forme est commune à toute l'application, la couleur porte du sens -
+   * vert on avance, rouge on annule, sombre c'est de la navigation - et une
+   * application dont tous les boutons seraient verts aurait harmonisé la
+   * peinture en perdant l'information.
    */
   :global(button) {
-    font: inherit;
+    font-family: var(--display);
+    font-size: 1.05rem;
     color: var(--label);
     background: var(--panel);
-    border: 1px solid var(--edge);
-    border-radius: 0;
-    padding: 0.4rem 0.8rem;
+    border: 3px solid var(--edge);
+    border-radius: 9px;
+    /* Le biseau moulé : clair en haut, sombre en bas. C'est lui qui dit
+       « ceci s'enfonce », et c'est la seule partie de la recette qu'il
+       serait pénible de réécrire juste - donc elle ne se réécrit pas. */
+    box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.27);
+    padding: 0.35rem 0.85rem;
     cursor: pointer;
   }
 
