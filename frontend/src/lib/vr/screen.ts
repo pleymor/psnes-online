@@ -35,6 +35,7 @@ import type { PanelSize, Region } from './panel';
 import { createSlotMaskBuilder, hasSlot, SLOT_COUNT } from './slot-mask';
 import { slotDepths } from './slot-depth';
 import { DEFAULT_RELIEF, type ReliefPreset } from './relief-preset';
+import { paintTestPattern } from './test-pattern';
 
 export interface VrScreen {
   /**
@@ -479,20 +480,14 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
       const height = 224;
       const stride = 512;
       rebuildPicture(width, height, stride);
-      const data = texture!.image.data as Uint8Array;
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < stride; x++) {
-          const i = (y * stride + x) * 4;
-          const inPadding = x >= width;
-          const cell = ((x >> 4) + (y >> 4)) & 1;
-          // The padding is filled magenta on purpose: if any of it is visible,
-          // uMax is wrong, and it will be unmistakable rather than subtle.
-          data[i] = inPadding ? 255 : cell ? 220 : 30;
-          data[i + 1] = inPadding ? 0 : cell ? 220 : 30;
-          data[i + 2] = inPadding ? 255 : cell ? 220 : 30;
-          data[i + 3] = 255;
-        }
-      }
+      /*
+       * Le dessin lui-même est parti dans `test-pattern.ts`, et pas par goût
+       * du rangement : un tampon d'octets se vérifie sous Bun, un maillage
+       * three ne s'y construit pas. Tant qu'il était ici, rien ne tenait ses
+       * deux diagnostics - la cadence de seize pixels et la marge magenta -
+       * et leur perte aurait été silencieuse.
+       */
+      paintTestPattern(texture!.image.data as Uint8Array, width, height, stride);
       texture!.needsUpdate = true;
     },
 
