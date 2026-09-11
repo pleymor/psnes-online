@@ -438,10 +438,25 @@
     }
   }
 
+  /*
+   * Enfoncée, et non allumée.
+   *
+   * Cet état avait d'abord été peint en vert. C'était une faute de
+   * vocabulaire : dans cette palette le vert veut dire « on avance », et
+   * un tiroir ouvert n'est pas une action en cours - c'est un état. Le
+   * dépenser là aurait rendu le vert muet ailleurs.
+   *
+   * Une touche moulée dit son état par son relief : le biseau s'inverse,
+   * sombre en haut et clair en bas, et le bouton s'enfonce d'un pixel.
+   * Seul, c'était juste mais trop discret à cette taille - d'où le libellé
+   * qui passe à l'or. L'or est l'accent du HUD, pas un verbe : il ne dit
+   * ni « avance » ni « annule », donc l'emprunter pour dire « ouvert » ne
+   * coûte rien au vert ni au rouge.
+   */
   .bar-button.on {
-    background: var(--go);
-    border-color: var(--go-deep);
-    color: #ffffff;
+    box-shadow: inset 0 4px 0 rgba(0, 0, 0, 0.4), inset 0 -4px 0 rgba(255, 255, 255, 0.08);
+    color: var(--edge);
+    transform: translateY(1px);
   }
 
   /* A link that has to read as a control, so it borrows the shape of the one
