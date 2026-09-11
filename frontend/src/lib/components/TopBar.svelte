@@ -396,18 +396,24 @@
     gap: 0.75rem;
   }
 
+  /* La touche du HUD : sombre, cerclée d'or, moulée. La recette est écrite
+     en entier ici et non héritée, parce que cette classe habille aussi des
+     <a> - le lien de retour et celui du profil - que le plancher de
+     `:global(button)` n'atteint pas. */
   .bar-button {
     background: var(--ground);
-    border: 1px solid var(--edge);
+    border: 3px solid var(--edge);
+    box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.25), inset 0 4px 0 rgba(255, 255, 255, 0.12);
     color: var(--shell);
-    padding: 0.35rem 0.7rem;
-    /* Angles à zéro : la barre appartient au même langage que les tuiles. */
-    border-radius: 0;
+    font-family: var(--display);
+    font-size: 1.05rem;
+    padding: 0.25rem 0.8rem;
+    border-radius: 9px;
     cursor: pointer;
   }
 
   .bar-button:hover {
-    border-color: var(--brand-lift);
+    background: var(--panel);
     color: var(--label);
   }
 
@@ -428,8 +434,9 @@
   }
 
   .bar-button.on {
-    background: #3a4a5a;
-    border-color: #667eea;
+    background: var(--go);
+    border-color: var(--go-deep);
+    color: #ffffff;
   }
 
   /* A link that has to read as a control, so it borrows the shape of the one

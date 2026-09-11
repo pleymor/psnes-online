@@ -480,15 +480,19 @@
     font-size: 1.25rem;
   }
 
+  /* Le dégradé violet qui était ici ne correspondait à rien dans
+     l'application - c'était le tell générique que la reprise a chassé
+     partout ailleurs. La forme vient maintenant du plancher ; il ne reste
+     que la couleur et le fait que ce bouton-là est carré. */
   .btn-add {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    cursor: pointer;
+    background: var(--go);
+    border-color: var(--go-deep);
+    color: #ffffff;
+    width: 34px;
+    height: 34px;
+    padding: 0;
     font-size: 1.25rem;
+    line-height: 1;
   }
 
   .add-friend {
@@ -597,22 +601,21 @@
     margin-bottom: 0.5rem;
   }
 
+  /* Accepter et refuser : les deux verbes du monde, et les deux couleurs
+     qui les portent partout ailleurs. Un vert et un rouge inventés sur
+     place les rendaient étrangers à leur propre application. */
   .btn-accept {
-    background: #4caf50;
-    color: white;
-    border: none;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    cursor: pointer;
+    background: var(--go);
+    border-color: var(--go-deep);
+    color: #ffffff;
+    padding: 0.15rem 0.6rem;
   }
 
   .btn-reject {
-    background: #f44336;
-    color: white;
-    border: none;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    cursor: pointer;
+    background: var(--stop);
+    border-color: var(--stop-deep);
+    color: #ffffff;
+    padding: 0.15rem 0.6rem;
   }
 
   .friends-list {
@@ -646,14 +649,11 @@
 
   .btn-invite-friend {
     flex: 0 0 auto;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: #fff;
-    border: none;
-    padding: 0.375rem 0.75rem;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.8125rem;
-    font-weight: 600;
+    background: var(--go);
+    border-color: var(--go-deep);
+    color: #ffffff;
+    font-size: 0.95rem;
+    padding: 0.2rem 0.7rem;
   }
 
   .btn-invite-friend.cancel {
