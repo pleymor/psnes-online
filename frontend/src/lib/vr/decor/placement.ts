@@ -68,6 +68,22 @@ export function scenery(): readonly Prop[] {
 /**
  * Les objets qu'on voit en volume, montés en boîte.
  *
+ * DEUX OMBRES À NE PAS HABITER, et elles ne se ressemblent pas.
+ *
+ * L'écran de jeu couvre `screenShadow()`, 46,4 degrés de part et d'autre du
+ * devant, et le test de placement le tient. Les deux pupitres de `layout.ts`
+ * en ajoutent une autre : à 1,06 m et 0,95 m de large ils couvrent 24,1
+ * degrés autour de ±60, donc de 36 à 84 degrés de chaque côté. Mais ils
+ * pendent sous les yeux - inclinés de 40 degrés en arrière, ils vont de -7,8
+ * à -41 degrés d'élévation - et c'est ce qui décide quoi passe :
+ *
+ * - la rangée de blocs `?` passe AU-DESSUS d'eux, parce qu'elle est à hauteur
+ *   de frappe. Seul l'écran la contraint.
+ * - un tuyau est posé au sol, de -10,1 à +2,5 degrés, donc un pupitre le
+ *   coupe. Il lui faut passer les 84 degrés, et c'est pour ça que le tuyau de
+ *   devant est à 96 et non à 63 - où il sortait du pupitre « Bibliothèque »
+ *   comme une tige.
+ *
  * Le rayon est borné à douze mètres et le test le tient : au-delà, la stéréo
  * ne perçoit plus l'épaisseur, et la boîte coûterait quatre faces pour rien.
  * C'est la règle de la spec §6, et elle a une conséquence pratique - déplacer
@@ -93,7 +109,7 @@ export function props(): readonly BoxProp[] {
       front: 'pipeShaft',
       side: 'pipeShaftSide',
       top: 'pipeShaftSide',
-      azimuth: at(1.1),
+      azimuth: at(3.2),
       radius: RINGS.pipes,
       standing: 0,
       depth: 1
@@ -102,7 +118,7 @@ export function props(): readonly BoxProp[] {
       front: 'pipeLip',
       side: 'pipeLipSide',
       top: 'pipeLipSide',
-      azimuth: at(1.1),
+      azimuth: at(3.2),
       radius: RINGS.pipes,
       standing: 1.5,
       depth: 1.25
@@ -127,15 +143,33 @@ export function props(): readonly BoxProp[] {
       depth: 1.25
     },
 
-    // La rangée de blocs `?`, à hauteur de frappe : 1,2 m au-dessus de l'œil,
-    // donc `standing` vaut la hauteur du sol plus 1,2 - mais le sol n'est pas
-    // connu ici, et c'est voulu. `build.ts` ajoute -floorHeight ; ce qui suit
-    // est donc la hauteur AU-DESSUS DU SOL, comme pour tout le reste.
+    /*
+     * La rangée de blocs `?`, à hauteur de frappe.
+     *
+     * `standing` est une hauteur AU-DESSUS DU SOL, comme partout ici : le sol
+     * n'est pas connu de ce module, et `build.ts` y ajoute -floorHeight. Donc
+     * 2,4 m du sol, ce qui met le dessous des blocs à 1,2 m de l'œil d'un
+     * joueur assis (`FLOOR_FALLBACK`) et à 0,8 m de celui d'un joueur debout.
+     * L'écart est la conséquence assumée d'un décor posé sur le sol plutôt que
+     * mesuré depuis les yeux - le sol, lui, ne peut pas flotter.
+     *
+     * LES AZIMUTS NE SONT PAS LIBRES. Ils valaient -12, 0 et +12 degrés, soit
+     * pile derrière l'image du jeu : trois blocs corrects et invisibles depuis
+     * l'ancre, trouvés dans le casque le 2026-09-11. L'écran couvre jusqu'à
+     * `screenShadow()`, 46 degrés de part et d'autre, et le test de placement
+     * refuse tout objet proche dont le BORD y entre. Le tuyau de devant est
+     * parti à l'opposé pour la même raison.
+     *
+     * Les douze degrés qui séparent les trois, eux, sont voulus : à sept
+     * mètres ils font 1,47 m d'écart pour des blocs d'un mètre, donc une
+     * rangée qui se lit comme une rangée plutôt que trois blocs épars. C'est
+     * le seul endroit du décor où la régularité est le but.
+     */
     {
       front: 'questionBlock',
       side: 'blockSide',
       top: 'blockSide',
-      azimuth: at(11.6),
+      azimuth: at(2.1),
       radius: RINGS.props,
       standing: 2.4,
       depth: 1
@@ -144,7 +178,7 @@ export function props(): readonly BoxProp[] {
       front: 'questionBlock',
       side: 'blockSide',
       top: 'blockSide',
-      azimuth: at(0),
+      azimuth: at(2.5),
       radius: RINGS.props,
       standing: 2.4,
       depth: 1
@@ -153,7 +187,7 @@ export function props(): readonly BoxProp[] {
       front: 'questionBlock',
       side: 'blockSide',
       top: 'blockSide',
-      azimuth: at(0.4),
+      azimuth: at(2.9),
       radius: RINGS.props,
       standing: 2.4,
       depth: 1

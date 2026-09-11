@@ -130,3 +130,41 @@ export function screenReach(): number {
           }
   return worst;
 }
+
+/**
+ * Le DEMI-ANGLE horizontal que l'écran couvre, sur tous ses réglages.
+ *
+ * Le jumeau de `screenReach` : celui-là garde le rideau d'entrer dans
+ * l'image, celui-ci garde le décor proche de se cacher DERRIÈRE elle.
+ * `placement.ts` s'en sert comme d'une zone interdite, et le test de
+ * placement refuse tout objet proche dont le bord y entre.
+ *
+ * Le piège : ce n'est PAS l'angle réglé. Un écran courbe est son arc, donc
+ * son demi-angle vaut la moitié du réglage - 40 degrés au plus grand cran. Un
+ * écran PLAT, lui, tient sa largeur de la distance de RÉFÉRENCE
+ * (`screenReach` documente pourquoi), donc l'approcher ne le rétrécit pas :
+ * il l'élargit en angle. À 2 m avec 80 degrés réglés, ses bords atteignent
+ * 46,4 degrés.
+ *
+ * Ce que ça coûte de se tromper, dans les deux lectures possibles : 6,4
+ * degrés si on prend le plus grand réglage pour la réponse, et 16,4 si on
+ * prend celui qu'on a devant les yeux - le défaut par défaut est de 60
+ * degrés, soit 30 de demi-angle. C'est exactement l'endroit où un objet
+ * disparaîtrait pour les seuls joueurs qui ont rapproché leur écran.
+ *
+ * La hauteur et le rapport de pixel ne changent rien ici : ils ne jouent que
+ * sur l'étendue VERTICALE, et un objet posé à côté de l'écran n'est caché à
+ * aucune hauteur.
+ */
+export function screenShadow(): number {
+  let worst = 0;
+  for (const distance of SCREEN_DISTANCES)
+    for (const angle of SCREEN_ANGLES)
+      for (const curved of [true, false]) {
+        const arc = (angle * Math.PI) / 180;
+        const width = screenWidth(SIZE_REFERENCE_DISTANCE, arc, curved);
+        const half = curved ? arc / 2 : Math.atan(width / 2 / distance);
+        if (half > worst) worst = half;
+      }
+  return worst;
+}

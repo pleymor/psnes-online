@@ -16,6 +16,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
   screenReach,
+  screenShadow,
   CURTAIN_RADIUS,
   CURTAIN_MARGIN,
   ANCHOR_DRIFT,
@@ -26,11 +27,38 @@ import {
   CAMERA_FAR,
   floorRepeat
 } from '../../frontend/src/lib/vr/decor/composition.js';
+import { SCREEN_ANGLES } from '../../frontend/src/lib/vr/screen-shape.js';
 
 test('le pire cas de l_écran est celui qui a été mesuré', () => {
   assert.ok(
     Math.abs(screenReach() - 5.281) < 0.002,
     `screenReach vaut ${screenReach()}`
+  );
+});
+
+test('l_ombre de l_écran est plus large que son plus grand réglage', () => {
+  /*
+   * Le nombre, puis la raison de le calculer.
+   *
+   * 46,4 degrés, et le piège est qu'aucun réglage ne l'annonce : le plus grand
+   * arc réglable est de 80 degrés, soit 40 de demi-angle, et c'est l'écran
+   * PLAT rapproché à 2 m qui dépasse - sa largeur est lue à la distance de
+   * référence, donc l'approcher l'élargit en angle. Six degrés et demi
+   * au-delà de la réponse naïve, seize au-delà du réglage par défaut.
+   *
+   * La deuxième assertion est celle qui compte : elle interdit de « simplifier
+   * » `screenShadow` en `max(SCREEN_ANGLES) / 2`. Le premier nombre bougera le
+   * jour où un sixième cran de distance ou d'angle arrive, et il DOIT faire
+   * rougir ce test - c'est pour ça qu'il est écrit ici plutôt que déduit.
+   */
+  assert.ok(
+    Math.abs((screenShadow() * 180) / Math.PI - 46.3665) < 0.002,
+    `screenShadow vaut ${(screenShadow() * 180) / Math.PI} degrés`
+  );
+  const naive = (Math.max(...SCREEN_ANGLES) / 2) * (Math.PI / 180);
+  assert.ok(
+    screenShadow() > naive,
+    `l'écran plat rapproché devrait dépasser ${(naive * 180) / Math.PI} degrés`
   );
 });
 

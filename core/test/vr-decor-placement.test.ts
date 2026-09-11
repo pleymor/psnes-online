@@ -8,7 +8,12 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { scenery, props } from '../../frontend/src/lib/vr/decor/placement.js';
-import { DECOR_NEAR, SKY_RADIUS } from '../../frontend/src/lib/vr/decor/composition.js';
+import {
+  DECOR_NEAR,
+  SKY_RADIUS,
+  ART_PIXELS_PER_METRE,
+  screenShadow
+} from '../../frontend/src/lib/vr/decor/composition.js';
 import { ALL_ART } from '../../frontend/src/lib/vr/decor/art/index.js';
 
 test('aucun élément ne vient devant le rideau ni derrière le ciel', () => {
@@ -80,4 +85,46 @@ test('les objets proches restent dans la zone où la stéréo voit le volume', (
 
 test('un objet proche a une profondeur réelle', () => {
   for (const prop of props()) assert.ok(prop.depth > 0.1, `${prop.front} est plat`);
+});
+
+test('aucun objet proche ne se cache derrière l_écran de jeu', () => {
+  /*
+   * Le défaut que ce test garde a été trouvé dans le casque le 2026-09-11, et
+   * il était entier dans le plan : la rangée de blocs `?` était posée aux
+   * azimuts -12, 0 et +12 degrés, c'est-à-dire pile derrière l'image du jeu.
+   * Trois objets corrects, à la bonne hauteur, avec le bon dessin, et
+   * invisibles depuis l'ancre - il fallait marcher six mètres de côté pour
+   * les voir.
+   *
+   * CE QUE CE TEST NE GARDE PAS : les pupitres. Ils couvrent 36 à 84 degrés
+   * de chaque côté, mais seulement de -7,8 à -41 degrés d'élévation, donc ils
+   * ne cachent que ce qui est posé au sol - la rangée de blocs leur passe
+   * au-dessus. La règle complète demanderait de comparer deux bandes
+   * d'élévation contre `sceneLayout()`, et elle n'est pas écrite : l'en-tête
+   * de `placement.ts` porte les nombres, et c'est tout ce qui tient
+   * aujourd'hui le tuyau de devant à 96 degrés.
+   *
+   * L'ombre de l'écran est CALCULÉE (`screenShadow`) plutôt que constatée,
+   * comme `screenReach` l'est pour le rideau : elle vaut 46 degrés, pas les 30
+   * du réglage par défaut, et c'est l'écran PLAT au cran le plus proche qui
+   * l'emporte - sa largeur se lit à la distance de référence, donc l'approcher
+   * l'élargit en angle. Aucune relecture ne donne ce nombre.
+   */
+  const shadow = screenShadow();
+  for (const prop of props()) {
+    const width = ALL_ART[prop.front].rows[0].length / ART_PIXELS_PER_METRE;
+    // Le bord de l'objet, pas son centre : un bloc d'un mètre à sept mètres
+    // déborde de quatre degrés de part et d'autre.
+    const half = Math.asin(width / 2 / prop.radius);
+    // L'azimut ramené dans (-180, 180] : l'ombre est centrée sur le devant.
+    const TURN = 2 * Math.PI;
+    const signed = ((((prop.azimuth % TURN) + TURN) % TURN) + Math.PI) % TURN - Math.PI;
+    const inner = Math.abs(signed) - half;
+    assert.ok(
+      inner > shadow,
+      `${prop.front} à ${((signed * 180) / Math.PI).toFixed(1)}° : son bord entre à ` +
+        `${((inner * 180) / Math.PI).toFixed(1)}°, l'écran en couvre ` +
+        `${((shadow * 180) / Math.PI).toFixed(1)}°`
+    );
+  }
 });
