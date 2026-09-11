@@ -55,6 +55,14 @@ export interface VrScene {
   /** `renderer.capabilities.getMaxAnisotropy()`, dont le sol a besoin. */
   maxAnisotropy(): number;
   /**
+   * La position de la tête dans la scène, pour les billboards.
+   *
+   * Lue sur la caméra XR plutôt que sur `getViewerPose` : c'est celle qui a
+   * effectivement servi au rendu de l'image en cours, donc un billboard
+   * orienté avec elle ne peut pas être en retard d'une image.
+   */
+  headPosition(): { x: number; y: number; z: number };
+  /**
    * L'origine de `space`, exprimée dans l'espace de référence de CETTE scène.
    *
    * Existe pour mesurer le plancher (`decor/floor.ts`) sans que le reste de
@@ -465,6 +473,15 @@ export function createVrScene(opts: {
     addCurtain: (object) => void world.add(object),
 
     maxAnisotropy: () => renderer.capabilities.getMaxAnisotropy(),
+
+    headPosition(): { x: number; y: number; z: number } {
+      // `renderer.xr.getCamera()` rend la caméra de tableau (les deux yeux) ;
+      // sa position est le point milieu, ce qui est exactement le bon repère
+      // pour un billboard - viser un œil plutôt que l'autre ferait pivoter le
+      // décor de quelques centièmes de degré à chaque image.
+      const xr = renderer.xr.getCamera();
+      return { x: xr.position.x, y: xr.position.y, z: xr.position.z };
+    },
 
     poseIn(space: unknown): { y: number } | null {
       const frame = renderer.xr.getFrame();

@@ -180,7 +180,11 @@
       height
     });
 
-    decor = createDecor({ floorHeight: height, maxAnisotropy: scene.maxAnisotropy() });
+    decor = createDecor({
+      floorHeight: height,
+      maxAnisotropy: scene.maxAnisotropy(),
+      head: () => scene!.headPosition()
+    });
     scene.addDecor(decor.decor);
     scene.addCurtain(decor.curtain);
     decor.setVisible(decorShowing);

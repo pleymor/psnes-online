@@ -16,15 +16,26 @@
 import * as THREE from 'three';
 import { rasterise, type Art } from './pixels';
 import { GROUND_TURF } from './art/ground';
+import { ALL_ART } from './art';
 import { COLOURS } from './palette';
-import { SKY_RADIUS, CURTAIN_RADIUS, ROOM_DARK, floorRepeat } from './composition';
+import {
+  SKY_RADIUS,
+  CURTAIN_RADIUS,
+  ROOM_DARK,
+  floorRepeat,
+  ART_PIXELS_PER_METRE
+} from './composition';
 import { curtainAtMillis, elapsedFor, type FadeTarget } from './fade';
+import { packAtlas, uvOf, type Atlas } from './atlas';
+import { scenery, type Prop } from './placement';
 
 export interface DecorOptions {
   /** Mètres sous l'œil, de `floor.ts`. */
   floorHeight: number;
   /** `renderer.capabilities.getMaxAnisotropy()`. */
   maxAnisotropy: number;
+  /** La position de la tête, pour orienter les billboards. */
+  head: () => { x: number; y: number; z: number };
 }
 
 export interface Decor {
@@ -79,6 +90,92 @@ function tileTexture(art: Art, maxAnisotropy: number): THREE.CanvasTexture {
   texture.generateMipmaps = true;
   texture.anisotropy = maxAnisotropy;
   return texture;
+}
+
+/**
+ * L'atlas, en une texture.
+ *
+ * `NearestFilter` DANS LES DEUX SENS, et aucun mipmap - l'exact opposé du sol.
+ * Les deux règles cohabitent parce qu'elles répondent à deux problèmes : le
+ * sol est vu en incidence rasante et grouille sans mipmaps, tandis que ces
+ * quads-ci sont vus de face, à une taille voisine de leur taille native. Un
+ * mipmap y produirait ce que `panel-mesh.ts` décrit - une image demi-résolution
+ * à mélanger, donc du flou, contre un scintillement qui n'existe pas.
+ *
+ * Et surtout : le flou est précisément ce qu'on ne veut PAS ici. Le registre
+ * choisi est « pixel-art assumé ». Des pixels nets et carrés sont le sujet.
+ */
+function atlasTexture(atlas: Atlas): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = atlas.width;
+  canvas.height = atlas.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error("pas de contexte 2d pour l'atlas du décor");
+
+  for (const [name, art] of Object.entries(ALL_ART)) {
+    const raster = rasterise(art);
+    const rect = atlas.rects[name];
+    ctx.putImageData(
+      new ImageData(raster.data as Uint8ClampedArray<ArrayBuffer>, raster.width, raster.height),
+      rect.x,
+      rect.y
+    );
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  return texture;
+}
+
+/**
+ * Le quad d'un élément du décor.
+ *
+ * La taille vient du DESSIN, jamais du placement : `placement.ts` ne porte
+ * aucune dimension, exprès. Diviser par seize est donc le seul endroit du
+ * codebase où la densité de pixels s'applique, ce qui la rend vraie partout.
+ *
+ * Les uv sont écrites à la main sur une `PlaneGeometry` plutôt que passées par
+ * `texture.offset`/`repeat` : offset et repeat vivent sur la TEXTURE, donc les
+ * partager entre deux quads en fait dériver un, et les cloner ferait une
+ * texture par objet.
+ */
+function quadFor(
+  prop: Prop,
+  atlas: Atlas,
+  material: THREE.Material,
+  floorHeight: number
+): THREE.Mesh {
+  const raster = rasterise(ALL_ART[prop.art]);
+  const width = raster.width / ART_PIXELS_PER_METRE;
+  const height = raster.height / ART_PIXELS_PER_METRE;
+
+  const geometry = new THREE.PlaneGeometry(width, height);
+  const uv = uvOf(atlas, prop.art);
+  geometry.setAttribute(
+    'uv',
+    new THREE.Float32BufferAttribute(
+      // L'ordre des sommets d'une PlaneGeometry : haut-gauche, haut-droit,
+      // bas-gauche, bas-droit.
+      [uv.u0, uv.v1, uv.u1, uv.v1, uv.u0, uv.v0, uv.u1, uv.v0],
+      2
+    )
+  );
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(
+    prop.radius * Math.sin(prop.azimuth),
+    -floorHeight + prop.standing + height / 2,
+    -prop.radius * Math.cos(prop.azimuth)
+  );
+  // Le lacet est l'opposé de l'azimut : la normale d'un plan part vers +Z, et
+  // tourner de -azimut la ramène vers le joueur. Se tromper de signe montre le
+  // DOS d'un quad invisible, ce qui se lit comme « le décor n'a pas chargé ».
+  // C'est la même erreur que `layout.ts` documente pour ses pupitres.
+  mesh.rotation.y = -prop.azimuth;
+  return mesh;
 }
 
 export function createDecor(opts: DecorOptions): Decor {
@@ -136,6 +233,39 @@ export function createDecor(opts: DecorOptions): Decor {
   const curtainMesh = new THREE.Mesh(curtainGeometry, curtainMaterial);
 
   /*
+   * Le relief : collines, buissons, nuages. Un atlas, un matériau partagé, un
+   * quad par élément de `scenery()` (`placement.ts`).
+   *
+   * `alphaTest` plutôt que `transparent` : les découpes sont franches - un
+   * pixel est là ou il n'y est pas - et `transparent: true` ferait trier tous
+   * ces quads entre eux à chaque image pour rien, avec les artefacts d'ordre
+   * qui vont avec. `DoubleSide` parce qu'un billboard qui pivote passe par des
+   * angles où sa face arrière regarde le joueur pendant une image.
+   */
+  const atlas = packAtlas(ALL_ART);
+  const atlasMap = atlasTexture(atlas);
+  const quadMaterial = new THREE.MeshBasicMaterial({
+    map: atlasMap,
+    transparent: false,
+    alphaTest: 0.5,
+    side: THREE.DoubleSide
+  });
+  const quadGeometries: THREE.BufferGeometry[] = [];
+  const billboards: THREE.Mesh[] = [];
+  for (const prop of scenery()) {
+    const mesh = quadFor(prop, atlas, quadMaterial, opts.floorHeight);
+    quadGeometries.push(mesh.geometry);
+    decor.add(mesh);
+    if (prop.facing === 'billboard') billboards.push(mesh);
+  }
+
+  // Réutilisés à chaque image plutôt qu'alloués dedans : cette boucle tourne
+  // à la fréquence du casque, et une pause de ramasse-miettes s'entend comme
+  // un accroc audio (`scene.ts` le dit déjà pour son raycaster).
+  const here = new THREE.Vector3();
+  const aim = new THREE.Vector3();
+
+  /*
    * L'état du fondu, et pourquoi le départ n'est pas pris dans `setVisible`.
    *
    * `t` vient du runtime XR et n'est lisible que dans une image. `setVisible`
@@ -178,6 +308,17 @@ export function createDecor(opts: DecorOptions): Decor {
     },
 
     update(t: number): void {
+      // Les billboards visent la tête à LEUR PROPRE hauteur : viser la tête
+      // elle-même les ferait basculer en tangage quand le joueur lève les
+      // yeux, ce qui trahit immédiatement la surface plate - un nuage ne se
+      // penche pas vers vous.
+      const head = opts.head();
+      for (const mesh of billboards) {
+        mesh.getWorldPosition(here);
+        aim.set(head.x, here.y, head.z);
+        mesh.lookAt(aim);
+      }
+
       if (settled) return;
       if (startedAt === null) startedAt = t;
       // `curtainAtMillis` (`fade.ts`) porte la conversion ms → s : `t` vient
@@ -215,6 +356,9 @@ export function createDecor(opts: DecorOptions): Decor {
       floorTexture.dispose();
       curtainGeometry.dispose();
       curtainMaterial.dispose();
+      for (const geometry of quadGeometries) geometry.dispose();
+      quadMaterial.dispose();
+      atlasMap.dispose();
     }
   };
 }
