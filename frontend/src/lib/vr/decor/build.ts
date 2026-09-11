@@ -308,15 +308,33 @@ export function createDecor(opts: DecorOptions): Decor {
     },
 
     update(t: number): void {
-      // Les billboards visent la tête à LEUR PROPRE hauteur : viser la tête
-      // elle-même les ferait basculer en tangage quand le joueur lève les
-      // yeux, ce qui trahit immédiatement la surface plate - un nuage ne se
-      // penche pas vers vous.
-      const head = opts.head();
-      for (const mesh of billboards) {
-        mesh.getWorldPosition(here);
-        aim.set(head.x, here.y, head.z);
-        mesh.lookAt(aim);
+      /*
+       * Rien du tout quand le décor est masqué, et c'est `decor.visible` qui
+       * le dit plutôt que `settled`.
+       *
+       * La distinction est celle qui manquait : `settled` devient vrai à la
+       * FIN d'un fondu, donc s'en servir ici figerait les nuages dès que le
+       * lobby a fini d'apparaître, alors qu'ils doivent suivre la tête tant
+       * qu'on peut les voir. `decor.visible`, lui, reste vrai pendant les
+       * deux fondus et tout le séjour dans le lobby, et ne tombe qu'une fois
+       * le noir installé - c'est-à-dire exactement quand une partie tourne.
+       *
+       * Ce que ça vaut : sans cette garde, cinq `getWorldPosition` et cinq
+       * `lookAt` s'exécutent soixante-douze fois par seconde à côté de
+       * l'émulateur, sur un décor que personne ne regarde. La spec promet ici
+       * « un `if` par image », et c'est ce `if`-là.
+       */
+      if (decor.visible) {
+        // Les billboards visent la tête à LEUR PROPRE hauteur : viser la tête
+        // elle-même les ferait basculer en tangage quand le joueur lève les
+        // yeux, ce qui trahit immédiatement la surface plate - un nuage ne se
+        // penche pas vers vous.
+        const head = opts.head();
+        for (const mesh of billboards) {
+          mesh.getWorldPosition(here);
+          aim.set(head.x, here.y, head.z);
+          mesh.lookAt(aim);
+        }
       }
 
       if (settled) return;
