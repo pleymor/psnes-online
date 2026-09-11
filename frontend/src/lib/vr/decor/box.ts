@@ -17,11 +17,41 @@
  */
 import type { Uv } from './atlas';
 
+/**
+ * La normale de la face avant, AVANT toute rotation.
+ *
+ * Déclarée plutôt que sous-entendue, et c'est le correctif d'un défaut réel :
+ * `build.ts` place les boîtes et les quads avec la même arithmétique, mais la
+ * normale d'une `PlaneGeometry` part vers +Z et celle-ci vers -Z. La
+ * convention vivait dans une phrase de commentaire ici, le lacet dans une
+ * ligne là-bas, et recopier la ligne a tourné tout le décor proche de 180°.
+ * Les deux nombres vivent maintenant dans le même fichier.
+ */
+export const FRONT_NORMAL = { x: 0, y: 0, z: -1 } as const;
+
+/**
+ * Le lacet qui tourne la façade vers le joueur, pour un objet posé à
+ * l'azimut `azimuth`.
+ *
+ * `build.ts` pose l'objet en `(R sin θ, y, -R cos θ)`, donc la direction qui
+ * mène au joueur est `(-sin θ, +cos θ)`. Tourner `FRONT_NORMAL` de `π - θ`
+ * l'y amène exactement ; `-θ`, le lacet d'un quad, l'amène à l'opposé.
+ *
+ * Le piège que ça désarme : à l'azimut 0 les deux valent zéro et π, deux
+ * lacets dont AUCUN ne se lit comme faux. Ce n'est pas un signe à corriger,
+ * c'est une convention à ne pas partager - `vr-decor-box.test.ts` garde les
+ * deux affirmations côte à côte.
+ */
+export function boxYaw(azimuth: number): number {
+  return Math.PI - azimuth;
+}
+
 export interface BoxSpec {
   width: number;
   height: number;
   depth: number;
-  /** The face turned toward -Z: the one the player sees. */
+  /** The face turned toward -Z (`FRONT_NORMAL`), turned toward the player by
+   *  `boxYaw`: the one carrying the drawing. */
   front: Uv;
   /** Both flanks, and the back. */
   side: Uv;

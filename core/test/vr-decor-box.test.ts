@@ -9,7 +9,8 @@
  */
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { boxGeometry } from '../../frontend/src/lib/vr/decor/box.js';
+import { boxGeometry, boxYaw, FRONT_NORMAL } from '../../frontend/src/lib/vr/decor/box.js';
+import { props } from '../../frontend/src/lib/vr/decor/placement.js';
 
 const UV = { u0: 0, v0: 0, u1: 0.5, v1: 0.5 };
 const SPEC = { width: 2, height: 1, depth: 0.5, front: UV, side: UV, top: UV };
@@ -119,5 +120,84 @@ test('chaque face est enroulée vers l_extérieur', () => {
         `face ${face}, triangle ${triangle} : normale ${normal} contre sortante ${OUTWARD[face]}`
       );
     }
+  }
+});
+
+/*
+ * Le lacet, et pourquoi il ne se recopie PAS depuis `quadFor`.
+ *
+ * Les tests au-dessus épinglent l'enroulement, qui décide si l'objet se voit.
+ * Ceux qui suivent épinglent une autre question, restée sans gardien jusqu'au
+ * 2026-09-11 : QUELLE FACE accueille le joueur. Se tromper d'enroulement rend
+ * la boîte invisible, ce qui se lit comme un décor qui n'a pas chargé ; se
+ * tromper de lacet l'habille de la peau du dos - `spec.side`, la bande
+ * assombrie - et ça, aucun nombre du maillage ne le dit.
+ *
+ * C'est exactement le défaut trouvé dans le casque : `boxFor` avait recopié la
+ * ligne de `quadFor`, `mesh.rotation.y = -prop.azimuth`, dont le commentaire
+ * dit pourtant pourquoi elle vaut ça - « la normale d'un plan part vers +Z ».
+ * La face avant d'une boîte part vers -Z. Les deux diffèrent de π, et à
+ * l'azimut 0 les deux lacets valent 0 : le signe n'est pas ce qui est faux,
+ * donc la ligne se relit sans rien trahir. Les tuyaux étaient des plaques
+ * sombres et les blocs `?` n'avaient pas de `?`.
+ */
+/** La normale, dans le plan xz, après un lacet de `yaw` autour de +Y. */
+function afterYaw(normal: readonly [number, number], yaw: number): [number, number] {
+  const [x, z] = normal;
+  return [x * Math.cos(yaw) + z * Math.sin(yaw), -x * Math.sin(yaw) + z * Math.cos(yaw)];
+}
+
+/**
+ * La direction qui va de l'objet VERS le joueur.
+ *
+ * Elle se déduit de la position que `build.ts` calcule - `(R sin θ, y,
+ * -R cos θ)` - et le rayon disparaît en chemin : le joueur est à l'origine,
+ * donc seule la direction compte.
+ */
+function towardPlayer(azimuth: number): [number, number] {
+  return [-Math.sin(azimuth), Math.cos(azimuth)];
+}
+
+const TURN = 2 * Math.PI;
+/** Les azimuts douteux, plus tous ceux du décor réel. */
+const AZIMUTHS = [
+  0,
+  TURN / 4,
+  TURN / 2,
+  (3 * TURN) / 4,
+  -TURN / 4,
+  TURN,
+  ...props().map((prop) => prop.azimuth)
+];
+
+test('le lacet d_une boîte tourne sa façade vers le joueur', () => {
+  for (const azimuth of AZIMUTHS) {
+    const facing = afterYaw([FRONT_NORMAL.x, FRONT_NORMAL.z], boxYaw(azimuth));
+    const wanted = towardPlayer(azimuth);
+    // Deux directions unitaires : leur produit scalaire vaut 1 ou rien.
+    const dot = facing[0] * wanted[0] + facing[1] * wanted[1];
+    assert.ok(
+      Math.abs(dot - 1) < 1e-9,
+      `azimut ${azimuth} : la façade part vers ${facing}, le joueur est vers ${wanted}`
+    );
+  }
+});
+
+test('le lacet d_un quad retournerait la boîte, et c_est tout le piège', () => {
+  /*
+   * La règle de `quadFor` appliquée à une boîte : la façade part à l'exact
+   * opposé du joueur. Ce test ne garde pas une propriété de la boîte, il garde
+   * un RAPPROCHEMENT - que les deux lacets ne deviennent jamais une seule
+   * ligne partagée « pour simplifier ». Le jour où `box.ts` déclarerait sa
+   * façade vers +Z comme un plan, c'est ici que ça se saurait.
+   */
+  for (const azimuth of AZIMUTHS) {
+    const facing = afterYaw([FRONT_NORMAL.x, FRONT_NORMAL.z], -azimuth);
+    const wanted = towardPlayer(azimuth);
+    const dot = facing[0] * wanted[0] + facing[1] * wanted[1];
+    assert.ok(
+      Math.abs(dot + 1) < 1e-9,
+      `azimut ${azimuth} : le lacet d'un quad devrait montrer le dos, il donne ${dot}`
+    );
   }
 });

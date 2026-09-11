@@ -28,7 +28,7 @@ import {
 import { curtainAtMillis, elapsedFor, type FadeTarget } from './fade';
 import { packAtlas, uvOf, type Atlas } from './atlas';
 import { scenery, props, type Prop, type BoxProp } from './placement';
-import { boxGeometry } from './box';
+import { boxGeometry, boxYaw } from './box';
 
 export interface DecorOptions {
   /** Mètres sous l'œil, de `floor.ts`. */
@@ -218,7 +218,16 @@ function boxFor(
     -floorHeight + prop.standing + height / 2,
     -prop.radius * Math.cos(prop.azimuth)
   );
-  mesh.rotation.y = -prop.azimuth;
+  /*
+   * PAS le lacet de `quadFor`, et c'est la seule ligne où les jumelles
+   * divergent : la normale d'un plan part vers +Z, la façade d'une boîte vers
+   * -Z (`FRONT_NORMAL`). Recopier `-azimuth` ici a montré le DOS de chaque
+   * objet proche - donc `spec.side`, la bande assombrie - jusqu'au
+   * 2026-09-11. Les tuyaux étaient des plaques sombres, les blocs `?` des
+   * cubes bruns sans `?`, et les 1039 tests passaient : ils épinglaient
+   * l'enroulement, jamais la face tournée vers le joueur.
+   */
+  mesh.rotation.y = boxYaw(prop.azimuth);
   return mesh;
 }
 
