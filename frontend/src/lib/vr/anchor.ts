@@ -85,3 +85,30 @@ export function anchorFrom(
   // A yaw of t maps -Z to (-sin t, 0, -cos t), so the bearing inverts to this.
   return { position: [position[0], position[1], position[2]], yaw: Math.atan2(-bx, -bz) };
 }
+
+/**
+ * L'ancre du décor, qui n'est pas celle des panneaux.
+ *
+ * Une seule différence, et c'est toute la distinction entre les deux groupes
+ * de la scène : **la hauteur est écartée.**
+ *
+ * Les panneaux sont un cockpit. Ils doivent suivre la tête, y compris en
+ * hauteur, sinon un joueur qui se lève les laisse au niveau de ses genoux.
+ * Le décor est un lieu posé par terre. Si le `y` lui parvenait, se lever et
+ * recentrer ferait monter le sol avec le joueur, qui resterait suspendu à la
+ * même hauteur au-dessus pour toujours - le seul objet de cette scène dont la
+ * hauteur ne doit jamais suivre le regard.
+ *
+ * Le cap et le déplacement horizontal, eux, sont conservés : recentrer doit
+ * bien remettre le monde en face de soi.
+ *
+ * Une copie, jamais une mutation : les deux ancres sont appliquées à deux
+ * groupes dans la même image, et écraser l'entrée ferait perdre sa hauteur au
+ * groupe des panneaux.
+ */
+export function roomAnchor(anchor: Anchor): Anchor {
+  return {
+    position: [anchor.position[0], 0, anchor.position[2]],
+    yaw: anchor.yaw
+  };
+}

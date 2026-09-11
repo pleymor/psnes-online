@@ -21,7 +21,7 @@
 
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { anchorFrom } from '../../frontend/src/lib/vr/anchor.js';
+import { anchorFrom, roomAnchor } from '../../frontend/src/lib/vr/anchor.js';
 
 /** A quaternion for a rotation of `angle` radians about `axis`. */
 function quat(axis: [number, number, number], angle: number): [number, number, number, number] {
@@ -102,6 +102,29 @@ test('a head looking straight up does too, and not backwards', () => {
 test('very nearly straight down is not a discontinuity either', () => {
   const almost = multiply(quat([0, 1, 0], 0.9), quat([1, 0, 0], -Math.PI / 2 + 0.02));
   close(anchorFrom(HERE, almost).yaw, 0.9, 'the fallback and the main path disagree');
+});
+
+test('l_ancre de la pièce garde le cap et le déplacement, mais jamais la hauteur', () => {
+  // Le décor est un LIEU POSÉ PAR TERRE, pas un cockpit accroché à la tête.
+  // Si le y de l'ancre lui parvenait, se lever et recentrer ferait monter le
+  // sol avec le joueur - qui resterait à 1,20 m au-dessus de lui pour
+  // toujours. C'est le seul objet de la scène dont la hauteur ne doit jamais
+  // suivre celle du regard.
+  const head = anchorFrom([0.3, 1.1, -0.7], IDENTITY);
+  const room = roomAnchor(head);
+
+  assert.equal(room.position[0], 0.3);
+  assert.equal(room.position[1], 0);
+  assert.equal(room.position[2], -0.7);
+  assert.equal(room.yaw, head.yaw);
+});
+
+test('l_ancre de la pièce ne modifie pas celle qu_on lui donne', () => {
+  // Les deux ancres sont appliquées à deux groupes différents dans la même
+  // image : muter l'entrée ferait perdre sa hauteur au groupe des panneaux.
+  const head = anchorFrom([0, 1.6, 0], IDENTITY);
+  roomAnchor(head);
+  assert.equal(head.position[1], 1.6);
 });
 
 /** Hamilton product, `a` then `b` applied in that order (three's `multiply`). */

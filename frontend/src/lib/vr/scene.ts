@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import { createFramePump } from './frame-pump';
 import { framebufferScale } from './framebuffer-scale';
-import { anchorFrom } from './anchor';
+import { anchorFrom, roomAnchor } from './anchor';
 import { createVrScreen, type VrScreen } from './screen';
 import { sceneLayout, screenPlacement, type SceneLayout, type Placement } from './layout';
 import type { ScreenShape } from './screen-shape';
@@ -33,10 +33,24 @@ export interface VrScene {
   scene: THREE.Scene;
   /** Handed to `GovernorOptions.schedule`. */
   schedule: (run: () => void) => void;
-  /** Runs every XR frame, before the render. */
-  onFrame: (fn: () => void) => void;
+  /** Runs every XR frame, before the render. `t` is the XR timestamp, in
+   *  milliseconds, exactly as three's animation loop receives it. */
+  onFrame: (fn: (t: number) => void) => void;
   attach(session: XRSession): Promise<void>;
   addPanel(id: string, placement: Placement, size: PanelSize): PanelMesh;
+  /**
+   * Ajoute un objet au groupe `room` : un lieu posé par terre, dont la
+   * hauteur ne suit pas la tête. Voir `roomAnchor`.
+   */
+  addDecor(object: THREE.Object3D): void;
+  /**
+   * Ajoute un objet au groupe `world`, avec les panneaux.
+   *
+   * Existe pour le rideau, et le rideau seul. Son dégagement intérieur est
+   * mesuré contre l'écran, qui est ancré : le rideau doit donc l'être aussi,
+   * et ne peut pas vivre dans `room` avec ce qu'il masque.
+   */
+  addCurtain(object: THREE.Object3D): void;
   /**
    * Re-places the scene in front of the player, at the next frame.
    *
@@ -117,6 +131,16 @@ export function createVrScene(opts: {
   const world = new THREE.Group();
   scene.add(world);
 
+  /*
+   * Le deuxième groupe : le lieu, par opposition au cockpit.
+   *
+   * Frère de `world` et non son enfant, précisément parce qu'il ne doit pas
+   * hériter de sa hauteur. `roomAnchor` dit pourquoi. Les contrôleurs restent
+   * en dehors des deux, comme avant.
+   */
+  const room = new THREE.Group();
+  scene.add(room);
+
   const screen = createVrScreen(layout.screen);
   /*
    * The whole stack, spread into the world rather than added as a group.
@@ -149,7 +173,7 @@ export function createVrScene(opts: {
   let recenterPending = false;
 
   const pump = createFramePump();
-  const perFrame: Array<() => void> = [];
+  const perFrame: Array<(t: number) => void> = [];
 
   /*
    * Why the render is outside the try below.
@@ -369,7 +393,7 @@ export function createVrScene(opts: {
         | null;
       space?.addEventListener('reset', () => void (recenterPending = true));
 
-      renderer.setAnimationLoop(() => {
+      renderer.setAnimationLoop((time) => {
         /*
          * The anchor before anything else, so the frame that applies it also
          * draws with it - a render at the old anchor followed by a move is one
@@ -398,6 +422,9 @@ export function createVrScene(opts: {
             );
             world.position.set(...anchor.position);
             world.rotation.set(0, anchor.yaw, 0);
+            const forRoom = roomAnchor(anchor);
+            room.position.set(...forRoom.position);
+            room.rotation.set(0, forRoom.yaw, 0);
             recenterPending = false;
           }
           // Left pending when there is no pose yet: tracking that is not ready
@@ -408,7 +435,7 @@ export function createVrScene(opts: {
         // show that frame rather than the previous one.
         try {
           pump.pump();
-          for (const fn of perFrame) fn();
+          for (const fn of perFrame) fn(time);
         } catch (err) {
           reportFrameError(err);
         }
@@ -422,6 +449,8 @@ export function createVrScene(opts: {
       panelGroup.add(panel.mesh);
       return panel;
     },
+    addDecor: (object) => void room.add(object),
+    addCurtain: (object) => void world.add(object),
     recenter: () => void (recenterPending = true),
     reshapeScreen(shape: ScreenShape): void {
       layout.screen = screenPlacement(opts.aspect, shape);
