@@ -602,7 +602,7 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    border: 2px solid rgba(102, 126, 234, 0.5);
+    border: 2px solid rgba(248, 208, 48, 0.6);
   }
 
   .avatar img {

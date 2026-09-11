@@ -120,8 +120,8 @@
     gap: 0.75rem;
     padding: 0.875rem 1rem;
     background: rgba(30, 30, 30, 0.97);
-    border: 1px solid rgba(102, 126, 234, 0.45);
-    border-left: 4px solid #667eea;
+    border: 1px solid rgba(248, 208, 48, 0.45);
+    border-left: 4px solid var(--edge);
     border-radius: 12px;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
     backdrop-filter: blur(10px);

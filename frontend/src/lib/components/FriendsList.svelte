@@ -519,8 +519,8 @@
 
   .handle-input:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    border-color: var(--edge);
+    box-shadow: 0 0 0 3px rgba(248, 208, 48, 0.18);
   }
 
   .handle-input.bad {
@@ -708,7 +708,7 @@
   }
 
   .info .room-status {
-    color: #667eea;
+    color: var(--edge);
     font-weight: 500;
   }
 
@@ -768,7 +768,7 @@
   }
 
   .compact-badge-container:hover .compact-avatar {
-    border-color: rgba(102, 126, 234, 0.5);
+    border-color: rgba(248, 208, 48, 0.6);
   }
 
   .compact-avatar img {
@@ -781,8 +781,10 @@
     font-size: 1.5rem;
   }
 
+  /* Un aplat d'or : le dégradé violet n'appartenait à rien, et une pastille
+     qui réclame un regard a tout intérêt à porter l'accent du HUD. */
   .compact-avatar.notification-badge {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--edge);
   }
 
   .badge-dot {
@@ -805,9 +807,11 @@
     background: #666;
   }
 
+  /* Vert, parce que ce point dit « cette personne joue en ce moment » -
+     c'est l'état, pas une décoration, et le vert le dit déjà partout. */
   .badge-dot.in-room {
-    background: #667eea;
-    box-shadow: 0 0 8px rgba(102, 126, 234, 0.6);
+    background: var(--go);
+    box-shadow: 0 0 8px rgba(47, 132, 32, 0.7);
   }
 
   .badge-dot.requests {

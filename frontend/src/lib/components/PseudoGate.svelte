@@ -171,8 +171,10 @@
     font-size: 1rem;
   }
 
+  /* Le même anneau que partout ailleurs - `+layout.svelte` et la barre le
+     posent déjà - plutôt qu'un violet écrit à la main. */
   input:focus {
-    outline: 2px solid #667eea;
+    outline: 2px solid var(--brand-lift);
     outline-offset: 1px;
   }
 

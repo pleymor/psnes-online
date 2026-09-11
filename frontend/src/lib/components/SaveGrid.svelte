@@ -222,7 +222,7 @@
 
   .tile:has(.pick:hover:not(:disabled)) {
     background: #2f2f2f;
-    border-color: #667eea;
+    border-color: var(--edge);
   }
 
   .pick {

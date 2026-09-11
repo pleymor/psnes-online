@@ -201,7 +201,7 @@
     font-size: 3rem;
     overflow: hidden;
     margin: 0 auto 1rem;
-    border: 3px solid #667eea;
+    border: 3px solid var(--edge);
   }
 
   .avatar img {

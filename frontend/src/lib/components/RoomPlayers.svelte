@@ -156,13 +156,14 @@
   }
 
   .player:hover:not(:disabled) {
-    border-color: #667eea;
-    color: #fff;
+    border-color: var(--edge);
+    color: var(--label);
   }
 
+  /* Le siège qu'on occupe : cerné d'or comme tout ce qui est actif ici. */
   .player.mine {
-    border-color: #667eea;
-    background: rgba(102, 126, 234, 0.15);
+    border-color: var(--edge);
+    background: rgba(248, 208, 48, 0.12);
     color: #fff;
   }
 
