@@ -1,10 +1,12 @@
 /**
  * The life of one immersive session, and nothing about its contents.
  *
- * `local` is the only space asked for. The geometry in `layout.ts` is measured
- * from the eyes, so there is no floor height left to want, and `local` is
- * guaranteed for an immersive session by the WebXR spec - nothing to
- * negotiate, nothing to fall back from.
+ * `local` is the scene's space, and it is never negotiated: the geometry in
+ * `layout.ts` is measured from the eyes, so there is no floor height the
+ * scene wants, and `local` is guaranteed for an immersive session by the
+ * WebXR spec - nothing to fall back from. Since 2026-09-11, `local-floor` is
+ * also asked for, but only as an OPTIONAL feature and only to measure where
+ * the floor is (`decor/floor.ts`) - the scene's own anchor does not move.
  *
  * It was changed hoping to stop the Quest asking which boundary to use before
  * every entry. It did not: that dialog is the system's own Guardian - "enter
@@ -33,11 +35,13 @@
  *
  * The switch is therefore the headset compositor's own, invisible from the
  * page. The only place to pin the boundary is the Quest's own setting. The
- * complete list of what this page asks WebXR is four calls -
- * `support.ts`'s `isSessionSupported`, the `requestSession` below with no init
- * dictionary, its `requestReferenceSpace('local')`, and three's own request of
- * the same type at `WebXRManager.js:509` - and none of them mentions a
- * boundary. There is no fifth call to remove.
+ * complete list of what this page asks WebXR is five calls - `support.ts`'s
+ * `isSessionSupported`, the `requestSession` below (its init dictionary names
+ * exactly one thing, `optionalFeatures: ['local-floor']`), its
+ * `requestReferenceSpace('local')`, the `requestReferenceSpace('local-floor')`
+ * added 2026-09-11 to measure the floor, and three's own request of the
+ * `local` type at `WebXRManager.js:509` - and none of them mentions a
+ * boundary. There is no sixth call to remove.
  *
  * The probe's one blind spot, stated because it bounds the claim: it starts
  * after `setSession`, so it never saw the very first fraction of a second. The
