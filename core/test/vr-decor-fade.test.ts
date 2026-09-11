@@ -8,7 +8,7 @@
  */
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { curtain } from '../../frontend/src/lib/vr/decor/fade.js';
+import { curtain, elapsedFor } from '../../frontend/src/lib/vr/decor/fade.js';
 import { FADE_SECONDS } from '../../frontend/src/lib/vr/decor/composition.js';
 
 test('vers le noir : transparent au départ, opaque à l_arrivée', () => {
@@ -35,4 +35,27 @@ test('un temps négatif est ramené au départ plutôt que de dépasser', () => 
 test('au-delà de la durée, le fondu reste terminé', () => {
   assert.deepEqual(curtain(FADE_SECONDS * 10, 'dark'), { opacity: 1, done: true });
   assert.deepEqual(curtain(FADE_SECONDS * 10, 'decor'), { opacity: 0, done: true });
+});
+
+test('l_instant d_une opacité est l_inverse exact de la courbe', () => {
+  // La propriété qui compte : repartir de `elapsedFor` redonne l'opacité
+  // qu'on avait, donc le revirement est continu.
+  for (const opacity of [0, 0.25, 0.5, 0.75, 1]) {
+    for (const to of ['dark', 'decor'] as const) {
+      const back = curtain(elapsedFor(opacity, to), to).opacity;
+      assert.ok(Math.abs(back - opacity) < 1e-9, `${to} à ${opacity} redonne ${back}`);
+    }
+  }
+});
+
+test('les extrémités tombent aux bons instants', () => {
+  assert.equal(elapsedFor(0, 'dark'), 0);
+  assert.equal(elapsedFor(1, 'dark'), FADE_SECONDS);
+  assert.equal(elapsedFor(1, 'decor'), 0);
+  assert.equal(elapsedFor(0, 'decor'), FADE_SECONDS);
+});
+
+test('une opacité hors bornes est ramenée plutôt que propagée', () => {
+  assert.equal(elapsedFor(-1, 'dark'), 0);
+  assert.equal(elapsedFor(2, 'dark'), FADE_SECONDS);
 });

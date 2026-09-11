@@ -18,7 +18,7 @@ import { rasterise, type Art } from './pixels';
 import { GROUND_BRICK } from './art/ground';
 import { COLOURS } from './palette';
 import { SKY_RADIUS, CURTAIN_RADIUS } from './composition';
-import { curtain as curtainAt, type FadeTarget } from './fade';
+import { curtain as curtainAt, elapsedFor, type FadeTarget } from './fade';
 
 /** La couleur du fond de `scene.ts`. Le rideau la porte, pour que la fin du
  *  fondu soit exactement la salle noire d'aujourd'hui. */
@@ -148,6 +148,7 @@ export function createDecor(opts: DecorOptions): Decor {
   let target: FadeTarget = 'dark';
   let startedAt: number | null = null;
   let settled = true;
+  let offset = 0;
   decor.visible = false;
   curtainMesh.visible = false;
 
@@ -158,6 +159,14 @@ export function createDecor(opts: DecorOptions): Decor {
     setVisible(visible: boolean): void {
       const next: FadeTarget = visible ? 'decor' : 'dark';
       if (next === target) return;
+      /*
+       * Reprendre à l'opacité courante, mais seulement si un fondu était en
+       * cours. Au repos, l'opacité du matériau ne veut rien dire : le rideau
+       * est masqué et c'est `scene.background` qui tient le noir. S'en servir
+       * là ferait démarrer le fondu déjà terminé, et le décor apparaîtrait
+       * d'un coup - le défaut inverse de celui qu'on corrige.
+       */
+      offset = settled ? 0 : elapsedFor(curtainMaterial.opacity, next);
       target = next;
       startedAt = null;
       settled = false;
@@ -172,7 +181,7 @@ export function createDecor(opts: DecorOptions): Decor {
       // three passe l'horodatage XR en millisecondes ; `fade.ts` compte en
       // secondes.
       if (startedAt === null) startedAt = t;
-      const step = curtainAt((t - startedAt) / 1000, target);
+      const step = curtainAt(offset + (t - startedAt) / 1000, target);
       curtainMaterial.opacity = step.opacity;
       if (!step.done) return;
 

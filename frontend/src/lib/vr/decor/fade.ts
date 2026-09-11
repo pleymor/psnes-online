@@ -22,3 +22,19 @@ export function curtain(
   const opacity = to === 'dark' ? progress : 1 - progress;
   return { opacity, done: progress >= 1 };
 }
+
+/**
+ * L'instant du fondu où cette direction montre cette opacité.
+ *
+ * L'inverse de `curtain`, et il n'existe que pour une chose : reprendre un
+ * fondu en sens inverse avant qu'il soit fini. `curtain` est pure en
+ * (elapsed, target) et ne sait rien de l'opacité courante, donc repartir de
+ * zéro ferait sauter le rideau à l'extrémité de l'autre courbe - un éclair
+ * d'une image, exactement l'à-coup de luminance que ce module existe pour
+ * supprimer. En repartant d'ici, l'opacité reste continue au revirement.
+ */
+export function elapsedFor(opacity: number, to: FadeTarget): number {
+  const clamped = Math.min(1, Math.max(0, opacity));
+  const progress = to === 'dark' ? clamped : 1 - clamped;
+  return progress * FADE_SECONDS;
+}
