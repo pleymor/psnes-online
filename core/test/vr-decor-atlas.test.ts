@@ -55,8 +55,23 @@ test('la texture est carrée et de côté une puissance de deux', () => {
   assert.equal(atlas.width & (atlas.width - 1), 0, `${atlas.width} n'est pas une puissance de deux`);
 });
 
-test('le rangement est déterministe', () => {
-  assert.deepEqual(packAtlas(ALL_ART), packAtlas(ALL_ART));
+test('le rangement ne dépend pas de l_ordre où les motifs sont déclarés', () => {
+  // Ce que la clé de tri secondaire achète, et le test que l'égalité à
+  // soi-même ne faisait PAS : `Object.entries` et `Array.sort` sont déjà
+  // stables, donc `packAtlas(x)` égale `packAtlas(x)` même sans elle. Ce qui
+  // la rend nécessaire, c'est qu'on réordonne un jour le registre - et la
+  // planche de référence ne doit pas changer de disposition pour autant.
+  const a = { groundBrick: ALL_ART.groundBrick, groundGrass: ALL_ART.groundGrass };
+  const b = { groundGrass: ALL_ART.groundGrass, groundBrick: ALL_ART.groundBrick };
+  assert.deepEqual(packAtlas(a), packAtlas(b));
+});
+
+test('un motif plus large que la première taille fait grandir la texture', () => {
+  const wide = { palette: { s: 'sky' }, rows: [ 's'.repeat(300) ] };
+  const atlas = packAtlas({ wide });
+  assert.ok(atlas.width >= 512, `la texture est restée à ${atlas.width}`);
+  const rect = atlas.rects.wide;
+  assert.ok(rect.x + rect.width <= atlas.width, 'le rectangle déborde');
 });
 
 test('les uv sont retournées, parce que three retourne la texture', () => {

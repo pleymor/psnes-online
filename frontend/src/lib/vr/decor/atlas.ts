@@ -69,6 +69,13 @@ function tryPack(
       shelfHeight = 0;
       cursorX = PADDING;
     }
+    // Les DEUX axes, après le passage d'étagère et non avant : un motif plus
+    // large que l'atlas trébuche sur le contrôle du dessus, repart sur une
+    // étagère neuve, et sans cette seconde ligne serait posé quand même -
+    // `tryPack` rendrait alors un plan hors bornes au lieu de demander une
+    // texture plus grande. L'axe des hauteurs n'a jamais eu ce trou parce que
+    // son contrôle, lui, s'exécute à chaque tour.
+    if (cursorX + item.width + PADDING > size) return null;
     if (shelfY + item.height + PADDING > size) return null;
 
     rects[item.name] = { x: cursorX, y: shelfY, width: item.width, height: item.height };
