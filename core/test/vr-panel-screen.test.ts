@@ -56,6 +56,7 @@ const OPTIONS_LABELS: OptionsLabels = {
   heading: 'Options',
   controls: 'Contrôles',
   screen: 'Écran',
+  relief: 'Relief',
   close: 'Retour'
 };
 
@@ -195,16 +196,37 @@ test('les cibles du panneau écran sont assez grandes pour être visées', () =>
   }
 });
 
-test('le menu d options mène aux deux panneaux et sort', () => {
-  assert.deepEqual(layoutOptionsPanel().map((r) => r.id).sort(), ['close', 'controls', 'screen']);
+test('le menu d options mène aux trois panneaux et sort', () => {
+  assert.deepEqual(layoutOptionsPanel().map((r) => r.id).sort(), [
+    'close', 'controls', 'relief', 'screen'
+  ]);
 });
 
-test('le menu d options dessine ses trois libellés', () => {
+test('le menu d options dessine ses quatre libellés', () => {
   const { ctx, texts } = fakeCtx();
   drawOptionsPanel(ctx, layoutOptionsPanel(), { labels: OPTIONS_LABELS, hoverId: null });
   const drawn = texts.join('\n');
-  for (const label of [OPTIONS_LABELS.heading, OPTIONS_LABELS.controls, OPTIONS_LABELS.screen, OPTIONS_LABELS.close]) {
+  for (const label of [
+    OPTIONS_LABELS.heading, OPTIONS_LABELS.controls, OPTIONS_LABELS.screen,
+    OPTIONS_LABELS.relief, OPTIONS_LABELS.close
+  ]) {
     assert.ok(drawn.includes(label), `${label} n'est pas dessiné`);
+  }
+});
+
+test('les tuiles du menu d options ne se chevauchent pas', () => {
+  // La troisième tuile a ouvert une deuxième rangée, donc la sortie a dû
+  // descendre : sans ce test, elle aurait pu descendre sous la toile ou rester
+  // sous la rangée neuve, et le rendu seul l'aurait dit.
+  const regions = layoutOptionsPanel();
+  for (let i = 0; i < regions.length; i++) {
+    for (let j = i + 1; j < regions.length; j++) {
+      const a = regions[i];
+      const b = regions[j];
+      const apart =
+        a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+      assert.ok(apart, `${a.id} et ${b.id} se chevauchent`);
+    }
   }
 });
 

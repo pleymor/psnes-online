@@ -78,6 +78,13 @@
     readScreenShape, writeScreenShape, stepDistance, stepAngle, stepHeight,
     DEFAULT_SHAPE, type ScreenShape
   } from '$lib/vr/screen-shape';
+  import { layoutReliefPanel, drawReliefPanel } from '$lib/vr/panels/relief';
+  import {
+    readReliefPreset, writeReliefPreset, stepSlot, stepSpacing,
+    DEFAULT_RELIEF, type ReliefPreset
+  } from '$lib/vr/relief-preset';
+  import { VR_SLOT_KEYS, type VrSlotKey } from '$lib/vr/layer-map';
+  import { hasSlot } from '$lib/vr/slot-mask';
   // La séquence appartient au dessin, pas au panneau : c'est son ordre de
   // lecture que « tout configurer » parcourt.
   import { BIND_SEQUENCE, nextInSequence } from '$lib/vr/panels/pad-art';
@@ -365,7 +372,7 @@
    * `'saves'` is opened straight from the band - it is an action, not a
    * setting - so its own way out lowers the tablet.
    */
-  type TabletScreen = 'options' | 'controls' | 'saves' | 'screen' | null;
+  type TabletScreen = 'options' | 'controls' | 'saves' | 'screen' | 'relief' | null;
   let tabletScreen: TabletScreen = null;
   /** The tablet's panel, created in `enter()`. Hidden unless a screen is up. */
   let tabletPanel: PanelMesh | null = null;
@@ -379,6 +386,25 @@
    * with it, so « + » would appear to do nothing.
    */
   let screenShape: ScreenShape = DEFAULT_SHAPE;
+
+  /**
+   * La profondeur entre les couches, pour le jeu en cours.
+   *
+   * Par jeu et non par appareil, contrairement à la forme de l'écran : ce qui
+   * se règle ici dépend de la façon dont CE jeu empile ses plans, et le réglage
+   * qui va à Super Mario World ne veut rien dire pour F-Zero. `relief-preset.ts`
+   * l'explique et tient le stockage, indexé sur le CRC32 de la cartouche.
+   *
+   * `reliefCrc32` est celui du jeu chargé, retenu parce que `launchFor` est
+   * remis à null au lancement : sans lui, le premier pas sur le panneau
+   * n'aurait plus de clé sous laquelle écrire.
+   *
+   * Un `let` et non un `$:`, pour la raison de `screenShape` juste au-dessus :
+   * `writeReliefPreset` touche `localStorage`, donc une réactive recalculerait
+   * sur l'écriture qu'elle vient de déclencher.
+   */
+  let relief: ReliefPreset = DEFAULT_RELIEF;
+  let reliefCrc32: string | null = null;
 
   /**
    * La table de la manette Bluetooth : celle de la page plate, pas une
@@ -803,6 +829,7 @@
     if (tabletScreen === 'controls') repaintControls();
     if (tabletScreen === 'saves') repaintSaves();
     if (tabletScreen === 'screen') repaintScreenSettings();
+    if (tabletScreen === 'relief') repaintRelief();
   }
 
   function repaintOptions(): void {
@@ -815,6 +842,7 @@
           heading: t($language, 'vrOptions'),
           controls: t($language, 'vrRemapHeading'),
           screen: t($language, 'vrScreen'),
+          relief: t($language, 'vrRelief'),
           close: t($language, 'vrRemapDone')
         },
         hoverId: hovered?.panel === 'tablet' ? hovered.region.id : null
@@ -872,6 +900,97 @@
     scene?.reshapeScreen(next);
     writeScreenShape(localStorage, next);
     repaintScreenSettings();
+  }
+
+  /**
+   * Le nom d'un créneau, tel qu'un joueur le lit.
+   *
+   * Ici plutôt que dans le panneau, comme les formats de nombres : « BG1 » est
+   * un nom de matériel qui ne se traduit pas, la moitié haute ou basse se
+   * traduit, et la jointure entre les deux est une question de locale. Le
+   * panneau est testé depuis Bun, qui ne résout pas l'alias des traductions.
+   */
+  function reliefSlotLabel(key: VrSlotKey): string {
+    if (key === 'backdrop') return t($language, 'vrReliefBackdrop');
+    if (key === 'sprite') return t($language, 'vrReliefSprites');
+    const [layer, half] = key.split('.');
+    const side = half === 'hi' ? 'vrReliefFront' : 'vrReliefBehind';
+    return `${layer.toUpperCase()} ${t($language, side)}`;
+  }
+
+  function repaintRelief(): void {
+    if (!tabletPanel || tabletScreen !== 'relief') return;
+    /*
+     * Les créneaux de la DERNIÈRE image, relus à chaque repeint.
+     *
+     * Un créneau sans pixels n'est pas une rangée (`panels/relief.ts` dit
+     * pourquoi), et ce que l'image contient dépend du mode BG, qui change
+     * quelques fois par partie - jamais pendant qu'un panneau de réglage est
+     * levé. Le relire au repeint plutôt que de s'y abonner évite soixante
+     * notifications par seconde pour un panneau fermé.
+     */
+    const present = scene?.screen.presentSlots() ?? 0;
+    const state = {
+      preset: relief,
+      slots: VR_SLOT_KEYS.filter((_, index) => hasSlot(present, index))
+    };
+    tabletPanel.regions = layoutReliefPanel(state);
+    const regions = tabletPanel.regions;
+    tabletPanel.paint((ctx) =>
+      drawReliefPanel(ctx, state, regions, {
+        labels: {
+          heading: t($language, 'vrRelief'),
+          strength: t($language, 'vrReliefStrength'),
+          close: t($language, 'vrRemapDone'),
+          slot: reliefSlotLabel,
+          // Des centimètres entiers : toute la hauteur de l'échelle en est
+          // faite (`RELIEF_DISTANCES`), et « 0,15 m » se lit moins bien que
+          // « 15 cm » sur une boîte de 120 px.
+          centimetres: (metres) => `${Math.round(metres * 100)} cm`,
+          // L'espace avant le pour-cent est français et non anglais, et c'est
+          // exactement le genre de détail qui n'a pas sa place dans un module
+          // testé sans les traductions.
+          percent: (multiplier) =>
+            `${Math.round(multiplier * 100)}${$language === 'fr' ? ' ' : ''}%`
+        },
+        hoverId: hovered?.panel === 'tablet' ? hovered.region.id : null
+      })
+    );
+  }
+
+  /**
+   * Applique un relief : la scène, le stockage, le panneau.
+   *
+   * Le même ordre qu'`applyScreenShape`, et pour la même raison : c'est
+   * l'ordre dans lequel le joueur les perçoit. L'image est juste derrière la
+   * tablette, donc les plans s'écartent sous ses yeux pendant qu'il presse -
+   * il n'y a pas de bouton « Appliquer », et c'est ce qui rend le panneau
+   * réglable du tout. Le repeint vient en dernier parce que les crans de bout
+   * d'échelle changent de région avec la valeur : repeindre d'abord
+   * redessinerait les régions de l'état précédent.
+   *
+   * L'écriture est sans effet tant qu'aucun jeu n'est chargé (`reliefCrc32`
+   * null), et `writeReliefPreset` refuse déjà une clé qui n'est pas un CRC32.
+   */
+  function applyRelief(next: ReliefPreset): void {
+    relief = next;
+    scene?.screen.setRelief(next);
+    if (reliefCrc32) writeReliefPreset(localStorage, reliefCrc32, next);
+    repaintRelief();
+  }
+
+  /**
+   * Le réglage retenu pour ce jeu, au lancement.
+   *
+   * Les deux chemins de lancement - solo et à deux - passent par ici, parce
+   * que l'écran est construit à l'ouverture de la session et le jeu choisi
+   * après : un réglage par jeu ne peut pas être un argument de construction,
+   * ce que `setRelief` existe pour dire.
+   */
+  function loadReliefFor(crc32: string): void {
+    reliefCrc32 = crc32;
+    relief = readReliefPreset(localStorage, crc32);
+    scene?.screen.setRelief(relief);
   }
 
   function repaintSaves(): void {
@@ -1273,6 +1392,7 @@
       if (tabletScreen === 'options') {
         if (id === 'controls') { openTablet('controls'); return; }
         if (id === 'screen') { openTablet('screen'); return; }
+        if (id === 'relief') { openTablet('relief'); return; }
         if (id === 'close') { closeTablet(); return; }
         return;
       }
@@ -1297,6 +1417,31 @@
         if (id === 'flat') { applyScreenShape({ ...screenShape, curved: false }); return; }
         if (id === 'curved') { applyScreenShape({ ...screenShape, curved: true }); return; }
         // Remonte au menu, pas au jeu : voir `TabletScreen`.
+        if (id === 'close') { openTablet('options'); return; }
+        return;
+      }
+
+      /*
+       * Le relief, appliqué au clic lui aussi.
+       *
+       * Aucune borne vérifiée ici, pour la raison du bloc au-dessus : un pas
+       * de bout d'échelle n'existe pas comme région (`panels/relief.ts`), donc
+       * il ne peut pas être atteint. La clé du créneau voyage dans
+       * l'identifiant parce qu'il y a une paire de boutons par couche
+       * présente, et `stepSlot` ignore de lui-même un nom que cette version ne
+       * connaît pas.
+       */
+      if (tabletScreen === 'relief') {
+        if (id === 'spacing-less') { applyRelief(stepSpacing(relief, -1)); return; }
+        if (id === 'spacing-more') { applyRelief(stepSpacing(relief, 1)); return; }
+        if (id.startsWith('slot-in:')) {
+          applyRelief(stepSlot(relief, id.slice('slot-in:'.length) as VrSlotKey, -1));
+          return;
+        }
+        if (id.startsWith('slot-out:')) {
+          applyRelief(stepSlot(relief, id.slice('slot-out:'.length) as VrSlotKey, 1));
+          return;
+        }
         if (id === 'close') { openTablet('options'); return; }
         return;
       }
@@ -1626,7 +1771,11 @@
           // Les Touch et la manette Bluetooth, fusionnées par `localPad`, qui
           // porte aussi la règle du zéro pendant que les panneaux sont levés.
           readPads: () => ({ pad1: localPad(), pad2: 0 }),
-          onFrame: (c) => scene?.screen.upload(c.videoSurface()),
+          // Both views, in one call: the layer plane is what cuts the frame
+          // into the stack of planes the headset shows. Taking the picture
+          // first is safe because the getters `depthSurface()` calls cannot
+          // grow the heap, which is the only thing that detaches a view.
+          onFrame: (c) => scene?.screen.upload(c.videoSurface(), c.depthSurface()),
           onError: (err) => logger.error('vr engine', err),
           /*
            * The whole reason `GovernorOptions.schedule` exists, and the one line
@@ -1716,6 +1865,10 @@
         // The new engine's first frame needs the screen back; `upload` will
         // not take it by itself any more.
         scene.screen.showPicture();
+        // Avant la première image plutôt qu'après : les plans sont posés à la
+        // distance du réglage dès qu'ils portent quelque chose, donc le joueur
+        // ne voit jamais l'image plate se déplier.
+        loadReliefFor(game.crc32);
         scene?.panelsVisible(false);
         /*
          * Le drapeau, pas le gouverneur : un gouverneur neuf est déjà à 1 et
@@ -2330,7 +2483,8 @@
         // pad, exactly as the solo path does.
         readLocalInput: localPad,
         onEvent: onSessionEvent,
-        onFrame: (c) => scene?.screen.upload(c.videoSurface()),
+        // The layer plane alongside the picture, as the solo path takes it.
+        onFrame: (c) => scene?.screen.upload(c.videoSurface(), c.depthSurface()),
         onError: (err) => logger.error('vr lockstep', err),
         schedule: scene.schedule
       });
@@ -2362,6 +2516,10 @@
       launchFor = null;
       scene.screen.regions.length = 0;
       scene.screen.showPicture();
+      // Le même réglage par jeu que le solo, et lu sur CE casque : le relief
+      // qui se lit bien dépend de l'optique et de la distance choisie, donc il
+      // ne suit pas le joueur chez son ami. Voir `relief-preset.ts`.
+      loadReliefFor(crc32);
       scene?.panelsVisible(false);
       // The engine does not start its own governor - `solo-engine.ts` does not
       // either, and `SoloRoom.svelte`'s own `boot()` and this file's `launch()`
@@ -2465,6 +2623,19 @@
     // thing at a time and whoever asked for the launch options took it. The
     // tablet is a surface of its own, so a rebinding survives a return to the
     // launch screen - and the player who opened both meant to have both.
+    /*
+     * Le relief perd son jeu ici, et c'est le seul endroit qui le peut.
+     *
+     * Les deux arrêts - `stopTogether` et `onGameStopped` - passent par cette
+     * fonction. Sans cet oubli, un pas donné sur le panneau de relief pendant
+     * qu'aucune partie ne tourne s'écrirait sous le CRC32 de la partie
+     * PRÉCÉDENTE, et le joueur retrouverait au prochain lancement un réglage
+     * qu'il croyait donner à autre chose.
+     */
+    reliefCrc32 = null;
+    relief = DEFAULT_RELIEF;
+    scene?.screen.setRelief(relief);
+
     const crc32 = $myRoom?.gameCrc32 ?? null;
     if (crc32 && entryFor(crc32)) {
       launchFor = crc32;
@@ -2748,7 +2919,17 @@
         if (panel === 'library') repaintLibrary();
         if (panel === 'friends') repaintFriends();
         if (panel === 'profile') repaintProfile();
-        if (panel === 'tablet') repaintControls();
+        /*
+         * `repaintTablet`, pas `repaintControls`.
+         *
+         * La tablette porte cinq écrans et chacun dessine son survol ; appeler
+         * le repeint du remap sortait aussitôt sur sa propre garde
+         * (`tabletScreen !== 'controls'`) dès qu'un autre écran était levé.
+         * Résultat : un pointeur posé sur « + » n'allumait rien sur les
+         * réglages d'écran, sur les sauvegardes et sur le relief - le seul
+         * retour qui dise « celui-là répondra ».
+         */
+        if (panel === 'tablet') repaintTablet();
         // The screen carries only the launch options now, so there is nothing
         // left to choose between here.
         if (panel === 'screen') repaintLaunch();

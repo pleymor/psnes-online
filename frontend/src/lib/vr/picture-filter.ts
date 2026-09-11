@@ -21,6 +21,13 @@
  * of it. The pairing is deliberate: there is no GPU under Bun, so writing the
  * arithmetic where it can actually be run is the only way to hold it to
  * account. Change one and change the other.
+ *
+ * The shader does one more thing than this module can specify: it discards
+ * every pixel that does not belong to its own slot, which is what turns one
+ * frame into the stack of planes `screen.ts` builds. That test reads a second
+ * texture nearest-neighbour, and it has to happen before the arithmetic above
+ * touches the coordinate - the comment in the shader says what goes wrong
+ * otherwise.
  */
 
 import { visibleU } from './screen-geometry';
@@ -121,6 +128,8 @@ void main() {
  */
 export const PICTURE_FRAGMENT_SHADER = /* glsl */ `
 uniform sampler2D map;
+uniform sampler2D mask;
+uniform float slot;
 uniform vec2 texSize;
 uniform float uMax;
 
@@ -130,9 +139,41 @@ void main() {
   // Texel space of the padded texture.
   vec2 t = vUv * texSize;
 
-  // The nearest texel boundary, and how many texels one display pixel covers.
-  vec2 seam = floor(t + 0.5);
+  /*
+   * How many texels one display pixel covers, taken here rather than beside
+   * the rest of the filter below.
+   *
+   * fwidth is a derivative: it reads the other fragments of the 2x2 quad the
+   * GPU shades together, and that is only defined while all four are still
+   * running. The discard just below kills three of them along every layer
+   * edge in the frame. The clamp further down would bound the damage - a
+   * garbage footprint saturates to nearest or degenerates to bilinear - so
+   * this is not a visible bug so much as an undefined value nobody would ever
+   * trace back to here. One line earlier and there is nothing to trace.
+   */
   vec2 footprint = fwidth(t);
+
+  /*
+   * Which slot won this pixel - read HERE, before anything below moves t.
+   *
+   * The filter's whole job is to push the sample coordinate off the texel
+   * centre near a seam, and that is exactly wrong for the mask: half a texel
+   * either way reads the NEIGHBOURING pixel's slot, so along every edge in the
+   * frame a one-pixel fringe would be assigned to the layer behind it and
+   * drawn on the wrong plane. Nearest-neighbour at the texel centre is not an
+   * approximation here, it is the only correct reading: a slot index is a
+   * name, and there is nothing between two names to interpolate.
+   *
+   * The mask shares texSize with the picture, which is what lets one
+   * coordinate serve both. The byte comes back in [0,1], hence the x255.
+   */
+  float pixelSlot = texture2D(mask, (floor(t) + 0.5) / texSize).r * 255.0;
+  // Half a slot of tolerance: these are integers that made a round trip
+  // through an 8-bit texture and a float, so == would be a coin toss.
+  if (abs(pixelSlot - slot) > 0.5) discard;
+
+  // The nearest texel boundary. The footprint is already in hand, above.
+  vec2 seam = floor(t + 0.5);
 
   // Snap to the texel centre, except within half a display pixel of the seam.
   // The divisor is clamped at both ends for the reasons filteredTexel spells

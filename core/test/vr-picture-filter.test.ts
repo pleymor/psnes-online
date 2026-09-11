@@ -144,3 +144,41 @@ test('the shader still contains the parts these tests speak for', () => {
     'the SNES palette is the picture; tone mapping would crush it toward grey'
   );
 });
+
+/*
+ * The slot mask, which is the other half of the same fragment shader.
+ *
+ * `screen.ts` draws the frame on ten planes, one per slot, and each of them
+ * keeps only the pixels its own slot won. The test is a texture read, so it
+ * cannot be run here any more than the filter can - but WHERE it reads is
+ * arithmetic, it is spelled out in the source, and getting it wrong is silent.
+ */
+test('the mask is sampled, and its result decides whether the pixel exists', () => {
+  for (const piece of ['uniform sampler2D mask', 'uniform float slot', 'discard']) {
+    assert.ok(PICTURE_FRAGMENT_SHADER.includes(piece), `the shader lost ${piece}`);
+  }
+});
+
+test('the mask is read at the texel centre, before the filter moves the coordinate', () => {
+  /*
+   * This is the trap, and it is the one this whole pairing exists to catch.
+   * The filter deliberately pushes `t` off the texel centre near a seam; using
+   * that `t` to read the mask samples a NEIGHBOURING pixel's slot, so a
+   * one-pixel fringe of every edge in the frame is drawn on the plane behind
+   * it. The picture still looks like a picture, and the defect is a shimmer
+   * around every sprite that nobody can name.
+   *
+   * So: the mask read must appear BEFORE the line that reassigns `t`, and it
+   * must snap to the centre itself rather than trusting the sampler.
+   */
+  const maskRead = PICTURE_FRAGMENT_SHADER.indexOf('texture2D(mask');
+  const slide = PICTURE_FRAGMENT_SHADER.indexOf('t = seam + clamp');
+  assert.ok(maskRead > 0, 'the mask is never sampled');
+  assert.ok(slide > 0, 'the filter lost the line that slides the coordinate');
+  assert.ok(maskRead < slide, 'the mask is sampled after the filter has moved t');
+
+  assert.ok(
+    PICTURE_FRAGMENT_SHADER.includes('(floor(t) + 0.5) / texSize'),
+    'the mask must snap to the texel centre: a slot index is a name, not a quantity'
+  );
+});

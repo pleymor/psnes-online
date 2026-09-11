@@ -15,7 +15,8 @@
  * la tablette d'un coup.
  *
  * Deux entrées seulement, et c'est bien : chaque réglage à venir a une case
- * ici, là où le bandeau n'en avait plus.
+ * ici, là où le bandeau n'en avait plus. Le relief est la troisième, et elle a
+ * ouvert la deuxième rangée sans rien coûter aux tuiles - voir `TILE_ROW`.
  */
 
 import { truncate, type PanelSize, type Region } from '../panel';
@@ -27,38 +28,64 @@ const PAD = 40;
 const TITLE_Y = 46;
 
 /**
- * Deux grandes tuiles côte à côte, hautes de 200 px.
+ * De grandes tuiles deux par rangée, hautes de 200 px.
  *
- * Généreuses parce qu'elles peuvent l'être : il n'y a que deux entrées sur une
+ * Généreuses parce qu'elles peuvent l'être : il y a trois entrées sur une
  * toile de 1024 x 768. Une tuile de 440 x 200 sur une tablette à 24 px par
  * degré fait 18 x 8 degrés - impossible à manquer au pointeur, ce qui est tout
  * ce qu'on demande à un menu qu'on traverse.
+ *
+ * La troisième entrée est passée à la ligne plutôt que d'élargir la rangée à
+ * trois colonnes : trois tuiles de 298 px de large auraient fait rentrer la
+ * grille dans la zone où le cadre du chrome tronque les libellés, ce que
+ * l'en-tête raconte du bandeau. Une rangée de plus ne coûte que de la hauteur,
+ * et il en restait.
  */
 const TILE_W = 440;
 const TILE_H = 200;
 const TILE_GAP = 24;
-const TILE_Y = 220;
+const TILE_Y = 150;
+/** Une rangée de plus, son écart compris. */
+const TILE_ROW = TILE_H + TILE_GAP;
 const TILE_X = (OPTIONS_PANEL_SIZE.width - (TILE_W * 2 + TILE_GAP)) / 2;
 
 const CLOSE_W = 440;
 const CLOSE_H = 88;
-const CLOSE_Y = 560;
+const CLOSE_Y = 616;
 const CLOSE_X = (OPTIONS_PANEL_SIZE.width - CLOSE_W) / 2;
 
 export interface OptionsLabels {
   heading: string;
   controls: string;
   screen: string;
+  /** La profondeur entre les couches du jeu, par jeu. Voir `panels/relief.ts`. */
+  relief: string;
   /** La sortie. Ici elle referme la tablette : c'est la racine. */
   close: string;
+}
+
+/** La place de la n-ième tuile, deux par rangée. La quatrième case attend. */
+function tileAt(index: number): { x: number; y: number } {
+  return {
+    x: TILE_X + (index % 2) * (TILE_W + TILE_GAP),
+    y: TILE_Y + Math.floor(index / 2) * TILE_ROW
+  };
 }
 
 export function layoutOptionsPanel(): Region[] {
   // Aucun état : rien ici ne dépend de ce que fait le jeu. Le bandeau décide
   // déjà si la tablette peut s'ouvrir.
+  //
+  // Les identifiants sont écrits en toutes lettres plutôt que déroulés depuis
+  // une liste : `vr-regions-handled.test.ts` lit ce fichier à l'expression
+  // régulière, et une région montée dans une boucle lui serait invisible.
+  const controls = tileAt(0);
+  const screen = tileAt(1);
+  const relief = tileAt(2);
   return [
-    { id: 'controls', x: TILE_X, y: TILE_Y, w: TILE_W, h: TILE_H },
-    { id: 'screen', x: TILE_X + TILE_W + TILE_GAP, y: TILE_Y, w: TILE_W, h: TILE_H },
+    { id: 'controls', x: controls.x, y: controls.y, w: TILE_W, h: TILE_H },
+    { id: 'screen', x: screen.x, y: screen.y, w: TILE_W, h: TILE_H },
+    { id: 'relief', x: relief.x, y: relief.y, w: TILE_W, h: TILE_H },
     { id: 'close', x: CLOSE_X, y: CLOSE_Y, w: CLOSE_W, h: CLOSE_H }
   ];
 }
@@ -87,7 +114,8 @@ export function drawOptionsPanel(
 
   for (const [id, label] of [
     ['controls', labels.controls],
-    ['screen', labels.screen]
+    ['screen', labels.screen],
+    ['relief', labels.relief]
   ] as const) {
     const region = byId.get(id);
     // La police est plus grande que celle des boutons ordinaires : ces tuiles
