@@ -51,6 +51,16 @@
  *
  * Its navigator is a parameter for the reason the rest of this codebase's
  * device code gives: so it can be tested without one.
+ *
+ * UPDATED, 2026-09-11: `local-floor` is now requested as an OPTIONAL feature,
+ * solely to measure the floor's height (`decor/floor.ts`). The 2026-09-07
+ * measurement above stays accurate and is still the reason for this change:
+ * it observed the conformant refusal of a feature that was never asked for.
+ * What has NOT changed: the scene's reference space is still `local`, three
+ * still requests its own, and `layout.ts` still measures everything from the
+ * eyes. No geometry becomes floor-relative, and a headset that refuses
+ * `local-floor` still enters VR - the rejection is swallowed here, and only
+ * here, because higher up it would mask a real failure to open the session.
  */
 
 /** The part of `XRSession` this module touches. three.js gets the real thing. */
@@ -68,6 +78,7 @@ export interface XrEntryNavigator {
 export interface VrSession {
   session: XrSessionLike;
   referenceSpace: unknown;
+  floorSpace: unknown | null;
   end(): Promise<void>;
 }
 
@@ -79,12 +90,45 @@ export async function openVrSession(
     throw new Error('WebXR is not available in this browser');
   }
 
-  // No features negotiated - see the header. A rejection here is a real
-  // refusal (permission, no device, a session already running) and belongs to
-  // the caller, which keeps its button and explains itself.
-  const session = await nav.xr.requestSession('immersive-vr');
+  /*
+   * One feature negotiated, and OPTIONAL.
+   *
+   * The header above tells of a 2026-09-07 probe that saw
+   * `local-floor: NotSupportedError` on a Quest, and draws the right
+   * conclusion from it: that is the conformant refusal of a feature that was
+   * not asked for. Here it is asked for.
+   *
+   * What it serves, and nothing else: MEASURING where the floor is, so
+   * `decor/floor.ts` can put the world's floor there. The anchor does not
+   * change one bit - three still requests and uses its own `local`
+   * (`WebXRManager.js:509`), and `scene.ts` still answers it with `local`. No
+   * geometry in `layout.ts` becomes floor-relative.
+   *
+   * A rejection of `requestSession` itself is still a real refusal
+   * (permission, no device, a session already running) and belongs to the
+   * caller, which keeps its button and explains itself.
+   */
+  const session = await nav.xr.requestSession('immersive-vr', {
+    optionalFeatures: ['local-floor']
+  });
 
   const referenceSpace = await session.requestReferenceSpace('local');
+
+  /*
+   * The floor, requested separately and without consequence on failure.
+   *
+   * `requestReferenceSpace` rejects when the feature was not granted, and
+   * that rejection is not an anomaly: it is the conformant answer of a
+   * headset that does not know where the floor is. Swallowing it here is
+   * therefore correct, and this is the only place where it is - higher up it
+   * would mask a real failure to open the session.
+   */
+  let floorSpace: unknown | null = null;
+  try {
+    floorSpace = (await session.requestReferenceSpace('local-floor')) ?? null;
+  } catch {
+    floorSpace = null;
+  }
 
   let finished = false;
   const finish = () => {
@@ -97,6 +141,7 @@ export async function openVrSession(
   return {
     session,
     referenceSpace,
+    floorSpace,
     end: async () => {
       if (finished) return;
       // `end()` raises the event, which runs `finish`. Nothing else to do.

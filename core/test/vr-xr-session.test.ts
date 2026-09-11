@@ -1,13 +1,19 @@
 /**
  * Opening and closing an immersive session.
  *
- * Two rules, both learned from what goes wrong without them.
+ * Three rules, all learned from what goes wrong without them.
  *
- * Only `local` is asked for, and nothing is negotiated. `layout.ts` measures
- * every height from the eyes, so no floor is wanted - and the 1.6 m eye
- * height the floor path guessed was wrong for a seated player anyway. This
- * does NOT stop the Quest asking which boundary to use: that dialog is the
- * system's own Guardian and no web API reaches it.
+ * `local` is asked for and always granted - `layout.ts` measures every scene
+ * height from the eyes, so no floor is wanted for the scene itself, and the
+ * 1.6 m eye height the floor path used to guess was wrong for a seated player
+ * anyway. This does NOT stop the Quest asking which boundary to use: that
+ * dialog is the system's own Guardian and no web API reaches it.
+ *
+ * Since 2026-09-11, `local-floor` is also asked for, but only as an OPTIONAL
+ * feature, purely so `decor/floor.ts` can measure where the floor is. A
+ * headset that refuses it still enters VR - the anchor does not move, three
+ * still requests its own `local`, and no scene geometry becomes
+ * floor-relative.
  *
  * And `onEnd` fires exactly once. The system menu ending a session, the player
  * pressing quit, and the headset being put down all arrive as the same `end`
@@ -54,25 +60,35 @@ function fakeNavigator(session: ReturnType<typeof fakeSession>) {
   };
 }
 
-test('only the stationary space is asked for, and no feature is negotiated', async () => {
+test('only local and the optional local-floor are asked for, nothing required', async () => {
   /*
    * `local` is guaranteed for an immersive session, and the geometry is
-   * eye-relative, so there is nothing left to negotiate and no degradation to
-   * fall back from. A negotiated feature is one more thing that can be
-   * refused by a headset for no benefit here.
+   * eye-relative, so it is never negotiated - it needs no fallback. Since
+   * 2026-09-11, `local-floor` is negotiated too, but only as an OPTIONAL
+   * feature, purely to measure the floor's height for the decor; a headset
+   * that refuses it must still enter VR, so it is never required.
    */
   const session = fakeSession({ spaces: ['local'] });
   const nav = fakeNavigator(session);
   const vr = await openVrSession(() => {}, nav);
 
-  assert.deepEqual(session.asked, ['local'], 'a floor would be a height nothing needs');
+  assert.deepEqual(
+    session.asked,
+    ['local', 'local-floor'],
+    'local for the scene, local-floor to measure - and nothing else'
+  );
 
   const init = nav.inits[0] as
     | { requiredFeatures?: string[]; optionalFeatures?: string[] }
     | undefined;
+  assert.deepEqual(
+    init?.optionalFeatures,
+    ['local-floor'],
+    'local-floor is negotiated, but only as optional'
+  );
   assert.ok(
-    !init?.optionalFeatures?.length && !init?.requiredFeatures?.length,
-    'a negotiated feature is one more thing the player has to answer'
+    !init?.requiredFeatures?.length,
+    'a required feature is a closed door for a headset that refuses it'
   );
   await vr.end();
 });
@@ -123,4 +139,27 @@ test('a refused session is reported to the caller, not swallowed', async () => {
 
 test('a browser with no xr at all rejects rather than hanging', async () => {
   await assert.rejects(() => openVrSession(() => {}, {}), /WebXR/);
+});
+
+test('la session demande local-floor en optionnel', async () => {
+  const nav = fakeNavigator(fakeSession());
+  await openVrSession(() => {}, nav);
+  assert.deepEqual(nav.inits[0], { optionalFeatures: ['local-floor'] });
+});
+
+test('un local-floor accordé est exposé', async () => {
+  const opened = await openVrSession(
+    () => {},
+    fakeNavigator(fakeSession({ spaces: ['local', 'local-floor'] }))
+  );
+  assert.deepEqual(opened.floorSpace, { type: 'local-floor' });
+});
+
+test('un local-floor refusé laisse floorSpace nul sans barrer l_entrée', async () => {
+  const opened = await openVrSession(
+    () => {},
+    fakeNavigator(fakeSession({ spaces: ['local'] }))
+  );
+  assert.equal(opened.floorSpace, null);
+  assert.ok(opened.session);
 });
