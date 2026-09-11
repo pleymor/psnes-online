@@ -30,6 +30,7 @@ import { packAtlas, uvOf, type Atlas, type Uv } from './atlas';
 import { scenery, props, creatures, type Prop, type BoxProp, type Creature } from './placement';
 import { boxGeometry, boxYaw } from './box';
 import { spriteFrame, patrol, piranha } from './motion';
+import { COUNTER_DEPTH, type CounterRun } from '../layout';
 
 export interface DecorOptions {
   /** Mètres sous l'œil, de `floor.ts`. */
@@ -38,11 +39,26 @@ export interface DecorOptions {
   maxAnisotropy: number;
   /** La position de la tête, pour orienter les billboards. */
   head: () => { x: number; y: number; z: number };
+  /** Les tronçons du comptoir, de `counterRuns` (`layout.ts`). */
+  counter: readonly CounterRun[];
 }
 
 export interface Decor {
   decor: THREE.Object3D;
   curtain: THREE.Object3D;
+  /**
+   * Le comptoir. TROISIÈME RACINE, et elle va dans le groupe des PANNEAUX -
+   * ni `room` ni `world` directement.
+   *
+   * Deux raisons qui tirent dans le même sens. Il épouse les panneaux, donc il
+   * doit être ancré comme eux : dans `room`, il glisserait sous eux jusqu'à
+   * `ANCHOR_DRIFT`. Et en pendant dans leur groupe il hérite de
+   * `panelsVisible`, ce qui lui interdit de rester allumé pendant une partie
+   * sans un état de plus - alors qu'à un mètre il est bien en deçà du rideau,
+   * et qu'il aurait sinon fallu lui donner le fondu propre que seul le sol
+   * porte aujourd'hui.
+   */
+  furniture: THREE.Object3D;
   update(t: number): void;
   setVisible(visible: boolean): void;
   dispose(): void;
@@ -267,6 +283,54 @@ function writeFrame(animated: Animated, index: number): void {
   animated.uv.needsUpdate = true;
 }
 
+/**
+ * Un tronçon de comptoir : la troisième façon de poser une boîte, et la seule
+ * qui ne soit pas polaire.
+ *
+ * `boxFor` prend un azimut et un rayon parce que tout le décor vit sur des
+ * anneaux. Le comptoir, lui, épouse des panneaux dont les positions sont déjà
+ * calculées par `layout.ts` : leur refaire des coordonnées polaires
+ * réécrirait un fait qui existe. D'où une position explicite - mais le lacet
+ * passe par `boxYaw`, comme partout, pour que le piège +Z/-Z reste à un seul
+ * endroit du dépôt.
+ */
+function counterFor(run: CounterRun, atlas: Atlas, material: THREE.Material): THREE.Mesh {
+  const raster = rasterise(ALL_ART.counterBrick);
+  const width = raster.width / ART_PIXELS_PER_METRE;
+  const height = raster.height / ART_PIXELS_PER_METRE;
+
+  const data = boxGeometry({
+    width,
+    height,
+    depth: COUNTER_DEPTH,
+    front: uvOf(atlas, 'counterBrick'),
+    side: uvOf(atlas, 'counterSide'),
+    top: uvOf(atlas, 'counterTop')
+  });
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(data.uvs, 2));
+  geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
+
+  const mesh = new THREE.Mesh(geometry, material);
+  /*
+   * Un seul décalage, et ce n'est pas un réglage : `run.top` est le centre de
+   * la face du DESSUS, alors que `boxGeometry` centre sa boîte sur son
+   * origine. La demi-hauteur retranchée fait affleurer le plateau au bord bas
+   * du panneau.
+   *
+   * La profondeur, elle, ne décale rien : elle est CENTRÉE sur ce bord, donc
+   * le plateau déborde vers le joueur autant qu'il s'enfonce derrière. C'est
+   * le test de continuité qui l'a imposé - en partant du bord vers l'arrière,
+   * les trois tronçons reculaient chacun de leur côté et laissaient 2,8 cm de
+   * trou à chaque jonction - et c'est aussi ce que fait un bureau.
+   */
+  mesh.position.set(run.top[0], run.top[1] - height / 2, run.top[2]);
+  mesh.rotation.y = boxYaw(run.facing);
+  return mesh;
+}
+
 export function createDecor(opts: DecorOptions): Decor {
   const decor = new THREE.Group();
 
@@ -411,6 +475,21 @@ export function createDecor(opts: DecorOptions): Decor {
     });
   }
 
+  /*
+   * Le comptoir. Même atlas, même matériau que le reste : un bind de plus
+   * n'apporterait rien, et sa brique est littéralement celle du monde.
+   *
+   * Ses géométries rejoignent `quadGeometries` pour que `dispose` les libère
+   * avec les autres - une racine séparée ne veut pas dire une comptabilité
+   * séparée.
+   */
+  const furniture = new THREE.Group();
+  for (const run of opts.counter) {
+    const mesh = counterFor(run, atlas, quadMaterial);
+    quadGeometries.push(mesh.geometry);
+    furniture.add(mesh);
+  }
+
   // Réutilisés à chaque image plutôt qu'alloués dedans : cette boucle tourne
   // à la fréquence du casque, et une pause de ramasse-miettes s'entend comme
   // un accroc audio (`scene.ts` le dit déjà pour son raycaster).
@@ -438,6 +517,7 @@ export function createDecor(opts: DecorOptions): Decor {
   return {
     decor,
     curtain: curtainMesh,
+    furniture,
 
     setVisible(visible: boolean): void {
       const next: FadeTarget = visible ? 'decor' : 'dark';

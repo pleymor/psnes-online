@@ -52,6 +52,15 @@ export interface VrScene {
    * et ne peut pas vivre dans `room` avec ce qu'il masque.
    */
   addCurtain(object: THREE.Object3D): void;
+  /**
+   * Ajoute un objet au GROUPE DES PANNEAUX.
+   *
+   * Existe pour le comptoir, et lui seul. Il épouse les panneaux, donc il doit
+   * être ancré comme eux ; et en pendant dans leur groupe il s'éteint avec eux
+   * quand une partie démarre, sans un état de plus - ce qui lui évite le fondu
+   * que le sol, seul autre objet en deçà du rideau, doit porter.
+   */
+  addFurniture(object: THREE.Object3D): void;
   /** `renderer.capabilities.getMaxAnisotropy()`, dont le sol a besoin. */
   maxAnisotropy(): number;
   /**
@@ -471,6 +480,7 @@ export function createVrScene(opts: {
     },
     addDecor: (object) => void room.add(object),
     addCurtain: (object) => void world.add(object),
+    addFurniture: (object) => void panelGroup.add(object),
 
     maxAnisotropy: () => renderer.capabilities.getMaxAnisotropy(),
 

@@ -35,6 +35,7 @@
   import { openVrSession, type VrSession } from '$lib/vr/xr-session';
   import { createVrScene, type VrScene } from '$lib/vr/scene';
   import { createDecor, type Decor } from '$lib/vr/decor/build';
+  import { counterRuns } from '$lib/vr/layout';
   import { measureFloor } from '$lib/vr/decor/floor';
   import { readAspectPreference } from '$lib/stores/aspect-preference';
   import { notifications } from '$lib/services/notification';
@@ -183,10 +184,12 @@
     decor = createDecor({
       floorHeight: height,
       maxAnisotropy: scene.maxAnisotropy(),
-      head: () => scene!.headPosition()
+      head: () => scene!.headPosition(),
+      counter: counterRuns(scene.layout)
     });
     scene.addDecor(decor.decor);
     scene.addCurtain(decor.curtain);
+    scene.addFurniture(decor.furniture);
     decor.setVisible(decorShowing);
   }
 
