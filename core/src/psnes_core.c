@@ -49,6 +49,9 @@ PN_API uint32_t *pn_video(void);
 PN_API int       pn_video_width(void);
 PN_API int       pn_video_height(void);
 PN_API int       pn_video_stride(void);
+PN_API uint8_t  *pn_depth(void);
+PN_API int       pn_depth_bg_mode(void);
+PN_API int       pn_depth_bg3_prio(void);
 PN_API int16_t  *pn_audio(void);
 PN_API int       pn_audio_frames(void);
 PN_API double    pn_sample_rate(void);
@@ -73,6 +76,25 @@ PN_API void      pn_debug_reset_entropy(void);
 static uint32_t pn_framebuffer[PN_MAX_PIXELS];
 static int      pn_fb_width  = 256;
 static int      pn_fb_height = 224;
+
+/* One byte of SNES priority per pixel, same stride as the framebuffer. Filled
+ * from GFX.ZBuffer; see src/gfx_depth.cpp for why that is the only sound
+ * source for it. */
+static uint8_t  pn_depth_plane[PN_MAX_PIXELS];
+
+/* Captured with the plane, because they are what turns a priority byte into
+ * the name of a layer. See src/gfx_depth.cpp. */
+static int      pn_depth_mode;
+static int      pn_depth_bg3_priority;
+
+/* Implemented in gfx_depth.cpp. */
+const unsigned char  *pn_gfx_zbuffer(void);
+const unsigned char  *pn_gfx_subzbuffer(void);
+unsigned int          pn_gfx_bg_mode(void);
+unsigned int          pn_gfx_bg3_priority(void);
+const unsigned short *pn_gfx_screen(void);
+unsigned int          pn_gfx_real_ppl(void);
+unsigned int          pn_gfx_screen_size(void);
 
 static int16_t  pn_audio_buffer[PN_MAX_AUDIO_FRAMES * 2];
 static int      pn_audio_count; /* stereo frames written this emulated frame */
@@ -254,6 +276,57 @@ static bool pn_environment(unsigned cmd, void *data)
     }
 }
 
+/*
+ * Copies this frame's PPU depth plane next to the pixels it belongs to.
+ *
+ * `data` is a pointer *into* GFX.Screen: libretro's snes9x skips `overscan`
+ * rows before handing the frame over, and the amount varies with the ROM's
+ * screen height. Rather than guess it, we recover it from the pointer itself -
+ * GFX.ZBuffer uses the same stride and the same origin, so the row the picture
+ * starts on is the row the depth starts on.
+ *
+ * Two frames legitimately have no depth: the NTSC filter blits into a buffer
+ * of its own, and so `data` lands outside GFX.Screen. Those get a zeroed
+ * plane, which every reader already treats as "flat".
+ */
+static void pn_copy_depth(const void *data, unsigned width, unsigned height)
+{
+    const unsigned char  *zbuffer = pn_gfx_zbuffer();
+    const unsigned char  *subz    = pn_gfx_subzbuffer();
+    const unsigned short *screen  = pn_gfx_screen();
+    unsigned ppl = pn_gfx_real_ppl();
+    size_t   offset;
+    unsigned x, y;
+
+    pn_depth_mode         = (int)pn_gfx_bg_mode();
+    pn_depth_bg3_priority = (int)pn_gfx_bg3_priority();
+
+    if (!zbuffer || !subz || !screen || ppl == 0
+        || (const unsigned short *)data < screen
+        || (const unsigned short *)data >= screen + pn_gfx_screen_size())
+    {
+        memset(pn_depth_plane, 0, sizeof(pn_depth_plane));
+        return;
+    }
+
+    offset = (size_t)((const unsigned short *)data - screen);
+
+    for (y = 0; y < height; y++)
+    {
+        const unsigned char *main_row = zbuffer + offset + (size_t)y * ppl;
+        const unsigned char *sub_row  = subz    + offset + (size_t)y * ppl;
+        unsigned char *dst = pn_depth_plane + (size_t)y * PN_MAX_WIDTH;
+
+        /* Depth 1 is the backdrop: the main screen drew nothing there, and the
+         * pixel the player sees came through colour math from the subscreen.
+         * Plenty of games - Super Mario All-Stars among them - put almost
+         * every layer on the subscreen, and reading only the main buffer
+         * returns a uniformly flat plane for them. */
+        for (x = 0; x < width; x++)
+            dst[x] = main_row[x] > 1 ? main_row[x] : sub_row[x];
+    }
+}
+
 static void pn_video_refresh(const void *data, unsigned width, unsigned height,
                              size_t pitch)
 {
@@ -269,6 +342,8 @@ static void pn_video_refresh(const void *data, unsigned width, unsigned height,
 
     pn_fb_width  = (int)width;
     pn_fb_height = (int)height;
+
+    pn_copy_depth(data, width, height);
 
     if (pn_pixel_format == RETRO_PIXEL_FORMAT_XRGB8888)
     {
@@ -468,6 +543,9 @@ PN_API uint32_t *pn_video(void)         { return pn_framebuffer; }
 PN_API int       pn_video_width(void)   { return pn_fb_width; }
 PN_API int       pn_video_height(void)  { return pn_fb_height; }
 PN_API int       pn_video_stride(void)  { return PN_MAX_WIDTH; }
+PN_API uint8_t  *pn_depth(void)         { return pn_depth_plane; }
+PN_API int       pn_depth_bg_mode(void) { return pn_depth_mode; }
+PN_API int       pn_depth_bg3_prio(void){ return pn_depth_bg3_priority; }
 
 PN_API int16_t  *pn_audio(void)         { return pn_audio_buffer; }
 PN_API int       pn_audio_frames(void)  { return pn_audio_count; }
