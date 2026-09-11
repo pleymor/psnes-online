@@ -38,7 +38,7 @@
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import SiteFooter from '$lib/components/SiteFooter.svelte';
-  import { columnsThatFit, rowBottoms } from '$lib/games/shelves';
+  import { columnsThatFit, rowBottoms, trackWidth } from '$lib/games/shelves';
   import { createLogger } from '$lib/utils/logger';
   import { setPageTitle } from '$lib/utils/page-title';
 
@@ -73,7 +73,7 @@
   /** Le ciel qui respire avant la rangée suivante. */
   const SKY = 12;
   /** `box-sizing: border-box` est global : la jaquette fait 0,7 fois sa largeur. */
-  const ROW_H = CARD_W * 0.7;
+  const COVER_RATIO = 0.7;
   /** Tout ce qui pend sous la ligne des cartouches. Le dessus arrière n'en est pas. */
   const SHELF_GAP = DECK_FRONT + LIP + CAST + SKY;
 
@@ -98,7 +98,6 @@
   const SHELF_VARS = [
     `--card-w:${CARD_W}px`,
     `--col-gap:${COL_GAP}px`,
-    `--row-h:${ROW_H}px`,
     `--shelf-gap:${SHELF_GAP}px`,
     `--deck-back:${DECK_BACK}px`,
     `--deck-front:${DECK_FRONT}px`,
@@ -291,10 +290,18 @@
    * mesurée - donc Svelte recalcule à l'ajout d'un jeu comme au
    * redimensionnement de la fenêtre.
    */
+  /*
+   * Tout se déduit de la piste RÉELLE, et non de sa largeur nominale.
+   *
+   * Le CSS la plafonne à la place disponible : sur un téléphone plus étroit
+   * qu'une jaquette, la carte cède. Calculer le pas sur 376 px dans ce cas
+   * poserait les planches au travers des images.
+   */
+  $: track = trackWidth(gridWidth, CARD_W);
   $: shelfTops = rowBottoms({
     count: shownGames.length,
-    columns: columnsThatFit(gridWidth, CARD_W, COL_GAP),
-    rowHeight: ROW_H,
+    columns: columnsThatFit(gridWidth, track, COL_GAP),
+    rowHeight: track * COVER_RATIO,
     rowGap: SHELF_GAP
   }).map(bottom => bottom - DECK_BACK);
 
@@ -1169,7 +1176,10 @@
     column-gap: var(--col-gap);
     row-gap: var(--shelf-gap);
     justify-content: center;
-    grid-auto-rows: var(--row-h);
+    /* `auto` plutôt qu'une hauteur écrite : la carte n'est qu'une jaquette,
+       donc sa hauteur EST sa largeur au format 10/7, et la rangée suit d'
+       elle-même quand la piste cède sur un écran étroit. */
+    grid-auto-rows: auto;
     /* La dernière planche pend sous la dernière rangée : sans cette
        réserve, elle passerait sur le pied de page. */
     padding-bottom: var(--shelf-gap);
@@ -1429,17 +1439,29 @@
     }
 
     .games-grid {
-      /* Une piste fluide n'a plus de hauteur prévisible, donc les planches
-         posées à un pas fixe dériveraient dans les cartes. Elles s'éteignent
-         ici plutôt que de traverser une jaquette. */
-      grid-template-columns: 1fr;
-      grid-auto-rows: auto;
-      gap: 1rem;
-      padding-bottom: 0;
-    }
-
-    .shelf {
-      display: none;
+      /*
+       * `min(...)` et non `1fr` : la jaquette garde son format, elle ne
+       * s'étire pas.
+       *
+       * `1fr` donnait une carte large comme son conteneur - près de 600 px
+       * sur une fenêtre de 700 - alors que la même jaquette fait 376 px
+       * juste au-dessus du point de rupture. Une boîte de SNES qui double
+       * de taille parce qu'on a rétréci la fenêtre est un accident, pas une
+       * adaptation. Le plafond la laisse à 376 partout où ça tient, et la
+       * réduit à la largeur disponible seulement quand il n'y a pas le
+       * choix.
+       *
+       * Une piste plafonnée n'a plus de hauteur prévisible dès qu'elle
+       * cède, donc les planches, posées à un pas fixe, dériveraient dans
+       * les cartes : elles s'éteignent ici plutôt que de traverser une
+       * jaquette.
+       */
+      grid-template-columns: repeat(auto-fill, min(var(--card-w), 100%));
+      /* Seule la gouttière horizontale se resserre : celle du bas tient les
+         étagères, qui restent tant que la piste est entière. C'est le JS qui
+         les retire quand elle ne l'est plus - `shelvesFit` - parce que c'est
+         lui qui sait la largeur mesurée. */
+      column-gap: 1rem;
     }
 
     .toast {

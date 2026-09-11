@@ -14,7 +14,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
-import { columnsThatFit, rowBottoms } from '../../frontend/src/lib/games/shelves.js';
+import { columnsThatFit, rowBottoms, trackWidth } from '../../frontend/src/lib/games/shelves.js';
 
 const CARD = 376;
 const GAP = 28;
@@ -70,4 +70,14 @@ test('les planches sont espacées du pas d une rangée', () => {
 
 test('une seule rangée donne une seule planche, au bas de la rangée', () => {
 	assert.deepEqual(rowBottoms({ count: 2, columns: 3, rowHeight: 263, rowGap: 56 }), [263]);
+});
+
+test('une piste garde son format tant qu il tient, et cède ensuite', () => {
+	// Le miroir de `min(var(--card-w), 100%)`. C'est de cette largeur que se
+	// déduit la hauteur de rangée, donc la position des planches : la prendre
+	// pour 376 sur un téléphone de 320 les ferait passer dans les jaquettes.
+	assert.equal(trackWidth(1216, CARD), CARD);
+	assert.equal(trackWidth(CARD, CARD), CARD);
+	assert.equal(trackWidth(326, CARD), 326);
+	assert.equal(trackWidth(0, CARD), 0);
 });
