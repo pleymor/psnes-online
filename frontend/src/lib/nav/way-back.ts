@@ -18,8 +18,17 @@
 /** The label key, resolved by the caller through `t()`. */
 export type WayBack = { href: string; label: 'backToLibrary' };
 
-/** Screens where going home is plain navigation and nothing else. */
-const PLAIN_NAVIGATION = new Set(['/profile']);
+/**
+ * Screens where going home is plain navigation and nothing else.
+ *
+ * `/docs` joined the day the brand was removed from the bar. The comment
+ * above says the brand was the way home that nobody announced; with it gone,
+ * a reader of the documentation had no way back at all - not a convention
+ * that failed to read as one, simply nothing. The room still gets none, for
+ * the reason spelled out above: leaving one is an action that page owns, and
+ * it offers its own button for it.
+ */
+const PLAIN_NAVIGATION = new Set(['/profile', '/docs']);
 
 /** `/profile/` and `/profile` are the same screen; `/` stays `/`. */
 function normalise(pathname: string): string {

@@ -30,6 +30,14 @@ test('the profile screen gets a labelled link home - the finding that prompted t
 	assert.deepEqual(wayBack('/profile'), { href: '/', label: 'backToLibrary' });
 });
 
+test('the documentation gets one too, since the brand that was its only way home is gone', () => {
+	// La barre portait un logo qui menait à `/`. Il a été retiré, et /docs
+	// n'avait que lui : sans cette entrée, on lit la documentation et on ne
+	// peut plus en sortir autrement qu'avec le bouton du navigateur.
+	assert.deepEqual(wayBack('/docs'), { href: '/', label: 'backToLibrary' });
+	assert.deepEqual(wayBack('/docs/'), { href: '/', label: 'backToLibrary' });
+});
+
 test('a trailing slash is the same screen', () => {
 	assert.deepEqual(wayBack('/profile/'), { href: '/', label: 'backToLibrary' });
 	assert.equal(wayBack(''), null);
