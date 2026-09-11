@@ -7,7 +7,7 @@
  */
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mound } from '../../frontend/src/lib/vr/decor/art/shapes.js';
+import { mound, banded } from '../../frontend/src/lib/vr/decor/art/shapes.js';
 import { rasterise } from '../../frontend/src/lib/vr/decor/pixels.js';
 
 const PALETTE = { body: 'hill', shade: 'hillDark', edge: 'outline' } as const;
@@ -47,4 +47,31 @@ test('le sommet de chaque colonne pleine porte le contour', () => {
 
 test('un lobe de rayon nul est refusé plutôt que rendu vide', () => {
   assert.throws(() => mound([0], PALETTE), /rayon/);
+});
+
+test('les bandes verticales couvrent toute la largeur sans trou', () => {
+  const art = banded(8, 4, [
+    { to: 1, colour: 'outline' },
+    { to: 3, colour: 'pipeHi' },
+    { to: 7, colour: 'pipe' },
+    { to: 8, colour: 'outline' }
+  ]);
+  const raster = rasterise(art);
+  assert.equal(raster.width, 8);
+  assert.equal(raster.height, 4);
+  // Aucun pixel transparent : une bande manquante laisserait un trou vertical
+  // dans un tuyau, ce qui se voit mais seulement dans un casque.
+  for (let i = 3; i < raster.data.length; i += 4) assert.equal(raster.data[i], 255);
+});
+
+test('des bandes qui ne finissent pas à la largeur sont refusées', () => {
+  assert.throws(
+    () => banded(8, 4, [{ to: 6, colour: 'pipe' }]),
+    /couvre 6 colonnes sur 8/
+  );
+});
+
+test('toutes les lignes d_une bande verticale sont identiques', () => {
+  const art = banded(6, 3, [{ to: 6, colour: 'pipe' }]);
+  assert.equal(new Set(art.rows).size, 1);
 });

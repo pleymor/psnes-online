@@ -13,6 +13,14 @@
 import type { Art } from '../pixels';
 import { GROUND_BRICK, GROUND_TURF } from './ground';
 import { HILL_LARGE, HILL_SMALL, BUSH, CLOUD } from './scenery';
+import {
+  PIPE_SHAFT,
+  PIPE_SHAFT_SIDE,
+  PIPE_LIP,
+  PIPE_LIP_SIDE,
+  QUESTION_BLOCK,
+  BLOCK_SIDE
+} from './props';
 
 export const ALL_ART: Readonly<Record<string, Art>> = {
   groundBrick: GROUND_BRICK,
@@ -20,7 +28,13 @@ export const ALL_ART: Readonly<Record<string, Art>> = {
   hillLarge: HILL_LARGE,
   hillSmall: HILL_SMALL,
   bush: BUSH,
-  cloud: CLOUD
+  cloud: CLOUD,
+  pipeShaft: PIPE_SHAFT,
+  pipeShaftSide: PIPE_SHAFT_SIDE,
+  pipeLip: PIPE_LIP,
+  pipeLipSide: PIPE_LIP_SIDE,
+  questionBlock: QUESTION_BLOCK,
+  blockSide: BLOCK_SIDE
 };
 
 export type ArtName = keyof typeof ALL_ART;

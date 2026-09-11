@@ -24,6 +24,7 @@ export const COLOURS = {
   pipeSide: '#006000',
   block: '#e39a10',
   blockHi: '#fcbc3c',
+  brickDark: '#8a5000',
   goomba: '#a04000',
   goombaFoot: '#e09050',
   outline: '#000000'

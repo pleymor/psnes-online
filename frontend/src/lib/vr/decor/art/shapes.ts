@@ -86,3 +86,43 @@ export function mound(radii: readonly number[], palette: MoundPalette): Art {
     rows
   };
 }
+
+/**
+ * Un motif fait de bandes verticales : tout ce qui est un tube en pixel-art.
+ *
+ * Un tuyau de SMB est exactement ça - un liseré noir, deux colonnes claires
+ * qui font la lumière, le corps, une colonne sombre, un liseré. Le décrire en
+ * bandes plutôt qu'en grille littérale évite quarante lignes de caractères et
+ * rend la vérification possible : `to` doit atteindre la largeur, sinon il
+ * reste un trou vertical qu'on ne verrait que dans un casque.
+ */
+export interface Band {
+  /** La colonne après la dernière de cette bande. Cumulatif. */
+  readonly to: number;
+  readonly colour: ColourName;
+}
+
+export function banded(width: number, height: number, bands: readonly Band[]): Art {
+  if (width <= 0 || height <= 0) throw new Error(`taille invalide : ${width}x${height}`);
+  const last = bands[bands.length - 1];
+  if (!last || last.to !== width) {
+    // Le message doit se lire « couvre N colonnes sur M » au singulier
+    // (« total » plutôt que « bandes ») : le test de la Task 16 vérifie ce
+    // message par une regex sur ce fragment exact, et « les bandes couvrent »
+    // ne le contient pas (« couvre » n'y apparaît qu'à l'intérieur de
+    // « couvrent », jamais suivi d'un espace).
+    throw new Error(`le total des bandes couvre ${last?.to ?? 0} colonnes sur ${width}`);
+  }
+
+  const palette: Record<string, ColourName> = {};
+  let row = '';
+  let from = 0;
+  bands.forEach((band, index) => {
+    const char = String.fromCharCode(97 + index); // a, b, c…
+    palette[char] = band.colour;
+    row += char.repeat(band.to - from);
+    from = band.to;
+  });
+
+  return { palette, rows: Array.from({ length: height }, () => row) };
+}
