@@ -100,6 +100,18 @@ export interface BoxProp {
   readonly standing: number;
   /** Mètres. Un tuyau est aussi profond que large. */
   readonly depth: number;
+  /**
+   * Les motifs du pulsement, s'il pulse. C'est la FAÇADE qui change de
+   * palette, pas l'objet qui bouge - d'où sa place ici plutôt que dans
+   * `creatures()` : une boîte qui pulse reste une boîte, et un quad animé posé
+   * devant sa façade se battrait avec elle en profondeur.
+   *
+   * Le premier motif doit être `front`, pour que l'objet au repos soit celui
+   * que `boxFor` a construit.
+   */
+  readonly frames?: readonly string[];
+  /** Hertz du pulsement. La spec §7 plafonne à trois pour une telle surface. */
+  readonly hz?: number;
 }
 
 export function props(): readonly BoxProp[] {
@@ -181,7 +193,13 @@ export function props(): readonly BoxProp[] {
       azimuth: at(2.5),
       radius: RINGS.props,
       standing: 2.4,
-      depth: 1
+      depth: 1,
+      // Celui du milieu bat, les deux autres non : trois blocs qui pulsent en
+      // phase feraient une enseigne, et la spec interdit le clignotement de
+      // grande surface. Un seul, au centre de la rangée, se lit comme un
+      // détail vivant.
+      frames: ['questionBlock', 'questionBlock1', 'questionBlock2'],
+      hz: 3
     },
     {
       front: 'questionBlock',
@@ -191,6 +209,80 @@ export function props(): readonly BoxProp[] {
       radius: RINGS.props,
       standing: 2.4,
       depth: 1
+    }
+  ];
+}
+
+/**
+ * Ce qui bouge, et à quelle distance.
+ *
+ * Le rayon n'est pas un choix esthétique ici : c'est lui qui tient la première
+ * règle de confort. Un goomba à un mètre par seconde couvre 4,8 degrés par
+ * seconde à douze mètres, et le double à six. Rapprocher une créature est donc
+ * la façon dont cette règle se viole - pas l'accélérer - et le test mesure
+ * bien le rapport des deux.
+ *
+ * `span` est la LONGUEUR du va-et-vient, parcouru de part et d'autre du point
+ * posé ici : `motion.ts` reçoit donc des bornes à plus ou moins la moitié, ce
+ * qui fait que changer `span` n'a jamais besoin de corriger l'azimut.
+ */
+export interface Creature {
+  /** Les motifs de la boucle, dans l'ordre. */
+  readonly frames: readonly string[];
+  readonly hz: number;
+  readonly azimuth: number;
+  readonly radius: number;
+  /** Mètres entre le sol et le BAS de l'objet, comme partout ici. */
+  readonly standing: number;
+  readonly motion:
+    | { readonly kind: 'patrol'; readonly span: number; readonly speed: number }
+    | {
+        readonly kind: 'piranha';
+        readonly period: number;
+        readonly outFor: number;
+        readonly travel: number;
+        readonly rise: number;
+      };
+}
+
+export function creatures(): readonly Creature[] {
+  return [
+    {
+      frames: ['goombaA', 'goombaB'],
+      hz: 8,
+      azimuth: at(2.6),
+      radius: RINGS.creatures,
+      standing: 0,
+      motion: { kind: 'patrol', span: 3, speed: 0.9 }
+    },
+    {
+      frames: ['goombaA', 'goombaB'],
+      hz: 8,
+      azimuth: at(8.9),
+      radius: RINGS.creatures,
+      standing: 0,
+      motion: { kind: 'patrol', span: 3, speed: 0.9 }
+    },
+    /*
+     * La plante sort du tuyau posé au MÊME azimut par `props()`, et le test de
+     * placement tient cette égalité. Elle a déjà failli se perdre : le tuyau
+     * de devant est passé de at(1.1) à at(3.2) pour sortir de l'ombre de
+     * l'écran, et le plan, écrit avant, disait encore at(1.1).
+     */
+    {
+      frames: ['piranhaClosed', 'piranhaOpen'],
+      hz: 4,
+      azimuth: at(3.2),
+      radius: RINGS.pipes,
+      standing: 1.4,
+      /*
+       * `travel` n'est pas un réglage de goût : la lèvre du tuyau culmine à
+       * 2,0 m du sol et la tête part de 1,4 m, donc au-delà de 0,6 m sa base
+       * quitte la lèvre et la tête plane, détachée, avec du ciel dessous. Vu
+       * dans le casque à 1,1 m, et c'est le test de placement qui le tient
+       * maintenant. C'est aussi ce qui rend toute tige inutile.
+       */
+      motion: { kind: 'piranha', period: 6, outFor: 2.4, travel: 0.6, rise: 0.4 }
     }
   ];
 }

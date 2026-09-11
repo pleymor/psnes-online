@@ -26,9 +26,10 @@ import {
   ART_PIXELS_PER_METRE
 } from './composition';
 import { curtainAtMillis, elapsedFor, type FadeTarget } from './fade';
-import { packAtlas, uvOf, type Atlas } from './atlas';
-import { scenery, props, type Prop, type BoxProp } from './placement';
+import { packAtlas, uvOf, type Atlas, type Uv } from './atlas';
+import { scenery, props, creatures, type Prop, type BoxProp, type Creature } from './placement';
 import { boxGeometry, boxYaw } from './box';
+import { spriteFrame, patrol, piranha } from './motion';
 
 export interface DecorOptions {
   /** Mètres sous l'œil, de `floor.ts`. */
@@ -231,6 +232,41 @@ function boxFor(
   return mesh;
 }
 
+/**
+ * Une face dont les uv changent d'image en image.
+ *
+ * La même forme sert aux créatures et aux boîtes qui pulsent, et ce n'est pas
+ * un hasard : `box.ts` met sa FAÇADE en première face, donc ses quatre
+ * premiers sommets - les huit premiers flottants d'uv - sont exactement ceux
+ * d'un quad. Un seul type, une seule boucle.
+ */
+interface Animated {
+  readonly uv: THREE.BufferAttribute;
+  readonly frames: readonly Uv[];
+  readonly hz: number;
+  /** La dernière image écrite, pour ne pas réécrire ce qui n'a pas changé. */
+  shown: number;
+}
+
+/** Une créature qui se déplace, avec de quoi la replacer sans trigonométrie. */
+interface Moving {
+  readonly mesh: THREE.Mesh;
+  readonly base: THREE.Vector3;
+  /** La tangente de l'anneau : la direction d'un va-et-vient. */
+  readonly tangent: THREE.Vector3;
+  readonly motion: Creature['motion'];
+}
+
+function writeFrame(animated: Animated, index: number): void {
+  if (index === animated.shown) return;
+  animated.shown = index;
+  const uv = animated.frames[index];
+  (animated.uv.array as Float32Array).set([
+    uv.u0, uv.v1, uv.u1, uv.v1, uv.u0, uv.v0, uv.u1, uv.v0
+  ]);
+  animated.uv.needsUpdate = true;
+}
+
 export function createDecor(opts: DecorOptions): Decor {
   const decor = new THREE.Group();
 
@@ -317,10 +353,62 @@ export function createDecor(opts: DecorOptions): Decor {
    * relief - un seul bind de plus n'apporterait rien, et `boxFor` en est la
    * jumelle exacte pour la position.
    */
+  const animated: Animated[] = [];
   for (const prop of props()) {
     const mesh = boxFor(prop, atlas, quadMaterial, opts.floorHeight);
     quadGeometries.push(mesh.geometry);
     decor.add(mesh);
+    // Le pulsement d'un bloc : sa façade, et rien d'autre. Les flancs gardent
+    // leur teinte assombrie, ce qui est le propre du cyclage de palette.
+    if (prop.frames) {
+      animated.push({
+        uv: mesh.geometry.getAttribute('uv') as THREE.BufferAttribute,
+        frames: prop.frames.map((name) => uvOf(atlas, name)),
+        hz: prop.hz ?? 1,
+        shown: 0
+      });
+    }
+  }
+
+  /*
+   * Ce qui bouge. Deux billboards, donc ils passent par la boucle
+   * d'orientation avec les nuages - un goomba en volume n'est plus un goomba.
+   *
+   * `quadFor` est réutilisé tel quel plutôt que recopié : l'arithmétique de
+   * position n'existe qu'une fois, et une créature n'est rien d'autre qu'un
+   * élément du relief dont les uv changent.
+   */
+  const moving: Moving[] = [];
+  for (const creature of creatures()) {
+    const mesh = quadFor(
+      {
+        art: creature.frames[0],
+        azimuth: creature.azimuth,
+        radius: creature.radius,
+        standing: creature.standing,
+        facing: 'billboard'
+      },
+      atlas,
+      quadMaterial,
+      opts.floorHeight
+    );
+    quadGeometries.push(mesh.geometry);
+    decor.add(mesh);
+    billboards.push(mesh);
+    animated.push({
+      uv: mesh.geometry.getAttribute('uv') as THREE.BufferAttribute,
+      frames: creature.frames.map((name) => uvOf(atlas, name)),
+      hz: creature.hz,
+      shown: 0
+    });
+    moving.push({
+      mesh,
+      base: mesh.position.clone(),
+      // La dérivée de la position sur l'anneau : (cos, 0, sin). Un va-et-vient
+      // suit donc le cercle plutôt que de s'en écarter en ligne droite.
+      tangent: new THREE.Vector3(Math.cos(creature.azimuth), 0, Math.sin(creature.azimuth)),
+      motion: creature.motion
+    });
   }
 
   // Réutilisés à chaque image plutôt qu'alloués dedans : cette boucle tourne
@@ -389,6 +477,37 @@ export function createDecor(opts: DecorOptions): Decor {
        * « un `if` par image », et c'est ce `if`-là.
        */
       if (decor.visible) {
+        /*
+         * Le temps du runtime XR est en MILLISECONDES ; `motion.ts` travaille
+         * en secondes. La conversion est ici, une fois, parce qu'un module de
+         * mouvement qui connaîtrait l'unité du casque serait intestable.
+         */
+        const seconds = t / 1000;
+
+        for (const item of animated) {
+          writeFrame(item, spriteFrame(seconds, { frames: item.frames.length, hz: item.hz }));
+        }
+
+        /*
+         * Le déplacement AVANT l'orientation : un billboard se tourne d'après
+         * sa position, donc l'ordre inverse le viserait depuis l'endroit qu'il
+         * vient de quitter - une image de retard, invisible à l'arrêt et
+         * visible en marche.
+         */
+        for (const item of moving) {
+          if (item.motion.kind === 'patrol') {
+            const half = item.motion.span / 2;
+            const { at } = patrol(seconds, {
+              from: -half,
+              to: half,
+              speed: item.motion.speed
+            });
+            item.mesh.position.copy(item.base).addScaledVector(item.tangent, at);
+          } else {
+            item.mesh.position.y = item.base.y + piranha(seconds, item.motion);
+          }
+        }
+
         // Les billboards visent la tête à LEUR PROPRE hauteur : viser la tête
         // elle-même les ferait basculer en tangage quand le joueur lève les
         // yeux, ce qui trahit immédiatement la surface plate - un nuage ne se

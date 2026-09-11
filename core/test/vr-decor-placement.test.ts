@@ -7,7 +7,7 @@
  */
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { scenery, props } from '../../frontend/src/lib/vr/decor/placement.js';
+import { scenery, props, creatures } from '../../frontend/src/lib/vr/decor/placement.js';
 import {
   DECOR_NEAR,
   SKY_RADIUS,
@@ -125,6 +125,107 @@ test('aucun objet proche ne se cache derrière l_écran de jeu', () => {
       `${prop.front} à ${((signed * 180) / Math.PI).toFixed(1)}° : son bord entre à ` +
         `${((inner * 180) / Math.PI).toFixed(1)}°, l'écran en couvre ` +
         `${((shadow * 180) / Math.PI).toFixed(1)}°`
+    );
+  }
+});
+
+/*
+ * Ce qui bouge. Les trois règles de confort de la spec §7 sont des
+ * CONTRAINTES DE COMPOSITION, donc elles se vérifient ici, sur les nombres,
+ * et non dans le code qui anime.
+ */
+
+test('rien ne bouge assez vite pour donner la nausée', () => {
+  // Moins de sept degrés par seconde. C'est le mouvement rapide près du
+  // centre du champ qui rend malade, et le test mesure le RAPPORT de la
+  // vitesse au rayon : la règle se viole en rapprochant un goomba, pas en
+  // l'accélérant. Rapprocher est d'ailleurs tentant - de près, il se voit.
+  for (const creature of creatures()) {
+    if (creature.motion.kind !== 'patrol') continue;
+    const degreesPerSecond = (creature.motion.speed / creature.radius) * (180 / Math.PI);
+    assert.ok(degreesPerSecond < 7, `${creature.frames[0]} file à ${degreesPerSecond} deg/s`);
+  }
+});
+
+test('rien ne clignote au-dessus de trois hertz, sauf un sprite de la taille d_un genou', () => {
+  for (const creature of creatures()) {
+    assert.ok(creature.hz <= 8, `${creature.frames[0]} à ${creature.hz} Hz`);
+    // Une boucle de deux images à 8 Hz fait quatre alternances par seconde sur
+    // un sprite de la taille d'un genou : ce n'est pas un clignotement de
+    // grande surface, et c'est la cadence de l'original. Une image unique qui
+    // clignoterait, en revanche, n'est qu'un aplat qui bat.
+    if (creature.frames.length === 1) assert.ok(creature.hz <= 3, 'un aplat qui clignote');
+  }
+});
+
+test('toute créature désigne des motifs qui existent, et au moins un', () => {
+  for (const creature of creatures()) {
+    assert.ok(creature.frames.length >= 1);
+    for (const art of creature.frames) assert.ok(ALL_ART[art], `motif inconnu : ${art}`);
+  }
+});
+
+test('aucune créature ne vient devant le rideau', () => {
+  for (const creature of creatures()) {
+    assert.ok(creature.radius >= DECOR_NEAR, `${creature.frames[0]} à ${creature.radius} m`);
+  }
+});
+
+test('la plante sort du tuyau, et non à côté', () => {
+  /*
+   * Le seul couplage entre deux listes de ce module, et il est réel : une
+   * plante carnivore qui pousse à côté de son tuyau ne se lit pas comme un
+   * décalage d'un mètre, elle se lit comme un bug. Les deux azimuts doivent
+   * donc rester égaux - ce qui a déjà failli se perdre, puisque le tuyau de
+   * devant a changé d'azimut pour sortir de l'ombre de l'écran.
+   */
+  for (const creature of creatures()) {
+    if (creature.motion.kind !== 'piranha') continue;
+    const hosts = props().filter(
+      (prop) => Math.abs(prop.azimuth - creature.azimuth) < 1e-9 && prop.radius === creature.radius
+    );
+    assert.ok(hosts.length > 0, `aucun tuyau à l'azimut ${creature.azimuth}`);
+  }
+});
+
+test('le bloc qui pulse bat lentement, et sur des motifs qui existent', () => {
+  // Le pulsement n'est pas une créature : c'est la FAÇADE d'une boîte dont la
+  // palette tourne, donc il vit sur `BoxProp`. Un mètre de large à hauteur de
+  // frappe, ce n'est plus un sprite de la taille d'un genou - d'où les trois
+  // hertz de la spec, et non les huit d'un goomba.
+  const pulsing = props().filter((prop) => prop.frames);
+  assert.ok(pulsing.length > 0, 'aucune boîte ne pulse');
+  for (const prop of pulsing) {
+    assert.ok(prop.hz !== undefined && prop.hz <= 3, `${prop.front} bat à ${prop.hz} Hz`);
+    for (const art of prop.frames ?? []) assert.ok(ALL_ART[art], `motif inconnu : ${art}`);
+  }
+});
+
+test('la plante ne décolle pas de son tuyau', () => {
+  /*
+   * Vu dans le casque le 2026-09-11 : à pleine sortie, la tête flottait un
+   * demi-mètre AU-DESSUS de la lèvre, détachée, avec du ciel entre les deux.
+   * Rien ne l'attrapait - `motion.ts` garde sa course, `creatures()` garde son
+   * azimut, et personne ne comparait la course à la hauteur du tuyau.
+   *
+   * La règle : la BASE de la tête ne doit jamais dépasser le sommet de la
+   * lèvre. C'est ce qui fait qu'une plante sort du tuyau plutôt que de planer
+   * au-dessus, et c'est pour ça qu'aucune tige n'est nécessaire.
+   */
+  for (const creature of creatures()) {
+    if (creature.motion.kind !== 'piranha') continue;
+    const hosts = props().filter(
+      (prop) => Math.abs(prop.azimuth - creature.azimuth) < 1e-9 && prop.radius === creature.radius
+    );
+    const lipTop = Math.max(
+      ...hosts.map(
+        (prop) => prop.standing + ALL_ART[prop.front].rows.length / ART_PIXELS_PER_METRE
+      )
+    );
+    const risenBase = creature.standing + creature.motion.travel;
+    assert.ok(
+      risenBase <= lipTop + 1e-9,
+      `la tête part de ${risenBase} m alors que la lèvre culmine à ${lipTop} m`
     );
   }
 });
