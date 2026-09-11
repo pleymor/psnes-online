@@ -396,19 +396,24 @@
     gap: 0.75rem;
   }
 
-  /* La touche du HUD : sombre, cerclée d'or, moulée. La recette est écrite
-     en entier ici et non héritée, parce que cette classe habille aussi des
-     <a> - le lien de retour et celui du profil - que le plancher de
-     `:global(button)` n'atteint pas. */
+  /* La touche du HUD : sombre, cerclée d'or, moulée.
+     Les valeurs de forme viennent des jetons et non d'une copie de la
+     recette - c'est cette copie, et sa dérive, qui faisait lire « Amis »
+     et « Rescanner le dossier » comme deux objets différents. La règle est
+     ici plutôt que dans le plancher parce qu'elle habille aussi des <a>,
+     que `:global(button)` n'atteint pas ; ce qu'elle ajoute à la forme
+     commune est sa couleur, et rien d'autre. */
   .bar-button {
+    display: inline-flex;
+    align-items: center;
     background: var(--ground);
-    border: 3px solid var(--edge);
-    box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.25), inset 0 4px 0 rgba(255, 255, 255, 0.12);
+    border: var(--btn-border) solid var(--edge);
+    box-shadow: var(--btn-bevel);
     color: var(--shell);
     font-family: var(--display);
-    font-size: 1.05rem;
-    padding: 0.25rem 0.8rem;
-    border-radius: 9px;
+    font-size: var(--btn-size);
+    padding: var(--btn-pad);
+    border-radius: var(--btn-radius);
     cursor: pointer;
   }
 

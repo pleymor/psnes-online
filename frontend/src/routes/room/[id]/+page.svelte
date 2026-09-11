@@ -1266,13 +1266,13 @@
   .btn-leave {
     display: inline-block;
     background: var(--panel);
-    border: 3px solid var(--edge);
-    box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.25), inset 0 4px 0 rgba(255, 255, 255, 0.12);
+    border: var(--btn-border) solid var(--edge);
+    box-shadow: var(--btn-bevel);
     color: var(--shell);
     font-family: var(--display);
-    font-size: 1.1rem;
-    padding: 0.5rem 1.4rem;
-    border-radius: 9px;
+    font-size: var(--btn-size);
+    padding: var(--btn-pad);
+    border-radius: var(--btn-radius);
     text-decoration: none;
     cursor: pointer;
   }

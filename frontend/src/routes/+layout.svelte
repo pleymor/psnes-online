@@ -303,6 +303,30 @@
        ligne. Le corps de texte long reste en sans système : aucune des deux
        n'est faite pour un paragraphe. */
     --display: 'Pixelify Sans', ui-sans-serif, system-ui, sans-serif;
+
+    /*
+     * La forme d'un bouton, et rien que sa forme.
+     *
+     * Elle vivait dans le plancher de `:global(button)`, ce qui suffisait
+     * tant que tous les boutons étaient des `<button>`. Deux ne le sont
+     * pas - « Amis » et « Retour à la bibliothèque » sont des `<a>`, que
+     * le plancher n'atteint pas - donc la recette y a été recopiée à la
+     * main, et les deux copies avaient déjà divergé : biseau à 0,25/0,12
+     * d'un côté et 0,2/0,27 de l'autre, marges et corps différents. Deux
+     * boutons voisins ne se lisaient plus comme le même objet.
+     *
+     * D'où ces jetons. Les valeurs n'existent qu'ici ; le plancher les
+     * applique, les règles qui habillent un `<a>` les appliquent aussi, et
+     * aucune des deux ne peut plus dériver de l'autre.
+     */
+    --btn-border: 3px;
+    --btn-radius: 9px;
+    --btn-pad: 0.35rem 0.85rem;
+    --btn-size: 1.05rem;
+    /* Clair en haut, sombre en bas : c'est ce relief qui dit « ceci
+       s'enfonce », et la seule partie de la recette qu'il serait pénible
+       de réécrire juste. */
+    --btn-bevel: inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.27);
   }
 
   :global(body) {
@@ -323,10 +347,10 @@
    * ne prend jamais le pas sur un style existant : il ne fait que garantir
    * qu'aucun bouton ne puisse plus jamais tomber sur le style par défaut.
    *
-   * C'est aussi devenu le seul endroit où la FORME du bouton est écrite :
-   * le rayon, le biseau moulé, la police, l'épaisseur du bord. Un composant
-   * qui veut un bouton vert n'a donc plus qu'à poser deux couleurs, et tout
-   * ce qu'il ne redéclare pas retombe ici. Cette dissymétrie est voulue :
+   * Il applique la forme déclarée plus haut en jetons, sans la redéfinir.
+   * Un composant qui veut un bouton vert n'a donc qu'à poser deux couleurs,
+   * et tout ce qu'il ne redéclare pas retombe ici. Cette dissymétrie est
+   * voulue :
    * la forme est commune à toute l'application, la couleur porte du sens -
    * vert on avance, rouge on annule, sombre c'est de la navigation - et une
    * application dont tous les boutons seraient verts aurait harmonisé la
@@ -334,16 +358,13 @@
    */
   :global(button) {
     font-family: var(--display);
-    font-size: 1.05rem;
+    font-size: var(--btn-size);
     color: var(--label);
     background: var(--panel);
-    border: 3px solid var(--edge);
-    border-radius: 9px;
-    /* Le biseau moulé : clair en haut, sombre en bas. C'est lui qui dit
-       « ceci s'enfonce », et c'est la seule partie de la recette qu'il
-       serait pénible de réécrire juste - donc elle ne se réécrit pas. */
-    box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.2), inset 0 4px 0 rgba(255, 255, 255, 0.27);
-    padding: 0.35rem 0.85rem;
+    border: var(--btn-border) solid var(--edge);
+    border-radius: var(--btn-radius);
+    box-shadow: var(--btn-bevel);
+    padding: var(--btn-pad);
     cursor: pointer;
   }
 
