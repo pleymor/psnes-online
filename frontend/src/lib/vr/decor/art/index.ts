@@ -30,6 +30,7 @@ import {
   PIRANHA_CLOSED,
   PIRANHA_OPEN
 } from './creatures';
+import { COUNTER_BRICK, COUNTER_SIDE, COUNTER_TOP } from './furniture';
 
 export const ALL_ART: Readonly<Record<string, Art>> = {
   groundBrick: GROUND_BRICK,
@@ -50,7 +51,10 @@ export const ALL_ART: Readonly<Record<string, Art>> = {
   goombaB: GOOMBA_B,
   piranhaStem: PIRANHA_STEM,
   piranhaClosed: PIRANHA_CLOSED,
-  piranhaOpen: PIRANHA_OPEN
+  piranhaOpen: PIRANHA_OPEN,
+  counterBrick: COUNTER_BRICK,
+  counterSide: COUNTER_SIDE,
+  counterTop: COUNTER_TOP
 };
 
 export type ArtName = keyof typeof ALL_ART;
