@@ -1042,7 +1042,6 @@
     background: var(--go);
     border-color: var(--go-deep);
     color: #ffffff;
-    font-size: 1.1rem;
     flex-shrink: 0;
   }
 
