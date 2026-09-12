@@ -34,6 +34,7 @@ import type { DepthSurface, VideoSurface } from '$lib/znet/core';
 import type { PanelSize, Region } from './panel';
 import { createSlotMaskBuilder, hasSlot, SLOT_COUNT } from './slot-mask';
 import { slotDepths } from './slot-depth';
+import { createSlotFiller } from './slot-fill';
 import { DEFAULT_RELIEF, type ReliefPreset } from './relief-preset';
 import { drawIdleGlass } from './panels/idle-glass';
 import { LAUNCH_PANEL_SIZE } from './panels/launch';
@@ -71,7 +72,7 @@ export interface VrScreen {
    * picture lands on the backdrop plane and the screen is flat, which is the
    * honest answer for a core that has no layer plane to give.
    */
-  upload(surface: VideoSurface, depth?: DepthSurface): void;
+  upload(surface: VideoSurface, depth?: DepthSurface, scroll?: Uint16Array): void;
   showIdle(): void;
   /**
    * Turns the screen into a canvas and paints it.
@@ -168,6 +169,14 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
    */
   const mapUniform: { value: THREE.DataTexture | null } = { value: null };
   const maskUniform: { value: THREE.DataTexture | null } = { value: null };
+  /*
+   * La mémoire des calques, une couche de tableau par fond présent.
+   *
+   * Partagée comme les autres, mais `fillLayer` ne l'est PAS : c'est le second
+   * uniforme par plan après `slot`, et le seul qui change en cours de partie -
+   * un calque qui apparaît ou disparaît réordonne les couches de l'atlas.
+   */
+  const fillUniform: { value: THREE.DataArrayTexture | null } = { value: null };
   const texSizeUniform = { value: new THREE.Vector2(1, 1) };
   const uMaxUniform = { value: 1 };
 
@@ -180,6 +189,8 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
         uniforms: {
           map: mapUniform,
           mask: maskUniform,
+          fill: fillUniform,
+          fillLayer: { value: -1 },
           texSize: texSizeUniform,
           uMax: uMaxUniform,
           slot: { value: slot }
@@ -249,6 +260,10 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
   let texture: THREE.DataTexture | null = null;
   let maskTexture: THREE.DataTexture | null = null;
   const maskBuilder = createSlotMaskBuilder();
+  let fillTexture: THREE.DataArrayTexture | null = null;
+  const filler = createSlotFiller();
+  /** La forme de l'atlas actuellement téléversé, pour ne le recréer qu'au besoin. */
+  let fillShape = '';
   /**
    * Which planes have anything to draw, as the bitmask `slot-mask.ts` returns.
    *
@@ -298,6 +313,76 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
   function applyPresence(): void {
     meshes.forEach((mesh, slot) => {
       mesh.visible = mode === 'panel' ? mesh === panelPlane : hasSlot(presentSlots, slot);
+    });
+  }
+
+  /**
+   * La mémoire des calques, recalée et téléversée pour cette image.
+   *
+   * Rien n'est fait quand le relief est à plat : les plans se superposent
+   * exactement, leur union recouvre l'image sans un trou, et il n'y a donc
+   * rien à combler. C'est aussi le réglage qui sert à comparer avec le jeu
+   * d'origine, et il doit rester le jeu d'origine, au pixel près.
+   */
+  function applyFill(
+    picture: Uint8Array,
+    mask: Uint8Array,
+    scroll: Uint16Array | undefined,
+    width: number,
+    height: number,
+    stride: number
+  ): void {
+    if (!scroll || relief.spacing === 0) {
+      if (fillShape !== '') {
+        filler.reset();
+        fillShape = '';
+        for (const material of pictureMaterials) material.uniforms.fillLayer.value = -1;
+      }
+      return;
+    }
+
+    const fill = filler.build(picture, mask, presentSlots, width, height, stride, scroll);
+
+    /*
+     * La texture est recréée quand la FORME de l'atlas change - un calque qui
+     * apparaît, un changement de mode - et jamais pour une image ordinaire.
+     * `filler.build` réalloue au même moment, donc les deux comptes ne peuvent
+     * pas diverger : on lit la forme qu'il vient d'établir plutôt que de la
+     * recalculer ici.
+     */
+    const shape = `${fill.width}x${fill.height}x${fill.layers}`;
+    if (shape !== fillShape) {
+      fillShape = shape;
+      fillTexture?.dispose();
+      fillTexture = new THREE.DataArrayTexture(fill.data, fill.width, fill.height, fill.layers);
+      /*
+       * NEAREST, pour la raison du masque et une de plus.
+       *
+       * Interpoler entre un pixel connu et un pixel jamais vu donnerait une
+       * alpha à mi-chemin, donc une frange de couleur inventée le long de
+       * chaque bord de trou - exactement la bavure que le repli par dilatation
+       * produit, et qu'on est en train d'éviter.
+       */
+      fillTexture.magFilter = THREE.NearestFilter;
+      fillTexture.minFilter = THREE.NearestFilter;
+      fillTexture.generateMipmaps = false;
+      /*
+       * AUCUNE conversion : ce sont les octets que l'image a déjà affichés.
+       *
+       * L'image, elle, est en sRGB et le shader la réencode en sortie - le
+       * trajet complet la ramène à ses propres octets. La mémoire saute les
+       * deux étapes et arrive au même endroit, ce qui vaut mieux que de parier
+       * sur le traitement que three réserve à une texture-tableau.
+       */
+      fillTexture.colorSpace = THREE.NoColorSpace;
+      fillUniform.value = fillTexture;
+    } else {
+      fillTexture!.image.data = fill.data;
+    }
+    fillTexture!.needsUpdate = true;
+
+    pictureMaterials.forEach((material, slot) => {
+      material.uniforms.fillLayer.value = fill.layerOf[slot];
     });
   }
 
@@ -395,6 +480,21 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
       mesh.material = pictureMaterials[slot];
     });
 
+    /*
+     * La mémoire repart de zéro avec la forme de l'image.
+     *
+     * `slot-fill.ts` le détecterait tout seul, mais la texture, elle, ne le
+     * détecterait pas : elle garderait ses dimensions d'avant et servirait
+     * l'ancienne résolution, décalée. Deux endroits doivent oublier, donc les
+     * deux sont dits ici.
+     */
+    filler.reset();
+    fillShape = '';
+    fillTexture?.dispose();
+    fillTexture = null;
+    fillUniform.value = null;
+    for (const material of pictureMaterials) material.uniforms.fillLayer.value = -1;
+
     presentSlots = 1;
     applyPlacement();
     applyPresence();
@@ -405,7 +505,7 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
   const handle: VrScreen = {
     meshes,
 
-    upload(surface: VideoSurface, depth?: DepthSurface): void {
+    upload(surface: VideoSurface, depth?: DepthSurface, scroll?: Uint16Array): void {
       /*
        * A running game does not take the screen back by itself.
        *
@@ -466,6 +566,15 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
           presentSlots = mask.present;
           applyPresence();
         }
+        // APRÈS `presentSlots`, qui décide quels calques méritent une mémoire.
+        applyFill(
+          surface.data,
+          mask.data,
+          scroll,
+          surface.width,
+          surface.height,
+          surface.stride
+        );
       }
 
       texture!.image.data = surface.data;
@@ -617,6 +726,7 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
       geometry.dispose();
       texture?.dispose();
       maskTexture?.dispose();
+      fillTexture?.dispose();
       panelTexture?.dispose();
       for (const material of pictureMaterials) material.dispose();
       panelMaterial.dispose();

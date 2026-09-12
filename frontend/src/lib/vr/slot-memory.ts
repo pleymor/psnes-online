@@ -109,3 +109,144 @@ export function inside(
 ): boolean {
   return x >= 0 && y >= 0 && x < width && y < height;
 }
+
+/**
+ * Ce qu'un calque a montré, pixel par pixel, et ce qu'on n'a jamais vu.
+ *
+ * UN SEUL TABLEAU, et l'alpha porte le « déjà vu ». Ce n'est pas une économie
+ * de mémoire, c'est une économie de vérité : avec un second tableau de
+ * drapeaux, il y a deux endroits qui peuvent se contredire, et le recalage
+ * avait déjà ce défaut - il effaçait les drapeaux en laissant l'alpha périmé
+ * dans les couleurs. Un pixel jamais vu n'est pas un pixel noir, il n'a pas de
+ * couleur du tout, et une alpha de zéro dit exactement ça - au shader comme à
+ * nous, sans conversion.
+ *
+ * Les couleurs peuvent être une VUE sur un tampon plus grand, ce qui laisse
+ * `slot-fill.ts` ranger les mémoires de tous les calques dans un seul atlas et
+ * le téléverser d'un bloc, sans recopie.
+ */
+export interface Memory {
+  readonly data: Uint8ClampedArray;
+  readonly width: number;
+  readonly height: number;
+  /** Un tampon de travail, pour ne pas en allouer un par image. */
+  readonly scratch: Uint8ClampedArray;
+}
+
+export function createMemory(
+  width: number,
+  height: number,
+  backing?: Uint8ClampedArray
+): Memory {
+  const data = backing ?? new Uint8ClampedArray(width * height * 4);
+  if (data.length < width * height * 4) {
+    throw new Error(`mémoire trop courte : ${data.length} pour ${width}x${height}`);
+  }
+  return { data, width, height, scratch: new Uint8ClampedArray(width * height * 4) };
+}
+
+/** A-t-on déjà vu ce pixel ? L'alpha le dit, et rien d'autre. */
+export function sawPixel(memory: Memory, at: number): boolean {
+  return memory.data[at * 4 + 3] !== 0;
+}
+
+/**
+ * Oublie tout.
+ *
+ * Seules les alphas sont remises à zéro : les couleurs restent, mais plus
+ * personne ne les croit, et les réécrire coûterait trois fois plus pour le
+ * même résultat.
+ */
+export function forget(memory: Memory): void {
+  const { data, width, height } = memory;
+  for (let i = 3; i < width * height * 4; i += 4) data[i] = 0;
+}
+
+/**
+ * Recale la mémoire de `dx`, `dy` pixels.
+ *
+ * Ce qui sort du cadre est perdu, et ce qui entre est marqué NON VU : une
+ * mémoire n'est pas un monde torique, et un décor qui reviendrait par la
+ * gauche après être sorti par la droite serait plus troublant qu'un trou.
+ */
+export function reproject(memory: Memory, dx: number, dy: number): void {
+  if (dx === 0 && dy === 0) return;
+  const { data, scratch, width, height } = memory;
+  scratch.set(data.subarray(0, width * height * 4));
+
+  for (let y = 0; y < height; y++) {
+    const from = y - dy;
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      const dst = (row + x) * 4;
+      const sx = x - dx;
+      if (from < 0 || from >= height || sx < 0 || sx >= width) {
+        data[dst + 3] = 0;
+        continue;
+      }
+      const src = (from * width + sx) * 4;
+      data[dst] = scratch[src];
+      data[dst + 1] = scratch[src + 1];
+      data[dst + 2] = scratch[src + 2];
+      data[dst + 3] = scratch[src + 3];
+    }
+  }
+}
+
+/**
+ * Écrit ce que le calque vient de gagner, ET juge la prédiction au passage.
+ *
+ * Les deux dans la même passe parce que c'est la même boucle : un pixel que le
+ * calque vient de dessiner est à la fois ce qu'il faut retenir et ce qui
+ * permet de savoir si la mémoire disait vrai à cet endroit. Les séparer
+ * coûterait un second parcours pour la même information.
+ *
+ * Rend de quoi appeler `trustworthy`. Le désaccord se mesure sur les pixels
+ * DÉJÀ VUS seulement : un pixel neuf ne prédit rien, donc il ne peut pas se
+ * tromper.
+ */
+export function stamp(
+  memory: Memory,
+  picture: Uint8Array | Uint8ClampedArray,
+  mask: Uint8Array,
+  slot: number,
+  stride: number
+): { disagreements: number; compared: number } {
+  const { data, width, height } = memory;
+  let disagreements = 0;
+  let compared = 0;
+
+  for (let y = 0; y < height; y++) {
+    const source = y * stride;
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      if (mask[source + x] !== slot) continue;
+      const from = (source + x) * 4;
+      const at = (row + x) * 4;
+      const r = picture[from];
+      const g = picture[from + 1];
+      const b = picture[from + 2];
+
+      if (data[at + 3] !== 0) {
+        compared++;
+        // Une tolérance par canal : la même couleur peut différer d'un bit
+        // après un aller-retour par une texture, et compter ça comme un
+        // désaccord ferait jeter une mémoire parfaitement bonne.
+        if (
+          Math.abs(data[at] - r) > 8 ||
+          Math.abs(data[at + 1] - g) > 8 ||
+          Math.abs(data[at + 2] - b) > 8
+        ) {
+          disagreements++;
+        }
+      }
+
+      data[at] = r;
+      data[at + 1] = g;
+      data[at + 2] = b;
+      data[at + 3] = 255;
+    }
+  }
+
+  return { disagreements, compared };
+}

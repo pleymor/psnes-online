@@ -129,6 +129,8 @@ void main() {
 export const PICTURE_FRAGMENT_SHADER = /* glsl */ `
 uniform sampler2D map;
 uniform sampler2D mask;
+uniform sampler2DArray fill;
+uniform float fillLayer;
 uniform float slot;
 uniform vec2 texSize;
 uniform float uMax;
@@ -170,7 +172,70 @@ void main() {
   float pixelSlot = texture2D(mask, (floor(t) + 0.5) / texSize).r * 255.0;
   // Half a slot of tolerance: these are integers that made a round trip
   // through an 8-bit texture and a float, so == would be a coin toss.
-  if (abs(pixelSlot - slot) > 0.5) discard;
+  if (abs(pixelSlot - slot) > 0.5) {
+    /*
+     * Un trou. Ce que ce plan n'a pas gagné, il ne l'a pas - et quand le
+     * relief écarte les plans, c'est par là qu'on voit du noir.
+     *
+     * slot-fill.ts garde ce que ce calque a MONTRÉ AVANT, recalé par son
+     * défilement. L'alpha porte le « déjà vu » : à zéro, on n'a jamais rien vu
+     * ici, et on se tait plutôt que de servir du noir avec l'aplomb d'une
+     * vraie mesure. La couche vaut -1 pour les calques sans mémoire - les
+     * sprites, la toile de fond - dont les trous sont leur transparence et non
+     * un défaut.
+     */
+    if (fillLayer < 0.0) discard;
+    vec2 fillUv = vec2(
+      (floor(t.x) + 0.5) / (uMax * texSize.x),
+      // La mémoire n'est pas retournée au téléversement, là où l'image et le
+      // masque le sont : texImage3D n'honore pas UNPACK_FLIP_Y. La ligne 0
+      // du tampon est le HAUT de l'image, donc le v s'inverse ici - et il
+      // s'inverse ici SEULEMENT, sinon on couperait l'image avec son reflet.
+      1.0 - (floor(t.y) + 0.5) / texSize.y
+    );
+    if (fillUv.x > 1.0) discard;
+    vec4 remembered = texture(fill, vec3(fillUv, fillLayer));
+    if (remembered.a < 0.5) discard;
+
+    /*
+     * UN PIXEL DE MÉMOIRE NE MASQUE JAMAIS UN PIXEL RÉEL.
+     *
+     * Sans ça, le remplissage d'un plan proche recouvrirait ce qu'un plan
+     * lointain dessine vraiment au même endroit, et l'image vue de face
+     * cesserait d'être l'image du jeu - une barre d'état mangée par le fond
+     * qu'on se souvient d'avoir vu derrière elle. Le repousser au fond du
+     * tampon de profondeur le fait perdre contre TOUT ce qui est réel, quel
+     * que soit le plan et quel que soit l'ordre de dessin.
+     *
+     * Le petit écart par calque départage les mémoires entre elles, et c'est
+     * la seule chose qu'il fait : le plan le plus proche - le plus grand
+     * index - gagne, comme il gagnerait s'il était réel.
+         *
+     * Ce qu'une profondeur écrite à la main coûte, pour qui viendra chercher
+     * ici une perte de cadence : elle prive le GPU du rejet anticipé, ce qui
+     * se paie cher sur les puces mobiles à tuiles. Mais ce shader-ci fait DÉJÀ
+     * discard quelques lignes plus haut, et un discard désactive le même
+     * mécanisme pour les mêmes raisons - le pilote ne peut pas décider du sort
+     * d'un fragment avant de l'avoir exécuté. L'optimisation était donc déjà
+     * perdue avant cette ligne, qui n'y ajoute presque rien.
+     */
+    gl_FragDepth = 1.0 - slot * 1e-4;
+    /*
+     * Servi TEL QUEL, sans repasser par l'espace de couleur.
+     *
+     * Ce ne sont pas des couleurs calculées, ce sont les octets que l'image a
+     * déjà affichés. Le chemin normal les décoderait puis les réencoderait
+     * pour retomber sur eux-mêmes ; les émettre directement donne le même
+     * résultat, et ne dépend pas de la façon dont three traite l'espace de
+     * couleur d'une texture-tableau - une question à laquelle il valait mieux
+     * ne pas avoir de réponse à donner.
+     */
+    gl_FragColor = remembered;
+    return;
+  }
+  // Écrit dans les deux branches, parce qu_une seule le laisserait indéfini
+  // dans l_autre - et un pixel réel à une profondeur indéfinie clignoterait.
+  gl_FragDepth = gl_FragCoord.z;
 
   // The nearest texel boundary. The footprint is already in hand, above.
   vec2 seam = floor(t + 0.5);

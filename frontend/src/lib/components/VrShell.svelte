@@ -2061,7 +2061,8 @@
           // into the stack of planes the headset shows. Taking the picture
           // first is safe because the getters `depthSurface()` calls cannot
           // grow the heap, which is the only thing that detaches a view.
-          onFrame: (c) => scene?.screen.upload(c.videoSurface(), c.depthSurface()),
+          onFrame: (c) =>
+            scene?.screen.upload(c.videoSurface(), c.depthSurface(), c.scrollSurface()),
           onError: (err) => logger.error('vr engine', err),
           /*
            * The whole reason `GovernorOptions.schedule` exists, and the one line
@@ -2771,7 +2772,8 @@
         readLocalInput: localPad,
         onEvent: onSessionEvent,
         // The layer plane alongside the picture, as the solo path takes it.
-        onFrame: (c) => scene?.screen.upload(c.videoSurface(), c.depthSurface()),
+        onFrame: (c) =>
+            scene?.screen.upload(c.videoSurface(), c.depthSurface(), c.scrollSurface()),
         onError: (err) => logger.error('vr lockstep', err),
         schedule: scene.schedule
       });
