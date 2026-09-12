@@ -2924,6 +2924,23 @@
     relief = DEFAULT_RELIEF;
     scene?.screen.setRelief(relief);
 
+    /*
+     * LE DÉCOR REVIENT ICI, AVANT TOUTE BRANCHE.
+     *
+     * Il était rallumé plus bas, après un `return` que le cas normal
+     * emprunte : quand la bibliothèque possède encore le jeu, on rouvre
+     * l'écran de lancement et on sortait avant cette ligne. Seul le cas
+     * dégénéré - le dump qui a quitté la bibliothèque en cours de session -
+     * la traversait, donc le monde ne revenait qu'après une panne.
+     *
+     * Rapporté du casque, et tranché par la trace plutôt que par la
+     * relecture : le journal de production montrait `visible:false` au
+     * lancement et plus rien ensuite. Cette fonction est « retour au lobby »,
+     * et le lobby a un décor quoi que l'écran porte - c'est donc en tête
+     * qu'elle doit le dire, pas dans une branche.
+     */
+    showDecor(true);
+
     const crc32 = $myRoom?.gameCrc32 ?? null;
     if (crc32 && entryFor(crc32)) {
       launchFor = crc32;
