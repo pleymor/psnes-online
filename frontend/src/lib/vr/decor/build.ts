@@ -45,6 +45,25 @@ export interface DecorOptions {
 
 export interface Decor {
   decor: THREE.Object3D;
+  /**
+   * Ce qui SUIT le joueur : le ciel, le sol, les collines, les nuages.
+   *
+   * Quatrième racine, et la raison d'être de tout le reste : elle prend la
+   * rotation du joueur mais jamais son déplacement, ce qui fait une plaine
+   * sans fin. Le proche reste posé et s'éloigne vraiment ; le lointain reste
+   * centré sur la tête. Sans cette coupure, marcher trente mètres sortirait du
+   * disque de sol et de la sphère de ciel, qui n'en font que trente.
+   */
+  far: THREE.Object3D;
+  /**
+   * Le rideau, qui rejoint la famille du lointain.
+   *
+   * Il doit suivre le joueur : c'est une cagoule autour de sa tête, pas un
+   * endroit qu'on peut quitter. Son dégagement intérieur reste mesuré contre
+   * l'écran, qui lui ne suit pas - et ça tient parce que la marche n'existe
+   * qu'au lobby : pendant une partie, le joueur est à son ancre et les deux
+   * sont concentriques comme avant.
+   */
   curtain: THREE.Object3D;
   /**
    * Le comptoir. TROISIÈME RACINE, et elle va dans le groupe des PANNEAUX -
@@ -341,7 +360,8 @@ export function createDecor(opts: DecorOptions): Decor {
     color: COLOURS.sky,
     side: THREE.BackSide
   });
-  decor.add(new THREE.Mesh(skyGeometry, skyMaterial));
+  const far = new THREE.Group();
+  far.add(new THREE.Mesh(skyGeometry, skyMaterial));
 
   /*
    * Le sol, du MÊME rayon que le dôme.
@@ -388,7 +408,7 @@ export function createDecor(opts: DecorOptions): Decor {
    * il doit couvrir le sol comme le reste du décor.
    */
   floor.renderOrder = -1;
-  decor.add(floor);
+  far.add(floor);
 
   /*
    * Le rideau. `depthWrite: false` parce qu'il est transparent : il doit se
@@ -432,7 +452,9 @@ export function createDecor(opts: DecorOptions): Decor {
   for (const prop of scenery()) {
     const mesh = quadFor(prop, atlas, quadMaterial, opts.floorHeight);
     quadGeometries.push(mesh.geometry);
-    decor.add(mesh);
+    // Le drapeau décide, pas le rayon : voir `placement.ts` et les buissons
+    // qui vivent sur deux anneaux.
+    (prop.distant ? far : decor).add(mesh);
     if (prop.facing === 'billboard') billboards.push(mesh);
   }
 
@@ -474,7 +496,10 @@ export function createDecor(opts: DecorOptions): Decor {
         azimuth: creature.azimuth,
         radius: creature.radius,
         standing: creature.standing,
-        facing: 'billboard'
+        facing: 'billboard',
+        // Une créature RESTE posée : on doit pouvoir s'en approcher, et un
+        // goomba qui suivrait le joueur serait une poursuite, pas un décor.
+        distant: false
       },
       atlas,
       quadMaterial,
@@ -536,10 +561,12 @@ export function createDecor(opts: DecorOptions): Decor {
   let settled = true;
   let offset = 0;
   decor.visible = false;
+  far.visible = false;
   curtainMesh.visible = false;
 
   return {
     decor,
+    far,
     curtain: curtainMesh,
     furniture,
 
@@ -560,13 +587,16 @@ export function createDecor(opts: DecorOptions): Decor {
       // Les deux sont visibles PENDANT le fondu, quel qu'en soit le sens : on
       // voit le rideau s'ouvrir sur le décor, ou se refermer dessus.
       decor.visible = true;
+      far.visible = true;
       curtainMesh.visible = true;
     },
 
     update(t: number): void {
       /*
-       * Rien du tout quand le décor est masqué, et c'est `decor.visible` qui
-       * le dit plutôt que `settled`.
+       * Rien du tout quand le décor est masqué, et c'est la visibilité du
+       * LOINTAIN qui le dit plutôt que `settled` - les deux racines
+       * s'allument et s'éteignent ensemble, et c'est celle-ci qui porte les
+       * nuages, donc les billboards de cette boucle.
        *
        * La distinction est celle qui manquait : `settled` devient vrai à la
        * FIN d'un fondu, donc s'en servir ici figerait les nuages dès que le
@@ -580,7 +610,7 @@ export function createDecor(opts: DecorOptions): Decor {
        * l'émulateur, sur un décor que personne ne regarde. La spec promet ici
        * « un `if` par image », et c'est ce `if`-là.
        */
-      if (decor.visible) {
+      if (far.visible) {
         /*
          * Le temps du runtime XR est en MILLISECONDES ; `motion.ts` travaille
          * en secondes. La conversion est ici, une fois, parce qu'un module de
@@ -650,7 +680,10 @@ export function createDecor(opts: DecorOptions): Decor {
       // le noir est `scene.background`, qui porte déjà la même couleur - donc
       // le masquer ne change rien à l'image et supprime un appel de dessin.
       curtainMesh.visible = false;
-      if (target === 'dark') decor.visible = false;
+      if (target === 'dark') {
+        decor.visible = false;
+        far.visible = false;
+      }
     },
 
     dispose(): void {

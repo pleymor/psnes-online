@@ -57,6 +57,7 @@ const OPTIONS_LABELS: OptionsLabels = {
   controls: 'Contrôles',
   screen: 'Écran',
   relief: 'Relief',
+  turn: 'Rotation : par crans',
   close: 'Retour'
 };
 
@@ -196,19 +197,22 @@ test('les cibles du panneau écran sont assez grandes pour être visées', () =>
   }
 });
 
-test('le menu d options mène aux trois panneaux et sort', () => {
+test('le menu d options mène aux trois panneaux, bascule la rotation, et sort', () => {
+  // `turn` est la seule tuile qui ne mène nulle part : elle BASCULE son
+  // réglage sur place, parce qu'une valeur binaire n'a pas besoin d'un écran
+  // à elle. C'est ce qui remplit la quatrième case que `tileAt` gardait libre.
   assert.deepEqual(layoutOptionsPanel().map((r) => r.id).sort(), [
-    'close', 'controls', 'relief', 'screen'
+    'close', 'controls', 'relief', 'screen', 'turn'
   ]);
 });
 
-test('le menu d options dessine ses quatre libellés', () => {
+test('le menu d options dessine ses cinq libellés', () => {
   const { ctx, texts } = fakeCtx();
   drawOptionsPanel(ctx, layoutOptionsPanel(), { labels: OPTIONS_LABELS, hoverId: null });
   const drawn = texts.join('\n');
   for (const label of [
     OPTIONS_LABELS.heading, OPTIONS_LABELS.controls, OPTIONS_LABELS.screen,
-    OPTIONS_LABELS.relief, OPTIONS_LABELS.close
+    OPTIONS_LABELS.relief, OPTIONS_LABELS.turn, OPTIONS_LABELS.close
   ]) {
     assert.ok(drawn.includes(label), `${label} n'est pas dessiné`);
   }

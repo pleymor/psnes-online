@@ -114,7 +114,16 @@ export interface VrScene {
    * RAPPORT à son bureau au lieu de le traîner. N'en déplacer qu'un les
    * séparerait, ce que `decor/build.ts` interdit déjà pour la hauteur.
    */
-  setPlayerAt(position: readonly [number, number]): void;
+  setPlayerAt(position: readonly [number, number], yaw: number): void;
+  /**
+   * La racine qui SUIT le joueur : ciel, sol, collines, nuages.
+   *
+   * Elle prend la rotation du joueur mais jamais son déplacement, ce qui fait
+   * une plaine sans fin - l'horizon ne s'approche jamais, mais le bureau
+   * s'éloigne vraiment. Le rideau est dans la même famille, et il le faut :
+   * c'est une cagoule autour de la tête, pas un endroit qu'on peut quitter.
+   */
+  addFar(object: THREE.Object3D): void;
   /** La vitesse du pas, en m/s : c'est elle qui assombrit la périphérie. */
   setWalkSpeed(speed: number): void;
   /**
@@ -231,6 +240,20 @@ export function createVrScene(opts: {
   /** Où le joueur se tient, depuis l'ancre. Les groupes vont à l'ancre MOINS
    *  cette position : avancer le joueur, c'est reculer le monde. */
   let playerAt: readonly [number, number] = [0, 0];
+  /** De combien le joueur a tourné sur lui-même, en radians. */
+  let playerYaw = 0;
+
+  /*
+   * Le groupe du LOINTAIN : ciel, sol, rideau, collines, nuages.
+   *
+   * Il tourne avec le joueur mais ne se déplace jamais avec lui. C'est ce qui
+   * permet d'aller partout sans sortir du monde : le décor proche reste posé
+   * et s'éloigne vraiment, le lointain reste centré sur la tête. On marche
+   * dans une plaine sans fin, dont l'horizon ne s'approche pas - le prix
+   * assumé pour ne pas avoir à poser un vrai terrain.
+   */
+  const far = new THREE.Group();
+  scene.add(far);
   /*
    * La vignette vit dans la scène et suit la caméra à chaque image, plutôt que
    * d'en être l'ENFANT : la caméra XR de three n'est pas dans le graphe, et
@@ -246,19 +269,41 @@ export function createVrScene(opts: {
     world: [0, 0, 0],
     room: [0, 0, 0]
   };
+  /** Les lacets de l'ancre, gardés avec elle pour la même raison. */
+  let anchorYaws = { world: 0, room: 0 };
 
-  /** Repose les deux groupes : l'ancre, MOINS la position du joueur. */
+  /**
+   * Repose les groupes : l'ancre, moins la position du joueur, tournée de son
+   * lacet.
+   *
+   * La rotation se fait autour de l'ORIGINE DE L'ANCRE, qui est là où le
+   * joueur s'est placé - et non autour du groupe, ce qui lui ferait décrire un
+   * arc autour d'un point où il n'est pas. C'est le piège de cette fonction,
+   * et l'écart avec « autour de la tête physique » se réduit à ce que le
+   * joueur a bougé dans sa pièce, soit presque rien assis.
+   *
+   * Le lointain reçoit la rotation et pas le déplacement, d'où les deux
+   * placements et non un.
+   */
   function place(): void {
-    world.position.set(
-      anchorAt.world[0] - playerAt[0],
-      anchorAt.world[1],
-      anchorAt.world[2] - playerAt[1]
-    );
-    room.position.set(
-      anchorAt.room[0] - playerAt[0],
-      anchorAt.room[1],
-      anchorAt.room[2] - playerAt[1]
-    );
+    const cos = Math.cos(playerYaw);
+    const sin = Math.sin(playerYaw);
+    // R(-lacet) appliqué au vecteur (x, z).
+    const turned = (x: number, z: number): [number, number] => [
+      x * cos - z * sin,
+      x * sin + z * cos
+    ];
+
+    const [wx, wz] = turned(anchorAt.world[0] - playerAt[0], anchorAt.world[2] - playerAt[1]);
+    world.position.set(wx, anchorAt.world[1], wz);
+    world.rotation.set(0, anchorYaws.world - playerYaw, 0);
+
+    const [rx, rz] = turned(anchorAt.room[0] - playerAt[0], anchorAt.room[2] - playerAt[1]);
+    room.position.set(rx, anchorAt.room[1], rz);
+    room.rotation.set(0, anchorYaws.room - playerYaw, 0);
+
+    far.position.set(anchorAt.room[0], anchorAt.room[1], anchorAt.room[2]);
+    far.rotation.set(0, anchorYaws.room - playerYaw, 0);
   }
 
   const pump = createFramePump();
@@ -520,6 +565,7 @@ export function createVrScene(opts: {
             );
             const forRoom = roomAnchor(anchor);
             anchorAt = { world: [...anchor.position], room: [...forRoom.position] };
+            anchorYaws = { world: anchor.yaw, room: forRoom.yaw };
             /*
              * Recentrer remet la marche à zéro.
              *
@@ -528,9 +574,8 @@ export function createVrScene(opts: {
              * contraire de ce qu'il promet.
              */
             playerAt = [0, 0];
+            playerYaw = 0;
             place();
-            world.rotation.set(0, anchor.yaw, 0);
-            room.rotation.set(0, forRoom.yaw, 0);
             recenterPending = false;
           }
           // Left pending when there is no pose yet: tracking that is not ready
@@ -610,16 +655,32 @@ export function createVrScene(opts: {
         fz = sign * m[6];
       }
       const length = Math.hypot(fx, fz) || 1;
-      const forward: [number, number] = [fx / length, fz / length];
+      /*
+       * Tourné du lacet du joueur, et c'est indispensable.
+       *
+       * La caméra vit dans la racine de la scène, donc sa matrice donne le cap
+       * PHYSIQUE de la tête - celui du fauteuil. Après une rotation au stick,
+       * ce n'est plus ce que le joueur VOIT devant lui. Marcher « tout droit »
+       * doit suivre le regard perçu, pas le fauteuil, sans quoi le stick
+       * pousse de travers dès le premier cran.
+       */
+      const c = Math.cos(playerYaw);
+      const s2 = Math.sin(playerYaw);
+      const rx = (fx / length) * c + (fz / length) * s2;
+      const rz = -(fx / length) * s2 + (fz / length) * c;
+      const forward: [number, number] = [rx, rz];
       // La droite est l'avant tourné d'un quart de tour : la dériver plutôt
       // que de lire une seconde colonne garantit qu'elles restent un repère.
       return { forward, right: [-forward[1], forward[0]] };
     },
 
-    setPlayerAt(position: readonly [number, number]): void {
+    setPlayerAt(position: readonly [number, number], yaw: number): void {
       playerAt = [position[0], position[1]];
+      playerYaw = yaw;
       place();
     },
+
+    addFar: (object) => void far.add(object),
 
     setWalkSpeed: (speed: number) => vignette.setSpeed(speed),
     reshapeScreen(shape: ScreenShape): void {

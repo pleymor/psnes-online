@@ -12,6 +12,7 @@ import {
   DECOR_NEAR,
   SKY_RADIUS,
   ART_PIXELS_PER_METRE,
+  RINGS,
   screenShadow
 } from '../../frontend/src/lib/vr/decor/composition.js';
 import { ALL_ART } from '../../frontend/src/lib/vr/decor/art/index.js';
@@ -226,6 +227,33 @@ test('la plante ne décolle pas de son tuyau', () => {
     assert.ok(
       risenBase <= lipTop + 1e-9,
       `la tête part de ${risenBase} m alors que la lèvre culmine à ${lipTop} m`
+    );
+  }
+});
+
+test('seuls les collines et les nuages suivent le joueur', () => {
+  /*
+   * Le drapeau qui permet d'aller partout : le lointain suit la tête, le
+   * proche reste posé et s'éloigne vraiment.
+   *
+   * Il est DÉCLARÉ et non déduit d'un rayon, parce qu'un seuil ne marche pas
+   * ici - `scenery()` pose des buissons sur l'anneau des créatures (12 m) ET
+   * sur celui des nuages (15 m), donc n'importe quel seuil entre les deux
+   * ferait suivre la moitié des buissons et rester l'autre.
+   */
+  const follows = new Set(scenery().filter((prop) => prop.distant).map((prop) => prop.art));
+  assert.deepEqual([...follows].sort(), ['cloud', 'hillLarge', 'hillSmall']);
+});
+
+test('rien de proche ne se déclare lointain', () => {
+  // Le drapeau dit ce qui suit ; cette règle dit ce qui n'a pas le droit de
+  // suivre. Un tuyau ou un buisson qui suivrait le joueur serait un objet dont
+  // on ne peut jamais s'approcher, ce qui se voit immédiatement.
+  for (const prop of scenery()) {
+    if (!prop.distant) continue;
+    assert.ok(
+      prop.radius >= RINGS.creatures,
+      `${prop.art} suit le joueur à ${prop.radius} m, sous l'anneau des créatures`
     );
   }
 });

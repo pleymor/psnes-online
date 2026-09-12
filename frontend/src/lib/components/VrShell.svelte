@@ -58,8 +58,9 @@
   } from '$lib/vr/panels/launch';
   import { launchOptions } from '$lib/vr/launch-options';
   import { activeRooms, myRoom } from '$lib/rooms/my-room';
-  import { menuPressed, readVrPad, activeXrInputs, fastForwardHeld, walkStick } from '$lib/vr/pad';
-  import { walk, walkSpeed } from '$lib/vr/walk';
+  import { menuPressed, readVrPad, activeXrInputs, fastForwardHeld, walkStick, turnStick } from '$lib/vr/pad';
+  import { walk, walkSpeed, snapTurn, smoothTurn, SNAP_READY } from '$lib/vr/walk';
+  import { readTurnStyle, writeTurnStyle, type TurnStyle } from '$lib/vr/turn-style';
   import { readBluetoothPad, bluetoothPadName } from '$lib/vr/bt-pad';
   import type { PadMask } from '$lib/znet/protocol';
   import { STANDARD_PAD, normaliseControlsConfig, type PadConfig } from '$lib/controls/binding';
@@ -189,24 +190,40 @@
       counter: counterRuns(scene.layout)
     });
     scene.addDecor(decor.decor);
-    scene.addCurtain(decor.curtain);
+    // Le lointain et le rideau suivent le joueur ; le décor proche reste posé.
+    scene.addFar(decor.far);
+    scene.addFar(decor.curtain);
     scene.addFurniture(decor.furniture);
     decor.setVisible(decorShowing);
   }
 
   /** Où le joueur se tient, en mètres depuis l'ancre. Voir `vr/walk.ts`. */
-  let walkOffset: [number, number] = [0, 0];
-  /** L'horodatage de l'image précédente, pour le dt de la marche. */
+  let walkAt: [number, number] = [0, 0];
+  /** De combien il a tourné sur lui-même, en radians. */
+  let walkYaw = 0;
+  /** L'état du cran de rotation : un cran par poussée, jamais une rafale. */
+  let snapState = SNAP_READY;
+  /**
+   * Par crans ou en continu, au choix du joueur.
+   *
+   * Lu une fois à l'entrée plutôt que réactif, pour la raison que `padMap`
+   * documente déjà dans ce fichier : une lecture réactive du stockage
+   * ressusciterait la valeur écrite par un autre onglet au milieu d'une
+   * session.
+   */
+  let turnStyle: TurnStyle = 'snap';
+  /** L'horodatage de l'image précédente, pour le dt de la locomotion. */
   let walkedAt: number | null = null;
 
   /**
-   * Un pas de marche, une fois par image.
+   * Un pas de locomotion, une fois par image.
    *
-   * LA MARCHE N'EXISTE QU'AU LOBBY, et ce n'est pas un choix d'ergonomie mais
-   * une contrainte de matériel : le stick EST la croix directionnelle de la
-   * SNES (`vr/pad.ts`). Pendant une partie il appartient au jeu, et le lui
-   * disputer ferait marcher le joueur chaque fois qu'il court vers la droite.
-   * `decorShowing` est le même interrupteur qui masque décor et panneaux.
+   * ELLE N'EXISTE QU'AU LOBBY, et ce n'est pas un choix d'ergonomie mais une
+   * contrainte de matériel : le stick gauche EST la croix directionnelle de la
+   * SNES et le droit y porte le menu (`vr/pad.ts`). Pendant une partie ils
+   * appartiennent au jeu, et les lui disputer ferait marcher le joueur chaque
+   * fois qu'il court vers la droite. `decorShowing` est le même interrupteur
+   * qui masque décor et panneaux.
    *
    * `t` vient du runtime XR, en millisecondes.
    */
@@ -219,17 +236,22 @@
     const dt = previous === null ? 0 : (t - previous) / 1000;
     if (dt <= 0 || dt > 0.1) return;
 
+    const sources = scene.inputSources();
     const { forward, right } = scene.headBasis();
-    const before = walkOffset;
-    walkOffset = walk({
-      offset: before,
-      stick: walkStick(scene.inputSources()),
-      forward,
-      right,
-      dt
-    });
-    scene.setPlayerAt(walkOffset);
-    scene.setWalkSpeed(walkSpeed(before, walkOffset, dt));
+    const stepped = walk({ stick: walkStick(sources), forward, right, dt });
+    walkAt = [walkAt[0] + stepped[0], walkAt[1] + stepped[1]];
+
+    const [turnX] = turnStick(sources);
+    if (turnStyle === 'snap') {
+      const fired = snapTurn(turnX, snapState);
+      snapState = fired.state;
+      walkYaw += fired.yaw;
+    } else {
+      walkYaw += smoothTurn(turnX, dt);
+    }
+
+    scene.setPlayerAt(walkAt, walkYaw);
+    scene.setWalkSpeed(walkSpeed(stepped, dt));
   }
 
   /** Guards `leave()` against re-entrant calls - see the header. */
@@ -939,6 +961,7 @@
           controls: t($language, 'vrRemapHeading'),
           screen: t($language, 'vrScreen'),
           relief: t($language, 'vrRelief'),
+          turn: t($language, turnStyle === 'snap' ? 'vrTurnSnap' : 'vrTurnSmooth'),
           close: t($language, 'vrRemapDone')
         },
         hoverId: hovered?.panel === 'tablet' ? hovered.region.id : null
@@ -1490,6 +1513,21 @@
         if (id === 'controls') { openTablet('controls'); return; }
         if (id === 'screen') { openTablet('screen'); return; }
         if (id === 'relief') { openTablet('relief'); return; }
+        /*
+         * La seule tuile qui BASCULE au lieu d'ouvrir un écran. Un réglage à
+         * deux valeurs n'a pas besoin d'une page à lui, et son libellé porte
+         * déjà sa valeur - d'où la repeinture immédiate, sans quoi le joueur
+         * verrait l'ancien libellé sur le nouveau réglage.
+         */
+        if (id === 'turn') {
+          turnStyle = turnStyle === 'snap' ? 'smooth' : 'snap';
+          writeTurnStyle(localStorage, turnStyle);
+          // Le cran repart armé : basculer en plein mouvement ne doit pas
+          // laisser un état de rotation à moitié consommé.
+          snapState = SNAP_READY;
+          repaintOptions();
+          return;
+        }
         if (id === 'close') { closeTablet(); return; }
         return;
       }
@@ -1653,6 +1691,7 @@
         // decides, and a preset written and not stored - the default is
         // removed, not stored - must still read back correctly.
         padMap = readPadMap(localStorage);
+        turnStyle = readTurnStyle(localStorage);
         // Only this panel: the band stopped showing the map when it became a
         // launcher, so there is nothing of the map left there to refresh.
         repaintControls();

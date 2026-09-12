@@ -240,3 +240,20 @@ export function walkStick(sources: Iterable<PadLikeSource>): [number, number] {
   }
   return [0, 0];
 }
+
+/**
+ * Les deux axes du stick DROIT, bruts, pour la rotation du lobby.
+ *
+ * Le jumeau de `walkStick`, et la même règle : rendus tels quels, c'est
+ * `walk.ts` qui décide des seuils. Ce module ne cède que ce qu'il est seul à
+ * savoir, les indices d'axes d'un `xr-standard`.
+ */
+export function turnStick(sources: Iterable<PadLikeSource>): [number, number] {
+  for (const source of sources) {
+    if (source.handedness !== 'right') continue;
+    const axes = source.gamepad?.axes;
+    if (!axes) continue;
+    return [axes[STICK_X] ?? 0, axes[STICK_Y] ?? 0];
+  }
+  return [0, 0];
+}

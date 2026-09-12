@@ -60,6 +60,15 @@ export interface OptionsLabels {
   screen: string;
   /** La profondeur entre les couches du jeu, par jeu. Voir `panels/relief.ts`. */
   relief: string;
+  /**
+   * La façon de tourner au stick droit, et son état courant.
+   *
+   * La seule tuile de ce panneau qui BASCULE au lieu d'ouvrir un écran : un
+   * réglage à deux valeurs n'a pas besoin d'une page à lui, et son libellé
+   * porte déjà la valeur courante. C'est ce qui remplit la quatrième case que
+   * `tileAt` gardait libre.
+   */
+  turn: string;
   /** La sortie. Ici elle referme la tablette : c'est la racine. */
   close: string;
 }
@@ -82,10 +91,12 @@ export function layoutOptionsPanel(): Region[] {
   const controls = tileAt(0);
   const screen = tileAt(1);
   const relief = tileAt(2);
+  const turn = tileAt(3);
   return [
     { id: 'controls', x: controls.x, y: controls.y, w: TILE_W, h: TILE_H },
     { id: 'screen', x: screen.x, y: screen.y, w: TILE_W, h: TILE_H },
     { id: 'relief', x: relief.x, y: relief.y, w: TILE_W, h: TILE_H },
+    { id: 'turn', x: turn.x, y: turn.y, w: TILE_W, h: TILE_H },
     { id: 'close', x: CLOSE_X, y: CLOSE_Y, w: CLOSE_W, h: CLOSE_H }
   ];
 }
@@ -115,7 +126,8 @@ export function drawOptionsPanel(
   for (const [id, label] of [
     ['controls', labels.controls],
     ['screen', labels.screen],
-    ['relief', labels.relief]
+    ['relief', labels.relief],
+    ['turn', labels.turn]
   ] as const) {
     const region = byId.get(id);
     // La police est plus grande que celle des boutons ordinaires : ces tuiles

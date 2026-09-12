@@ -29,6 +29,20 @@ export interface Prop {
   /** Mètres entre le sol et le BAS de l'objet. Zéro : posé. */
   readonly standing: number;
   readonly facing: Facing;
+  /**
+   * Cet élément SUIT-IL le joueur quand il marche ?
+   *
+   * Le ciel, le sol et le lointain suivent ; le proche reste posé, donc on
+   * s'en éloigne vraiment et on en fait le tour. C'est ce qui permet d'aller
+   * partout sans sortir d'un monde qui ne fait que trente mètres.
+   *
+   * DÉCLARÉ ET NON DÉDUIT D'UN RAYON, parce qu'un seuil ne marche pas ici :
+   * `scenery()` pose des buissons sur l'anneau des créatures (12 m) ET sur
+   * celui des nuages (15 m). N'importe quel seuil entre les deux ferait suivre
+   * la moitié des buissons et rester l'autre - des buissons qui se dédoublent
+   * dès qu'on marche.
+   */
+  readonly distant: boolean;
 }
 
 const TURN = 2 * Math.PI;
@@ -39,29 +53,29 @@ export function scenery(): readonly Prop[] {
   return [
     // Les collines : fixes, parce qu'à vingt mètres la stéréo ne distingue
     // plus le volume et qu'une silhouette franche vaut mieux qu'un pivot.
-    { art: 'hillLarge', azimuth: at(0.7), radius: RINGS.hills, standing: 0, facing: 'fixed' },
-    { art: 'hillSmall', azimuth: at(2.2), radius: RINGS.hills, standing: 0, facing: 'fixed' },
-    { art: 'hillLarge', azimuth: at(4.1), radius: RINGS.hills, standing: 0, facing: 'fixed' },
-    { art: 'hillSmall', azimuth: at(6.4), radius: RINGS.hills, standing: 0, facing: 'fixed' },
-    { art: 'hillLarge', azimuth: at(8.3), radius: RINGS.hills, standing: 0, facing: 'fixed' },
-    { art: 'hillSmall', azimuth: at(10.6), radius: RINGS.hills, standing: 0, facing: 'fixed' },
+    { art: 'hillLarge', azimuth: at(0.7), radius: RINGS.hills, standing: 0, facing: 'fixed', distant: true },
+    { art: 'hillSmall', azimuth: at(2.2), radius: RINGS.hills, standing: 0, facing: 'fixed', distant: true },
+    { art: 'hillLarge', azimuth: at(4.1), radius: RINGS.hills, standing: 0, facing: 'fixed', distant: true },
+    { art: 'hillSmall', azimuth: at(6.4), radius: RINGS.hills, standing: 0, facing: 'fixed', distant: true },
+    { art: 'hillLarge', azimuth: at(8.3), radius: RINGS.hills, standing: 0, facing: 'fixed', distant: true },
+    { art: 'hillSmall', azimuth: at(10.6), radius: RINGS.hills, standing: 0, facing: 'fixed', distant: true },
 
     // Les buissons : plus près que les collines, ce qui est tout l'intérêt -
     // c'est l'écart entre les deux anneaux qui produit la parallaxe.
-    { art: 'bush', azimuth: at(1.4), radius: RINGS.creatures, standing: 0, facing: 'fixed' },
-    { art: 'bush', azimuth: at(3.3), radius: RINGS.clouds, standing: 0, facing: 'fixed' },
-    { art: 'bush', azimuth: at(5.1), radius: RINGS.creatures, standing: 0, facing: 'fixed' },
-    { art: 'bush', azimuth: at(7.8), radius: RINGS.clouds, standing: 0, facing: 'fixed' },
-    { art: 'bush', azimuth: at(9.2), radius: RINGS.creatures, standing: 0, facing: 'fixed' },
-    { art: 'bush', azimuth: at(11.5), radius: RINGS.clouds, standing: 0, facing: 'fixed' },
+    { art: 'bush', azimuth: at(1.4), radius: RINGS.creatures, standing: 0, facing: 'fixed', distant: false },
+    { art: 'bush', azimuth: at(3.3), radius: RINGS.clouds, standing: 0, facing: 'fixed', distant: false },
+    { art: 'bush', azimuth: at(5.1), radius: RINGS.creatures, standing: 0, facing: 'fixed', distant: false },
+    { art: 'bush', azimuth: at(7.8), radius: RINGS.clouds, standing: 0, facing: 'fixed', distant: false },
+    { art: 'bush', azimuth: at(9.2), radius: RINGS.creatures, standing: 0, facing: 'fixed', distant: false },
+    { art: 'bush', azimuth: at(11.5), radius: RINGS.clouds, standing: 0, facing: 'fixed', distant: false },
 
     // Les nuages : billboards, parce qu'à cette distance le pivot est
     // indétectable et qu'il évite de les dessiner sous trois angles.
-    { art: 'cloud', azimuth: at(0.2), radius: RINGS.clouds, standing: 7, facing: 'billboard' },
-    { art: 'cloud', azimuth: at(3.9), radius: RINGS.clouds, standing: 9, facing: 'billboard' },
-    { art: 'cloud', azimuth: at(6.1), radius: RINGS.clouds, standing: 6, facing: 'billboard' },
-    { art: 'cloud', azimuth: at(8.8), radius: RINGS.clouds, standing: 10, facing: 'billboard' },
-    { art: 'cloud', azimuth: at(10.3), radius: RINGS.clouds, standing: 8, facing: 'billboard' }
+    { art: 'cloud', azimuth: at(0.2), radius: RINGS.clouds, standing: 7, facing: 'billboard', distant: true },
+    { art: 'cloud', azimuth: at(3.9), radius: RINGS.clouds, standing: 9, facing: 'billboard', distant: true },
+    { art: 'cloud', azimuth: at(6.1), radius: RINGS.clouds, standing: 6, facing: 'billboard', distant: true },
+    { art: 'cloud', azimuth: at(8.8), radius: RINGS.clouds, standing: 10, facing: 'billboard', distant: true },
+    { art: 'cloud', azimuth: at(10.3), radius: RINGS.clouds, standing: 8, facing: 'billboard', distant: true }
   ];
 }
 
