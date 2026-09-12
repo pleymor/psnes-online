@@ -58,7 +58,8 @@
   } from '$lib/vr/panels/launch';
   import { launchOptions } from '$lib/vr/launch-options';
   import { activeRooms, myRoom } from '$lib/rooms/my-room';
-  import { menuPressed, readVrPad, activeXrInputs, fastForwardHeld } from '$lib/vr/pad';
+  import { menuPressed, readVrPad, activeXrInputs, fastForwardHeld, walkStick } from '$lib/vr/pad';
+  import { walk, walkSpeed } from '$lib/vr/walk';
   import { readBluetoothPad, bluetoothPadName } from '$lib/vr/bt-pad';
   import type { PadMask } from '$lib/znet/protocol';
   import { STANDARD_PAD, normaliseControlsConfig, type PadConfig } from '$lib/controls/binding';
@@ -191,6 +192,44 @@
     scene.addCurtain(decor.curtain);
     scene.addFurniture(decor.furniture);
     decor.setVisible(decorShowing);
+  }
+
+  /** Le décalage de marche, en mètres dans le plan. Voir `vr/walk.ts`. */
+  let walkOffset: [number, number] = [0, 0];
+  /** L'horodatage de l'image précédente, pour le dt de la marche. */
+  let walkedAt: number | null = null;
+
+  /**
+   * Un pas de marche, une fois par image.
+   *
+   * LA MARCHE N'EXISTE QU'AU LOBBY, et ce n'est pas un choix d'ergonomie mais
+   * une contrainte de matériel : le stick EST la croix directionnelle de la
+   * SNES (`vr/pad.ts`). Pendant une partie il appartient au jeu, et le lui
+   * disputer ferait marcher le joueur chaque fois qu'il court vers la droite.
+   * `decorShowing` est le même interrupteur qui masque décor et panneaux.
+   *
+   * `t` vient du runtime XR, en millisecondes.
+   */
+  function walkFrame(t: number): void {
+    const previous = walkedAt;
+    walkedAt = t;
+    if (!scene || !decorShowing) return;
+    // Une image sautée ne doit pas produire un bond : au-delà d'un dixième de
+    // seconde, on saute ce pas plutôt que d'intégrer un trou.
+    const dt = previous === null ? 0 : (t - previous) / 1000;
+    if (dt <= 0 || dt > 0.1) return;
+
+    const { forward, right } = scene.headBasis();
+    const before = walkOffset;
+    walkOffset = walk({
+      offset: before,
+      stick: walkStick(scene.inputSources()),
+      forward,
+      right,
+      dt
+    });
+    scene.setWalk(walkOffset);
+    scene.setWalkSpeed(walkSpeed(before, walkOffset, dt));
   }
 
   /** Guards `leave()` against re-entrant calls - see the header. */
@@ -3086,6 +3125,7 @@
       scene.onFrame((t) => {
         ensureDecor();
         decor?.update(t);
+        walkFrame(t);
       });
       vrActive.set(true);
 

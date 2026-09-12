@@ -18,6 +18,7 @@ import * as THREE from 'three';
 import { createFramePump } from './frame-pump';
 import { framebufferScale } from './framebuffer-scale';
 import { anchorFrom, roomAnchor } from './anchor';
+import { createVignette } from './vignette';
 import { createVrScreen, type VrScreen } from './screen';
 import { sceneLayout, screenPlacement, type SceneLayout, type Placement } from './layout';
 import type { ScreenShape } from './screen-shape';
@@ -89,6 +90,27 @@ export interface VrScene {
    * why this is a decision the app has to make at all.
    */
   recenter(): void;
+  /**
+   * L'avant et la droite de la caméra, à plat et normalisés.
+   *
+   * `headPosition` ne suffit pas : elle dit où est le joueur, pas où il
+   * regarde. Ces deux vecteurs sont ce qui permet à `walk.ts` de n'avoir
+   * AUCUNE convention de repère à porter - et donc à son test de ne pas être
+   * dupe de la même erreur de signe que le code.
+   */
+  headBasis(): { forward: [number, number]; right: [number, number] };
+  /**
+   * Le décalage de marche, en mètres dans le plan.
+   *
+   * Appliqué aux DEUX groupes : `world` porte les panneaux, le rideau et le
+   * comptoir, `room` porte le décor. Les décaler ensemble fait glisser le
+   * monde entier autour du joueur, meubles compris, donc il marche PAR
+   * RAPPORT à son bureau au lieu de le traîner. N'en décaler qu'un les
+   * séparerait, ce que `decor/build.ts` interdit déjà pour la hauteur.
+   */
+  setWalk(offset: readonly [number, number]): void;
+  /** La vitesse du pas, en m/s : c'est elle qui assombrit la périphérie. */
+  setWalkSpeed(speed: number): void;
   /**
    * Applies a screen setting the player just changed.
    *
@@ -200,6 +222,37 @@ export function createVrScene(opts: {
    */
   let anchored = false;
   let recenterPending = false;
+  /** Le décalage de marche, ajouté à l'ancre des deux groupes. */
+  let walkOffset: readonly [number, number] = [0, 0];
+  /*
+   * La vignette vit dans la scène et suit la caméra à chaque image, plutôt que
+   * d'en être l'ENFANT : la caméra XR de three n'est pas dans le graphe, et
+   * lui accrocher des enfants est une façon connue de se retrouver avec un
+   * objet qui ne bouge pas. Copier sa pose est deux lignes et ne peut pas
+   * mentir.
+   */
+  const vignette = createVignette();
+  scene.add(vignette.mesh);
+  /** L'ancre elle-même, gardée pour pouvoir replacer sans la recalculer.
+   *  `anchored`, plus haut, est le booléen qui dit si elle a déjà été prise. */
+  let anchorAt: { world: [number, number, number]; room: [number, number, number] } = {
+    world: [0, 0, 0],
+    room: [0, 0, 0]
+  };
+
+  /** Repose les deux groupes : l'ancre, plus la marche. */
+  function place(): void {
+    world.position.set(
+      anchorAt.world[0] + walkOffset[0],
+      anchorAt.world[1],
+      anchorAt.world[2] + walkOffset[1]
+    );
+    room.position.set(
+      anchorAt.room[0] + walkOffset[0],
+      anchorAt.room[1],
+      anchorAt.room[2] + walkOffset[1]
+    );
+  }
 
   const pump = createFramePump();
   const perFrame: Array<(t: number) => void> = [];
@@ -424,6 +477,15 @@ export function createVrScene(opts: {
 
       renderer.setAnimationLoop((time) => {
         /*
+         * La vignette colle à la caméra. Copier la pose plutôt que parenter :
+         * la caméra XR de three n'est pas dans le graphe de la scène, donc lui
+         * accrocher un enfant donne un objet qui ne bouge pas.
+         */
+        const eye = renderer.xr.getCamera();
+        vignette.mesh.position.copy(eye.position);
+        vignette.mesh.quaternion.copy(eye.quaternion);
+        vignette.mesh.translateZ(-0.28);
+        /*
          * The anchor before anything else, so the frame that applies it also
          * draws with it - a render at the old anchor followed by a move is one
          * visible jump, at 72 Hz, for no reason.
@@ -449,10 +511,18 @@ export function createVrScene(opts: {
               [position.x, position.y, position.z],
               [orientation.x, orientation.y, orientation.z, orientation.w]
             );
-            world.position.set(...anchor.position);
-            world.rotation.set(0, anchor.yaw, 0);
             const forRoom = roomAnchor(anchor);
-            room.position.set(...forRoom.position);
+            anchorAt = { world: [...anchor.position], room: [...forRoom.position] };
+            /*
+             * Recentrer remet la marche à zéro.
+             *
+             * Ce bouton existe pour un joueur qui s'est perdu ; le laisser à
+             * trois mètres de son bureau après l'avoir pressé serait le
+             * contraire de ce qu'il promet.
+             */
+            walkOffset = [0, 0];
+            place();
+            world.rotation.set(0, anchor.yaw, 0);
             room.rotation.set(0, forRoom.yaw, 0);
             recenterPending = false;
           }
@@ -512,6 +582,39 @@ export function createVrScene(opts: {
     },
 
     recenter: () => void (recenterPending = true),
+
+    headBasis(): { forward: [number, number]; right: [number, number] } {
+      const xr = renderer.xr.getCamera();
+      /*
+       * Les colonnes de la matrice monde, aplaties. La troisième pointe vers
+       * l'ARRIÈRE en convention three, d'où le signe ; la première est la
+       * droite.
+       *
+       * Le cas dégénéré est celui qu'`anchor.ts` documente : tête franchement
+       * vers le haut ou le bas, l'avant aplati devient trop court pour donner
+       * un cap. La parade est la sienne - prendre le cap sur le vecteur haut.
+       */
+      const m = xr.matrixWorld.elements;
+      let fx = -m[8];
+      let fz = -m[10];
+      if (Math.hypot(fx, fz) < 0.01) {
+        const sign = -m[9] < 0 ? 1 : -1;
+        fx = sign * m[4];
+        fz = sign * m[6];
+      }
+      const length = Math.hypot(fx, fz) || 1;
+      const forward: [number, number] = [fx / length, fz / length];
+      // La droite est l'avant tourné d'un quart de tour : la dériver plutôt
+      // que de lire une seconde colonne garantit qu'elles restent un repère.
+      return { forward, right: [-forward[1], forward[0]] };
+    },
+
+    setWalk(offset: readonly [number, number]): void {
+      walkOffset = [offset[0], offset[1]];
+      place();
+    },
+
+    setWalkSpeed: (speed: number) => vignette.setSpeed(speed),
     reshapeScreen(shape: ScreenShape): void {
       layout.screen = screenPlacement(opts.aspect, shape);
       screen.reshape(layout.screen);
@@ -525,6 +628,7 @@ export function createVrScene(opts: {
 
     dispose(): void {
       renderer.setAnimationLoop(null);
+      vignette.dispose();
       screen.dispose();
       for (const panel of panels) panel.dispose();
       rayGeometry.dispose();

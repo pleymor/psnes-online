@@ -219,3 +219,24 @@ export function menuPressed(sources: Iterable<PadLikeSource>): boolean {
   }
   return false;
 }
+
+/**
+ * Les deux axes du stick GAUCHE, bruts, pour la marche du lobby.
+ *
+ * Rendus tels quels : ni seuil, ni zone morte, ni signe corrigé. `walk.ts`
+ * décide de tout ça, et c'est la seule façon de garder sa décision testable
+ * sans manette. Ce module ne cède ici qu'une chose, celle qu'il est seul à
+ * savoir : QUELS indices d'axes portent le stick sur un `xr-standard`.
+ *
+ * Le stick gauche et pas le droit : le droit porte le menu, et `steer`
+ * documente pourquoi les deux ne se ressemblent pas.
+ */
+export function walkStick(sources: Iterable<PadLikeSource>): [number, number] {
+  for (const source of sources) {
+    if (source.handedness !== 'left') continue;
+    const axes = source.gamepad?.axes;
+    if (!axes) continue;
+    return [axes[STICK_X] ?? 0, axes[STICK_Y] ?? 0];
+  }
+  return [0, 0];
+}
