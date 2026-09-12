@@ -188,7 +188,7 @@ export function drawLibraryPanel(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.clearRect(0, 0, width, height);
-  drawField(ctx, width, height, 'grass');
+  drawField(ctx, width, height, 'frost');
 
   // L'en-tête est la boîte de statut du HUD, et elle porte son compte à droite
   // comme le compteur de pièces porte le sien.

@@ -173,7 +173,7 @@ export function drawProfilePanel(
 
   ctx.save();
   ctx.clearRect(0, 0, width, height);
-  drawField(ctx, width, height, 'grass');
+  drawField(ctx, width, height, 'frost');
 
   // Le pseudo dans sa propre boîte : c'est le nom du joueur, et le HUD de la
   // carte du monde met le sien exactement là, à gauche.

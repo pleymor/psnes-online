@@ -259,7 +259,7 @@ export function drawFriendsPanel(
 
   ctx.save();
   ctx.clearRect(0, 0, width, height);
-  drawField(ctx, width, height, 'grass');
+  drawField(ctx, width, height, 'frost');
 
   statusBox(ctx, PAD - 14, 12, width - (PAD - 14) * 2, HEADER - 24);
   ctx.fillStyle = SMW.ink;

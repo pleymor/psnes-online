@@ -67,9 +67,34 @@ test('le champ translucide laisse passer une part utile, sans devenir illisible'
   assert.ok(alpha < 0.9, `alpha ${alpha} : autant le laisser opaque`);
 });
 
-test('les deux champs sont les seuls, et ils sont nommes', () => {
-  const fields: Field[] = ['grass', 'glass'];
+test('les quatre champs sont les seuls, et ils sont nommes', () => {
+  // Quatre depuis la brique et le depoli des pupitres. Ce test a rougi aux
+  // deux ajouts, ce qui est exactement ce qu'on lui demande.
+  const fields: Field[] = ['grass', 'glass', 'brick', 'frost'];
   for (const f of fields) assert.ok(fieldFill(f).length > 0);
+});
+
+test('le joint de brique se devine, il ne se lit pas', () => {
+  /*
+   * La lecon de l'herbe, encodee en assertion.
+   *
+   * `drawField` raconte qu'une premiere version du champ d'herbe se disputait
+   * l'attention avec les jaquettes, qui sont ce que le panneau existe pour
+   * montrer. Une brique a des joints, donc des lignes franches partout : le
+   * meme defaut y serait bien pire. Le joint doit donc etre plus sombre que
+   * la brique - sinon il n'y a pas de maconnerie - mais de peu.
+   *
+   * Un joint noir donnerait un ecart de 71 sur cette echelle. La borne a 40
+   * laisse de la marge pour ajuster le gout sans laisser passer une grille.
+   */
+  const lum = (hex: string): number => {
+    const c = (i: number) => parseInt(hex.slice(i, i + 2), 16);
+    return 0.2126 * c(1) + 0.7152 * c(3) + 0.0722 * c(5);
+  };
+  const brick = lum(SMW.brick);
+  const joint = lum(SMW.brickJoint);
+  assert.ok(joint < brick, 'le joint doit etre plus sombre que la brique');
+  assert.ok(brick - joint < 40, `ecart de ${brick - joint} : le joint fait une grille`);
 });
 
 /*
@@ -86,4 +111,21 @@ test('le contour est sombre et le lisere clair, ce qui fait la boite SMW', () =>
   assert.ok(lum(SMW.outline) < 40, 'le contour doit etre presque noir');
   assert.ok(lum(SMW.ink) > 220, 'le lisere doit etre presque blanc');
   assert.ok(lum(SMW.box) < 120, 'le fond de la boite de statut doit porter du texte blanc');
+});
+
+test('le depoli laisse passer plus que le verre de la tablette, sans devenir clair', () => {
+  /*
+   * Les deux bornes du voile, et elles tirent en sens contraire.
+   *
+   * Plus transparent que la tablette : un pupitre lateral n'a que du decor
+   * derriere lui, la tablette a l'image du jeu qu'elle doit assombrir pour
+   * porter du texte blanc. Mais sombre quand meme - un voile clair sur de
+   * l'herbe vive et un comptoir orange rendrait les libelles illisibles, et
+   * c'est le meme raisonnement qui a fixe celui de la tablette.
+   */
+  const alpha = (fill: string): number => Number(fill.split(',')[3].replace(')', ''));
+  const frost = alpha(fieldFill('frost'));
+  const glass = alpha(fieldFill('glass'));
+  assert.ok(frost < glass, `le depoli (${frost}) doit laisser passer plus que le verre (${glass})`);
+  assert.ok(frost > 0.4, `a ${frost} le voile ne porte plus son texte`);
 });

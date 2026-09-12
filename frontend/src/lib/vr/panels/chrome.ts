@@ -34,6 +34,18 @@ export const SMW = {
   water: '#38a8f8',
   sand: '#f8d878',
   sandDark: '#c89838',
+  /**
+   * La brique des pupitres latéraux.
+   *
+   * Sombre et sourde, et surtout PAS le `#c84c0c` du monde : le comptoir sur
+   * lequel ces pupitres reposent est fait de cette brique-là, donc la
+   * reprendre ici les ferait fondre l'un dans l'autre. Le chrome est un
+   * système à part - l'en-tête de ce fichier le dit - et il garde ses propres
+   * couleurs.
+   */
+  brick: '#7c3c18',
+  /** Le joint : plus sombre que la brique, jamais noir. Voir `drawField`. */
+  brickJoint: '#5c2a10',
   /** Le bleu nuit du HUD, qui porte du texte blanc. */
   box: '#282878',
   boxLite: '#5858c8',
@@ -70,10 +82,22 @@ export function edgeDegrees(pixels: number, pixelsPerDegree: number): number {
  * translucide sur une image serait boueuse. La tablette garde donc les cadres
  * et la boîte de statut, et échange son champ contre un sombre translucide.
  */
-export type Field = 'grass' | 'glass';
+export type Field = 'grass' | 'glass' | 'brick' | 'frost';
 
 export function fieldFill(field: Field): string {
-  return field === 'grass' ? SMW.grass : 'rgba(16, 16, 26, 0.72)';
+  if (field === 'grass') return SMW.grass;
+  if (field === 'brick') return SMW.brick;
+  /*
+   * Le dépoli est plus transparent que le verre de la tablette, et c'est ce
+   * qui le distingue : la tablette flotte devant l'IMAGE DU JEU, qu'elle doit
+   * assombrir assez pour porter du texte blanc ; un pupitre latéral n'a que du
+   * décor derrière lui, donc il peut se permettre de le laisser passer
+   * davantage. Sombre quand même, et pour la même raison qu'elle : un voile
+   * clair sur de l'herbe vive et un comptoir orange rendrait les libellés
+   * illisibles.
+   */
+  if (field === 'frost') return 'rgba(22, 26, 38, 0.55)';
+  return 'rgba(16, 16, 26, 0.72)';
 }
 
 /**
@@ -91,6 +115,102 @@ export function drawField(
 ): void {
   ctx.fillStyle = fieldFill(field);
   ctx.fillRect(0, 0, width, height);
+
+  if (field === 'brick') {
+    /*
+     * Un appareil de brique, et des joints qu'on devine plutôt qu'on ne les
+     * lit.
+     *
+     * La leçon de l'herbe, quelques lignes plus bas, s'applique ici en pire :
+     * une brique a des joints, donc des lignes franches PARTOUT, et sur 1120
+     * pixels une grille noire se disputerait les jaquettes bien plus fort
+     * qu'un reflet vert. Les joints sont donc `brickJoint`, à peine plus
+     * sombres que la brique, et un test borne cet écart pour qu'un réglage
+     * futur ne puisse pas les durcir sans rougir.
+     *
+     * Le décalage d'un rang sur l'autre est ce qui fait lire de la maçonnerie
+     * plutôt qu'un quadrillage - c'est la même raison que `art/ground.ts`
+     * donne pour le sol de brique du monde.
+     */
+    const course = 28;
+    const brick = 56;
+    const joint = 2;
+    ctx.fillStyle = SMW.brickJoint;
+    for (let y = 0; y < height; y += course) {
+      ctx.fillRect(0, y, width, joint);
+      const offset = ((y / course) % 2) * (brick / 2);
+      for (let x = -offset; x < width; x += brick) ctx.fillRect(x, y, joint, course);
+    }
+    return;
+  }
+
+  if (field === 'frost') {
+    /*
+     * Du verre, sans flou - parce qu'un panneau NE PEUT PAS flouter ce qui est
+     * derrière lui. Sa texture est composée par-dessus la scène : ses pixels
+     * ne voient jamais ceux du décor. Un vrai flou demanderait de rendre la
+     * scène dans une cible puis de l'échantillonner dans un shader, soit une
+     * passe de plus par œil, à 72 Hz, à côté de l'émulateur.
+     *
+     * CE QUI A ÉTÉ RETIRÉ, ET POURQUOI. La première version ajoutait un grain
+     * fin, pour faire « dépoli ». Dans le casque, elle tenait tant qu'on
+     * baissait la tête et devenait du BÉTON dès qu'on la levait. La cause
+     * n'est pas le grain seul mais ce qu'il y a derrière : vers le bas,
+     * l'herbe et le comptoir passent au travers et l'œil lit du verre ; vers
+     * le haut il n'y a que du ciel uni, donc plus rien à voir au travers, et
+     * il ne reste qu'un voile gris texturé - la définition du béton.
+     *
+     * Un verre ne se lit donc comme un verre que s'il porte des indices de
+     * SURFACE, qui ne dépendent pas du fond. Les deux ci-dessous en sont :
+     * un reflet oblique, qu'aucune matière n'a, et un bord éclairé, qui dit
+     * qu'il y a une plaque et où elle s'arrête.
+     */
+
+    /*
+     * Le reflet oblique. En bandes plutôt qu'en dégradé, et ce n'est pas un
+     * raccourci : les six fichiers de test des panneaux passent chacun un faux
+     * contexte écrit à la main, et aucun n'implémente `createLinearGradient` -
+     * l'employer a fait tomber vingt-sept tests d'un coup. Ces doubles
+     * décrivent le sous-ensemble d'API que les peintres ont le droit
+     * d'utiliser, et l'élargir demanderait six modifications du même fait.
+     *
+     * L'obliquité est ce qui compte. Un dégradé vertical se lit comme un
+     * éclairage, donc comme de la matière ; une bande en biais se lit comme le
+     * reflet d'une fenêtre, donc comme une plaque.
+     */
+    const steps = 48;
+    const span = width + height;
+    for (let i = 0; i < steps; i++) {
+      const t = i / steps;
+      // Deux reflets, un large et un fin, comme sur une vitre réelle.
+      const wide = Math.max(0, 1 - Math.abs(t - 0.24) / 0.16);
+      const thin = Math.max(0, 1 - Math.abs(t - 0.52) / 0.05);
+      const alpha = 0.085 * wide * wide + 0.06 * thin;
+      if (alpha < 0.004) continue;
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
+      // Un parallélogramme à 45 degrés, dessiné en tranches verticales.
+      const slice = span / steps;
+      const x = t * span - height;
+      for (let y = 0; y < height; y += 8) {
+        ctx.fillRect(x + (height - y), y, slice, 8);
+      }
+    }
+
+    /*
+     * Le bord éclairé : deux liserés clairs en haut et à gauche, deux sombres
+     * en bas et à droite. C'est l'indice le moins cher et le plus fort - il
+     * dit qu'une plaque commence ici et finit là, ce qu'aucun voile ne dit.
+     */
+    const rim = 3;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+    ctx.fillRect(0, 0, width, rim);
+    ctx.fillRect(0, 0, rim, height);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+    ctx.fillRect(0, height - rim, width, rim);
+    ctx.fillRect(width - rim, 0, rim, height);
+    return;
+  }
+
   if (field !== 'grass') return;
 
   /*
