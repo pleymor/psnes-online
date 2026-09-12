@@ -115,6 +115,7 @@
   import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
   import { createLockstepEngine, type LockstepEngine } from '$lib/rooms/lockstep-engine';
   import { createRoom, leaveGroup, chooseGameForGroup, inviteToGroup, cancelGroupInvitation } from '$lib/rooms/actions';
+  import { giveUpAction } from '$lib/rooms/give-up-room';
   /*
    * Module-scope stores, which is what makes this reachable from in here at
    * all: `lobby/invitations.ts` attaches its listeners to the socket itself
@@ -3514,36 +3515,23 @@
    * - that path did not decide to end the game, the other player did, and
    * there is nothing left here to give back.
    *
-   * Two different ways to give a room back, chosen deliberately rather than
-   * one applied everywhere.
-   *
-   * A room this shell created for itself (`ownedRoomId`, solo only) is given
-   * up for real, through `leaveGroup`'s `room:leave` - a solo room only ever
-   * has one member, so leaving it and destroying it are the same act.
-   *
-   * A group's room is never left this way. `room:leave` is, in the flat
-   * lobby's own words, "what dissolves a group of two" - exactly what
-   * quitting a shared GAME must not do. The flat lobby's quit button and its
-   * pause-menu twin (`+page.svelte`'s `releaseGame`, `LockstepRoom.svelte`'s
-   * `quitToLobby`) both emit `room:release-game` instead: the game is
-   * detached, the room and its membership survive, and the friend keeps
-   * their seat to pick another game together. Ending a VR player's group
-   * game the harsher way, for no reason tied to VR at all, would be a worse
-   * exit than the same action already takes on the flat page - so this
-   * mirrors `room:release-game` for the group case too.
+   * QUOI rendre est décidé par `rooms/give-up-room.ts`, qui porte les trois
+   * branches et la raison de chacune : un salon que ce casque s'est créé se
+   * quitte pour de bon, un salon de groupe rend son JEU sans dissoudre le
+   * groupe, et un salon qui n'a pas commencé à jouer ne doit rien. Ce qui
+   * reste ici est l'émission, et elle seule.
    *
    * Silent when there is nothing owed, so it is safe to call twice.
    */
   function giveUpRoom(): void {
-    if (ownedRoomId) {
-      leaveGroup(ownedRoomId);
+    const action = giveUpAction(ownedRoomId, $myRoom);
+    if (action.kind === 'leave') {
+      leaveGroup(action.roomId);
       ownedRoomId = null;
       return;
     }
-
-    const room = $myRoom;
-    if (room && room.players.length >= 2 && room.status === 'playing') {
-      $socket?.emit('room:release-game', { roomId: room.id });
+    if (action.kind === 'release') {
+      $socket?.emit('room:release-game', { roomId: action.roomId });
     }
   }
 
