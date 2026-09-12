@@ -372,13 +372,22 @@
     scene.setPlayerAt(walkAt, walkYaw);
     /*
      * Le sol suit le joueur, donc c'est sa TEXTURE qui doit défiler - sans
-     * quoi on glisse sur un tapis roulant à l'arrêt. Le décalage est exprimé
-     * dans le repère du sol, donc tourné du lacet du joueur, sinon le motif
-     * partirait de travers dès le premier cran.
+     * quoi on glisse sur un tapis roulant à l'arrêt.
+     *
+     * SANS ROTATION, et c'est un piège qui a mordu une fois. Cette ligne
+     * tournait le décalage du lacet du joueur, ce qui était juste tant que
+     * `walkAt` vivait dans le repère de la racine. Depuis qu'il est exprimé
+     * dans le repère LOCAL du décor - la correction qui a réparé les tuyaux -
+     * le sol et le joueur parlent déjà la même langue, et la rotation faisait
+     * dériver l'herbe d'un angle égal au lacet. Rapporté du casque : « quand
+     * j'avance vers un tuyau, elle bouge à 2 h », soit environ soixante
+     * degrés, soit deux crans de rotation.
+     *
+     * La leçon vaut plus que la ligne : corriger un repère oblige à relire
+     * TOUT ce qui s'exprimait dans l'ancien, pas seulement ce qui était en
+     * panne.
      */
-    const c = Math.cos(walkYaw);
-    const sn = Math.sin(walkYaw);
-    decor?.setGroundShift([walkAt[0] * c - walkAt[1] * sn, walkAt[0] * sn + walkAt[1] * c]);
+    decor?.setGroundShift(walkAt);
     // La vitesse de la VIGNETTE est celle qu'on a réellement parcourue, pas
     // celle qu'on demandait : poussé contre un mur, le champ ne défile pas,
     // donc rien ne doit s'assombrir.
