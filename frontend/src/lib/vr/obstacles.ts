@@ -14,6 +14,7 @@ import { ART_PIXELS_PER_METRE } from './decor/composition';
 import { props } from './decor/placement';
 import { counterRuns, COUNTER_BLOCK_WIDTH, COUNTER_DEPTH, type SceneLayout } from './layout';
 import { BODY_HEIGHT, type Obstacle } from './collide';
+import type { Pipe } from './pipes';
 
 export function lobbyObstacles(layout: SceneLayout, floorHeight: number): Obstacle[] {
   const out: Obstacle[] = [];
@@ -56,4 +57,28 @@ export function lobbyObstacles(layout: SceneLayout, floorHeight: number): Obstac
   }
 
   return out;
+}
+
+/**
+ * Les tuyaux où l'on peut entrer, déduits des mêmes données.
+ *
+ * Un tuyau est fait de DEUX boîtes - le fût et la lèvre - posées au même
+ * azimut, donc on les regroupe par azimut et on garde le sommet le plus haut :
+ * la lèvre. Compter sur le nom de l'art plutôt que sur la forme serait plus
+ * court et plus fragile ; le jour où un tuyau gagne une troisième pièce, ce
+ * code n'a rien à apprendre.
+ */
+export function lobbyPipes(): Pipe[] {
+  const byAzimuth = new Map<number, Pipe>();
+  for (const box of props()) {
+    if (!box.front.startsWith('pipe')) continue;
+    const top = box.standing + rasterise(ALL_ART[box.front]).height / ART_PIXELS_PER_METRE;
+    const known = byAzimuth.get(box.azimuth);
+    if (known && known.top >= top) continue;
+    byAzimuth.set(box.azimuth, {
+      at: [box.radius * Math.sin(box.azimuth), -box.radius * Math.cos(box.azimuth)],
+      top
+    });
+  }
+  return [...byAzimuth.values()];
 }

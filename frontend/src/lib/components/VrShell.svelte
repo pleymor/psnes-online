@@ -62,7 +62,11 @@
   import { walk, walkSpeed, snapTurn, smoothTurn, SNAP_READY } from '$lib/vr/walk';
   import { slide, supportAt, type Obstacle } from '$lib/vr/collide';
   import { step as verticalStep, STANDING, type Vertical } from '$lib/vr/jump';
-  import { lobbyObstacles } from '$lib/vr/obstacles';
+  import { lobbyObstacles, lobbyPipes } from '$lib/vr/obstacles';
+  import {
+    crouch, enter as enterPipe, advance as advanceTravel, travelling, hidden,
+    NOT_TRAVELLING, type Travel, type Pipe
+  } from '$lib/vr/pipes';
   import { readTurnStyle, writeTurnStyle, type TurnStyle } from '$lib/vr/turn-style';
   import { readBluetoothPad, bluetoothPadName } from '$lib/vr/bt-pad';
   import type { PadMask } from '$lib/znet/protocol';
@@ -193,6 +197,7 @@
       counter: counterRuns(scene.layout)
     });
     obstacles = lobbyObstacles(scene.layout, height);
+    pipes = lobbyPipes();
     scene.addDecor(decor.decor);
     // Le lointain et le rideau suivent le joueur ; le décor proche reste posé.
     scene.addFar(decor.far);
@@ -231,6 +236,42 @@
   let vertical: Vertical = STANDING;
   /** Le bouton de saut était-il tenu à l'image précédente, pour le front. */
   let jumpWas = false;
+  /** Les tuyaux où l'on peut entrer, déduits du décor comme les obstacles. */
+  let pipes: Pipe[] = [];
+  /** Le voyage en cours, s'il y en a un. */
+  let travel: Travel = NOT_TRAVELLING;
+  /** Le monde est-il masqué pour le voyage, pour ne pas le redire chaque image. */
+  let travelDark = false;
+
+  /**
+   * Une image de voyage par les tuyaux.
+   *
+   * Rend vrai s'il a pris la main : pendant un voyage, le joueur ne marche
+   * pas, ne saute pas et ne tourne pas. Il est transporté, ce qui est
+   * exactement ce qu'on lui promet en le laissant s'accroupir sur un tuyau.
+   */
+  function travelFrame(dt: number): boolean {
+    if (travel.kind === 'none') return false;
+    travel = advanceTravel(travel, dt);
+    const where = travelling(travel);
+    if (where) {
+      walkAt = [where.at[0], where.at[1]];
+      vertical = { y: where.y, velocity: 0 };
+    }
+    /*
+     * Le noir, posé une fois par changement d'état plutôt qu'à chaque image :
+     * `setVisible` déclenche un fondu, et le rappeler soixante-douze fois par
+     * seconde le ferait repartir de zéro sans jamais aboutir.
+     */
+    const dark = travel.kind !== 'none' && hidden(travel);
+    if (dark !== travelDark) {
+      travelDark = dark;
+      decor?.setVisible(!dark);
+    }
+    scene?.setPlayerAt(walkAt, walkYaw);
+    scene?.setPlayerHeight(vertical.y);
+    return true;
+  }
 
   /**
    * Un pas de locomotion, une fois par image.
@@ -253,7 +294,12 @@
     const dt = previous === null ? 0 : (t - previous) / 1000;
     if (dt <= 0 || dt > 0.1) return;
 
+    if (travelFrame(dt)) return;
+
     const sources = scene.inputSources();
+    // Les deux sticks lus en tête : la verticale a besoin de l'accroupissement
+    // avant que la rotation ne s'en occupe.
+    const [turnX, turnY] = turnStick(sources);
     const { forward, right } = scene.headBasis();
     const before = walkAt;
     const beforeY = vertical.y;
@@ -289,9 +335,23 @@
       dt
     });
     jumpWas = holding;
-    scene.setPlayerHeight(vertical.y);
+    // S'accroupir baisse la tête sans changer la hauteur des pieds : c'est une
+    // posture, pas une position, donc ça ne décide de rien d'autre.
+    scene.setPlayerHeight(vertical.y - crouch(turnY));
 
-    const [turnX] = turnStick(sources);
+    /*
+     * S'accroupir sur un tuyau y fait descendre. L'ordre compte : on teste
+     * l'entrée AVANT d'appliquer l'accroupissement, sinon la première image
+     * d'un voyage baisserait la tête du joueur pour rien.
+     */
+    const crouching = crouch(turnY) > 0;
+    const started = enterPipe(walkAt, vertical.y, crouching, pipes);
+    if (started.kind !== 'none') {
+      travel = started;
+      travelFrame(dt);
+      return;
+    }
+
     if (turnStyle === 'snap') {
       const fired = snapTurn(turnX, snapState);
       snapState = fired.state;
