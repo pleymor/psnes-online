@@ -100,15 +100,21 @@ export interface VrScene {
    */
   headBasis(): { forward: [number, number]; right: [number, number] };
   /**
-   * Le décalage de marche, en mètres dans le plan.
+   * Où le JOUEUR se tient, en mètres dans le plan, depuis l'ancre.
+   *
+   * Le nom dit le sens, parce que le sens s'est trompé une fois : ce n'est
+   * PAS un décalage à ajouter aux groupes. Avancer le joueur, c'est reculer
+   * le monde, donc les groupes vont à l'ancre MOINS cette position. La
+   * première version ajoutait, et le casque a rendu son verdict en trois
+   * mots - « tous les mouvements du stick sont inversés ».
    *
    * Appliqué aux DEUX groupes : `world` porte les panneaux, le rideau et le
-   * comptoir, `room` porte le décor. Les décaler ensemble fait glisser le
+   * comptoir, `room` porte le décor. Les déplacer ensemble fait glisser le
    * monde entier autour du joueur, meubles compris, donc il marche PAR
-   * RAPPORT à son bureau au lieu de le traîner. N'en décaler qu'un les
+   * RAPPORT à son bureau au lieu de le traîner. N'en déplacer qu'un les
    * séparerait, ce que `decor/build.ts` interdit déjà pour la hauteur.
    */
-  setWalk(offset: readonly [number, number]): void;
+  setPlayerAt(position: readonly [number, number]): void;
   /** La vitesse du pas, en m/s : c'est elle qui assombrit la périphérie. */
   setWalkSpeed(speed: number): void;
   /**
@@ -222,8 +228,9 @@ export function createVrScene(opts: {
    */
   let anchored = false;
   let recenterPending = false;
-  /** Le décalage de marche, ajouté à l'ancre des deux groupes. */
-  let walkOffset: readonly [number, number] = [0, 0];
+  /** Où le joueur se tient, depuis l'ancre. Les groupes vont à l'ancre MOINS
+   *  cette position : avancer le joueur, c'est reculer le monde. */
+  let playerAt: readonly [number, number] = [0, 0];
   /*
    * La vignette vit dans la scène et suit la caméra à chaque image, plutôt que
    * d'en être l'ENFANT : la caméra XR de three n'est pas dans le graphe, et
@@ -240,17 +247,17 @@ export function createVrScene(opts: {
     room: [0, 0, 0]
   };
 
-  /** Repose les deux groupes : l'ancre, plus la marche. */
+  /** Repose les deux groupes : l'ancre, MOINS la position du joueur. */
   function place(): void {
     world.position.set(
-      anchorAt.world[0] + walkOffset[0],
+      anchorAt.world[0] - playerAt[0],
       anchorAt.world[1],
-      anchorAt.world[2] + walkOffset[1]
+      anchorAt.world[2] - playerAt[1]
     );
     room.position.set(
-      anchorAt.room[0] + walkOffset[0],
+      anchorAt.room[0] - playerAt[0],
       anchorAt.room[1],
-      anchorAt.room[2] + walkOffset[1]
+      anchorAt.room[2] - playerAt[1]
     );
   }
 
@@ -520,7 +527,7 @@ export function createVrScene(opts: {
              * trois mètres de son bureau après l'avoir pressé serait le
              * contraire de ce qu'il promet.
              */
-            walkOffset = [0, 0];
+            playerAt = [0, 0];
             place();
             world.rotation.set(0, anchor.yaw, 0);
             room.rotation.set(0, forRoom.yaw, 0);
@@ -609,8 +616,8 @@ export function createVrScene(opts: {
       return { forward, right: [-forward[1], forward[0]] };
     },
 
-    setWalk(offset: readonly [number, number]): void {
-      walkOffset = [offset[0], offset[1]];
+    setPlayerAt(position: readonly [number, number]): void {
+      playerAt = [position[0], position[1]];
       place();
     },
 

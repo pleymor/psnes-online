@@ -194,7 +194,7 @@
     decor.setVisible(decorShowing);
   }
 
-  /** Le décalage de marche, en mètres dans le plan. Voir `vr/walk.ts`. */
+  /** Où le joueur se tient, en mètres depuis l'ancre. Voir `vr/walk.ts`. */
   let walkOffset: [number, number] = [0, 0];
   /** L'horodatage de l'image précédente, pour le dt de la marche. */
   let walkedAt: number | null = null;
@@ -228,7 +228,7 @@
       right,
       dt
     });
-    scene.setWalk(walkOffset);
+    scene.setPlayerAt(walkOffset);
     scene.setWalkSpeed(walkSpeed(before, walkOffset, dt));
   }
 
