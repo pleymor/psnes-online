@@ -272,3 +272,17 @@ export function runHeld(sources: Iterable<PadLikeSource>): boolean {
   }
   return false;
 }
+
+/**
+ * Le bouton A de la manette droite : sauter.
+ *
+ * `FACE_LOWER` sur un `xr-standard`, soit A à droite et X à gauche. La droite
+ * seule, comme la course : la gauche dirige.
+ */
+export function jumpHeld(sources: Iterable<PadLikeSource>): boolean {
+  for (const source of sources) {
+    if (source.handedness !== 'right') continue;
+    return source.gamepad?.buttons[FACE_LOWER]?.pressed === true;
+  }
+  return false;
+}

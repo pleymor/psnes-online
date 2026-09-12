@@ -15,7 +15,7 @@ import { props } from './decor/placement';
 import { counterRuns, COUNTER_BLOCK_WIDTH, COUNTER_DEPTH, type SceneLayout } from './layout';
 import { BODY_HEIGHT, type Obstacle } from './collide';
 
-export function lobbyObstacles(layout: SceneLayout): Obstacle[] {
+export function lobbyObstacles(layout: SceneLayout, floorHeight: number): Obstacle[] {
   const out: Obstacle[] = [];
 
   for (const box of props()) {
@@ -26,12 +26,15 @@ export function lobbyObstacles(layout: SceneLayout): Obstacle[] {
      * elle deviendra solide toute seule.
      */
     if (box.standing >= BODY_HEIGHT) continue;
-    const width = rasterise(ALL_ART[box.front]).width / ART_PIXELS_PER_METRE;
+    const raster = rasterise(ALL_ART[box.front]);
     out.push({
       at: [box.radius * Math.sin(box.azimuth), -box.radius * Math.cos(box.azimuth)],
-      halfWidth: width / 2,
+      halfWidth: raster.width / ART_PIXELS_PER_METRE / 2,
       halfDepth: box.depth / 2,
-      yaw: box.azimuth
+      yaw: box.azimuth,
+      // `standing` est la hauteur du BAS ; le sommet est donc plus haut de tout
+      // le dessin, la règle des seize pixels par mètre servant une fois de plus.
+      top: box.standing + raster.height / ART_PIXELS_PER_METRE
     });
   }
 
@@ -41,7 +44,14 @@ export function lobbyObstacles(layout: SceneLayout): Obstacle[] {
       at: [run.top[0], run.top[2]],
       halfWidth: COUNTER_BLOCK_WIDTH / 2,
       halfDepth: COUNTER_DEPTH / 2,
-      yaw: run.facing
+      yaw: run.facing,
+      /*
+       * `run.top` est mesuré depuis l'ŒIL, comme tout ce que `layout.ts`
+       * produit, alors que les obstacles parlent en hauteur au-dessus du SOL.
+       * La hauteur du plancher fait le pont, et c'est le seul endroit du
+       * lobby où les deux conventions se rencontrent.
+       */
+      top: floorHeight + run.top[1]
     });
   }
 

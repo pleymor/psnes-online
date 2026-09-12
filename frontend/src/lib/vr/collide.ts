@@ -22,6 +22,15 @@ export interface Obstacle {
   readonly halfDepth: number;
   /** Le lacet de l'obstacle, en radians. */
   readonly yaw: number;
+  /**
+   * La hauteur de son SOMMET au-dessus du sol.
+   *
+   * Elle décide deux choses d'un coup : ce qui barre le passage - un obstacle
+   * dont le sommet est sous les pieds du joueur ne l'arrête pas, sinon on ne
+   * pourrait jamais atterrir sur un tuyau - et sur quoi on se tient, puisque
+   * c'est cette hauteur-là que `supportAt` rend.
+   */
+  readonly top: number;
 }
 
 /**
@@ -58,7 +67,8 @@ export const BODY_HEIGHT = 1.8;
 export function slide(
   from: readonly [number, number],
   to: readonly [number, number],
-  obstacles: readonly Obstacle[]
+  obstacles: readonly Obstacle[],
+  feet = 0
 ): [number, number] {
   /*
    * Le pas est DÉCOUPÉ, parce que cette résolution ne regarde que la
@@ -83,9 +93,18 @@ export function slide(
    */
   const dx = (to[0] - from[0]) / steps;
   const dz = (to[1] - from[1]) / steps;
+  /*
+   * Ce qui est SOUS les pieds ne barre rien.
+   *
+   * Sans ce filtre, un joueur au sommet d'un tuyau serait repoussé par ses
+   * flancs : il ne pourrait ni y monter ni s'y tenir. Le seuil est franc - le
+   * sommet contre les pieds - parce qu'un joueur posé DESSUS a exactement la
+   * hauteur du sommet, et `supportAt` l'y maintient.
+   */
+  const blocking = obstacles.filter((obstacle) => obstacle.top > feet + 1e-6);
   let at: [number, number] = [from[0], from[1]];
   for (let i = 0; i < steps; i++) {
-    at = resolve(at, [at[0] + dx, at[1] + dz], obstacles);
+    at = resolve(at, [at[0] + dx, at[1] + dz], blocking);
   }
   return at;
 }
@@ -138,3 +157,36 @@ function resolve(
   return travelled > wanted + BODY_RADIUS ? [from[0], from[1]] : [x, z];
 }
 
+
+/**
+ * Sur quoi le joueur se tient, à cet endroit et à cette hauteur.
+ *
+ * Rend la hauteur du sommet le plus haut sous ses pieds, ou zéro pour
+ * l'herbe. « Sous ses pieds » avec une tolérance : en descendant, on touche un
+ * sommet quelque part entre deux images, et exiger l'égalité ferait passer au
+ * travers une fois sur deux.
+ *
+ * Le rayon du corps n'entre PAS en compte ici, et c'est voulu : on se tient
+ * sur un tuyau dès que son centre est au-dessus de lui, pas seulement quand
+ * tout son corps l'est. Un joueur qui tomberait parce qu'une épaule dépasse
+ * serait un joueur qui ne monte jamais sur rien.
+ */
+export function supportAt(
+  at: readonly [number, number],
+  feet: number,
+  obstacles: readonly Obstacle[]
+): number {
+  let best = 0;
+  for (const obstacle of obstacles) {
+    if (obstacle.top > feet + 0.05) continue;
+    const dx = at[0] - obstacle.at[0];
+    const dz = at[1] - obstacle.at[1];
+    const cos = Math.cos(obstacle.yaw);
+    const sin = Math.sin(obstacle.yaw);
+    const along = dx * cos + dz * sin;
+    const out = -dx * sin + dz * cos;
+    if (Math.abs(along) > obstacle.halfWidth || Math.abs(out) > obstacle.halfDepth) continue;
+    if (obstacle.top > best) best = obstacle.top;
+  }
+  return best;
+}

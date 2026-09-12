@@ -58,9 +58,10 @@
   } from '$lib/vr/panels/launch';
   import { launchOptions } from '$lib/vr/launch-options';
   import { activeRooms, myRoom } from '$lib/rooms/my-room';
-  import { menuPressed, readVrPad, activeXrInputs, fastForwardHeld, walkStick, turnStick, runHeld } from '$lib/vr/pad';
+  import { menuPressed, readVrPad, activeXrInputs, fastForwardHeld, walkStick, turnStick, runHeld, jumpHeld } from '$lib/vr/pad';
   import { walk, walkSpeed, snapTurn, smoothTurn, SNAP_READY } from '$lib/vr/walk';
-  import { slide, type Obstacle } from '$lib/vr/collide';
+  import { slide, supportAt, type Obstacle } from '$lib/vr/collide';
+  import { step as verticalStep, STANDING, type Vertical } from '$lib/vr/jump';
   import { lobbyObstacles } from '$lib/vr/obstacles';
   import { readTurnStyle, writeTurnStyle, type TurnStyle } from '$lib/vr/turn-style';
   import { readBluetoothPad, bluetoothPadName } from '$lib/vr/bt-pad';
@@ -191,7 +192,7 @@
       head: () => scene!.headPosition(),
       counter: counterRuns(scene.layout)
     });
-    obstacles = lobbyObstacles(scene.layout);
+    obstacles = lobbyObstacles(scene.layout, height);
     scene.addDecor(decor.decor);
     // Le lointain et le rideau suivent le joueur ; le décor proche reste posé.
     scene.addFar(decor.far);
@@ -226,6 +227,10 @@
    * serait le genre de dépense que ce fichier passe son temps à éviter.
    */
   let obstacles: Obstacle[] = [];
+  /** La verticale du joueur : où il est, et à quelle vitesse il y va. */
+  let vertical: Vertical = STANDING;
+  /** Le bouton de saut était-il tenu à l'image précédente, pour le front. */
+  let jumpWas = false;
 
   /**
    * Un pas de locomotion, une fois par image.
@@ -251,6 +256,7 @@
     const sources = scene.inputSources();
     const { forward, right } = scene.headBasis();
     const before = walkAt;
+    const beforeY = vertical.y;
     const stepped = walk({
       stick: walkStick(sources),
       forward,
@@ -260,7 +266,30 @@
     });
     // Le décor est solide : on glisse le long du comptoir et des tuyaux plutôt
     // que de les traverser.
-    walkAt = slide(walkAt, [walkAt[0] + stepped[0], walkAt[1] + stepped[1]], obstacles);
+    walkAt = slide(
+      walkAt,
+      [walkAt[0] + stepped[0], walkAt[1] + stepped[1]],
+      obstacles,
+      vertical.y
+    );
+
+    /*
+     * La verticale, APRÈS le déplacement horizontal.
+     *
+     * L'ordre décide de ce qui arrive quand on saute vers un tuyau : en
+     * bougeant d'abord, le support est celui de l'endroit où l'on ARRIVE, donc
+     * on atterrit dessus. Dans l'autre sens on retomberait à l'endroit d'où
+     * l'on vient, ce qui se sent comme un saut qui glisse.
+     */
+    const holding = jumpHeld(sources);
+    vertical = verticalStep(vertical, {
+      pressed: holding && !jumpWas,
+      holding,
+      support: supportAt(walkAt, vertical.y, obstacles),
+      dt
+    });
+    jumpWas = holding;
+    scene.setPlayerHeight(vertical.y);
 
     const [turnX] = turnStick(sources);
     if (turnStyle === 'snap') {
@@ -284,7 +313,17 @@
     // La vitesse de la VIGNETTE est celle qu'on a réellement parcourue, pas
     // celle qu'on demandait : poussé contre un mur, le champ ne défile pas,
     // donc rien ne doit s'assombrir.
-    scene.setWalkSpeed(walkSpeed([walkAt[0] - before[0], walkAt[1] - before[1]], dt));
+    /*
+     * La vignette suit la vitesse RÉELLE, verticale comprise : poussé contre
+     * un mur le champ ne défile pas, donc rien ne s'assombrit - mais une chute
+     * de trois mètres est le moment où l'on en a le plus besoin.
+     */
+    const travelled = Math.hypot(
+      walkAt[0] - before[0],
+      walkAt[1] - before[1],
+      vertical.y - beforeY
+    );
+    scene.setWalkSpeed(walkSpeed([travelled, 0], dt));
   }
 
   /** Guards `leave()` against re-entrant calls - see the header. */

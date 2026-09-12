@@ -116,6 +116,15 @@ export interface VrScene {
    */
   setPlayerAt(position: readonly [number, number], yaw: number): void;
   /**
+   * À quelle hauteur le joueur se tient, au-dessus du sol.
+   *
+   * Le monde descend d'autant : monter sur un tuyau, c'est baisser le monde de
+   * deux mètres. Les QUATRE groupes bougent ensemble - le lointain comme le
+   * proche - sinon le sol resterait sous les pieds pendant que le décor
+   * descendrait, et le joueur marcherait sur le ciel.
+   */
+  setPlayerHeight(height: number): void;
+  /**
    * La racine qui SUIT le joueur : ciel, sol, collines, nuages.
    *
    * Elle prend la rotation du joueur mais jamais son déplacement, ce qui fait
@@ -242,6 +251,8 @@ export function createVrScene(opts: {
   let playerAt: readonly [number, number] = [0, 0];
   /** De combien le joueur a tourné sur lui-même, en radians. */
   let playerYaw = 0;
+  /** À quelle hauteur il se tient : zéro sur l'herbe, deux sur un tuyau. */
+  let playerHeight = 0;
 
   /*
    * Le groupe du LOINTAIN : ciel, sol, rideau, collines, nuages.
@@ -295,14 +306,14 @@ export function createVrScene(opts: {
     ];
 
     const [wx, wz] = turned(anchorAt.world[0] - playerAt[0], anchorAt.world[2] - playerAt[1]);
-    world.position.set(wx, anchorAt.world[1], wz);
+    world.position.set(wx, anchorAt.world[1] - playerHeight, wz);
     world.rotation.set(0, anchorYaws.world - playerYaw, 0);
 
     const [rx, rz] = turned(anchorAt.room[0] - playerAt[0], anchorAt.room[2] - playerAt[1]);
-    room.position.set(rx, anchorAt.room[1], rz);
+    room.position.set(rx, anchorAt.room[1] - playerHeight, rz);
     room.rotation.set(0, anchorYaws.room - playerYaw, 0);
 
-    far.position.set(anchorAt.room[0], anchorAt.room[1], anchorAt.room[2]);
+    far.position.set(anchorAt.room[0], anchorAt.room[1] - playerHeight, anchorAt.room[2]);
     far.rotation.set(0, anchorYaws.room - playerYaw, 0);
   }
 
@@ -575,6 +586,7 @@ export function createVrScene(opts: {
              */
             playerAt = [0, 0];
             playerYaw = 0;
+            playerHeight = 0;
             place();
             recenterPending = false;
           }
@@ -681,6 +693,11 @@ export function createVrScene(opts: {
     },
 
     addFar: (object) => void far.add(object),
+
+    setPlayerHeight(height: number): void {
+      playerHeight = height;
+      place();
+    },
 
     setWalkSpeed: (speed: number) => vignette.setSpeed(speed),
     reshapeScreen(shape: ScreenShape): void {
