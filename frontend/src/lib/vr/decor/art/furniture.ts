@@ -21,11 +21,25 @@ import type { Art } from '../pixels';
  *
  * `GROUND_BRICK` porte déjà deux rangs d'appareil décalés sur ses seize
  * lignes. Les empiler en donne quatre cohérents, sans un caractère de plus.
+ *
+ * LE MORTIER N'EST PAS NOIR, et c'est une session casque qui l'a imposé.
+ * L'arithmétique : à seize pixels le mètre, un pixel fait 6,25 cm, donc les
+ * lignes de contour de `GROUND_BRICK` mesurent 6 à 12 cm d'épaisseur dans le
+ * monde. Sur un sol, à cinq mètres, c'était de la matière ; sur un comptoir, à
+ * un mètre du nez, c'étaient des barres noires, et l'objet se lisait comme des
+ * dalles orange plutôt que comme de la maçonnerie. Le brun sombre garde les
+ * joints sans les faire crier.
+ *
+ * Ce que ça ne corrige pas : les briques font 50 x 25 cm, parce que c'est ce
+ * que la règle des seize pixels par mètre impose à cette distance. Elle n'est
+ * pas en cause - c'est elle qui fait que tous les pixels du monde ont la même
+ * taille - elle ne sait simplement pas dessiner de la maçonnerie fine à portée
+ * de main.
  */
-export const COUNTER_BRICK: Art = {
-  palette: GROUND_BRICK.palette,
-  rows: [...GROUND_BRICK.rows, ...GROUND_BRICK.rows]
-};
+export const COUNTER_BRICK: Art = recolour(
+  { palette: GROUND_BRICK.palette, rows: [...GROUND_BRICK.rows, ...GROUND_BRICK.rows] },
+  { outline: 'brickDark' }
+);
 
 /** Les flancs : même tracé, palette assombrie, comme tout le lot 3. */
 export const COUNTER_SIDE: Art = recolour(COUNTER_BRICK, {
