@@ -802,7 +802,7 @@
     if (!options) {
       launchFor = null;
       scene.screen.regions.length = 0;
-      scene.screen.showTestPattern();
+      scene.screen.showIdle();
       showDecor(true);
       return;
     }
@@ -2705,7 +2705,7 @@
     launchFor = null;
     if (scene) {
       scene.screen.regions.length = 0;
-      scene.screen.showTestPattern();
+      scene.screen.showIdle();
       showDecor(true);
     }
   }
@@ -3092,7 +3092,7 @@
 
       // Until a game is launched, this is what the screen carries - and what
       // makes a wrong distance or height obvious.
-      scene.screen.showTestPattern();
+      scene.screen.showIdle();
       showDecor(true);
 
       library = scene.addPanel('library', scene.layout.library, LIBRARY_PANEL_SIZE);

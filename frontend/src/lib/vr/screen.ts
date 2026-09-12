@@ -35,7 +35,8 @@ import type { PanelSize, Region } from './panel';
 import { createSlotMaskBuilder, hasSlot, SLOT_COUNT } from './slot-mask';
 import { slotDepths } from './slot-depth';
 import { DEFAULT_RELIEF, type ReliefPreset } from './relief-preset';
-import { paintTestPattern } from './test-pattern';
+import { drawIdleGlass } from './panels/idle-glass';
+import { LAUNCH_PANEL_SIZE } from './panels/launch';
 
 export interface VrScreen {
   /**
@@ -71,7 +72,7 @@ export interface VrScreen {
    * honest answer for a core that has no layer plane to give.
    */
   upload(surface: VideoSurface, depth?: DepthSurface): void;
-  showTestPattern(): void;
+  showIdle(): void;
   /**
    * Turns the screen into a canvas and paints it.
    *
@@ -197,7 +198,16 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
     // The SNES palette is already the picture; three's tone mapping would
     // crush it toward grey. The picture's shader says the same thing by
     // leaving `tonemapping_fragment` out.
-    toneMapped: false
+    toneMapped: false,
+    /*
+     * Transparent depuis que l'écran au repos est une vitre.
+     *
+     * Sans ça, un canvas peint en translucide se compose sur du noir et donne
+     * un aplat sombre au lieu de laisser voir le monde derrière. Sans effet
+     * sur le panneau de lancement, dont le champ est opaque : une alpha de 1
+     * se comporte exactement comme avant.
+     */
+    transparent: true
   });
 
   /*
@@ -392,7 +402,7 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
     builtFor = { width, height, stride };
   }
 
-  return {
+  const handle: VrScreen = {
     meshes,
 
     upload(surface: VideoSurface, depth?: DepthSurface): void {
@@ -463,32 +473,32 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
     },
 
     /**
-     * A picture with no emulator behind it.
+     * L'écran quand aucun jeu ne tourne : une vitre, pas une image.
      *
-     * It exists so the geometry, distance, height and aspect can be judged
-     * before a ROM is involved. A screen that is too low is obvious against a
-     * grid and invisible against Super Mario World.
-     *
-     * Drawn on the backdrop plane alone, because `rebuildPicture` leaves the
-     * mask at zero and nothing here writes to it. That is right rather than a
-     * shortcut: a test pattern has no layers, and spreading it over ten planes
-     * would put the relief itself into the picture that exists to judge the
-     * geometry.
+     * Ce qu'il remplace est raconté dans `panels/idle-glass.ts`, avec ce que
+     * ça coûte : une mire existait ici pour juger la géométrie, la distance et
+     * les proportions AVANT qu'une ROM soit en jeu, et sa marge magenta criait
+     * quand `uMax` était faux. Elle survit dans `test-pattern.ts`, testée,
+     * prête à revenir derrière un réglage.
      */
-    showTestPattern(): void {
-      const width = 256;
-      const height = 224;
-      const stride = 512;
-      rebuildPicture(width, height, stride);
+    showIdle(): void {
       /*
-       * Le dessin lui-même est parti dans `test-pattern.ts`, et pas par goût
-       * du rangement : un tampon d'octets se vérifie sous Bun, un maillage
-       * three ne s'y construit pas. Tant qu'il était ici, rien ne tenait ses
-       * deux diagnostics - la cadence de seize pixels et la marge magenta -
-       * et leur perte aurait été silencieuse.
+       * Une vitre, peinte par le chemin du PANNEAU et non par celui de
+       * l'image.
+       *
+       * Ce n'est pas un détour : le chemin de l'image écrit dans une texture
+       * de données passée au shader du filtre pixel-art, dont la sortie est
+       * opaque par construction. Le chemin du panneau passe par
+       * `panelMaterial`, qui est transparent, et c'est la seule façon de
+       * laisser voir le monde à travers l'écran.
+       *
+       * La taille est celle du panneau de lancement, pour que basculer de
+       * l'un à l'autre ne redimensionne jamais le canvas - `paintPanel`
+       * documente ce que coûte un second format.
        */
-      paintTestPattern(texture!.image.data as Uint8Array, width, height, stride);
-      texture!.needsUpdate = true;
+      handle.paintPanel(LAUNCH_PANEL_SIZE, (ctx) =>
+        drawIdleGlass(ctx, LAUNCH_PANEL_SIZE.width, LAUNCH_PANEL_SIZE.height)
+      );
     },
 
     /**
@@ -612,4 +622,6 @@ export function createVrScreen(initial: ScreenPlacement): VrScreen {
       panelMaterial.dispose();
     }
   };
+
+  return handle;
 }
