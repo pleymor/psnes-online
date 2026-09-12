@@ -20,6 +20,64 @@ export interface LogEntry {
 	data?: unknown;
 }
 
+/**
+ * Jusqu'où on descend dans `data` à la recherche d'erreurs.
+ *
+ * Il en faut une : sans elle un objet cyclique ferait boucler cette fonction,
+ * là où `JSON.stringify` se contente de jeter - et une exception ici casserait
+ * l'application qu'on observe, ce que l'en-tête de ce module interdit. Quatre
+ * niveaux couvrent `[{ phase, err }]` et ses semblables ; au-delà, la valeur
+ * repart telle quelle et retrouve le sort qu'elle avait avant.
+ */
+const MAX_DEPTH = 4;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	if (typeof value !== 'object' || value === null) return false;
+	const proto = Object.getPrototypeOf(value);
+	return proto === Object.prototype || proto === null;
+}
+
+/**
+ * Rend une valeur telle que `JSON.stringify` en garde quelque chose.
+ *
+ * `message`, `name` et `stack` d'un `Error` sont NON ÉNUMÉRABLES : un `Error`
+ * sérialisé rend `{}`, et c'est ainsi que toutes les erreurs de ce dépôt
+ * arrivaient au serveur - y compris `vr engine failed to start`, le
+ * 2026-09-12, quand il fallait précisément savoir laquelle elle était.
+ *
+ * La conversion a lieu ici plutôt que chez l'appelant parce que c'est ce
+ * module qui appelle `JSON.stringify`, donc lui seul qui sait ce qui survit au
+ * voyage. Tout ce qui se sérialisait déjà passe inchangé.
+ */
+export function loggable(value: unknown, depth = 0): unknown {
+	if (value instanceof Error) {
+		const plain: Record<string, unknown> = {
+			name: value.name,
+			message: value.message,
+			stack: value.stack
+		};
+		// La cause porte souvent la vraie panne, l'enveloppe n'en portant que le
+		// nom. La profondeur la garde d'une chaîne qui se mordrait la queue.
+		if (value.cause !== undefined && depth < MAX_DEPTH) {
+			plain.cause = loggable(value.cause, depth + 1);
+		}
+		return plain;
+	}
+
+	if (depth >= MAX_DEPTH) return value;
+	if (Array.isArray(value)) return value.map((item) => loggable(item, depth + 1));
+	if (isPlainObject(value)) {
+		const out: Record<string, unknown> = {};
+		for (const [key, item] of Object.entries(value)) out[key] = loggable(item, depth + 1);
+		return out;
+	}
+
+	// Tout le reste - nombres, chaînes, instances de classes, noeuds du DOM -
+	// est rendu intact : ce module corrige une perte, il ne réécrit pas ce qui
+	// arrivait déjà entier.
+	return value;
+}
+
 const ENDPOINT = '/api/logs';
 const FLUSH_INTERVAL_MS = 2000;
 const MAX_BATCH = 50;
@@ -54,7 +112,11 @@ export function setLogLabels(extraLabels: Record<string, string>): void {
 export function ship(entry: LogEntry): void {
 	if (!enabled) return;
 
-	pending.push(entry);
+	// Converti à l'entrée plutôt qu'au départ du lot : `data` est ainsi déjà
+	// sérialisable quel que soit le chemin qui l'emporte - `fetch` ou la balise
+	// de `pagehide` - et l'erreur est figée au moment où elle a été journalisée
+	// plutôt que deux secondes plus tard.
+	pending.push(entry.data === undefined ? entry : { ...entry, data: loggable(entry.data) });
 	if (pending.length > MAX_PENDING) {
 		// Drop the oldest: a burst means something is wrong, and the newest
 		// lines describe it better than the start of the flood.
