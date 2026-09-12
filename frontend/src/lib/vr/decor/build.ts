@@ -78,6 +78,22 @@ export interface Decor {
    * porte aujourd'hui.
    */
   furniture: THREE.Object3D;
+  /**
+   * Fait GLISSER la texture du sol sous les pieds du joueur.
+   *
+   * Le sol suit le joueur - il est dans le lointain, sinon on sortirait du
+   * disque - et c'est ce qui a produit le symptôme rapporté du casque : « la
+   * texture du sol me suit ». Un sol dont la matière ne bouge pas est un sol
+   * sur lequel on ne marche pas ; on glisse dessus comme sur un tapis roulant
+   * à l'arrêt.
+   *
+   * La réponse n'est pas de déplacer le maillage mais sa TEXTURE. Les uv du
+   * disque couvrent 0..1 d'un bord à l'autre, soit `floorRepeat()` tuiles sur
+   * un diamètre de `SKY_RADIUS * 2` mètres : un mètre parcouru vaut donc
+   * exactement une tuile de décalage, et le motif défile à la bonne vitesse
+   * par construction plutôt que par réglage.
+   */
+  setGroundShift(shift: readonly [number, number]): void;
   update(t: number): void;
   setVisible(visible: boolean): void;
   dispose(): void;
@@ -569,6 +585,20 @@ export function createDecor(opts: DecorOptions): Decor {
     far,
     curtain: curtainMesh,
     furniture,
+
+    setGroundShift(shift: readonly [number, number]): void {
+      /*
+       * Une tuile par mètre : `floorRepeat()` répétitions sur un diamètre de
+       * `SKY_RADIUS * 2`, donc le décalage en uv est le déplacement divisé par
+       * ce diamètre, multiplié par le nombre de répétitions - ce qui se
+       * simplifie en « mètres divisés par la taille d'une tuile », soit les
+       * mètres eux-mêmes.
+       *
+       * Le signe : la texture glisse dans le sens OPPOSÉ à la marche, comme le
+       * paysage défile à l'envers par la fenêtre d'un train.
+       */
+      floorTexture.offset.set(-shift[0], shift[1]);
+    },
 
     setVisible(visible: boolean): void {
       const next: FadeTarget = visible ? 'decor' : 'dark';

@@ -103,7 +103,7 @@ test('un cran fait trente degrés, et douze font le tour', () => {
     // Le stick revient au centre entre deux poussées.
     state = snapTurn(0, fired.state).state;
   }
-  assert.ok(Math.abs(total - 2 * Math.PI) < 1e-9, `${total} au lieu d_un tour`);
+  assert.ok(Math.abs(Math.abs(total) - 2 * Math.PI) < 1e-9, `${total} au lieu d_un tour`);
   assert.ok(Math.abs(TURN_STEP - Math.PI / 6) < 1e-12);
 });
 
@@ -134,15 +134,25 @@ test('le cran se réarme en relâchant, pas en frôlant le seuil', () => {
   assert.equal(state.armed, true, 'jamais réarmé');
 });
 
-test('le cran suit le sens de la poussée', () => {
-  assert.ok(snapTurn(1, SNAP_READY).yaw > 0);
-  assert.ok(snapTurn(-1, SNAP_READY).yaw < 0);
+test('pousser à droite tourne à droite, donc rend un lacet négatif', () => {
+  /*
+   * Le signe est celui de THREE, pas celui du pouce : une rotation positive
+   * autour de +Y tourne vers la GAUCHE du joueur.
+   *
+   * Ce test disait l'inverse et passait, ce qui n'a rien empêché - le casque a
+   * tranché en quatre mots, « le stick droit est inversé ». Un test qui encode
+   * la convention qu'il devrait vérifier ne vérifie rien ; celui-ci nomme donc
+   * le sens attendu du point de vue du JOUEUR, pas de l'axe.
+   */
+  assert.ok(snapTurn(1, SNAP_READY).yaw < 0, 'pousser à droite doit tourner à droite');
+  assert.ok(snapTurn(-1, SNAP_READY).yaw > 0, 'pousser à gauche doit tourner à gauche');
+  assert.ok(smoothTurn(1, 1 / 72) < 0);
+  assert.ok(smoothTurn(-1, 1 / 72) > 0);
 });
 
 test('la rotation continue a la même zone morte et son plafond', () => {
   assert.equal(smoothTurn(WALK_DEAD_ZONE - 1e-6, STEP), 0);
   assert.ok(Math.abs(smoothTurn(1, STEP)) <= TURN_SPEED * STEP + 1e-12);
-  assert.ok(smoothTurn(1, STEP) > 0 && smoothTurn(-1, STEP) < 0);
 });
 
 test('la vitesse rendue est celle du pas, et zéro à l_arrêt', () => {

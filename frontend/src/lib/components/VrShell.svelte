@@ -251,6 +251,15 @@
     }
 
     scene.setPlayerAt(walkAt, walkYaw);
+    /*
+     * Le sol suit le joueur, donc c'est sa TEXTURE qui doit défiler - sans
+     * quoi on glisse sur un tapis roulant à l'arrêt. Le décalage est exprimé
+     * dans le repère du sol, donc tourné du lacet du joueur, sinon le motif
+     * partirait de travers dès le premier cran.
+     */
+    const c = Math.cos(walkYaw);
+    const sn = Math.sin(walkYaw);
+    decor?.setGroundShift([walkAt[0] * c - walkAt[1] * sn, walkAt[0] * sn + walkAt[1] * c]);
     scene.setWalkSpeed(walkSpeed(stepped, dt));
   }
 

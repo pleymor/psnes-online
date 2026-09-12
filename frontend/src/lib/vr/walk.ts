@@ -109,9 +109,19 @@ export const SNAP_READY: SnapState = { armed: true };
  * Un cran de rotation, si le stick vient d'être poussé.
  *
  * Rend le lacet de cette image - zéro la plupart du temps - et l'état à
- * reporter. Le désarmement est ce qui fait qu'un stick tenu à fond ne fait pas
- * tourner en continu : c'est tout l'intérêt du cran, et sans lui on aurait une
- * rotation continue saccadée, soit le pire des deux mondes.
+ * reporter.
+ *
+ * LE SIGNE EST CELUI DE THREE, pas celui du pouce. Une rotation positive
+ * autour de +Y tourne vers la GAUCHE du joueur, donc pousser le stick à droite
+ * doit rendre un lacet NÉGATIF. La première version faisait l'inverse, et le
+ * casque l'a dit en quatre mots : « le stick droit est inversé ». C'est la
+ * cinquième erreur de signe de ce projet, et la deuxième où le test encodait
+ * la faute au lieu de l'attraper - d'où ce paragraphe plutôt qu'une
+ * correction muette.
+ *
+ * Le désarmement, lui, est ce qui fait qu'un stick tenu à fond ne tourne pas en
+ * continu : c'est tout l'intérêt du cran, et sans lui on aurait une rotation
+ * continue saccadée, soit le pire des deux mondes.
  */
 export function snapTurn(stickX: number, state: SnapState): { yaw: number; state: SnapState } {
   const push = Math.abs(stickX);
@@ -119,7 +129,7 @@ export function snapTurn(stickX: number, state: SnapState): { yaw: number; state
     return { yaw: 0, state: push < TURN_REARM ? SNAP_READY : state };
   }
   if (push < TURN_FIRE) return { yaw: 0, state };
-  return { yaw: Math.sign(stickX) * TURN_STEP, state: { armed: false } };
+  return { yaw: -Math.sign(stickX) * TURN_STEP, state: { armed: false } };
 }
 
 /**
@@ -132,7 +142,8 @@ export function smoothTurn(stickX: number, dt: number): number {
   const push = Math.abs(stickX);
   if (push <= WALK_DEAD_ZONE) return 0;
   const reach = Math.min(1, (push - WALK_DEAD_ZONE) / (1 - WALK_DEAD_ZONE));
-  return Math.sign(stickX) * TURN_SPEED * reach * reach * dt;
+  // Négatif vers la droite : voir `snapTurn`, même convention et même piège.
+  return -Math.sign(stickX) * TURN_SPEED * reach * reach * dt;
 }
 
 /**
