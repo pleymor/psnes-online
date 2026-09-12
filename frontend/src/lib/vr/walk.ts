@@ -38,6 +38,16 @@ export const WALK_DEAD_ZONE = 0.15;
 /** Mètres par seconde à plein débattement. Une marche, pas une course. */
 export const WALK_SPEED = 1.2;
 
+/**
+ * Le facteur de la course, bouton B tenu.
+ *
+ * Deux et pas davantage : la vitesse de défilement en périphérie est ce qui
+ * donne la nausée, et elle croît avec ce nombre. 2,4 m/s est un pas vif, pas
+ * un sprint - et la vignette s'assombrit d'autant, puisqu'elle suit la
+ * vitesse réelle.
+ */
+export const RUN_FACTOR = 2;
+
 /** Un cran de rotation : trente degrés, soit douze pour un tour. */
 export const TURN_STEP = Math.PI / 6;
 
@@ -63,6 +73,8 @@ export interface WalkInput {
   readonly right: readonly [number, number];
   /** Secondes depuis l'image précédente. */
   readonly dt: number;
+  /** Le bouton de course est-il tenu. */
+  readonly running?: boolean;
 }
 
 /** Le déplacement de CETTE image, en mètres, dans le plan. */
@@ -87,7 +99,7 @@ export function walk(input: WalkInput): [number, number] {
    * classique de ce genre de code, invisible en lisant et évidente en jouant.
    */
   const reach = Math.min(1, (push - WALK_DEAD_ZONE) / (1 - WALK_DEAD_ZONE));
-  const speed = WALK_SPEED * reach * reach;
+  const speed = WALK_SPEED * reach * reach * (input.running ? RUN_FACTOR : 1);
 
   // L'axe Y d'un stick est négatif vers l'avant.
   const ax = sx / push;

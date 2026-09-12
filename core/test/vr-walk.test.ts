@@ -19,7 +19,8 @@ import {
   TURN_STEP,
   TURN_SPEED,
   TURN_FIRE,
-  TURN_REARM
+  TURN_REARM,
+  RUN_FACTOR
 } from '../../frontend/src/lib/vr/walk.js';
 
 /** Regard vers -Z, droite vers +X : le repère de three au repos. */
@@ -160,4 +161,19 @@ test('la vitesse rendue est celle du pas, et zéro à l_arrêt', () => {
   assert.ok(Math.abs(walkSpeed([0, 0.5], 0.5) - 1) < 1e-12);
   // Un dt nul arrive à la première image : il rend zéro plutôt qu'un infini.
   assert.equal(walkSpeed([0, 1], 0), 0);
+});
+
+test('courir va exactement deux fois plus vite, et pas plus', () => {
+  // Le facteur est un nombre, pas une sensation : la vitesse de défilement en
+  // périphérie est ce qui donne la nausée, donc elle doit rester lisible.
+  const walking = Math.hypot(...walk({ stick: [0, -1], forward: FORWARD, right: RIGHT, dt: STEP }));
+  const running = Math.hypot(
+    ...walk({ stick: [0, -1], forward: FORWARD, right: RIGHT, dt: STEP, running: true })
+  );
+  assert.ok(Math.abs(running - walking * RUN_FACTOR) < 1e-12, `${running} contre ${walking}`);
+});
+
+test('courir ne réveille pas un stick au repos', () => {
+  const at = walk({ stick: [0.05, 0.05], forward: FORWARD, right: RIGHT, dt: STEP, running: true });
+  assert.deepEqual(at, [0, 0]);
 });

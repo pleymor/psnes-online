@@ -257,3 +257,18 @@ export function turnStick(sources: Iterable<PadLikeSource>): [number, number] {
   }
   return [0, 0];
 }
+
+/**
+ * Le bouton B de la manette droite : courir.
+ *
+ * `FACE_UPPER` sur un `xr-standard`, soit B à droite et Y à gauche. La droite
+ * seule, parce que la gauche porte la marche et qu'un bouton de course sous le
+ * pouce qui dirige serait à la fois inconfortable et ambigu.
+ */
+export function runHeld(sources: Iterable<PadLikeSource>): boolean {
+  for (const source of sources) {
+    if (source.handedness !== 'right') continue;
+    return source.gamepad?.buttons[FACE_UPPER]?.pressed === true;
+  }
+  return false;
+}

@@ -1,0 +1,49 @@
+/**
+ * Ce qui barre le passage au joueur, déduit de ce qui le dessine.
+ *
+ * AUCUNE SECONDE LISTE, et c'est tout l'objet de ce module : le comptoir vient
+ * de `counterRuns`, les objets proches de `props()`, et leurs tailles de leur
+ * art. Un tuyau déplacé déplace donc son obstacle, et un objet ajouté au décor
+ * devient solide sans que personne y pense. Une liste d'obstacles écrite à la
+ * main aurait dérivé au premier déplacement - c'est la leçon que `placement.ts`
+ * tire déjà de ses propres tailles, qu'il refuse d'écrire.
+ */
+import { rasterise } from './decor/pixels';
+import { ALL_ART } from './decor/art';
+import { ART_PIXELS_PER_METRE } from './decor/composition';
+import { props } from './decor/placement';
+import { counterRuns, COUNTER_BLOCK_WIDTH, COUNTER_DEPTH, type SceneLayout } from './layout';
+import { BODY_HEIGHT, type Obstacle } from './collide';
+
+export function lobbyObstacles(layout: SceneLayout): Obstacle[] {
+  const out: Obstacle[] = [];
+
+  for (const box of props()) {
+    /*
+     * Ce qui est entièrement au-dessus d'un corps debout ne barre rien : on
+     * passe dessous. C'est ce qui laisse la rangée de blocs `?` à 2,40 m hors
+     * de cette liste sans avoir à la nommer - et le jour où elle descendra,
+     * elle deviendra solide toute seule.
+     */
+    if (box.standing >= BODY_HEIGHT) continue;
+    const width = rasterise(ALL_ART[box.front]).width / ART_PIXELS_PER_METRE;
+    out.push({
+      at: [box.radius * Math.sin(box.azimuth), -box.radius * Math.cos(box.azimuth)],
+      halfWidth: width / 2,
+      halfDepth: box.depth / 2,
+      yaw: box.azimuth
+    });
+  }
+
+  // Le comptoir : trois blocs d'un mètre, à l'endroit exact où ils sont posés.
+  for (const run of counterRuns(layout)) {
+    out.push({
+      at: [run.top[0], run.top[2]],
+      halfWidth: COUNTER_BLOCK_WIDTH / 2,
+      halfDepth: COUNTER_DEPTH / 2,
+      yaw: run.facing
+    });
+  }
+
+  return out;
+}

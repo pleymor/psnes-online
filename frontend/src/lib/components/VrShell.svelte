@@ -58,8 +58,10 @@
   } from '$lib/vr/panels/launch';
   import { launchOptions } from '$lib/vr/launch-options';
   import { activeRooms, myRoom } from '$lib/rooms/my-room';
-  import { menuPressed, readVrPad, activeXrInputs, fastForwardHeld, walkStick, turnStick } from '$lib/vr/pad';
+  import { menuPressed, readVrPad, activeXrInputs, fastForwardHeld, walkStick, turnStick, runHeld } from '$lib/vr/pad';
   import { walk, walkSpeed, snapTurn, smoothTurn, SNAP_READY } from '$lib/vr/walk';
+  import { slide, type Obstacle } from '$lib/vr/collide';
+  import { lobbyObstacles } from '$lib/vr/obstacles';
   import { readTurnStyle, writeTurnStyle, type TurnStyle } from '$lib/vr/turn-style';
   import { readBluetoothPad, bluetoothPadName } from '$lib/vr/bt-pad';
   import type { PadMask } from '$lib/znet/protocol';
@@ -189,6 +191,7 @@
       head: () => scene!.headPosition(),
       counter: counterRuns(scene.layout)
     });
+    obstacles = lobbyObstacles(scene.layout);
     scene.addDecor(decor.decor);
     // Le lointain et le rideau suivent le joueur ; le décor proche reste posé.
     scene.addFar(decor.far);
@@ -214,6 +217,15 @@
   let turnStyle: TurnStyle = 'snap';
   /** L'horodatage de l'image précédente, pour le dt de la locomotion. */
   let walkedAt: number | null = null;
+  /**
+   * Ce qui barre le passage, calculé une fois.
+   *
+   * Une fois et non par image : la liste se déduit de `props()` et de
+   * `counterRuns`, qui ne bougent pas d'une session - et rastériser l'art de
+   * chaque tuyau soixante-douze fois par seconde pour en relire la largeur
+   * serait le genre de dépense que ce fichier passe son temps à éviter.
+   */
+  let obstacles: Obstacle[] = [];
 
   /**
    * Un pas de locomotion, une fois par image.
@@ -238,8 +250,17 @@
 
     const sources = scene.inputSources();
     const { forward, right } = scene.headBasis();
-    const stepped = walk({ stick: walkStick(sources), forward, right, dt });
-    walkAt = [walkAt[0] + stepped[0], walkAt[1] + stepped[1]];
+    const before = walkAt;
+    const stepped = walk({
+      stick: walkStick(sources),
+      forward,
+      right,
+      dt,
+      running: runHeld(sources)
+    });
+    // Le décor est solide : on glisse le long du comptoir et des tuyaux plutôt
+    // que de les traverser.
+    walkAt = slide(walkAt, [walkAt[0] + stepped[0], walkAt[1] + stepped[1]], obstacles);
 
     const [turnX] = turnStick(sources);
     if (turnStyle === 'snap') {
@@ -260,7 +281,10 @@
     const c = Math.cos(walkYaw);
     const sn = Math.sin(walkYaw);
     decor?.setGroundShift([walkAt[0] * c - walkAt[1] * sn, walkAt[0] * sn + walkAt[1] * c]);
-    scene.setWalkSpeed(walkSpeed(stepped, dt));
+    // La vitesse de la VIGNETTE est celle qu'on a réellement parcourue, pas
+    // celle qu'on demandait : poussé contre un mur, le champ ne défile pas,
+    // donc rien ne doit s'assombrir.
+    scene.setWalkSpeed(walkSpeed([walkAt[0] - before[0], walkAt[1] - before[1]], dt));
   }
 
   /** Guards `leave()` against re-entrant calls - see the header. */
