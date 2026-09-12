@@ -108,7 +108,7 @@ fi
 EXPORTS='[
 "_pn_init","_pn_load_rom","_pn_unload","_pn_reset","_pn_run_frame",
 "_pn_video","_pn_video_width","_pn_video_height","_pn_video_stride",
-"_pn_depth","_pn_depth_bg_mode","_pn_depth_bg3_prio",
+"_pn_depth","_pn_depth_bg_mode","_pn_depth_bg3_prio","_pn_scroll",
 "_pn_audio","_pn_audio_frames","_pn_sample_rate","_pn_fps",
 "_pn_frame_count","_pn_set_frame_count",
 "_pn_state_size","_pn_state_save","_pn_state_load","_pn_state_crc",
@@ -143,6 +143,13 @@ docker_run "em++ -O3 \
   -I vendor/snes9x/libretro/libretro-common/include \
   -c src/gfx_depth.cpp -o build/gfx_depth.o"
 
+# Le défilement des calques, même raison et mêmes en-têtes que ci-dessus.
+docker_run "em++ -O3 \
+  -I vendor/snes9x \
+  -I vendor/snes9x/libretro \
+  -I vendor/snes9x/libretro/libretro-common/include \
+  -c src/gfx_scroll.cpp -o build/gfx_scroll.o"
+
 # The libretro makefile names its ar archive .bc, which emcc treats as a
 # bitcode *source* file and tries to compile. Renaming is enough for it to be
 # recognised as the archive it actually is.
@@ -151,7 +158,7 @@ cp "$CORE_DIR/$ARCHIVE" "$CORE_DIR/build/libsnes9x.a"
 # Linking goes through em++: the snes9x archive is C++ and needs libc++.
 log "linking psnes_core.mjs"
 docker_run "em++ -O3 \
-  build/psnes_core.o build/determinism.o build/gfx_depth.o build/libsnes9x.a \
+  build/psnes_core.o build/determinism.o build/gfx_depth.o build/gfx_scroll.o build/libsnes9x.a \
   $WRAPS \
   -s MODULARIZE=1 \
   -s EXPORT_ES6=1 \

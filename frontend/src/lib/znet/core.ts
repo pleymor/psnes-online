@@ -25,6 +25,7 @@ export interface PsnesCoreModule {
 	_pn_video_height(): number;
 	_pn_video_stride(): number;
 	_pn_depth(): number;
+	_pn_scroll(): number;
 	_pn_depth_bg_mode(): number;
 	_pn_depth_bg3_prio(): number;
 	_pn_audio(): number;
@@ -87,6 +88,21 @@ export interface VideoSurface {
  * its own - the same value is BG1 in one mode and BG2 in another. Feed the pair
  * to `slotTable()` in `$lib/vr/layer-map` to turn bytes into slots.
  */
+/**
+ * De combien chaque calque a défilé, à la fin de la frame.
+ *
+ * Huit valeurs, dans l'ordre BG1 H, BG1 V, BG2 H, ... BG4 V. C'est ce qui
+ * permet de savoir où, dans l'image d'avant, se trouvait ce qu'un sprite cache
+ * aujourd'hui - et donc de remplir les trous du relief avec du vrai décor.
+ *
+ * CE QUE CETTE VALEUR NE DIT PAS, et il faut le savoir avant de s'en servir :
+ * le HDMA change le défilement en cours d'écran, ce qui est la façon normale
+ * de faire une parallaxe par ligne. Une seule valeur par calque ne décrit donc
+ * pas ces images-là, et `vr/slot-memory.ts` vérifie sa prédiction au lieu d'y
+ * croire.
+ */
+export type ScrollSurface = Uint16Array;
+
 export interface DepthSurface {
 	data: Uint8Array;
 	width: number;
@@ -246,6 +262,19 @@ export class PsnesCore {
 			mode: this.module._pn_depth_bg_mode(),
 			bg3Priority: this.module._pn_depth_bg3_prio() !== 0
 		};
+	}
+
+	/**
+	 * Le défilement de chaque calque, à la fin de la frame rendue.
+	 *
+	 * Une COPIE et non une vue, contrairement à `depthSurface` : huit valeurs
+	 * ne coûtent rien à recopier, et l'appelant les garde d'une image à
+	 * l'autre pour calculer un delta - ce qu'une vue sur le tas du wasm ne
+	 * permet pas, puisque la frame suivante l'écrase.
+	 */
+	scrollSurface(): ScrollSurface {
+		const base = this.module._pn_scroll();
+		return this.module.HEAPU16.slice(base >> 1, (base >> 1) + 8);
 	}
 
 	/** Interleaved stereo samples produced by the last `runFrame`. */

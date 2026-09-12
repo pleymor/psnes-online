@@ -52,6 +52,7 @@ PN_API int       pn_video_stride(void);
 PN_API uint8_t  *pn_depth(void);
 PN_API int       pn_depth_bg_mode(void);
 PN_API int       pn_depth_bg3_prio(void);
+PN_API uint16_t *pn_scroll(void);
 PN_API int16_t  *pn_audio(void);
 PN_API int       pn_audio_frames(void);
 PN_API double    pn_sample_rate(void);
@@ -86,11 +87,15 @@ static uint8_t  pn_depth_plane[PN_MAX_PIXELS];
  * the name of a layer. See src/gfx_depth.cpp. */
 static int      pn_depth_mode;
 static int      pn_depth_bg3_priority;
+/* Le défilement de chaque calque à la fin de la frame : BG1 H, BG1 V, ... BG4 V.
+ * Voir `gfx_scroll.cpp`, y compris pour ce que cette valeur NE dit pas. */
+static uint16_t pn_scroll_plane[8];
 
 /* Implemented in gfx_depth.cpp. */
 const unsigned char  *pn_gfx_zbuffer(void);
 const unsigned char  *pn_gfx_subzbuffer(void);
 unsigned int          pn_gfx_bg_mode(void);
+void                  pn_gfx_bg_scroll(unsigned short *out);
 unsigned int          pn_gfx_bg3_priority(void);
 const unsigned short *pn_gfx_screen(void);
 unsigned int          pn_gfx_real_ppl(void);
@@ -300,6 +305,7 @@ static void pn_copy_depth(const void *data, unsigned width, unsigned height)
 
     pn_depth_mode         = (int)pn_gfx_bg_mode();
     pn_depth_bg3_priority = (int)pn_gfx_bg3_priority();
+    pn_gfx_bg_scroll(pn_scroll_plane);
 
     if (!zbuffer || !subz || !screen || ppl == 0
         || (const unsigned short *)data < screen
@@ -544,6 +550,7 @@ PN_API int       pn_video_width(void)   { return pn_fb_width; }
 PN_API int       pn_video_height(void)  { return pn_fb_height; }
 PN_API int       pn_video_stride(void)  { return PN_MAX_WIDTH; }
 PN_API uint8_t  *pn_depth(void)         { return pn_depth_plane; }
+PN_API uint16_t *pn_scroll(void)        { return pn_scroll_plane; }
 PN_API int       pn_depth_bg_mode(void) { return pn_depth_mode; }
 PN_API int       pn_depth_bg3_prio(void){ return pn_depth_bg3_priority; }
 
