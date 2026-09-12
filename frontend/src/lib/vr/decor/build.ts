@@ -597,7 +597,23 @@ export function createDecor(opts: DecorOptions): Decor {
        * Le signe : la texture glisse dans le sens OPPOSÉ à la marche, comme le
        * paysage défile à l'envers par la fenêtre d'un train.
        */
-      floorTexture.offset.set(-shift[0], shift[1]);
+      /*
+       * LES DEUX SIGNES, et ils se sont trompés tous les deux.
+       *
+       * Une texture décalée de `offset` est échantillonnée plus loin, donc son
+       * motif paraît se déplacer vers les uv NÉGATIFS. Le sol suit le joueur,
+       * donc son maillage est immobile à ses yeux : pour que l'herbe paraisse
+       * fixe dans le monde, le motif doit défiler à l'opposé de la marche.
+       *
+       * Le `v` du disque court vers -Z, puisqu'il est couché par une rotation
+       * d'un quart de tour autour de X - d'où le signe opposé à celui du `u`.
+       *
+       * Rapporté du casque : « l'herbe se déplace quand on se déplace, elle
+       * semble même aller plus vite que nous ». Deux fois plus vite,
+       * exactement : le décor proche défilait dans un sens et l'herbe dans
+       * l'autre.
+       */
+      floorTexture.offset.set(shift[0], -shift[1]);
     },
 
     setVisible(visible: boolean): void {

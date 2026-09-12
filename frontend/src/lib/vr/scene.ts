@@ -297,24 +297,51 @@ export function createVrScene(opts: {
    * placements et non un.
    */
   function place(): void {
-    const cos = Math.cos(playerYaw);
-    const sin = Math.sin(playerYaw);
-    // R(-lacet) appliqué au vecteur (x, z).
-    const turned = (x: number, z: number): [number, number] => [
-      x * cos - z * sin,
-      x * sin + z * cos
+    /*
+     * LE MONDE TOURNE AUTOUR DE L'ANCRE, PAS AUTOUR DE L'ORIGINE.
+     *
+     * La première version faisait tourner la position de l'ancre avec le
+     * reste, ce qui plaçait le centre de rotation à l'origine de l'espace de
+     * référence - là où le joueur se tenait en ouvrant la session, souvent un
+     * mètre derrière lui. Rapporté du casque mot pour mot : « le centre de
+     * rotation n'est pas la tête mais est derrière nous ». En gardant
+     * `anchorAt` HORS de la rotation, le centre devient l'ancre, qui est la
+     * tête au dernier recentrage.
+     *
+     * Et `playerAt` s'exprime dans le repère LOCAL du décor, celui où
+     * `placement.ts` pose ses tuyaux : c'est ce qui permet de comparer la
+     * position du joueur aux obstacles sans conversion. La première version
+     * l'accumulait dans le repère de la racine, qui en diffère du lacet de
+     * l'ancre - d'où des tuyaux qu'on traversait pendant qu'un mur invisible
+     * attendait ailleurs.
+     */
+    const worldYaw = anchorYaws.world - playerYaw;
+    const roomYaw = anchorYaws.room - playerYaw;
+    const rotated = (x: number, z: number, yaw: number): [number, number] => [
+      x * Math.cos(yaw) + z * Math.sin(yaw),
+      -x * Math.sin(yaw) + z * Math.cos(yaw)
     ];
 
-    const [wx, wz] = turned(anchorAt.world[0] - playerAt[0], anchorAt.world[2] - playerAt[1]);
-    world.position.set(wx, anchorAt.world[1] - playerHeight, wz);
-    world.rotation.set(0, anchorYaws.world - playerYaw, 0);
+    const [wx, wz] = rotated(playerAt[0], playerAt[1], worldYaw);
+    world.position.set(
+      anchorAt.world[0] - wx,
+      anchorAt.world[1] - playerHeight,
+      anchorAt.world[2] - wz
+    );
+    world.rotation.set(0, worldYaw, 0);
 
-    const [rx, rz] = turned(anchorAt.room[0] - playerAt[0], anchorAt.room[2] - playerAt[1]);
-    room.position.set(rx, anchorAt.room[1] - playerHeight, rz);
-    room.rotation.set(0, anchorYaws.room - playerYaw, 0);
+    const [rx, rz] = rotated(playerAt[0], playerAt[1], roomYaw);
+    room.position.set(
+      anchorAt.room[0] - rx,
+      anchorAt.room[1] - playerHeight,
+      anchorAt.room[2] - rz
+    );
+    room.rotation.set(0, roomYaw, 0);
 
+    // Le lointain ne prend que la rotation : c'est ce qui fait la plaine sans
+    // fin, dont l'horizon ne s'approche jamais.
     far.position.set(anchorAt.room[0], anchorAt.room[1] - playerHeight, anchorAt.room[2]);
-    far.rotation.set(0, anchorYaws.room - playerYaw, 0);
+    far.rotation.set(0, roomYaw, 0);
   }
 
   const pump = createFramePump();
@@ -676,8 +703,16 @@ export function createVrScene(opts: {
        * doit suivre le regard perçu, pas le fauteuil, sans quoi le stick
        * pousse de travers dès le premier cran.
        */
-      const c = Math.cos(playerYaw);
-      const s2 = Math.sin(playerYaw);
+      /*
+       * Le lacet de l'ancre s'ajoute à celui du joueur, pour que le pas
+       * s'exprime dans le repère où `placement.ts` pose ses tuyaux. Sans lui,
+       * les obstacles sont tournés par rapport au joueur d'un angle qui n'est
+       * presque jamais nul, et on traverse un tuyau pendant qu'un mur
+       * invisible attend ailleurs.
+       */
+      const into = playerYaw - anchorYaws.room;
+      const c = Math.cos(into);
+      const s2 = Math.sin(into);
       const rx = (fx / length) * c + (fz / length) * s2;
       const rz = -(fx / length) * s2 + (fz / length) * c;
       const forward: [number, number] = [rx, rz];

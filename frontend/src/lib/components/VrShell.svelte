@@ -156,6 +156,15 @@
   /** Les six sites qui basculent lobby/jeu passent par ici, et rien d'autre. */
   function showDecor(visible: boolean): void {
     decorShowing = visible;
+    /*
+     * Tracé, parce qu'un défaut rapporté du casque le 2026-09-12 n'a pas
+     * d'explication : « le décor ne réapparaît pas quand on quitte un jeu ».
+     * Les deux chemins de sortie appellent bien cette fonction, et la machine
+     * de fondu de `build.ts` ne montre rien d'anormal à la relecture - donc
+     * c'est une mesure qu'il faut, pas une hypothèse de plus. La ligne dira
+     * si l'appel a lieu, avec quoi, et si le décor existait à ce moment-là.
+     */
+    logger.info('vr decor visibility', { visible, built: decor !== null });
     decor?.setVisible(visible);
   }
 
