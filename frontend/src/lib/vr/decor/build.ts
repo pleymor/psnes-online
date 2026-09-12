@@ -364,6 +364,30 @@ export function createDecor(opts: DecorOptions): Decor {
   const floor = new THREE.Mesh(floorGeometry, floorMaterial);
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -opts.floorHeight;
+  /*
+   * Le sol se dessine AVANT tout autre transparent, et ce n'est pas un
+   * réglage : c'est le plancher du monde.
+   *
+   * Sans cette ligne, il se disputait l'ordre avec les vitres des pupitres, et
+   * le symptôme signalé depuis le casque le 2026-09-12 était exact au mot
+   * près : « le verre prend deux aspects distincts selon l'inclinaison de la
+   * tête ». Deux aspects, pas un dégradé - la signature d'un basculement
+   * discret.
+   *
+   * La cause : three trie les transparents par leur profondeur dans le repère
+   * de la CAMÉRA, pas par leur distance. Tourner la tête ne change aucune
+   * distance mais change ces profondeurs, donc l'ordre peut s'inverser. Et ce
+   * disque est le pire cas possible - trente mètres de rayon dont l'origine
+   * est sous les pieds du joueur, donc trié comme s'il était à 1,6 m, soit
+   * exactement la zone des pupitres. Selon l'inclinaison, il passait devant ou
+   * derrière eux : devant, la vitre se mélangeait à l'herbe et se lisait comme
+   * du verre ; derrière, elle se mélangeait au fond du ciel et devenait un
+   * aplat.
+   *
+   * Le rideau garde son ordre par défaut, et il le faut : quand il se ferme,
+   * il doit couvrir le sol comme le reste du décor.
+   */
+  floor.renderOrder = -1;
   decor.add(floor);
 
   /*
