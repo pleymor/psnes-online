@@ -25,20 +25,41 @@ import { startLogShipping, ship } from '../../frontend/src/lib/utils/log-shipper
 const MAX_BATCH = 50;
 
 /**
- * Le minimum que `startLogShipping` exige pour s'activer.
+ * Arme l'expéditeur une fois, et NE LAISSE AUCUN NAVIGATEUR DERRIÈRE.
  *
- * Il ne s'arme que dans un navigateur (`typeof window === 'undefined'` le
- * garde), et pose deux écouteurs. Rien d'autre n'est touché, donc rien d'autre
- * n'est simulé : un décor plus gros rendrait le test moins lisible sans le
- * rendre plus vrai.
+ * `startLogShipping` ne s'arme que dans un navigateur (`typeof window ===
+ * 'undefined'` le garde) et pose deux écouteurs. Il faut donc un décor - mais
+ * le laisser en place casse d'autres fichiers de test, et c'est arrivé : douze
+ * tests de `solo-engine` et `lockstep-engine` sont tombés en intégration, que
+ * la même commande passait ici. `governor.ts:137` teste `typeof document !==
+ * 'undefined'` puis appelle `document.removeEventListener` ; un faux document
+ * qui n'a qu'`addEventListener` passe la garde et fait exploser l'appel.
+ *
+ * Les globales sont donc rendues telles qu'elles étaient dès que l'expéditeur
+ * est armé - `enabled` est un drapeau de module, il survit très bien à leur
+ * disparition. L'ordre des fichiers ne décide plus de rien.
  */
-function asABrowser(): void {
+let armed = false;
+function armOnce(): void {
+  if (armed) return;
+  const g = globalThis as Record<string, unknown>;
+  const hadWindow = 'window' in g;
+  const hadDocument = 'document' in g;
+  const oldWindow = g.window;
+  const oldDocument = g.document;
+
   const noop = () => {};
-  (globalThis as Record<string, unknown>).window = { addEventListener: noop };
-  (globalThis as Record<string, unknown>).document = {
-    addEventListener: noop,
-    visibilityState: 'visible'
-  };
+  g.window = { addEventListener: noop, removeEventListener: noop };
+  g.document = { addEventListener: noop, removeEventListener: noop, visibilityState: 'visible' };
+  try {
+    startLogShipping();
+  } finally {
+    if (hadWindow) g.window = oldWindow;
+    else delete g.window;
+    if (hadDocument) g.document = oldDocument;
+    else delete g.document;
+  }
+  armed = true;
 }
 
 /**
@@ -48,8 +69,7 @@ function asABrowser(): void {
  * suite, et sans horloge simulée dont ce module n'a par ailleurs pas besoin.
  */
 async function bodyOfShipped(entryData: unknown): Promise<string> {
-  asABrowser();
-  startLogShipping();
+  armOnce();
 
   let body = '';
   const real = globalThis.fetch;
@@ -132,4 +152,18 @@ test('ce qui se sérialisait déjà bien reste intact', async () => {
 
   assert.ok(body.includes('"visible":false'), `le serveur a reçu : ${body.slice(0, 400)}`);
   assert.ok(body.includes('"built":true'), `le serveur a reçu : ${body.slice(0, 400)}`);
+});
+
+test("ce fichier ne laisse aucun faux navigateur derriere lui", () => {
+  /*
+   * Le test qui manquait, et qui aurait evite une integration rouge.
+   *
+   * Un decor de navigateur laisse en place voyage jusqu aux autres fichiers :
+   * `bun test` partage le processus, et l ordre des fichiers n est pas garanti
+   * d une machine a l autre - ici tout passait, en integration douze tests des
+   * moteurs tombaient. Une globale posee par un test est une variable partagee
+   * entre fichiers, et elle se range comme telle.
+   */
+  assert.equal(typeof (globalThis as Record<string, unknown>).window, 'undefined');
+  assert.equal(typeof (globalThis as Record<string, unknown>).document, 'undefined');
 });
