@@ -415,11 +415,24 @@ export function drawLaunchPanel(
 	ctx.imageSmoothingQuality = 'high';
 	ctx.clearRect(0, 0, width, height);
 	/*
-	 * De l'herbe, pas du verre : quand cet écran est là, aucun jeu ne tourne
-	 * derrière lui - c'est le moment où on en choisit un. La règle est dans
-	 * `chrome.ts`, la transparence ne sert que là où il y a quelque chose.
+	 * Du verre, et le même que l'écran au repos.
+	 *
+	 * Cette ligne portait de l'herbe opaque, au motif qu'« aucun jeu ne tourne
+	 * derrière lui ». L'argument était juste tant que le lobby était une salle
+	 * noire : la règle de `chrome.ts` est que la transparence ne sert que là où
+	 * il y a quelque chose à voir au travers, et il n'y avait rien.
+	 *
+	 * Le monde Mario a changé le fond de la question. Derrière cet écran il y a
+	 * maintenant le ciel, les collines et le comptoir - et l'écran AU REPOS les
+	 * laisse déjà passer (`panels/idle-glass.ts`). Deux états de la MÊME surface
+	 * courbe faits de deux matières différentes, c'est un changement de matériau
+	 * à chaque fois qu'on choisit un jeu, là où rien n'a bougé dans le monde.
+	 *
+	 * `frost` plutôt que `glass` : c'est du décor qui est derrière, pas l'image
+	 * d'un jeu qu'il faudrait assombrir pour porter du texte blanc. La même
+	 * raison, et la même valeur, que les trois pupitres.
 	 */
-	drawField(ctx, width, height, 'grass');
+	drawField(ctx, width, height, 'frost');
 
 	ctx.fillStyle = '#ffffff';
 	ctx.font = '600 34px system-ui, sans-serif';

@@ -30,6 +30,7 @@ import {
   type LaunchLabels
 } from '../../frontend/src/lib/vr/panels/launch.js';
 import type { LaunchOptions } from '../../frontend/src/lib/vr/launch-options.js';
+import { fieldFill } from '../../frontend/src/lib/vr/panels/chrome.js';
 
 const LABELS: LaunchLabels = {
   newGame: 'New game',
@@ -696,4 +697,63 @@ test('rien ne chevauche rien dans l etat du ROM qui arrive', () => {
       assert.ok(apart, `${a.id} chevauche ${b.id}`);
     }
   }
+});
+
+test("l'ecran de lancement porte le verre de l'ecran au repos, puisque le monde est derriere les deux", () => {
+  /*
+   * La regle est dans `chrome.ts` : la transparence sert la ou il y a quelque
+   * chose a voir au travers. Ce peintre portait de l'herbe opaque, et son
+   * commentaire disait pourquoi - « aucun jeu ne tourne derriere lui ».
+   *
+   * C'etait vrai d'une salle noire. Ca ne l'est plus depuis que le lobby a un
+   * monde : derriere cet ecran il y a le ciel, les collines et le comptoir,
+   * exactement ce que l'ecran AU REPOS laisse deja passer (`idle-glass.ts`).
+   * Deux etats de la MEME surface courbe ne peuvent pas etre faits de deux
+   * matieres differentes sans que le passage de l'un a l'autre se voie comme
+   * un defaut.
+   *
+   * Le test compare a `fieldFill('frost')` plutot qu'a une couleur ecrite ici :
+   * ce qui est pince est « la meme matiere que les pupitres », pas une teinte.
+   */
+  let background: string | null = null;
+  const ctx = {
+    fillStyle: '',
+    strokeStyle: '',
+    font: '',
+    lineWidth: 0,
+    textAlign: 'left',
+    textBaseline: 'alphabetic',
+    imageSmoothingEnabled: false,
+    imageSmoothingQuality: 'low',
+    save() {},
+    restore() {},
+    clearRect() {},
+    fillRect() {
+      // Le premier `fillRect` d'un peintre est son fond : `drawField` est
+      // appele juste apres le `clearRect` d'ouverture.
+      if (background === null) background = ctx.fillStyle;
+    },
+    strokeRect() {},
+    beginPath() {},
+    arc() {},
+    fill() {},
+    stroke() {},
+    drawImage() {},
+    fillText() {},
+    measureText(text: string) {
+      return { width: text.length * 9 };
+    }
+  } as unknown as CanvasRenderingContext2D & { fillStyle: string };
+
+  const o = options();
+  drawLaunchPanel(ctx, o, layoutLaunchPanel(o, LABELS), {
+    labels: LABELS,
+    hoverId: null,
+    covers: new Map(),
+    shots: new Map(),
+    keepRom: false,
+    transfer: null
+  });
+
+  assert.equal(background, fieldFill('frost'));
 });
