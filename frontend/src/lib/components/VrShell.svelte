@@ -2,8 +2,8 @@
   /**
    * The immersive session, mounted once in the layout.
    *
-   * It lives beside `InvitationCard` for the reason that component's note at
-   * `+layout.svelte:130` gives - the layout is the only place that is on screen
+   * It lives beside `<NoticeToast />` for the reason that component's note in
+   * `+layout.svelte` gives - the layout is the only place that is on screen
    * whatever the player is doing - and for a second reason of its own: it sits
    * above the `<slot />`, so a navigation underneath cannot unmount it.
    *

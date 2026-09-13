@@ -3,11 +3,11 @@
  *
  * `keep-offer.ts` est une fabrique parce que deux salons ne coexistent pas
  * mais deux tests si ; ici c'est l'inverse qui décide. L'offre doit atteindre
- * le joueur où qu'il soit - c'est la raison pour laquelle `InvitationCard`
- * vit dans le layout et pas dans une page - alors que le geste d'envoyer part
- * de la bibliothèque. Deux endroits, une seule conversation, donc une seule
- * instance. La fabrique reste dans `roms/sharing.ts`, et c'est elle que les
- * tests utilisent.
+ * le joueur où qu'il soit - c'est la raison pour laquelle le toast qui la
+ * pose vit dans le layout et pas dans une page - alors que le geste d'envoyer
+ * part de la bibliothèque. Deux endroits, une seule conversation, donc une
+ * seule instance. La fabrique reste dans `roms/sharing.ts`, et c'est elle que
+ * les tests utilisent.
  *
  * Construite paresseusement : les dépendances veulent la socket et IndexedDB,
  * dont aucune n'existe au moment où un module s'évalue.

@@ -10,7 +10,7 @@
  */
 
 import { t } from '../i18n/translations.js';
-import type { Notice, NoticeShape } from './notice.js';
+import type { Notice, NoticeShape, NoticeTone } from './notice.js';
 
 export const NOTICE_SHAPES: Record<string, NoticeShape> = {
   /**
@@ -75,4 +75,27 @@ export const DEFAULT_SECONDS = 6;
 export function screenSeconds(notice: Pick<Notice, 'kind' | 'params'>): number {
   const declared = notice.params.seconds ?? shapeOf(notice.kind)?.seconds ?? DEFAULT_SECONDS;
   return Number(declared);
+}
+
+const VALID_TONES: readonly NoticeTone[] = ['info', 'success', 'error', 'warning'];
+
+function isNoticeTone(value: unknown): value is NoticeTone {
+  return typeof value === 'string' && (VALID_TONES as readonly string[]).includes(value);
+}
+
+/**
+ * Le ton affiché, `params` avant la forme.
+ *
+ * `raw` fige son ton dans la forme - toujours `'info'` - mais chaque appel
+ * peut poser le sien dans `params.tone` : `notifications.show()` le fait déjà,
+ * et `services/notification.ts` le lit pour peindre le bandeau VR. Le toast
+ * et le centre lisaient `shape.tone` seul, donc un `tone: 'error'` posé par un
+ * appelant s'affichait quand même en bleu - un refus d'invitation, par
+ * exemple. Un `params.tone` invalide (absent, mal orthographié, d'un ancien
+ * kind) retombe sur celui de la forme, puis sur `'info'`.
+ */
+export function toneOf(notice: Pick<Notice, 'kind' | 'params'>): NoticeTone {
+  const declared = notice.params.tone;
+  if (isNoticeTone(declared)) return declared;
+  return shapeOf(notice.kind)?.tone ?? 'info';
 }

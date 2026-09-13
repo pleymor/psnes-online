@@ -12,8 +12,8 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { inGame } from '$lib/stores/in-game';
-  import { notices } from '$lib/services/notification';
-  import { shapeOf, screenSeconds } from '$lib/notices/shapes';
+  import { notices, inGameSurfaces, actionsInFlight } from '$lib/services/notification';
+  import { shapeOf, screenSeconds, toneOf } from '$lib/notices/shapes';
   import { actionsOf } from '$lib/notices/actions';
   import type { Notice } from '$lib/notices/notice';
 
@@ -38,9 +38,16 @@
 
   onMount(() => {
     clock = setInterval(() => (now = Date.now()), 500);
+    // Compté à onMount et décompté à onDestroy : c'est ce qui permet à la
+    // moitié `page` de savoir si une moitié `in-game` est là pour prendre le
+    // relais, sans qu'aucune des deux ne connaisse l'autre par son nom.
+    if (surface === 'in-game') inGameSurfaces.update((n) => n + 1);
   });
 
-  onDestroy(() => clearInterval(clock));
+  onDestroy(() => {
+    clearInterval(clock);
+    if (surface === 'in-game') inGameSurfaces.update((n) => n - 1);
+  });
 
   /**
    * Ce qui a le droit d'être à l'écran en ce moment.
@@ -67,7 +74,8 @@
     if (surface === 'in-game') {
       if (!$inGame || shape.duringGame !== true) return false;
     } else if ($inGame) {
-      return false;
+      // Repli : sans surface dédiée montée, c'est mieux que rien.
+      if (shape.duringGame !== true || $inGameSurfaces > 0) return false;
     }
 
     const seconds = screenSeconds(notice);
@@ -77,14 +85,16 @@
   /**
    * Les actions en vol, pour que deux clics n'envoient pas deux réponses.
    *
-   * Un `Set` réassigné et non muté : en Svelte 4, muter un `Set` ne
-   * redéclenche rien, et c'est l'état désactivé des boutons qui en dépend.
+   * Partagé avec `NoticeCentre` par `actionsInFlight` : hors partie, une
+   * notification à boutons peut être visible dans les deux à la fois, et un
+   * clic sur l'une pendant que l'autre est en vol enverrait deux réponses si
+   * chacune gardait son propre `Set`.
    */
-  let running = new Set<string>();
+  const running = actionsInFlight;
 
   async function act(notice: Notice, index: number) {
-    if (running.has(notice.id)) return;
-    running = new Set(running).add(notice.id);
+    if ($running.has(notice.id)) return;
+    running.update((s) => new Set(s).add(notice.id));
 
     try {
       await actionsOf(notice.kind)[index]?.run(notice.params);
@@ -97,7 +107,11 @@
       // L'action a échoué : la notification reste, avec ses boutons, et
       // peut être retentée.
     } finally {
-      running = new Set([...running].filter((id) => id !== notice.id));
+      running.update((s) => {
+        const next = new Set(s);
+        next.delete(notice.id);
+        return next;
+      });
     }
   }
 </script>
@@ -107,14 +121,14 @@
     {#each shown as notice (notice.id)}
       {@const shape = shapeOf(notice.kind)}
       {@const actions = actionsOf(notice.kind)}
-      <div class="toast toast-{shape?.tone ?? 'info'}" role="alert" transition:fly={{ y: -20, duration: 300 }}>
+      <div class="toast toast-{toneOf(notice)}" role="alert" transition:fly={{ y: -20, duration: 300 }}>
         <span class="toast-text">{shape?.text(notice.params, $language) ?? ''}</span>
         {#if actions.length > 0}
           <div class="toast-actions">
             {#each actions as action, index}
               <button
                 class:primary={action.primary}
-                disabled={running.has(notice.id)}
+                disabled={$running.has(notice.id)}
                 on:click={() => act(notice, index)}
               >
                 {t($language, action.label)}

@@ -346,3 +346,23 @@ test('garder la ROM se repond pendant une partie, et ne s efface pas', () => {
 	assert.equal(shape?.seconds, 0);
 	assert.equal(shape?.live, true);
 });
+
+import { toneOf } from '../../frontend/src/lib/notices/shapes.js';
+
+test('un ton pose dans les params l emporte sur celui de la forme', () => {
+	// `raw` fige le sien a 'info' ; un appelant qui poste 'error' doit quand
+	// meme s afficher en 'error'.
+	assert.equal(toneOf({ kind: 'raw', params: { tone: 'error' } }), 'error');
+});
+
+test('sans ton dans les params, celui de la forme s applique', () => {
+	assert.equal(toneOf({ kind: 'raw', params: {} }), 'info');
+});
+
+test('un ton invalide dans les params est ignore, pas affiche tel quel', () => {
+	assert.equal(toneOf({ kind: 'raw', params: { tone: 'n importe quoi' } }), 'info');
+});
+
+test('un kind inconnu sans ton dans les params rend info', () => {
+	assert.equal(toneOf({ kind: 'rien-de-tel', params: {} }), 'info');
+});

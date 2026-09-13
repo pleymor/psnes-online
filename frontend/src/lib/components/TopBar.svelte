@@ -18,8 +18,9 @@
    *
    * Invitations no longer live here. They were a badge that opened a drawer that
    * held the accept button - two clicks, and only on the two pages that carry
-   * this bar. They are now a card mounted in the layout (`InvitationCard`), which
-   * appears by itself wherever the player happens to be.
+   * this bar. They are now a toast posted through the notice centre
+   * (`$lib/notices/bridges.ts`, mounted from the layout), which appears by
+   * itself wherever the player happens to be.
    */
   import { onMount, createEventDispatcher } from 'svelte';
   import { page } from '$app/stores';

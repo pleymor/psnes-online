@@ -10,7 +10,7 @@
  * `'raw'`, retenue par le centre après que le toast a disparu.
  */
 
-import { derived, get } from 'svelte/store';
+import { derived, get, writable } from 'svelte/store';
 import { createNotices } from '$lib/notices/store';
 import { hasActions } from '$lib/notices/actions';
 import { startNoticeSession } from '$lib/notices/session';
@@ -26,6 +26,33 @@ export interface Notification {
 
 /** Le centre de cette session. Un seul, contrairement à la fabrique. */
 export const notices = createNotices({ hasActions });
+
+/**
+ * Combien de surfaces « en partie » sont montées en ce moment.
+ *
+ * Un salon qui passe en plein écran doit peindre les notifications qui se
+ * répondent pendant une partie DANS son élément plein écran - l'API
+ * Fullscreen ne peint que celui-là et ses descendants. Mais rien n'oblige un
+ * salon à le faire, et l'oublier ne produit aucune erreur : juste une
+ * question qui n'apparaît nulle part.
+ *
+ * D'où ce compte. Quand il est à zéro, la surface de page reprend ces
+ * notifications à son compte : on retrouve alors le comportement d'avant ce
+ * chantier - visible en fenêtré, masquée en plein écran - au lieu de les
+ * perdre partout. Le défaut par omission redevient le moindre des deux.
+ */
+export const inGameSurfaces = writable(0);
+
+/**
+ * Les notifications dont une action est en vol, partagé entre le toast et le
+ * centre.
+ *
+ * Les deux peuvent montrer la même notification à boutons hors partie - un
+ * clic sur l'une et un clic sur l'autre enverraient chacun une réponse si cet
+ * état n'était pas commun, le même défaut qu'à la tâche 5, réparti cette fois
+ * sur deux composants plutôt qu'un.
+ */
+export const actionsInFlight = writable<Set<string>>(new Set());
 
 /** Le stockage, ou rien quand il est refusé - navigation privée, par exemple. */
 function storage(): Storage | null {

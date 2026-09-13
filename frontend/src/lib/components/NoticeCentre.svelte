@@ -14,8 +14,8 @@
   import { get } from 'svelte/store';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
-  import { notices } from '$lib/services/notification';
-  import { shapeOf } from '$lib/notices/shapes';
+  import { notices, actionsInFlight } from '$lib/services/notification';
+  import { shapeOf, toneOf } from '$lib/notices/shapes';
   import { actionsOf } from '$lib/notices/actions';
   import type { Notice } from '$lib/notices/notice';
 
@@ -62,16 +62,16 @@
   /**
    * Les actions en vol, pour que deux clics n'envoient pas deux réponses.
    *
-   * Un `Set` réassigné et non muté : en Svelte 4, muter un `Set` ne
-   * redéclenche rien, et c'est l'état désactivé des boutons qui en dépend.
-   * Même garde que `NoticeToast` - la table est vide avant la tâche 7, mais
-   * le panneau doit se comporter pareil dès qu'un `kind` en portera.
+   * Partagé avec `NoticeToast` par `actionsInFlight` : hors partie, une
+   * notification à boutons peut être visible dans les deux à la fois, et un
+   * clic sur l'une pendant que l'autre est en vol enverrait deux réponses si
+   * chacune gardait son propre `Set`.
    */
-  let running = new Set<string>();
+  const running = actionsInFlight;
 
   async function act(notice: Notice, index: number) {
-    if (running.has(notice.id)) return;
-    running = new Set(running).add(notice.id);
+    if (get(running).has(notice.id)) return;
+    running.update((s) => new Set(s).add(notice.id));
 
     try {
       await actionsOf(notice.kind)[index]?.run(notice.params);
@@ -84,7 +84,11 @@
       // L'action a échoué : la notification reste, avec ses boutons, et
       // peut être retentée.
     } finally {
-      running = new Set([...running].filter((id) => id !== notice.id));
+      running.update((s) => {
+        const next = new Set(s);
+        next.delete(notice.id);
+        return next;
+      });
     }
   }
 </script>
@@ -123,14 +127,14 @@
           {#each visible as notice (notice.id)}
             {@const shape = shapeOf(notice.kind)}
             {@const actions = actionsOf(notice.kind)}
-            <li>
+            <li class="tone-{toneOf(notice)}">
               <span class="text">{shape?.text(notice.params, $language) ?? ''}</span>
               {#if actions.length > 0}
                 <div class="row-actions">
                   {#each actions as action, index}
                     <button
                       class:primary={action.primary}
-                      disabled={running.has(notice.id)}
+                      disabled={$running.has(notice.id)}
                       on:click={() => act(notice, index)}
                     >
                       {t($language, action.label)}
@@ -221,11 +225,19 @@
     align-items: center;
     padding: 0.6rem 0.5rem;
     border-bottom: 1px solid #24243a;
+    /* Le ton par un liseré, comme `NoticeToast` : même palette, même lecture,
+       pour une notification qui peut se voir dans les deux. */
+    border-left: 3px solid transparent;
     color: #e6e6f0;
     font-size: 0.82rem;
   }
 
   li:last-child { border-bottom: none; }
+
+  li.tone-info { border-left-color: #6f8bff; }
+  li.tone-success { border-left-color: #3c8c64; }
+  li.tone-error { border-left-color: #b8455a; }
+  li.tone-warning { border-left-color: #b8934a; }
 
   .text { flex: 1; min-width: 9rem; }
 
