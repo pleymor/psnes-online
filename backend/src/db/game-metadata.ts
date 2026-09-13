@@ -27,7 +27,7 @@ export interface GameMetadataInput {
  */
 const COLUMNS = `
   id, title, altTitle, genre, publisher, developer, releaseDate, players,
-  region, description, coverUrl, crc32, md5, source, contributedBy,
+  region, description, coverUrl, servedCoverUrl, crc32, md5, source, contributedBy,
   coverMime, createdAt, updatedAt
 `;
 
@@ -35,6 +35,7 @@ interface MetadataRow extends Omit<GameMetadata, 'createdAt' | 'updatedAt' | 'ha
   createdAt: number;
   updatedAt: number;
   coverMime: string | null;
+  servedCoverUrl: string | null;
 }
 
 function toMetadata(row: MetadataRow): GameMetadata {
@@ -49,7 +50,10 @@ function toMetadata(row: MetadataRow): GameMetadata {
     players: row.players,
     region: row.region,
     description: row.description,
-    coverUrl: row.coverUrl,
+    // The seam. `servedCoverUrl` is the ingested file on the covers volume,
+    // `coverUrl` is where its bytes came from and still the answer for a row
+    // the warming pass has not reached. Everything above db/ sees one field.
+    coverUrl: row.servedCoverUrl ?? row.coverUrl,
     crc32: row.crc32,
     md5: row.md5,
     source: row.source,
@@ -309,6 +313,40 @@ export function setCover(db: Database, metadataId: string, bytes: Buffer, mime: 
   db.prepare(`UPDATE "GameMetadata" SET cover = ?, coverMime = ?, coverUrl = ?, updatedAt = ? WHERE id = ?`)
     .run(bytes, mime, coverUrl, now, metadataId);
   return coverUrl;
+}
+
+/**
+ * Records where a cover is served from, once the ingestion has written it.
+ *
+ * Deliberately not `coverUrl`: that column belongs to the shipped catalogue
+ * file, and `syncCatalogue` rewrites it on every refresh.
+ */
+export function setServedCover(db: Database, metadataId: string, url: string): void {
+  db.prepare(`UPDATE "GameMetadata" SET servedCoverUrl = ?, updatedAt = ? WHERE id = ?`)
+    .run(url, Date.now(), metadataId);
+}
+
+/** What a warming pass needs to decide, per row, without pulling any cover bytes into memory. */
+export function listCoverWork(db: Database): CoverWorkRow[] {
+  return db.prepare(`
+    SELECT id, title, coverUrl, servedCoverUrl, cover IS NOT NULL AS hasCover
+      FROM "GameMetadata"
+  `).all().map((row: any) => ({
+    id: row.id,
+    title: row.title,
+    coverUrl: row.coverUrl,
+    servedCoverUrl: row.servedCoverUrl,
+    // SQLite has no boolean; `cover IS NOT NULL` comes back as 0 or 1.
+    hasCover: row.hasCover === 1
+  }));
+}
+
+export interface CoverWorkRow {
+  id: string;
+  title: string;
+  coverUrl: string | null;
+  servedCoverUrl: string | null;
+  hasCover: boolean;
 }
 
 /** The only path the cover bytes take out of the database. */
