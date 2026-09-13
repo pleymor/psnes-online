@@ -417,6 +417,8 @@
   let friendsPanel: PanelMesh | null = null;
   let friendEntries: Array<{ friend: { id: string; pseudo: string } }> = [];
   let onlineFriends = new Map<string, boolean>();
+  /** Qui est dans le lobby VR. Voyage sur le même canal que la présence. */
+  let inVrFriends = new Set<string>();
   let profilePanel: PanelMesh | null = null;
   let hovered: PointerTarget | null = null;
   /** Read once on entry: the picker that would change it does not exist in
@@ -920,6 +922,7 @@
     const rows = friendRows(
       friendEntries,
       onlineFriends,
+      inVrFriends,
       playingByUserId,
       friendsVisibleRows(!!asking),
       pending?.toUserId
@@ -956,6 +959,7 @@
         accept: t($language, 'vrAcceptInvite'),
         decline: t($language, 'vrDeclineInvite'),
         inGroup: t($language, 'vrInGroup'),
+        inVr: t($language, 'vrInVr'),
         incomingFrom: asking
           ? t($language, 'vrInvitesYou', { pseudo: asking.fromPseudo })
           : ''
@@ -3257,18 +3261,33 @@
    * listener - it kept rendering, just never updating again, which pointed
    * nowhere near VR as the cause.
    */
-  function handleFriendsOnline(list: Array<{ id: string; online: boolean }>): void {
+  function handleFriendsOnline(list: Array<{ id: string; online: boolean; inVr?: boolean }>): void {
     onlineFriends = new Map(list.map((f) => [f.id, f.online]));
+    inVrFriends = new Set(list.filter((f) => f.inVr).map((f) => f.id));
     repaintFriends();
   }
 
-  function handleFriendStatusChanged({ userId, online }: { userId: string; online: boolean }): void {
+  function handleFriendStatusChanged(
+    { userId, online, inVr }: { userId: string; online: boolean; inVr?: boolean }
+  ): void {
     // Reassigned, not mutated in place: `onlineFriends` is only read through
     // the explicit `repaintFriends()` call below today, but a `.set()` with
     // no reassignment is invisible to Svelte's reactivity, and
     // `handleFriendsOnline` above already reassigns - keeping both handlers in
     // that shape means neither can quietly become the one Svelte can't see.
     onlineFriends = new Map(onlineFriends).set(userId, online);
+    /*
+     * Les trois émetteurs de cet événement portent `inVr` aujourd'hui, mais le
+     * champ reste optionnel ici et un `undefined` laisse l'ensemble tel quel
+     * plutôt que d'en sortir l'ami : un serveur plus ancien que cette page - le
+     * temps d'un déploiement - ferait autrement clignoter le lobby.
+     */
+    if (inVr !== undefined) {
+      const next = new Set(inVrFriends);
+      if (inVr) next.add(userId);
+      else next.delete(userId);
+      inVrFriends = next;
+    }
     repaintFriends();
   }
 
@@ -3576,6 +3595,7 @@
     friendsPanel = null;
     friendEntries = [];
     onlineFriends = new Map();
+    inVrFriends = new Set();
     profilePanel = null;
     tabletPanel = null;
     covers.clear();

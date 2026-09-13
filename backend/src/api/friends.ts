@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { User } from '../types/index.js';
-import { getIO, getUserSocket } from '../websocket/index.js';
+import { getIO, getUserSocket, isUserInVr } from '../websocket/index.js';
 import { getDb } from '../db/sqlite.js';
 import {
   listAcceptedFriendshipsWithProfiles, listPendingRequestsFor,
@@ -137,9 +137,14 @@ friendsRouter.post('/accept/:friendshipId', asyncHandler(async (req, res) => {
     if (initiatorSocketId) {
       io.to(initiatorSocketId).emit('friend:requestAccepted', updated);
       // Send the online status of the receiver to the initiator
+      //
+      // `inVr` voyage avec, comme chez les deux autres émetteurs de cet
+      // événement : le client lit le champ directement, donc l'omettre ici
+      // ferait sortir du lobby VR un ami qui vient juste d'accepter.
       io.to(initiatorSocketId).emit('friend:statusChanged', {
         userId: updated.receiverId,
-        online: !!receiverSocketId
+        online: !!receiverSocketId,
+        inVr: !!receiverSocketId && isUserInVr(updated.receiverId)
       });
     }
     if (receiverSocketId) {
@@ -147,7 +152,8 @@ friendsRouter.post('/accept/:friendshipId', asyncHandler(async (req, res) => {
       // Send the online status of the initiator to the receiver
       io.to(receiverSocketId).emit('friend:statusChanged', {
         userId: updated.initiatorId,
-        online: !!initiatorSocketId
+        online: !!initiatorSocketId,
+        inVr: !!initiatorSocketId && isUserInVr(updated.initiatorId)
       });
     }
   }

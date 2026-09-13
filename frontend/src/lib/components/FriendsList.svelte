@@ -25,6 +25,14 @@
   let successMessage = '';
   let friendRooms = new Map<string, any>(); // userId -> room
   let onlineFriends = new Map<string, boolean>(); // userId -> online status
+  /**
+   * Qui est dans le lobby VR.
+   *
+   * « En VR » est un état d'ami comme « en ligne », et arrive donc par les deux
+   * mêmes événements plutôt que par un canal réservé à la VR - c'est ce qui
+   * permet de le découvrir depuis cette page, sans avoir déjà le casque.
+   */
+  let inVrFriends = new Set<string>();
   let selectedFriend: any = null;
 
   /**
@@ -82,12 +90,26 @@
       // Initialize online status map
       onlineFriends = new Map(friendsWithStatus.map(f => [f.id, f.online]));
       onlineFriends = onlineFriends; // Trigger reactivity
+      inVrFriends = new Set(friendsWithStatus.filter(f => f.inVr).map(f => f.id));
     });
 
-    // Listen for friend status changes (online/offline)
-    $socket?.on('friend:statusChanged', ({ userId, online }: any) => {
+    // Listen for friend status changes (online/offline/in VR)
+    $socket?.on('friend:statusChanged', ({ userId, online, inVr }: any) => {
       onlineFriends.set(userId, online);
       onlineFriends = onlineFriends; // Trigger reactivity
+      /*
+       * Un `inVr` absent ne fait rien, au lieu de valoir « non ».
+       *
+       * Le champ est émis par les trois émetteurs de cet événement, mais un
+       * serveur d'avant ce changement - le temps d'un déploiement - l'omettrait,
+       * et `undefined` étant faux, un ami présent en VR sortirait du lobby au
+       * premier changement de statut sans rapport.
+       */
+      if (inVr !== undefined) {
+        if (inVr) inVrFriends.add(userId);
+        else inVrFriends.delete(userId);
+        inVrFriends = inVrFriends; // Trigger reactivity
+      }
     });
 
     // Request initial online status (after listeners are set up)
@@ -386,7 +408,17 @@
                        instead of the game. -->
                   <small class="room-status">{room.gameTitle ?? t($language, 'inLobby')}</small>
                 {:else if onlineFriends.get(friendData.friend.id)}
-                  <small class="online-status">{t($language, 'online')}</small>
+                  <!-- « En VR » imbriqué sous « en ligne », et pas à côté :
+                       c'est ce qui fait que hors ligne prime. Un socket fermé
+                       ne porte pas de casque, et sans cela un ami dont la
+                       déconnexion arrive avant sa sortie de VR resterait en VR
+                       jusqu'au rechargement de la page. Une partie, elle, prime
+                       sur les deux : elle est testée plus haut. -->
+                  {#if inVrFriends.has(friendData.friend.id)}
+                    <small class="vr-status">{t($language, 'vrInVr')}</small>
+                  {:else}
+                    <small class="online-status">{t($language, 'online')}</small>
+                  {/if}
                 {:else}
                   <small class="offline-status">{t($language, 'offline')}</small>
                 {/if}
@@ -719,6 +751,17 @@
 
   .info .offline-status {
     color: #888;
+  }
+
+  /* L'accent du HUD, celui que `.room-status` emploie déjà juste au-dessus.
+     Pas « la couleur de la VR » : il n'en existe aucune dans cette feuille.
+     C'est celle que ce fichier réserve aux états plus précis que la simple
+     présence, et « en VR » en est un - le vert, lui, ne dit que « en ligne ».
+     Conséquence assumée ici et pas tranchée : « En VR » et le nom du salon
+     sont donc peints à l'identique, ce qui est une décision de design. */
+  .info .vr-status {
+    color: var(--edge);
+    font-weight: 500;
   }
 
   .empty {

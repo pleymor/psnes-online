@@ -42,7 +42,11 @@ const LABELS = {
   decline: 'Decline',
   /** Already interpolated with the inviter's name by the caller. */
   incomingFrom: 'Zoe invites you',
-  inGroup: 'in your group'
+  inGroup: 'in your group',
+  /* Distinct de `online` jusque dans les lettres : plusieurs assertions plus
+   * bas cherchent un libellé dans le texte dessiné joint, et un libellé qui
+   * contiendrait l'autre les ferait passer quoi que le panneau dessine. */
+  inVr: 'in VR'
 };
 
 function recordingContext() {
@@ -71,7 +75,7 @@ const CAP = friendsVisibleRows(false);
 /** The everyday shape: some friends, nothing pending, nobody asking. */
 function state(over: Partial<FriendsState> = {}): FriendsState {
   return {
-    rows: friendRows(FRIENDS, new Map([['u1', true]]), new Map(), CAP),
+    rows: friendRows(FRIENDS, new Map([['u1', true]]), new Set(), new Map(), CAP),
     pending: null,
     incoming: [],
     members: new Set<string>(),
@@ -82,23 +86,79 @@ function state(over: Partial<FriendsState> = {}): FriendsState {
 const ids = (s: FriendsState) => layoutFriendsPanel(s).map((r) => r.id);
 
 test('the people who are here come first', () => {
-  const rows = friendRows(FRIENDS, new Map([['u3', true]]), new Map(), CAP);
+  const rows = friendRows(FRIENDS, new Map([['u3', true]]), new Set(), new Map(), CAP);
   assert.deepEqual(rows.map((r) => r.pseudo), ['Cy', 'Ada', 'Bo']);
 });
 
 test('offline friends keep their own order behind them', () => {
-  const rows = friendRows(FRIENDS, new Map([['u2', true]]), new Map(), CAP);
+  const rows = friendRows(FRIENDS, new Map([['u2', true]]), new Set(), new Map(), CAP);
   assert.deepEqual(rows.map((r) => r.pseudo), ['Bo', 'Ada', 'Cy']);
 });
 
 test('an unknown user id is offline, not a crash', () => {
-  const rows = friendRows(FRIENDS, new Map(), new Map(), CAP);
+  const rows = friendRows(FRIENDS, new Map(), new Set(), new Map(), CAP);
   assert.ok(rows.every((r) => !r.online));
 });
 
 test('what a friend is playing travels with them', () => {
-  const rows = friendRows(FRIENDS, new Map([['u1', true]]), new Map([['u1', 'Zelda']]), CAP);
+  const rows = friendRows(FRIENDS, new Map([['u1', true]]), new Set(), new Map([['u1', 'Zelda']]), CAP);
   assert.equal(rows.find((r) => r.id === 'u1')?.playing, 'Zelda');
+});
+
+/*
+ * « En VR » est un état d'ami comme « en ligne », et les trois tests qui
+ * suivent fixent l'ordre de précision qui les départage. La règle est celle que
+ * ce module s'applique déjà pour « Invité » et « Dans le groupe » : une seule
+ * ligne vraie vaut mieux que deux qui se concurrencent.
+ */
+test('un ami en VR le dit, plutôt que de dire seulement « en ligne »', () => {
+  const rows = friendRows(
+    [{ friend: { id: 'a', pseudo: 'Luigi' } }],
+    new Map([['a', true]]),
+    new Set(['a']),
+    new Map(),
+    8
+  );
+  assert.equal(rows[0].inVr, true);
+
+  // Et cela se voit : sans ce dessin, l'information ne quitterait jamais la
+  // structure de données.
+  const ctx = recordingContext();
+  const s = state({ rows });
+  drawFriendsPanel(ctx, s, layoutFriendsPanel(s), LABELS);
+  const drawn = ctx.texts.join('\n');
+  assert.ok(drawn.includes(LABELS.inVr), 'rien ne dit qu il est en VR');
+  assert.ok(!drawn.includes(LABELS.online), '« en ligne » n apprend plus rien ici');
+});
+
+test('un ami qui joue le dit, même s\'il est en VR : la partie l\'emporte', () => {
+  const rows = friendRows(
+    [{ friend: { id: 'a', pseudo: 'Luigi' } }],
+    new Map([['a', true]]),
+    new Set(['a']),
+    new Map([['a', 'Zelda']]),
+    8
+  );
+  // Il a quitté le lobby partagé en lançant : `playing` décrit mieux son état.
+  assert.equal(rows[0].playing, 'Zelda');
+
+  const ctx = recordingContext();
+  const s = state({ rows });
+  drawFriendsPanel(ctx, s, layoutFriendsPanel(s), LABELS);
+  const drawn = ctx.texts.join('\n');
+  assert.ok(drawn.includes('Zelda'));
+  assert.ok(!drawn.includes(LABELS.inVr), 'on ne le rejoindrait pas dans le lobby');
+});
+
+test('un ami hors ligne ne peut pas être en VR', () => {
+  const rows = friendRows(
+    [{ friend: { id: 'a', pseudo: 'Luigi' } }],
+    new Map([['a', false]]),
+    new Set(['a']),
+    new Map(),
+    8
+  );
+  assert.equal(rows[0].inVr, false, 'hors ligne prime : un socket fermé ne porte pas de casque');
 });
 
 /*
@@ -116,7 +176,7 @@ test('an online friend can be invited and an offline one cannot', () => {
 });
 
 test('nobody at all offers nothing to press', () => {
-  const empty = state({ rows: friendRows([], new Map(), new Map(), CAP) });
+  const empty = state({ rows: friendRows([], new Map(), new Set(), new Map(), CAP) });
   assert.deepEqual(ids(empty), []);
 });
 
@@ -157,7 +217,7 @@ test('an invited friend stays visible even after going offline', () => {
   const everyoneElseOnline = new Map(many.slice(1).map((f) => [f.friend.id, true]));
 
   // x0 is offline and would sort last of all.
-  const rows = friendRows(many, everyoneElseOnline, new Map(), CAP, 'x0');
+  const rows = friendRows(many, everyoneElseOnline, new Set(), new Map(), CAP, 'x0');
   assert.equal(rows[0]?.id, 'x0', 'the invited friend leads the list');
 
   const pending = { id: 'inv1', toUserId: 'x0' };
@@ -213,7 +273,7 @@ test('being asked does not stop you asking someone else', () => {
  */
 test('no two regions overlap', () => {
   const busy = state({
-    rows: friendRows(FRIENDS, new Map([['u1', true], ['u2', true]]), new Map(), CAP),
+    rows: friendRows(FRIENDS, new Map([['u1', true], ['u2', true]]), new Set(), new Map(), CAP),
     incoming: [{ id: 'in-9', fromPseudo: 'Zoe' }]
   });
   const regions = layoutFriendsPanel(busy);
@@ -242,13 +302,13 @@ test('a long list is cut to what fits rather than drawn off the panel', () => {
   const many = Array.from({ length: CAP + 10 }, (_, i) => ({
     friend: { id: `u${i}`, pseudo: `Friend ${i}` }
   }));
-  const rows = friendRows(many, new Map(), new Map(), CAP);
+  const rows = friendRows(many, new Map(), new Set(), new Map(), CAP);
   assert.equal(rows.length, CAP, 'there is no scroll here, so the list is capped');
 });
 
 test('an empty list says so instead of drawing nothing', () => {
   const ctx = recordingContext();
-  const empty = state({ rows: friendRows([], new Map(), new Map(), CAP) });
+  const empty = state({ rows: friendRows([], new Map(), new Set(), new Map(), CAP) });
   drawFriendsPanel(ctx, empty, layoutFriendsPanel(empty), LABELS);
   assert.ok(ctx.texts.join(' | ').includes(LABELS.nobody), 'a blank panel reads as one that failed to load');
 });
@@ -287,7 +347,7 @@ test('an incoming invitation names who is asking', () => {
 test('a friend in a game shows the game, not just a dot', () => {
   const ctx = recordingContext();
   const s = state({
-    rows: friendRows(FRIENDS, new Map([['u1', true]]), new Map([['u1', 'Zelda']]), CAP)
+    rows: friendRows(FRIENDS, new Map([['u1', true]]), new Set(), new Map([['u1', 'Zelda']]), CAP)
   });
   drawFriendsPanel(ctx, s, layoutFriendsPanel(s), LABELS);
   assert.ok(ctx.texts.join(' | ').includes('Zelda'));
@@ -318,7 +378,7 @@ test('un ami deja dans le groupe n est plus invitable', () => {
   // Et les autres gardent le leur : c'est une ligne qui change, pas le panneau.
   assert.ok(!shown.includes('invite:u2'), 'u2 est hors ligne, il n a jamais de bouton');
   const withBo = state({
-    rows: friendRows(FRIENDS, new Map([['u1', true], ['u2', true]]), new Map(), CAP),
+    rows: friendRows(FRIENDS, new Map([['u1', true], ['u2', true]]), new Set(), new Map(), CAP),
     members: new Set(['u1'])
   });
   assert.ok(ids(withBo).includes('invite:u2'), 'u2 est en ligne et hors du groupe');
