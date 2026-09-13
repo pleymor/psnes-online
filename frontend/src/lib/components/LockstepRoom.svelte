@@ -33,11 +33,12 @@
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import LocateRom from './LocateRom.svelte';
-  import KeepRomOffer from './KeepRomOffer.svelte';
   import TouchControls from './TouchControls.svelte';
   import { TouchPad, touchPadWanted } from '$lib/controls/touch';
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { createKeepOffer } from '$lib/roms/keep-offer';
+  import { notices } from '$lib/services/notification';
+  import { registerNoticeActions } from '$lib/notices/actions';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import { readAspectPreference, writeAspectPreference } from '$lib/stores/aspect-preference';
@@ -149,6 +150,24 @@
    * qu'avant le transfert comme en VR.
    */
   const keepOffer = createKeepOffer();
+
+  registerNoticeActions('keep-rom', [
+    { label: 'keepRomYes', primary: true, run: () => keepOffer.accept() },
+    { label: 'keepRomNo', run: () => keepOffer.decline() }
+  ]);
+
+  let keepNotice: string | null = null;
+
+  const stopKeepWatch = keepOffer.asked.subscribe((checksum) => {
+    if (keepNotice) {
+      notices.dismiss(keepNotice);
+      keepNotice = null;
+    }
+    if (checksum) keepNotice = notices.post('keep-rom', { title: gameTitle ?? '' });
+  });
+
+  onDestroy(stopKeepWatch);
+
   let showStats = false;
 
   /** Kept so a guest arriving later can be served without touching the disk. */
@@ -1362,8 +1381,6 @@
   {#if romPrompt}
     <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
   {/if}
-
-  <KeepRomOffer offer={keepOffer} title={gameTitle} />
 
   <!--
     Double-click toggles fullscreen, the way a video player does. It is not a

@@ -5,9 +5,10 @@
   import DualClientEmulator from './DualClientEmulator.svelte';
   import PauseMenu from './PauseMenu.svelte';
   import LocateRom from './LocateRom.svelte';
-  import KeepRomOffer from './KeepRomOffer.svelte';
   import { remember, resolveQuietly } from '$lib/roms/provider';
   import { createKeepOffer } from '$lib/roms/keep-offer';
+  import { notices } from '$lib/services/notification';
+  import { registerNoticeActions } from '$lib/notices/actions';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { readShaderPreference } from '$lib/stores/shader-preference';
   import type { KeyConfig } from '$lib/types';
@@ -59,6 +60,24 @@
    * transfert, et non avant comme sur l'écran de lancement VR.
    */
   const keepOffer = createKeepOffer();
+
+  registerNoticeActions('keep-rom', [
+    { label: 'keepRomYes', primary: true, run: () => keepOffer.accept() },
+    { label: 'keepRomNo', run: () => keepOffer.decline() }
+  ]);
+
+  let keepNotice: string | null = null;
+
+  const stopKeepWatch = keepOffer.asked.subscribe((checksum) => {
+    if (keepNotice) {
+      notices.dismiss(keepNotice);
+      keepNotice = null;
+    }
+    if (checksum) keepNotice = notices.post('keep-rom', { title: gameTitle ?? '' });
+  });
+
+  onDestroy(stopKeepWatch);
+
   /** Kept so a guest arriving later can be served without touching the disk. */
   let loadedRom: Uint8Array | null = null;
   let romHash: string | null = null;
@@ -1029,8 +1048,6 @@
 {#if romPrompt}
   <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
 {/if}
-
-<KeepRomOffer offer={keepOffer} title={gameTitle} />
 
 <div class="p2p-room" class:single-mode={emulationMode === EmulationMode.SINGLE}>
   <!-- Game Container -->

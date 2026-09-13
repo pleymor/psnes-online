@@ -8,14 +8,12 @@
   import { startLogShipping } from '$lib/utils/log-shipper';
   import { createLogger } from '$lib/utils/logger';
   import { linkState } from '$lib/stores/connection';
-  import { myRoom } from '$lib/rooms/my-room';
   import { inGame } from '$lib/stores/in-game';
   import { sharing } from '$lib/stores/sharing';
   import { vrActive } from '$lib/vr/entry';
   import NoticeToast from '$lib/components/NoticeToast.svelte';
   import { restoreNotices } from '$lib/services/notification';
-  import InvitationCard from '$lib/components/InvitationCard.svelte';
-  import ShareOffer from '$lib/components/ShareOffer.svelte';
+  import { startNoticeBridges } from '$lib/notices/bridges';
   import PseudoGate from '$lib/components/PseudoGate.svelte';
   import VrShell from '$lib/components/VrShell.svelte';
 
@@ -74,9 +72,10 @@
    * Le partage, écouté ici et pas dans la bibliothèque.
    *
    * Une offre doit atteindre le joueur là où il est - la page de profil, la
-   * documentation - exactement l'argument qui a mis `InvitationCard` dans ce
-   * layout. `roms/sharing.ts` porte la règle ; ceci ne fait que brancher la
-   * socket dessus.
+   * documentation - exactement l'argument qui a mis le centre de
+   * notifications dans ce layout. `roms/sharing.ts` porte la règle ; ceci ne
+   * fait que brancher la socket dessus. `bridges.ts` est ce qui pose la
+   * notification à partir de `share.offered`.
    */
   const share = sharing();
 
@@ -122,12 +121,6 @@
     share.declined(data?.reason ?? null);
   }
 
-  const shareOffered = share.offered;
-
-  /** Le pseudo de celui qui offre : le relais donne un identifiant, pas un nom. */
-  $: offeringFriend =
-    $myRoom?.players?.find((p) => p.userId === $shareOffered?.from)?.pseudo ?? '';
-
   /** Held so `onDestroy` can take the listener off the shared socket. */
   let navigator: Awaited<ReturnType<typeof waitForSocket>> = null;
 
@@ -135,6 +128,7 @@
     // Ce que le rechargement a laissé : à faire tôt, et sans attendre la
     // socket - une notification retrouvée n'a besoin de rien d'autre.
     restoreNotices();
+    startNoticeBridges();
     navigator = await waitForSocket();
     navigator?.on('room:opened', handleRoomOpened);
     navigator?.on('rom:offer', onShareOffered);
@@ -221,26 +215,14 @@
   Mounted once, here, because a toast has to outlive the screen that raised it:
   the pause menu unmounts the moment a save is deleted or the shortcut fires.
 
-  Both the store and this component already existed and neither was used
-  anywhere - the pause menu has been dispatching notifications into nothing.
-  Deleting a save and quick-saving both need to say so, which is what finally
-  made the wiring worth doing.
+  C'est aussi pourquoi le centre de notifications - que la cloche du bandeau
+  ouvre - vit là et nulle part ailleurs : une invitation, une offre de jeu ou
+  une question « garder la ROM » doit atteindre le joueur qu'il soit sur sa
+  bibliothèque, son profil ou un salon, et non seulement sur les deux pages qui
+  portent une barre. `startNoticeBridges()` ci-dessus est ce qui les y pose ;
+  ce composant ne fait que peindre ce que le centre contient.
 -->
 <NoticeToast />
-
-<!--
-  Mounted here rather than in the top bar: an invitation that arrived while the
-  player was in a lobby, on their profile or on a room screen used to appear
-  nowhere at all.
-
-  The bar reaches all three signed-in pages now - it said "only two" here for
-  long enough that the drift was itself worth noticing - but it is still absent
-  from the signed-out landing and from a running game, and it disappears the
-  moment a room goes fullscreen. The layout is the only place that is on screen
-  whatever the player is doing.
--->
-<InvitationCard />
-<ShareOffer sharing={share} fromName={offeringFriend} />
 
 <!-- Above the <slot />, so a navigation underneath cannot unmount a running
      session. See the component's own header. -->

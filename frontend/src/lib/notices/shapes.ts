@@ -22,6 +22,39 @@ export const NOTICE_SHAPES: Record<string, NoticeShape> = {
   raw: {
     text: (params) => String(params.message ?? ''),
     tone: 'info'
+  },
+
+  /** « Bob t'invite sur Umihara Kawase ». Dix minutes, puis elle s'en va seule. */
+  invitation: {
+    text: (params, lang) =>
+      params.title
+        ? t(lang, 'invitationWithGame', { name: String(params.name), title: String(params.title) })
+        : t(lang, 'invitationNoGame', { name: String(params.name) }),
+    tone: 'info',
+    live: true
+  },
+
+  /** « Bob veut t'envoyer Umihara Kawase ». La phrase que `ShareOffer` portait. */
+  'share-offer': {
+    text: (params, lang) =>
+      t(lang, 'shareOffer', { name: String(params.name), title: String(params.title) }),
+    tone: 'info',
+    live: true
+  },
+
+  /**
+   * « Le garder sur cet appareil ? », posée pendant que la partie tourne.
+   *
+   * `seconds: 0` et `duringGame` vont ensemble : la cloche n'existe pas en
+   * plein écran, donc une question qui s'efface là serait sans recours.
+   */
+  'keep-rom': {
+    text: (params, lang) =>
+      `${params.title ? `${params.title} — ` : ''}${t(lang, 'keepRom')}`,
+    tone: 'info',
+    live: true,
+    duringGame: true,
+    seconds: 0
   }
 };
 

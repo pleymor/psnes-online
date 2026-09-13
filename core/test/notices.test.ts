@@ -324,3 +324,25 @@ test('un kind qui se repond ne s efface pas tout seul', () => {
 	// valeur par defaut, ce que le premier test dit deja.
 	assert.equal(screenSeconds({ ...AT, kind: 'raw', params: { seconds: 0 } }), 0);
 });
+
+test('l invitation se nomme par celui qui invite et par le jeu', () => {
+	const shape = shapeOf('invitation');
+
+	assert.ok(shape);
+	assert.match(shape.text({ name: 'Bob', title: 'Umihara Kawase' }, 'fr'), /Bob/);
+	assert.equal(shape.duringGame ?? false, false, 'une invitation ne coupe pas une partie');
+});
+
+test('l offre de jeu depend d une session vivante', () => {
+	assert.equal(shapeOf('share-offer')?.live, true);
+});
+
+test('garder la ROM se repond pendant une partie, et ne s efface pas', () => {
+	// La barre du haut - donc la cloche - n existe pas en plein ecran : une
+	// question posee pendant une partie doit tenir jusqu a la reponse.
+	const shape = shapeOf('keep-rom');
+
+	assert.equal(shape?.duringGame, true);
+	assert.equal(shape?.seconds, 0);
+	assert.equal(shape?.live, true);
+});
