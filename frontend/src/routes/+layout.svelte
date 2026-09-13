@@ -12,7 +12,8 @@
   import { inGame } from '$lib/stores/in-game';
   import { sharing } from '$lib/stores/sharing';
   import { vrActive } from '$lib/vr/entry';
-  import NotificationToast from '$lib/components/NotificationToast.svelte';
+  import NoticeToast from '$lib/components/NoticeToast.svelte';
+  import { restoreNotices } from '$lib/services/notification';
   import InvitationCard from '$lib/components/InvitationCard.svelte';
   import ShareOffer from '$lib/components/ShareOffer.svelte';
   import PseudoGate from '$lib/components/PseudoGate.svelte';
@@ -131,6 +132,9 @@
   let navigator: Awaited<ReturnType<typeof waitForSocket>> = null;
 
   onMount(async () => {
+    // Ce que le rechargement a laissé : à faire tôt, et sans attendre la
+    // socket - une notification retrouvée n'a besoin de rien d'autre.
+    restoreNotices();
     navigator = await waitForSocket();
     navigator?.on('room:opened', handleRoomOpened);
     navigator?.on('rom:offer', onShareOffered);
@@ -222,7 +226,7 @@
   Deleting a save and quick-saving both need to say so, which is what finally
   made the wiring worth doing.
 -->
-<NotificationToast />
+<NoticeToast />
 
 <!--
   Mounted here rather than in the top bar: an invitation that arrived while the

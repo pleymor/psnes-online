@@ -1,0 +1,160 @@
+<script lang="ts">
+  /**
+   * Ce qui passe à l'écran, et qui remplace `NotificationToast`.
+   *
+   * Une seule pile, en haut à droite, où six surfaces se tenaient. Un toast
+   * porte maintenant des boutons quand son `kind` en a : c'est ce qui permet
+   * de répondre à une invitation en un clic, comme la carte épinglée le
+   * permettait, sans garder la carte épinglée.
+   */
+  import { onMount, onDestroy } from 'svelte';
+  import { fly } from 'svelte/transition';
+  import { language } from '$lib/stores/language';
+  import { t } from '$lib/i18n/translations';
+  import { inGame } from '$lib/stores/in-game';
+  import { notices } from '$lib/services/notification';
+  import { shapeOf, screenSeconds } from '$lib/notices/shapes';
+  import { actionsOf } from '$lib/notices/actions';
+  import type { Notice } from '$lib/notices/notice';
+
+  const list = notices.list;
+
+  let now = Date.now();
+  let clock: ReturnType<typeof setInterval> | undefined;
+
+  onMount(() => {
+    clock = setInterval(() => (now = Date.now()), 500);
+  });
+
+  onDestroy(() => clearInterval(clock));
+
+  /**
+   * Ce qui a le droit d'être à l'écran en ce moment.
+   *
+   * Le compte à rebours part de `at`, la naissance de la notification, et non
+   * du moment où ce composant l'a vue. C'est ce qui fait qu'une notification
+   * revenue du stockage ne resurgit pas à l'écran au rechargement : son `at`
+   * est déjà loin, elle est donc directement dans le centre - ce qu'on veut
+   * d'un rattrapage.
+   *
+   * Rien pendant une partie, sauf ce qui porte `duringGame` : un panneau
+   * au-dessus d'un émulateur vole un clic, et accepter une invitation ferait
+   * sortir le joueur de son match. La notification n'est pas perdue pour
+   * autant - elle est dans le centre, et la pastille le dit.
+   *
+   * `now` et `$list` sont nommés DANS l'expression réactive, jamais seulement
+   * lus au fond d'une fonction : en Svelte 4, une dépendance cachée dans un
+   * corps de fonction ne redéclenche rien, et ce fichier a besoin de battre.
+   */
+  $: shown = $list.filter((notice: Notice) => {
+    const shape = shapeOf(notice.kind);
+    if (!shape) return false;
+    if ($inGame && shape.duringGame !== true) return false;
+
+    const seconds = screenSeconds(notice);
+    return seconds === 0 || now < notice.at + seconds * 1000;
+  });
+
+  async function act(notice: Notice, index: number) {
+    // Retirée d'abord : `run` peut attendre le réseau, et un second clic sur
+    // un bouton déjà pressé enverrait deux réponses.
+    notices.dismiss(notice.id);
+    await actionsOf(notice.kind)[index]?.run(notice.params);
+  }
+</script>
+
+{#if shown.length > 0}
+  <div class="toasts">
+    {#each shown as notice (notice.id)}
+      {@const shape = shapeOf(notice.kind)}
+      {@const actions = actionsOf(notice.kind)}
+      <div class="toast toast-{shape?.tone ?? 'info'}" role="alert" transition:fly={{ y: -20, duration: 300 }}>
+        <span class="toast-text">{shape?.text(notice.params, $language) ?? ''}</span>
+        {#if actions.length > 0}
+          <div class="toast-actions">
+            {#each actions as action, index}
+              <button class:primary={action.primary} on:click={() => act(notice, index)}>
+                {t($language, action.label)}
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <button class="close" aria-label={t($language, 'close')} on:click={() => notices.dismiss(notice.id)}>
+            ×
+          </button>
+        {/if}
+      </div>
+    {/each}
+  </div>
+{/if}
+
+<style>
+  .toasts {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: min(26rem, calc(100vw - 2rem));
+  }
+
+  .toast {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    background: rgba(20, 20, 30, 0.92);
+    border: 1px solid #2c2c3c;
+    color: #e6e6f0;
+    font-size: 0.85rem;
+  }
+
+  .toast-text {
+    flex: 1;
+    min-width: 10rem;
+  }
+
+  .toast-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .toast-info { border-left: 3px solid #6f8bff; }
+  .toast-success { border-left: 3px solid #3c8c64; }
+  .toast-error { border-left: 3px solid #b8455a; }
+  .toast-warning { border-left: 3px solid #b8934a; }
+
+  button {
+    padding: 0.35rem 0.8rem;
+    border-radius: 999px;
+    border: 1px solid #2c2c3c;
+    background: #1b1b28;
+    color: #e6e6f0;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  button.primary {
+    background: #2f6f4f;
+    border-color: #3c8c64;
+  }
+
+  button:hover { filter: brightness(1.15); }
+
+  button:focus-visible {
+    outline: 2px solid #6f8bff;
+    outline-offset: 2px;
+  }
+
+  .close {
+    border: none;
+    background: transparent;
+    padding: 0 0.25rem;
+    font-size: 1.25rem;
+    line-height: 1;
+  }
+</style>

@@ -306,3 +306,21 @@ test('la fonction d arret rendue coupe reellement l ecriture', () => {
 	assert.equal(stored.length, 1);
 	assert.equal(stored[0].params.message, 'avant arret');
 });
+
+import { screenSeconds } from '../../frontend/src/lib/notices/shapes.js';
+
+const AT = { id: 'x', params: {}, at: 0 };
+
+test('sans rien de dit, une notification tient six secondes a l ecran', () => {
+	assert.equal(screenSeconds({ ...AT, kind: 'raw' }), 6);
+});
+
+test('la duree passee a show l emporte sur la valeur par defaut', () => {
+	assert.equal(screenSeconds({ ...AT, kind: 'raw', params: { seconds: 5 } }), 5);
+});
+
+test('un kind qui se repond ne s efface pas tout seul', () => {
+	// `keep-rom` arrive a la tache 7 ; jusque-la un kind inconnu tombe sur la
+	// valeur par defaut, ce que le premier test dit deja.
+	assert.equal(screenSeconds({ ...AT, kind: 'raw', params: { seconds: 0 } }), 0);
+});

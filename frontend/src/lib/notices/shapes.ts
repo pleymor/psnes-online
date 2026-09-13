@@ -10,7 +10,7 @@
  */
 
 import { t } from '../i18n/translations.js';
-import type { NoticeShape } from './notice.js';
+import type { Notice, NoticeShape } from './notice.js';
 
 export const NOTICE_SHAPES: Record<string, NoticeShape> = {
   /**
@@ -27,4 +27,19 @@ export const NOTICE_SHAPES: Record<string, NoticeShape> = {
 
 export function shapeOf(kind: string): NoticeShape | null {
   return NOTICE_SHAPES[kind] ?? null;
+}
+
+/** Six secondes : de quoi lire une phrase sans avoir à la relire. */
+export const DEFAULT_SECONDS = 6;
+
+/**
+ * Combien de temps une notification reste à l'écran. Zéro = jusqu'à réponse.
+ *
+ * Un temps d'écran, et non une durée de vie : passé ce délai la notification
+ * quitte le toast et reste dans le centre. Confondre les deux viderait le
+ * centre de tout ce qu'il est censé rattraper.
+ */
+export function screenSeconds(notice: Pick<Notice, 'kind' | 'params'>): number {
+  const declared = notice.params.seconds ?? shapeOf(notice.kind)?.seconds ?? DEFAULT_SECONDS;
+  return Number(declared);
 }
