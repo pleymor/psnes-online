@@ -1,9 +1,10 @@
 /**
  * One cover, from a remote URL to the two renditions we serve.
  *
- * Every failure is a reason rather than a throw: 1415 rows are ingested in one
- * pass, 60 of them have no cover at all, and libretro renames files. One row
- * that cannot be had must not stop the other 1414.
+ * Every failure is a reason rather than a throw: 1481 rows are ingested in one
+ * pass, 61 of them have no cover at all, and libretro renames files. One row
+ * that cannot be had must not stop the rest - on the production run of
+ * 2026-09-13, two could not be had and 1418 landed.
  */
 
 import { readCoverBody } from './source.js';

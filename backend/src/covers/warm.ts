@@ -3,8 +3,8 @@
  *
  * The decisions live in `task.ts` and `ingest.ts`; this is the loop that walks
  * the rows and reports what happened. Every failure is counted and named
- * rather than thrown: 1415 rows go through here, 60 of them have no cover at
- * all, and libretro renames files. One row that cannot be had must not stop
+ * rather than thrown: 1481 rows went through here on the production run of
+ * 2026-09-13, 61 of them with no cover at all, and libretro renames files. One row that cannot be had must not stop
  * the other 1414.
  */
 
@@ -28,7 +28,7 @@ export interface WarmOptions {
   rebuild?: boolean;
   dir?: string;
   fetcher?: Fetcher;
-  /** Called after each row, so a 1415-row pass is not silent for over a minute. */
+  /** Called after each row, so a 1481-row pass is not silent for twenty minutes. */
   onProgress?: (done: number, total: number) => void;
 }
 

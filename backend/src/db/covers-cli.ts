@@ -4,7 +4,7 @@
  * Run on purpose, never at startup -- the same rule `refreshGameMetadata`
  * states and for the same reason: a catalogue that rewrites itself whenever a
  * container restarts is a catalogue nobody can build on. A warming pass reaches
- * out to 1415 third-party URLs, and doing that on every deploy would be both
+ * out to 1420 third-party URLs, and doing that on every deploy would be both
  * rude and slow.
  *
  *   docker compose exec backend bun dist/db/covers-cli.js
@@ -16,15 +16,20 @@
  * recovered from -- the files are derived, the catalogue URL and the uploaded
  * BLOB are the sources.
  *
- * Measured on 2026-09-13, on thirty real catalogue rows: 231 KB of PNG each
- * become 41 KB of WebP and a 7.9 KB thumbnail, 5.6x lighter.
+ * Measured on the real production run, 2026-09-13: 1481 rows, 1418 ingested,
+ * 61 with no cover, 2 failed. 2762 files for 56 MB -- less than the 75 MB
+ * estimated, because naming a file after its bytes deduplicates for free: those
+ * 1418 rows share 1381 images.
  *
- * It takes a while. The pass is network-bound, not codec-bound -- 2.2 s a row
- * against 50 ms of encoding -- so the full catalogue is roughly fifty minutes,
- * one row at a time. That is deliberate: fetching 1415 files from someone
- * else's host in parallel is how a probe got itself rate-limited while this
- * was being measured. It is a gesture you run once, not something on a
- * deploy's critical path, and `--rebuild` aside it never needs running twice.
+ * **About 22 minutes**, not the fifty first written here. That fifty came from
+ * extrapolating a laptop's 2.2 s a row; the VPS does it in about 0.9 s, having
+ * a better route to the hosts. Both numbers were network, not codec -- encoding
+ * is 50 ms a row wherever it runs.
+ *
+ * One row at a time, deliberately: fetching 1400 files from someone else's host
+ * in parallel is how a probe got itself rate-limited while this was being
+ * measured. It is a gesture you run once, not something on a deploy's critical
+ * path, and `--rebuild` aside it never needs running twice.
  */
 
 import { getDb } from './sqlite.js';
