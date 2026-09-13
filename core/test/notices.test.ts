@@ -37,3 +37,73 @@ test('chaque kind rend un texte non vide dans les deux langues', () => {
 		}
 	}
 });
+
+import { get } from 'svelte/store';
+import { createNotices } from '../../frontend/src/lib/notices/store.js';
+
+test('poser une notification la met dans la liste et dans le compte', () => {
+	const notices = createNotices();
+
+	notices.post('raw', { message: 'Sauvegarde creee' });
+
+	assert.equal(get(notices.list).length, 1);
+	assert.equal(get(notices.count), 1);
+});
+
+test('la plus recente vient en dernier', () => {
+	const notices = createNotices();
+
+	notices.post('raw', { message: 'un' });
+	notices.post('raw', { message: 'deux' });
+
+	assert.deepEqual(
+		get(notices.list).map((n) => n.params.message),
+		['un', 'deux']
+	);
+});
+
+test('fermer le centre consomme ce qui n a pas de bouton', () => {
+	// Et non l ouvrir : videes a l ouverture, elles s effaceraient sous les
+	// yeux de qui vient les lire.
+	const notices = createNotices();
+	notices.post('raw', { message: 'un' });
+
+	notices.openCentre();
+	assert.equal(get(notices.list).length, 1, 'la liste doit tenir pendant la lecture');
+
+	notices.closeCentre();
+	assert.equal(get(notices.list).length, 0);
+});
+
+test('ce qui arrive pendant la lecture s ajoute, puis s en va avec le reste', () => {
+	const notices = createNotices();
+	notices.openCentre();
+
+	notices.post('raw', { message: 'pendant' });
+	assert.equal(get(notices.list).length, 1);
+
+	notices.closeCentre();
+	assert.equal(get(notices.list).length, 0);
+});
+
+test('une echeance depassee quitte la liste', () => {
+	const notices = createNotices();
+	notices.post('raw', { message: 'dix minutes' }, { expiresAt: 1_000 });
+
+	notices.sweep(1_001);
+
+	assert.equal(get(notices.list).length, 0);
+});
+
+test('retirer par identifiant ne touche pas les autres', () => {
+	const notices = createNotices();
+	const id = notices.post('raw', { message: 'un' });
+	notices.post('raw', { message: 'deux' });
+
+	notices.dismiss(id);
+
+	assert.deepEqual(
+		get(notices.list).map((n) => n.params.message),
+		['deux']
+	);
+});
