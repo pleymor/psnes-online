@@ -101,7 +101,14 @@
     <div class="modal-grid">
       <div class="cover-section">
         {#if game.coverUrl}
-          <img src={game.coverUrl} alt={game.title} class="cover-image" />
+          <img
+            src={game.coverUrl}
+            alt={game.title}
+            class="cover-image"
+            decoding="async"
+            width="512"
+            height="358"
+          />
         {:else}
           <div class="cover-placeholder">
             <div class="placeholder-icon">🎮</div>

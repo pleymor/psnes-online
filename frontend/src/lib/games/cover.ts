@@ -33,6 +33,20 @@ export function coverSize(srcWidth: number, srcHeight: number): ThumbnailSize {
 }
 
 /**
+ * The small rendition of an ingested cover, for lists that draw it tiny.
+ *
+ * An ingested cover is `/covers/<hash>.webp` and has a `-thumb` sibling written
+ * at the same moment. Anything else - the uploaded-cover route, a catalogue row
+ * not yet warmed - has no second rendition, and is asked for unchanged rather
+ * than turned into a 404 where a picture used to be.
+ */
+export function thumbUrlOf(coverUrl: string | null | undefined): string | null {
+  if (!coverUrl) return null;
+  const ingested = /^\/covers\/([0-9a-f]+)\.webp$/.exec(coverUrl);
+  return ingested ? `/covers/${ingested[1]}-thumb.webp` : coverUrl;
+}
+
+/**
  * The type a blob actually carries, if the server would take it.
  *
  * Returns null for anything else rather than guessing, so a caller cannot
