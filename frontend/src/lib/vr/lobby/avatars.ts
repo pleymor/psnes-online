@@ -100,13 +100,21 @@ interface Avatar {
  *
  * Pas de `computeVertexNormals()` : rien n'est éclairé dans cette scène, donc
  * les normales n'occuperaient que de la mémoire.
+ *
+ * SIX FACES, et c'est la seule chose qu'aucun objet du décor ne demande. Les
+ * cinq faces de `box.ts` supposent un objet POSÉ, dont le dessous ne se voit
+ * jamais ; une tête et une main FLOTTENT, et on les regarde par en dessous
+ * pour de vrai - une main levée au-dessus des yeux, un joueur assis face à un
+ * ami debout. `bottom` ferme la boîte, ce qui est la condition pour la rendre
+ * en `FrontSide` sans voir à travers.
  */
 function geometryFor(
   atlas: Atlas,
   size: number,
   front: string,
   side: string,
-  top: string
+  top: string,
+  bottom: string
 ): THREE.BufferGeometry {
   const data = boxGeometry({
     width: size,
@@ -114,7 +122,8 @@ function geometryFor(
     depth: size,
     front: uvOf(atlas, front),
     side: uvOf(atlas, side),
-    top: uvOf(atlas, top)
+    top: uvOf(atlas, top),
+    bottom: uvOf(atlas, bottom)
   });
 
   const geometry = new THREE.BufferGeometry();
@@ -238,14 +247,30 @@ export function createAvatars(opts: AvatarsOptions): Avatars {
     /*
      * `DoubleSide` était le réglage des billboards du décor, qui pivotent et
      * passent par des angles montrant leur dos. Une tête et une main sont des
-     * cubes FERMÉS : leurs faces intérieures ne seraient rasterisées que pour
-     * être rejetées, et sur la main elles se mélangeraient à travers la marge
-     * transparente.
+     * volumes : leurs faces intérieures ne seraient rasterisées que pour être
+     * rejetées, et sur la main elles se mélangeraient à travers la marge
+     * transparente du motif.
+     *
+     * Ce qui rend ce réglage LICITE est la sixième face que `geometryFor`
+     * demande à `box.ts`. Sans elle, la boîte est ouverte par en dessous, et
+     * `FrontSide` la rendrait traversable du regard depuis le sol - la face
+     * manquante ne cache rien, les autres sont dos-tournées. `DoubleSide`
+     * masquait ce trou par accident, pas par conception. Les deux lignes se
+     * tiennent : ne pas remettre `FrontSide` sur une boîte à cinq faces.
      */
     material.side = THREE.FrontSide;
     material.depthWrite = true;
 
-    const headGeometry = geometryFor(opts.atlas, HEAD_SIZE, 'avatarFace', 'avatarSide', 'avatarTop');
+    // Le dessous d'une tête est un dessous de menton : `avatarSide`, la même
+    // tête sans visage, est exactement ce qu'il faut y voir.
+    const headGeometry = geometryFor(
+      opts.atlas,
+      HEAD_SIZE,
+      'avatarFace',
+      'avatarSide',
+      'avatarTop',
+      'avatarSide'
+    );
     /*
      * Une main distante se pose à la pose reçue, SANS correction, et elle ne
      * partage rien avec les mains locales.
@@ -257,7 +282,14 @@ export function createAvatars(opts: AvatarsOptions): Avatars {
      * casserait UNIFORMÉMENT tous les poignets distants, ce qui se lit comme un
      * défaut de modèle et se chercherait donc au mauvais endroit.
      */
-    const handGeometry = geometryFor(opts.atlas, HAND_SIZE, 'avatarHand', 'avatarHand', 'avatarHand');
+    const handGeometry = geometryFor(
+      opts.atlas,
+      HAND_SIZE,
+      'avatarHand',
+      'avatarHand',
+      'avatarHand',
+      'avatarHand'
+    );
 
     const head = new THREE.Mesh(headGeometry, material);
     const left = new THREE.Mesh(handGeometry, material);
