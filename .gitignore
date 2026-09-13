@@ -20,6 +20,9 @@ backend/data/*.db-journal
 backend/roms/
 backend/saves/
 backend/avatars/
+# Les jaquettes ingérées : un volume en production, un dossier local en dev.
+# Entièrement dérivé - `covers-cli --rebuild` le refait - donc jamais versionné.
+backend/covers/
 
 # Build outputs
 dist/
