@@ -39,6 +39,15 @@ export const BEAT_MS = 66;
  * de tâche ou d'une image en retard, et couper la session de quelqu'un pour ça
  * serait une punition sans faute. Le plafond n'est là que pour qu'un client
  * modifié ne puisse pas inonder la carte.
+ *
+ * La fenêtre est SAUTANTE et non glissante : le compteur repart de zéro dès que
+ * la seconde est écoulée, donc 25 poses à 999 ms suivies de 25 à 1001 ms passent
+ * toutes les cinquante. Ce facteur deux est sans importance ici, et le dire vaut
+ * mieux que le corriger : ce plafond n'existe pas pour facturer à la pose mais
+ * pour qu'une inondation soutenue soit impossible, et un client qui émettrait
+ * 50 poses toutes les deux secondes n'inonde rien. Une fenêtre réellement
+ * glissante demanderait de garder l'horodatage de chaque pose - de la mémoire
+ * par joueur et par seconde, pour resserrer une borne dont personne n'a besoin.
  */
 export const MAX_POSES_PER_SECOND = 25;
 
@@ -59,7 +68,7 @@ interface Present {
   socketId: string;
   friendIds: ReadonlySet<string>;
   pose: PeerPose | null;
-  /** Fenêtre glissante du plafond de débit. */
+  /** Fenêtre sautante du plafond de débit : voir `MAX_POSES_PER_SECOND`. */
   windowStart: number;
   posesInWindow: number;
 }
