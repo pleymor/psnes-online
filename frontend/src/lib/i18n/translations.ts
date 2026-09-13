@@ -449,6 +449,8 @@ export const translations = {
 
     // General
     close: 'Close',
+    notices: 'Notifications',
+    noticesEmpty: 'Nothing new.',
     yes: 'Yes',
     no: 'No',
     save: 'Save',
@@ -1032,6 +1034,8 @@ export const translations = {
 
     // General
     close: 'Fermer',
+    notices: 'Notifications',
+    noticesEmpty: 'Rien de nouveau.',
     yes: 'Oui',
     no: 'Non',
     save: 'Enregistrer',

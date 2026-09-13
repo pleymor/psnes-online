@@ -120,6 +120,7 @@
   import { keptFilesAvailable, indexedDbKeptFiles } from '$lib/roms/kept-files';
   import { games } from '$lib/stores/games';
   import { notifications } from '$lib/services/notification';
+  import NoticeCentre from './NoticeCentre.svelte';
 
   /** Undefined until asked, so the button does not flash in and out on load. */
   let headsetHere: boolean | undefined;
@@ -407,6 +408,9 @@
   {/if}
 
   <div class="right">
+    <!-- Toujours là, contrairement au bouton VR juste après : un élément qui
+         apparaît en tête de rangée ne déplace pas ses voisins. -->
+    <NoticeCentre />
     {#if headsetHere}
       <!-- Capability, never a user agent: this button appears on a Quest and
            on a PC with a headset plugged in, and the "two controllers and
