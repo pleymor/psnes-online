@@ -221,3 +221,31 @@ test('des boutons enregistres se retrouvent par leur kind', () => {
 	assert.equal(hasActions('essai'), true);
 	assert.equal(actionsOf('essai').length, 1);
 });
+
+test('un abonnement pose apres hydrate() voit la liste hydratee, jamais une liste vide d abord', () => {
+	// C'est la regle que `services/notification.ts` doit respecter pour ne pas
+	// effacer le stockage : hydrater avant de s'abonner, jamais l'inverse. Un
+	// `writable` de Svelte tire son abonne immediatement, avec la valeur
+	// courante - s'abonner avant `hydrate()` verrait donc une liste vide en
+	// premier, et l'ecrire suffirait a vider ce que le stockage tenait.
+	const notices = createNotices();
+	notices.hydrate([{ id: 'a', kind: 'raw', params: { message: 'un' }, at: 10 }]);
+
+	const seen: unknown[][] = [];
+	notices.list.subscribe((list) => seen.push(list));
+
+	assert.equal(seen.length, 1);
+	assert.equal(seen[0].length, 1);
+});
+
+test('hydrater n efface pas ce qui est deja dans la liste', () => {
+	const notices = createNotices();
+	notices.post('raw', { message: 'deja la' });
+
+	notices.hydrate([{ id: 'b', kind: 'raw', params: { message: 'reapporte' }, at: 5 }]);
+
+	assert.deepEqual(
+		get(notices.list).map((n) => n.params.message),
+		['deja la', 'reapporte']
+	);
+});

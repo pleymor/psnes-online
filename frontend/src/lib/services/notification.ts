@@ -36,18 +36,39 @@ function storage(): Storage | null {
   }
 }
 
+let writing = false;
+
 /** Ce que le rechargement a laissé. Appelée une fois, depuis le layout. */
 export function restoreNotices(): void {
   const store = storage();
   if (store) notices.hydrate(readNotices(store, Date.now()));
+  startWriting();
 }
 
-// Écrit à chaque changement plutôt qu'au déchargement : `beforeunload` n'est
-// pas tenu sur mobile, et un onglet tué n'en dit rien.
-notices.list.subscribe((list) => {
-  const store = storage();
-  if (store) writeNotices(store, list);
-});
+/**
+ * L'écriture ne s'ouvre qu'une fois la relecture faite.
+ *
+ * `subscribe` d'un `writable` tire immédiatement avec la valeur courante :
+ * abonné à l'import, il écrivait une liste vide - donc effaçait le stockage -
+ * avant que quiconque ait pu le lire. La persistance était morte sans que rien
+ * ne le dise.
+ */
+function startWriting(): void {
+  if (writing) return;
+  writing = true;
+  // Écrit à chaque changement plutôt qu'au déchargement : `beforeunload` n'est
+  // pas tenu sur mobile, et un onglet tué n'en dit rien.
+  notices.list.subscribe((list) => {
+    const store = storage();
+    if (!store) return;
+    try {
+      writeNotices(store, list);
+    } catch {
+      // Quota à zéro en navigation privée : ne pas retenir vaut mieux que
+      // faire remonter une exception dans les dix appelants de `show()`.
+    }
+  });
+}
 
 /**
  * Le tableau que les appelants historiques lisent.
