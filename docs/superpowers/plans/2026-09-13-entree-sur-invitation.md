@@ -30,7 +30,7 @@
 
 | Fichier | Responsabilité |
 |---|---|
-| `backend/migrations/0006_invite_only_signup.sql` | la table `SignupInvite` |
+| `backend/migrations/0007_invite_only_signup.sql` | la table `SignupInvite` |
 | `backend/src/db/signup-invites.ts` | les requêtes : frapper, trouver par code, consommer, révoquer, compter |
 | `backend/src/auth/signup-door.ts` | **fonction pure** : faut-il ouvrir, et dans quel ordre refuser |
 | `backend/src/auth/passport.ts` | *modifié* : `passReqToCallback`, consultation de la porte sur `googleId` inconnu |
@@ -48,7 +48,7 @@
 ## Task 1 : La table et ses requêtes
 
 **Files:**
-- Create: `backend/migrations/0006_invite_only_signup.sql`
+- Create: `backend/migrations/0007_invite_only_signup.sql`
 - Create: `backend/src/db/signup-invites.ts`
 - Test: `backend/test/signup-invites.test.ts`
 
@@ -195,7 +195,7 @@ Expected: FAIL — `Cannot find module '../src/db/signup-invites.js'`
 
 - [ ] **Step 3 : Écrire la migration**
 
-Créer `backend/migrations/0006_invite_only_signup.sql` :
+Créer `backend/migrations/0007_invite_only_signup.sql` :
 
 ```sql
 -- On n'entre plus sans y être invité.
@@ -404,7 +404,7 @@ Expected: PASS — ce test rejoue les vrais fichiers de `backend/migrations`.
 - [ ] **Step 7 : Commit**
 
 ```bash
-git add backend/migrations/0006_invite_only_signup.sql backend/src/db/signup-invites.ts backend/test/signup-invites.test.ts
+git add backend/migrations/0007_invite_only_signup.sql backend/src/db/signup-invites.ts backend/test/signup-invites.test.ts
 git commit -m "Compter les places d'invitation plutôt que les liens"
 ```
 

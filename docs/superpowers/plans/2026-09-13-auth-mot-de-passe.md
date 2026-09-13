@@ -30,7 +30,7 @@
 
 | Fichier | Responsabilité |
 |---|---|
-| `backend/migrations/0007_password_accounts.sql` | `Credential`, `PendingSignup`, `PasswordReset` |
+| `backend/migrations/0008_password_accounts.sql` | `Credential`, `PendingSignup`, `PasswordReset` |
 | `backend/src/db/credentials.ts` | l'adresse et le hash : créer, trouver, réécrire |
 | `backend/src/db/pending-signups.ts` | l'inscription en attente, et la retenue du lien |
 | `backend/src/db/password-resets.ts` | les jetons de réinitialisation |
@@ -248,7 +248,7 @@ git commit -m "Hacher les mots de passe en argon2id, sans dépendance"
 ## Task 2 : Les trois tables
 
 **Files:**
-- Create: `backend/migrations/0007_password_accounts.sql`
+- Create: `backend/migrations/0008_password_accounts.sql`
 - Create: `backend/src/db/credentials.ts`
 - Create: `backend/src/db/pending-signups.ts`
 - Create: `backend/src/db/password-resets.ts`
@@ -456,7 +456,7 @@ Expected: FAIL — modules introuvables.
 
 - [ ] **Step 3 : Écrire la migration**
 
-Créer `backend/migrations/0007_password_accounts.sql` :
+Créer `backend/migrations/0008_password_accounts.sql` :
 
 ```sql
 -- Google cesse d'être la seule porte.
@@ -766,7 +766,7 @@ Expected: PASS.
 - [ ] **Step 9 : Commit**
 
 ```bash
-git add backend/migrations/0007_password_accounts.sql backend/src/db/credentials.ts backend/src/db/pending-signups.ts backend/src/db/password-resets.ts backend/src/db/users.ts backend/test/credentials.test.ts
+git add backend/migrations/0008_password_accounts.sql backend/src/db/credentials.ts backend/src/db/pending-signups.ts backend/src/db/password-resets.ts backend/src/db/users.ts backend/test/credentials.test.ts
 git commit -m "Sortir l'adresse e-mail de User, et lui donner sa table"
 ```
 

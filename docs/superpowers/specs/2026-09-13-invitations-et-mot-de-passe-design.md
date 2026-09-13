@@ -89,7 +89,7 @@ Une invitation frappée par le CLI porte `grantedByCli = 1` et **ne compte pas d
 
 ## Le modèle
 
-Migration `0006_invite_only_signup.sql`.
+Migration `0007_invite_only_signup.sql`.
 
 ```sql
 CREATE TABLE "SignupInvite" (
@@ -166,7 +166,7 @@ Une section « Mes invitations » dans `/profile` : les places restantes, un bou
 
 La migration `0004_pseudonymous_users.sql` a sorti `email` de `User` en argumentant longuement ; l'y remettre exposerait une adresse à chaque `SELECT *`, et le dépôt en fait un (`db/users.ts:SELECT`). Dans une table à part, `toSelf()` ne peut pas la fuiter par accident, `USER_COLUMNS` de `friendships.ts` ne peut pas l'emporter vers un ami, et un compte Google n'a simplement pas de ligne.
 
-Migration `0007_password_accounts.sql` :
+Migration `0008_password_accounts.sql` :
 
 ```sql
 CREATE TABLE "Credential" (
@@ -308,5 +308,11 @@ Toutes les chaînes en `en` **et** `fr` : `core/test/i18n-parity.test.ts` échou
 Dans l'ordre :
 
 1. `SMTP_URL`, `MAIL_FROM` et `MAX_USERS` dans le `.env` de production **avant** le déploiement — `env-guard.ts` refuse de démarrer sans les deux premiers.
-2. Les migrations `0006` et `0007` passent par le service `db-migration` habituel.
+2. Les migrations `0007` et `0008` passent par le service `db-migration` habituel.
+
+   Elles étaient numérotées `0006` et `0007` à la rédaction. `main` a livré
+   `0006_served_covers.sql` entre-temps, et les migrations sont indexées **par nom de
+   fichier**, appliquées par tri alphabétique (`migrate.ts:34`) : deux `0006_` auraient
+   coexisté, le second s'exécutant hors de son rang sur une base qui portait déjà le
+   premier. Renumérotées avant le rebase.
 3. Aucun `VACUUM` requis : ces migrations n'effacent aucune colonne. En revanche, la base contient désormais des adresses e-mail — le jour où un compte est supprimé, le raisonnement de `0004` redevient d'actualité.
