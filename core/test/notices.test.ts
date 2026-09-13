@@ -249,3 +249,60 @@ test('hydrater n efface pas ce qui est deja dans la liste', () => {
 		['deja la', 'reapporte']
 	);
 });
+
+import { startNoticeSession } from '../../frontend/src/lib/notices/session.js';
+
+test('la session lit le stockage avant d y ecrire', () => {
+	// La regression exacte : abonne avant d hydrater, le writable tire
+	// immediatement avec une liste vide et efface la cle avant la lecture.
+	// Seul l ORDRE des appels le montre - l etat final, lui, se ressemble.
+	const journal: string[] = [];
+	const storage = {
+		getItem: (key: string) => {
+			journal.push(`lu ${key}`);
+			return null;
+		},
+		setItem: (key: string) => void journal.push(`ecrit ${key}`),
+		removeItem: (key: string) => void journal.push(`efface ${key}`)
+	};
+
+	startNoticeSession(createNotices(), storage, 0);
+
+	assert.equal(journal[0], `lu ${NOTICES_KEY}`, `ordre obtenu : ${journal.join(' -> ')}`);
+});
+
+test('ce qui est relu du stockage se retrouve dans la liste', () => {
+	const storage = fakeStorage();
+	writeNotices(storage, [RAW]);
+
+	const notices = createNotices();
+	startNoticeSession(notices, storage, 100);
+
+	assert.deepEqual(get(notices.list), [RAW]);
+});
+
+test('une notification postee apres le demarrage est ecrite', () => {
+	const storage = fakeStorage();
+	const notices = createNotices();
+	startNoticeSession(notices, storage, 0);
+
+	notices.post('raw', { message: 'nouvelle' });
+
+	const stored = JSON.parse(storage.getItem(NOTICES_KEY) ?? '[]');
+	assert.equal(stored.length, 1);
+	assert.equal(stored[0].params.message, 'nouvelle');
+});
+
+test('la fonction d arret rendue coupe reellement l ecriture', () => {
+	const storage = fakeStorage();
+	const notices = createNotices();
+	const stop = startNoticeSession(notices, storage, 0);
+
+	notices.post('raw', { message: 'avant arret' });
+	stop();
+	notices.post('raw', { message: 'apres arret' });
+
+	const stored = JSON.parse(storage.getItem(NOTICES_KEY) ?? '[]');
+	assert.equal(stored.length, 1);
+	assert.equal(stored[0].params.message, 'avant arret');
+});

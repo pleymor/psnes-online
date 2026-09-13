@@ -13,7 +13,7 @@
 import { derived, get } from 'svelte/store';
 import { createNotices } from '$lib/notices/store';
 import { hasActions } from '$lib/notices/actions';
-import { readNotices, writeNotices } from '$lib/notices/persist';
+import { startNoticeSession } from '$lib/notices/session';
 import type { Notice } from '$lib/notices/notice';
 
 export type NotificationType = 'success' | 'error' | 'info' | 'warning';
@@ -36,38 +36,20 @@ function storage(): Storage | null {
   }
 }
 
-let writing = false;
-
-/** Ce que le rechargement a laissé. Appelée une fois, depuis le layout. */
-export function restoreNotices(): void {
-  const store = storage();
-  if (store) notices.hydrate(readNotices(store, Date.now()));
-  startWriting();
-}
+let started = false;
 
 /**
- * L'écriture ne s'ouvre qu'une fois la relecture faite.
+ * Ce que le rechargement a laissé. Appelée une fois, depuis le layout.
  *
- * `subscribe` d'un `writable` tire immédiatement avec la valeur courante :
- * abonné à l'import, il écrivait une liste vide - donc effaçait le stockage -
- * avant que quiconque ait pu le lire. La persistance était morte sans que rien
- * ne le dise.
+ * L'ordre - hydrater puis seulement écrire - est la garantie de
+ * `session.ts`, pas la sienne : un `writable` Svelte tire son abonné
+ * immédiatement avec la valeur courante, donc l'inverse effaçait le
+ * stockage avant que cette fonction ait pu le lire.
  */
-function startWriting(): void {
-  if (writing) return;
-  writing = true;
-  // Écrit à chaque changement plutôt qu'au déchargement : `beforeunload` n'est
-  // pas tenu sur mobile, et un onglet tué n'en dit rien.
-  notices.list.subscribe((list) => {
-    const store = storage();
-    if (!store) return;
-    try {
-      writeNotices(store, list);
-    } catch {
-      // Quota à zéro en navigation privée : ne pas retenir vaut mieux que
-      // faire remonter une exception dans les dix appelants de `show()`.
-    }
-  });
+export function restoreNotices(): void {
+  if (started) return;
+  started = true;
+  startNoticeSession(notices, storage(), Date.now());
 }
 
 /**

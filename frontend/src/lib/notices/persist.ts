@@ -16,7 +16,11 @@ import { shapeOf } from './shapes.js';
 
 export const NOTICES_KEY = 'psnes-notices';
 
-interface Storage {
+/**
+ * Exportée pour `session.ts`, qui en a besoin sans importer `localStorage` -
+ * nommée à part du `Storage` du DOM, que ce fichier ne connaît pas non plus.
+ */
+export interface NoticeStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
@@ -33,7 +37,7 @@ function usable(notice: Notice, now: number): boolean {
   return true;
 }
 
-export function readNotices(storage: Storage, now: number): Notice[] {
+export function readNotices(storage: NoticeStorage, now: number): Notice[] {
   const stored = storage.getItem(NOTICES_KEY);
   if (!stored) return [];
 
@@ -55,7 +59,7 @@ export function readNotices(storage: Storage, now: number): Notice[] {
   return (parsed as Notice[]).filter((notice) => notice?.kind && usable(notice, now));
 }
 
-export function writeNotices(storage: Storage, notices: readonly Notice[]): void {
+export function writeNotices(storage: NoticeStorage, notices: readonly Notice[]): void {
   if (notices.length === 0) {
     storage.removeItem(NOTICES_KEY);
     return;
