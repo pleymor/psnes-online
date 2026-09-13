@@ -119,20 +119,6 @@ const LAUNCH_Y = 620;
  * rendu. Douze pixels d'air sous les ports, seize au-dessus du bouton.
  */
 const INCOMING_Y = 504;
-const KEEP_QUESTION_Y = 534;
-const KEEP_Y = 552;
-const KEEP_H = 52;
-const KEEP_GAP = 16;
-/*
- * Deux réponses courtes, et non deux libellés qui portent la question.
- *
- * Première version : « Garder le jeu » et « Ne pas garder », côte à côte sur
- * toute la colonne. Au rendu les deux débordaient de leurs 184 px et se
- * touchaient. La question passe donc sur sa propre ligne, où elle a 384 px, et
- * les boutons ne portent plus que « Oui » et « Non » - qui tiennent trois fois.
- */
-const KEEP_W = 120;
-const LEGAL_Y = 740;
 
 export interface LaunchLabels {
 	newGame: string;
@@ -147,20 +133,6 @@ export interface LaunchLabels {
 	romMissing: string;
 	/** Ce que l'invité lit à la place du refus : le jeu arrive de l'hôte. */
 	romIncoming: string;
-	/** La question, sur sa propre ligne. Les boutons ne disent que oui et non. */
-	keepQuestion: string;
-	yes: string;
-	no: string;
-	/**
-	 * Le disclaimer, à côté de la seule question de l'app qui installe un
-	 * fichier venu de quelqu'un d'autre.
-	 *
-	 * Une phrase et non le texte légal complet de la page plate : celui-ci fait
-	 * quatre phrases, et un mur de texte sur un écran courbe à deux mètres et
-	 * demi ne se lit pas - donc ne protège personne. Ce que ce libellé porte est
-	 * la phrase opérante appliquée à ce choix précis.
-	 */
-	keepRomLegal: string;
 	alreadyPlaying: string;
 	noSeat: string;
 	gameChanged: string;
@@ -203,24 +175,6 @@ export function layoutLaunchPanel(options: LaunchOptions, _labels: LaunchLabels)
 			y: PORT_Y + PORT_H + PORT_GAP,
 			w: PORT_W,
 			h: PORT_H
-		});
-	}
-
-	/*
-	 * La question ne se pose que s'il y a quelque chose à garder.
-	 *
-	 * Elle vit dans la mise en page et pas dans un état du panneau : elle
-	 * dépend de `romIncoming`, pas de la réponse - qui, elle, arrive par
-	 * `opts.keepRom` et ne change que le fond des deux boutons.
-	 */
-	if (options.romIncoming) {
-		regions.push({ id: 'keep:yes', x: LAUNCH_X, y: KEEP_Y, w: KEEP_W, h: KEEP_H });
-		regions.push({
-			id: 'keep:no',
-			x: LAUNCH_X + KEEP_W + KEEP_GAP,
-			y: KEEP_Y,
-			w: KEEP_W,
-			h: KEEP_H
 		});
 	}
 
@@ -386,9 +340,6 @@ export function drawLaunchPanel(
 		/** Loaded save thumbnails, keyed by SAVE id. `data:` URLs; they cannot
 		 *  taint anything. */
 		shots: ReadonlyMap<string, CanvasImageSource>;
-		/** La réponse à la question du conservage. Transitoire, comme `hoverId` :
-		 *  elle n'est ni dans la room ni dans la bibliothèque. */
-		keepRom: boolean;
 		/**
 		 * Le transfert en cours, déjà mis en mots par l'appelant.
 		 *
@@ -533,30 +484,6 @@ export function drawLaunchPanel(
 		ctx.textBaseline = 'middle';
 		ctx.fillText(truncate(ctx, labels.romIncoming, LAUNCH_W), LAUNCH_X, INCOMING_Y);
 
-		ctx.font = '22px system-ui, sans-serif';
-		ctx.fillStyle = '#a8b8d0';
-		ctx.fillText(truncate(ctx, labels.keepQuestion, LAUNCH_W), LAUNCH_X, KEEP_QUESTION_Y);
-
-		const yes = byId.get('keep:yes');
-		if (yes) drawButton(ctx, yes, labels.yes, opts.keepRom, opts.hoverId === 'keep:yes');
-		const no = byId.get('keep:no');
-		if (no) drawButton(ctx, no, labels.no, !opts.keepRom, opts.hoverId === 'keep:no');
-
-		/*
-		 * Pleine largeur sous le bouton, et sur un fond.
-		 *
-		 * La phrase ne tient pas dans les 384 px de la colonne. Et elle est
-		 * posee sur une bande sombre parce que du gris sur l'herbe ne se lit pas
-		 * - `friends.ts` l'avait deja ecrit pour ses lignes, et un disclaimer
-		 * illisible ne protege personne.
-		 */
-		ctx.fillStyle = 'rgba(10, 10, 18, 0.72)';
-		ctx.fillRect(0, LEGAL_Y - 20, width, 36);
-		ctx.font = '20px system-ui, sans-serif';
-		ctx.fillStyle = '#d8d8e4';
-		ctx.textAlign = 'left';
-		ctx.textBaseline = 'middle';
-		ctx.fillText(truncate(ctx, labels.keepRomLegal, width - PAD * 2), PAD, LEGAL_Y);
 	}
 
 	const launch = byId.get('launch');

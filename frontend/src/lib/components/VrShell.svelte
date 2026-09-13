@@ -107,11 +107,9 @@
   import { games, loadGames } from '$lib/stores/games';
   import { deviceLibrary } from '$lib/roms/device-library';
   import {
-    resolvableHere, resolveQuietly, remember, keepReceived, type MissReason
+    resolvableHere, resolveQuietly, remember, type MissReason
   } from '$lib/roms/provider';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
-  import { registerGame } from '$lib/roms/local-library';
-  import { romFileName } from '$lib/roms/rom-file';
   import type { PanelMesh } from '$lib/vr/panel-mesh';
   import { loadCore, AudioSink, SocketTransport, UpgradingTransport, type SessionEvent, type Transport } from '$lib/znet';
   import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
@@ -776,16 +774,6 @@
   let launchNotice: string | null = null;
 
   /**
-   * La réponse de l'invité à « garder ce jeu ? », et son défaut.
-   *
-   * Faux par défaut, et ce n'est pas un hasard : `kept-files.ts` posait que ce
-   * qu'un hôte envoie n'entre pas de lui-même sur l'appareil de l'invité, et
-   * ne rien répondre doit donc ne rien installer. Il faut le geste pour que le
-   * fichier reste.
-   */
-  let keepReceivedRom = false;
-
-  /**
    * Le transfert en cours, déjà mis en mots, ou null.
    *
    * Une chaîne et non un pourcentage : elle est écrite dans la langue du
@@ -1272,7 +1260,6 @@
         hoverId: hovered?.panel === 'screen' ? hovered.region.id : null,
         covers,
         shots: saveShots,
-        keepRom: keepReceivedRom,
         transfer: romTransfer
       })
     );
@@ -1315,10 +1302,6 @@
       friendReady: t($language, 'vrFriendReady'),
       romMissing: t($language, 'vrRomMissing'),
       romIncoming: t($language, 'vrRomIncoming'),
-      keepQuestion: t($language, 'keepRom'),
-      yes: t($language, 'yes'),
-      no: t($language, 'no'),
-      keepRomLegal: t($language, 'keepRomLegal'),
       alreadyPlaying: t($language, 'vrAlreadyPlaying'),
       noSeat: t($language, 'vrNoSeat'),
       gameChanged: t($language, 'vrGameChanged'),
@@ -2125,22 +2108,6 @@
         return;
       }
 
-      /*
-       * La réponse à « garder ce jeu ? », prise avant le transfert.
-       *
-       * Avant, parce que c'est le seul moment où elle ne coûte rien : le
-       * transfert n'a pas commencé, personne n'attend, et l'invité choisit en
-       * même temps qu'il lance. La poser après aurait retardé la partie des
-       * DEUX joueurs pour une question qui ne concerne qu'un appareil.
-       */
-      if (id === 'keep:yes' || id === 'keep:no') {
-        keepReceivedRom = id === 'keep:yes';
-        // Et tout de suite si les octets sont déjà là. Voir `keepNow`.
-        if (keepReceivedRom) void keepNow();
-        repaintLaunch();
-        return;
-      }
-
       if (id === 'port:1' || id === 'port:2') {
         const room = $myRoom;
         if (!room) return;
@@ -2709,65 +2676,6 @@
     });
   }
 
-  /**
-   * Garde maintenant ce que cet appareil a déjà en main.
-   *
-   * Sans ça « Oui » serait un bouton mort la moitié du temps, et c'est un
-   * enchaînement réel qui le montre : c'est l'HÔTE qui presse Lancer, donc
-   * l'invité n'a que les quelques secondes entre le choix du jeu et ce
-   * lancement pour répondre. S'il rate la fenêtre, la partie se joue quand
-   * même - le défaut est « ne pas garder » - et la question lui revient sur
-   * l'écran de lancement d'après-partie, parce que des octets en cache ne sont
-   * pas pour autant sur l'appareil (`resolvableHere` ne voit que le dossier et
-   * le magasin). Là, une intention notée pour un transfert qui n'aura plus
-   * lieu n'aurait rien gardé.
-   *
-   * `resolveQuietly` plutôt que `loadedRom` : celui-ci porte les octets du jeu
-   * en cours, qui n'est pas forcément celui de l'écran. Et `resolveQuietly`
-   * regarde le cache en premier, qui est exactement là où un jeu reçu vit.
-   *
-   * Rien en main veut dire que le transfert n'a pas eu lieu : la réponse est
-   * alors honorée à la réception, par `receiveFromPeer`.
-   */
-  /**
-   * Garder pour de bon : les octets, puis la ligne de bibliothèque.
-   *
-   * Les deux chemins du casque passent par ici. L'invité peut répondre oui
-   * AVANT le transfert, sur l'écran de lancement, ou après coup depuis le même
-   * écran ; sans ce partage, l'un des deux gardait les octets sans donner de
-   * carte à cliquer - exactement le défaut signalé le 2026-09-10 hors casque.
-   *
-   * L'échec de l'inscription est avalé et journalisé, comme l'écriture
-   * elle-même : la question est déjà refermée, donc rien à l'écran ne pourrait
-   * le rapporter, et une promesse rejetée ici remonterait en unhandled
-   * rejection dans une session immersive.
-   */
-  async function keepAndRegister(bytes: Uint8Array, crc32: string): Promise<void> {
-    const title = $myRoom?.gameTitle ?? '';
-    await keepReceived(bytes, {
-      title,
-      onFolder: (outcome) => logger.info('the ROM folder', { outcome })
-    });
-    try {
-      await registerGame(crc32, romFileName(title, crc32));
-    } catch (err) {
-      logger.warn('kept the ROM but could not add it to the library', err);
-    }
-  }
-
-  async function keepNow(): Promise<void> {
-    const crc32 = launchFor;
-    if (!crc32) return;
-
-    const bytes = await resolveQuietly(crc32, { requestPermission: false });
-    if (!bytes) return;
-
-    await keepAndRegister(bytes, crc32);
-    // Relu, sinon l'écran continuerait d'annoncer un envoi pour un jeu qui est
-    // désormais sur l'appareil - et la question resterait posée.
-    resolvable = await resolvableHere();
-    repaintLaunch();
-  }
 
   /**
    * Le jeu, reçu de l'autre joueur, quand cet appareil ne l'a pas.
@@ -2802,15 +2710,16 @@
       romTransfer = null;
 
       /*
-       * Gardé seulement si l'invité l'a demandé.
+       * Jamais gardé, décidé le 13/09/2026.
        *
        * `remember` met en cache et rien de plus : la partie tourne, et les
-       * octets meurent avec l'onglet. `keepReceived` les écrit sur l'appareil,
-       * et c'est le geste de l'invité sur son écran de lancement qui décide -
-       * disclaimer légal à côté du bouton. `kept-files.ts` porte la règle.
+       * octets meurent avec l'onglet. C'était l'ancien « Non merci », devenu le
+       * seul comportement - on ne demande plus, donc on n'écrit plus. Le prix
+       * est que l'hôte renvoie le jeu à chaque partie ; `kept-files.ts` porte
+       * la règle que ce prix paie : ce qu'un hôte envoie n'entre pas de
+       * lui-même sur l'appareil de l'invité.
        */
-      if (keepReceivedRom) await keepAndRegister(rom, crc32);
-      else remember(rom);
+      remember(rom);
 
       logger.info(`Received the ROM from the host (${rom.byteLength} bytes)`, { crc32 });
       return rom;

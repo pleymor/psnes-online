@@ -47,12 +47,6 @@ const LABELS: LaunchLabels = {
   friendAway: 'Away',
   romMissing: 'This game is not on this device. Launch it once outside VR.',
   romIncoming: 'Your friend will send you this game.',
-  keepQuestion: 'Keep it on this device?',
-  yes: 'Yes',
-  no: 'No',
-  // La vraie phrase, pas un bouchon : elle est mesuree plus bas, et un
-  // remplacant court passerait une verification que le vrai libelle echoue.
-  keepRomLegal: 'Only keep a game if you own the original cartridge.',
   alreadyPlaying: 'This room is already playing.',
   noSeat: 'Somebody has to take a controller first.',
   friendAwayBlocked: 'A player is away. Wait for them to come back before starting.'
@@ -124,7 +118,6 @@ function draw(
   pictures: {
     covers?: Map<string, CanvasImageSource>;
     shots?: Map<string, CanvasImageSource>;
-    keepRom?: boolean;
     transfer?: string | null;
   } = {}
 ) {
@@ -134,7 +127,6 @@ function draw(
     hoverId,
     covers: pictures.covers ?? new Map(),
     shots: pictures.shots ?? new Map(),
-    keepRom: pictures.keepRom ?? false,
     transfer: pictures.transfer ?? null
   });
   return ctx;
@@ -598,46 +590,37 @@ test('un ROM qui arrive laisse le bouton et annonce l envoi', () => {
 
   const drawn = draw(o).texts.join('\n');
   assert.ok(drawn.includes(LABELS.romIncoming), "rien n annonce que le jeu arrive");
-  assert.ok(drawn.includes(LABELS.keepQuestion), 'la question n est pas ecrite');
   assert.ok(!drawn.includes(LABELS.romMissing), 'l ancien refus traine encore');
 });
 
-test('la question du conservage n est posee que quand un ROM arrive', () => {
-  const incoming = layoutLaunchPanel(
-    options({ romHere: false, romIncoming: true }),
-    LABELS
-  ).map((r) => r.id);
-  assert.ok(incoming.includes('keep:yes'));
-  assert.ok(incoming.includes('keep:no'));
+/*
+ * Plus aucune question de conservage, decide le 2026-09-13.
+ *
+ * Un ROM recu ne reste jamais sur l appareil de l invite - c est le
+ * comportement de l ancien « Non merci », devenu le seul. Il n y a donc plus
+ * rien a demander, et l ecran de lancement ne porte plus ni les deux boutons
+ * ni le disclaimer qui les accompagnait.
+ *
+ * Le cout est assume : les octets repartent a chaque partie. C etait le defaut
+ * que la question corrigeait le 08/09, et le proprietaire le reprend en
+ * connaissance de cause plutot que d ecrire le jeu d un tiers sans geste.
+ */
+test('aucune question de conservage n est posee, meme quand un ROM arrive', () => {
+  // Les deux phrases telles qu elles etaient, litterales : LaunchLabels ne les
+  // porte plus, et c est justement ce qu on veut epingler - qu elles ne
+  // reviennent pas par une autre porte.
+  const QUESTION = 'Keep it on this device?';
+  const DISCLAIMER = 'Only keep a game if you own the original cartridge.';
 
-  // Rien a garder quand le jeu est deja la : la question serait sans objet.
-  const here = layoutLaunchPanel(options(), LABELS).map((r) => r.id);
-  assert.ok(!here.includes('keep:yes'));
-  assert.ok(!here.includes('keep:no'));
-});
-
-test('le disclaimer accompagne la question, et seulement elle', () => {
-  const asked = draw(options({ romHere: false, romIncoming: true })).texts.join('\n');
-  assert.ok(asked.includes(LABELS.keepRomLegal), 'la question est posee sans le disclaimer');
-
-  const notAsked = draw(options()).texts.join('\n');
-  assert.ok(!notAsked.includes(LABELS.keepRomLegal), 'un disclaimer sans question a poser');
-});
-
-test('le choix se voit sur le fond, pas sur le libelle', () => {
-  // La meme regle que les deux ports et les deux langues : deux etats qui ne
-  // differeraient que par un `fillText` ne seraient pas distinguables ici, et
-  // c'est le piege ou sont tombees les cartes de preset du pupitre.
   const o = options({ romHere: false, romIncoming: true });
-  const keeping = draw(o, null, { keepRom: true });
-  const refusing = draw(o, null, { keepRom: false });
 
-  assert.deepEqual(keeping.texts, refusing.texts, 'le libelle change de sens selon l etat');
-  assert.notDeepEqual(
-    keeping.calls.filter((c) => c === 'fillRect'),
-    [],
-    'le marquage doit etre un fond'
-  );
+  const ids = layoutLaunchPanel(o, LABELS).map((r) => r.id);
+  assert.ok(!ids.includes('keep:yes'), 'le bouton Garder est encore la');
+  assert.ok(!ids.includes('keep:no'), 'le bouton Non merci est encore la');
+
+  const drawn = draw(o).texts.join('\n');
+  assert.ok(!drawn.includes(QUESTION), 'la question est encore ecrite');
+  assert.ok(!drawn.includes(DISCLAIMER), 'le disclaimer survit a sa question');
 });
 
 test('le transfert en cours remplace le libelle du bouton', () => {
@@ -653,20 +636,17 @@ test('le transfert en cours remplace le libelle du bouton', () => {
  * La largeur des libelles de bouton, mesuree avec un proxy HONNETE.
  *
  * Le faux contexte de ce fichier compte neuf pixels par caractere, ce qui est
- * optimiste pour du 26 px gras : le vrai en fait pres de quatorze. La premiere
- * paire - « Garder le jeu » et « Ne pas garder » - passait ce test a 117 px
- * pour 164 disponibles, et debordait de son bouton au rendu, par-dessus son
- * voisin. Le rendu tranche, mais un proxy honnete rattrape le cas grossier.
+ * optimiste pour du 26 px gras : le vrai en fait pres de quatorze. La paire
+ * « Garder le jeu » / « Ne pas garder » passait ce test a 117 px pour 164
+ * disponibles et debordait au rendu, par-dessus son voisin ; ces deux boutons
+ * n existent plus depuis le 13/09/2026, mais le garde-fou reste pour ceux qui
+ * restent. Le rendu tranche, un proxy honnete rattrape le cas grossier.
  */
 const BUTTON_PX_PER_CHAR = 14;
 
 test('les libelles des boutons tiennent dans leur boite', () => {
   const regions = layoutLaunchPanel(options({ romHere: false, romIncoming: true }), LABELS);
-  const pairs = [
-    ['keep:yes', LABELS.yes],
-    ['keep:no', LABELS.no],
-    ['launch', LABELS.launch]
-  ] as const;
+  const pairs = [['launch', LABELS.launch]] as const;
 
   for (const [id, label] of pairs) {
     const region = regions.find((r) => r.id === id)!;
@@ -751,7 +731,6 @@ test("l'ecran de lancement porte le verre de l'ecran au repos, puisque le monde 
     hoverId: null,
     covers: new Map(),
     shots: new Map(),
-    keepRom: false,
     transfer: null
   });
 
