@@ -15,22 +15,30 @@ Deux chantiers, une seule spec, parce qu'ils se croisent en un point précis : l
 | Existant | Ce qu'il devient |
 |---|---|
 | Comptes actuels | Exemptés. Ils existent, ils restent ; chacun reçoit ses 2 invitations. |
-| `AUTH_MODE=google\|dev` | Devient **une liste séparée par des virgules** : `AUTH_MODE=google,password`. Une valeur unique reste valide et signifie la même chose qu'avant. |
+| `AUTH_MODE=google\|dev` | **Ne change pas.** La porte à mot de passe s'ouvre par une variable à part, `PASSWORD_AUTH` (voir ci-dessous). |
 | La porte anonyme (`POST /auth/anonymous`) | **Inchangée.** Un lien de salon ouvre toujours sans invitation, et ces lignes ne consomment aucune place. |
 | Le portique de pseudonyme (`needsPseudo`) | Inchangé. Un compte né d'un mot de passe y tombe comme un compte né de Google. |
 | `Invitation` / table `RoomInvitation` | Inchangée. C'est « rejoins mon salon », un autre concept. |
 
-## Le piège de `AUTH_MODE`
+## `AUTH_MODE` ne bouge pas
 
-Passer d'une valeur unique à une liste **casse silencieusement une protection de production**. `env-guard.ts:29` écrit :
+La première rédaction de cette spec faisait d'`AUTH_MODE` une liste (`google,password`). C'est une erreur, et le dépôt l'avait déjà écartée en toutes lettres. `auth/anonymous.ts:anonymousJoinEnabled` :
+
+> *« Volontairement pas une valeur d'`AUTH_MODE`. `env-guard.ts` refuse de démarrer en production sur `AUTH_MODE === 'dev'` par une égalité stricte : un `AUTH_MODE=dev+anonymous` passerait à travers ce test et rouvrirait `/auth/dev/login` en production. Ajouter une valeur à cette variable, c'est relâcher une garantie existante par effet de bord ; une variable à part n'a pas ce défaut. »*
+
+`POST /auth/dev/login` est une route **non authentifiée qui distribue de vraies sessions**. L'égalité stricte de `env-guard.ts:29` est ce qui la tient hors de production, et `docker-compose.yml` s'appuie dessus par écrit.
+
+Donc : **`PASSWORD_AUTH`**, exactement sur le modèle d'`ANONYMOUS_JOIN`, dans `backend/src/auth/credentials-door.ts` :
 
 ```ts
-if (process.env.AUTH_MODE === 'dev') { ...refuse de démarrer... }
+export function passwordAuthEnabled(env = process.env): boolean {
+  return (env.PASSWORD_AUTH ?? 'on').toLowerCase() !== 'off';
+}
 ```
 
-Une égalité stricte. Avec une liste, `AUTH_MODE=google,dev` en production passe le garde sans un bruit et ouvre `POST /auth/dev/login` — une route non authentifiée qui distribue de vraies sessions — au web. Le commentaire de `docker-compose.yml` s'appuie explicitement sur cette égalité stricte.
+`AUTH_MODE` garde ses deux valeurs et son égalité stricte. Rien à modifier dans `env-guard.ts` de ce côté — il ne gagne que l'exigence de `SMTP_URL`.
 
-`assertUsableEnvironment` doit donc être modifié **dans le même changement** que le parseur : découper la liste et refuser si `dev` en fait partie. `backend/test/` doit tenir ce cas nommément, parce que c'est exactement la classe de régression qu'aucun test d'interface ne verrait.
+`GET /auth/mode` renvoie désormais `{ mode, anonymousJoin, passwordAuth }` : un champ de plus, pas une rupture de forme.
 
 ## Le vocabulaire
 
@@ -266,7 +274,7 @@ Trois routes nouvelles. **Chacune doit être ajoutée à `entries` dans `fronten
 
 `/profile` gagne la section « Mes invitations ».
 
-`GET /auth/mode` renvoie désormais la liste des portes ouvertes (`{ modes: ['google', 'password'], anonymousJoin }`) au lieu d'une chaîne unique. Le front affiche ce que le serveur annonce, il ne devine pas.
+`GET /auth/mode` gagne un champ : `{ mode, anonymousJoin, passwordAuth }`. Le front affiche la porte à mot de passe si et seulement si le serveur l'annonce — il ne la devine pas depuis `mode`.
 
 Toutes les chaînes en `en` **et** `fr` : `core/test/i18n-parity.test.ts` échoue sinon.
 
@@ -279,7 +287,7 @@ Toutes les chaînes en `en` **et** `fr` : `core/test/i18n-parity.test.ts` échou
 | Fichier | Ce qu'il tient |
 |---|---|
 | `signup-door.test.ts` | la fonction pure, chaque refus et leur ordre |
-| `auth-modes.test.ts` | le parseur de liste, et `assertUsableEnvironment` qui refuse `google,dev` en production |
+| `credentials-door.test.ts` | `passwordAuthEnabled` par défaut et coupé par `PASSWORD_AUTH=off`, et le refus de la porte quand elle est fermée |
 | `invites.test.ts` | 2 à vie, liens vivants comptés, révocation qui rend la place, `grantedByCli` hors quota, plafond 100, anonymes non comptés |
 | `credentials.test.ts` | argon2id, unicité NOCASE, connexion, coût constant sur adresse inconnue |
 | `pending-signup.test.ts` | l'invitation retenue puis rendue à l'expiration, la transaction de confirmation |
