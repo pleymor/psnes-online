@@ -5,7 +5,8 @@ import { getDb } from '../db/sqlite.js';
 import { createAnonymousUser, deleteAnonymousUser, PseudoFullError, upsertDevUser } from '../db/users.js';
 import { getRooms } from '../websocket/index.js';
 import { anonymousDoorDecision, anonymousJoinEnabled } from '../auth/anonymous.js';
-import { anonymousDoorLimit } from '../utils/attempt-limit.js';
+import { admitSignup } from '../auth/signup-door.js';
+import { anonymousDoorLimit, inviteLookupLimit } from '../utils/attempt-limit.js';
 import type { User } from '../db/types.js';
 import { createLogger } from '../utils/logger.js';
 import { asyncHandler } from '../middleware/async-handler.js';
@@ -214,6 +215,32 @@ authRouter.post('/anonymous', asyncHandler(async (req, res) => {
     res.json(toSelf(user));
   });
 }));
+
+/**
+ * Ce code vaut-il quelque chose ?
+ *
+ * Publique par nécessité : elle précède toute session. Donc limitée par IP, et
+ * chaque appel compté qu'il réussisse ou non -- sans plafond, c'est un oracle
+ * d'énumération de codes gratuit.
+ *
+ * Elle ne rend jamais l'invitation elle-même, seulement un verdict. Le
+ * pseudonyme de l'inviteur serait agréable à afficher (« Sprite#0417 vous
+ * invite ») et donnerait à qui balaye des codes un annuaire de joueurs : non.
+ */
+authRouter.get('/invite/:code', (req, res) => {
+  const key = req.ip ?? 'unknown';
+  const decision = admitSignup(getDb(), {
+    code: req.params.code,
+    signedIn: Boolean(req.user),
+    blocked: inviteLookupLimit.blocked(key)
+  });
+  inviteLookupLimit.record(key);
+
+  if (!decision.ok) {
+    return res.status(decision.status).json({ error: decision.error });
+  }
+  res.json({ ok: true });
+});
 
 // Get auth mode
 authRouter.get('/mode', (req, res) => {

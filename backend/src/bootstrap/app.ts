@@ -14,6 +14,7 @@ import { savesRouter } from '../api/saves.js';
 import { friendsRouter } from '../api/friends.js';
 import { roomsRouter } from '../api/rooms.js';
 import { userRouter } from '../api/user.js';
+import { invitesRouter } from '../api/invites.js';
 import { avatarsRouter } from '../api/avatars.js';
 import { metadataRouter } from '../api/metadata.js';
 import { coversRouter } from '../api/covers.js';
@@ -195,6 +196,9 @@ export function buildApp(redisClient: RedisClientType): { app: Express; sessionM
   app.use('/api/friends', requirePseudo, friendsRouter);
   app.use('/api/rooms', requirePseudo, roomsRouter);
   app.use('/api/user', requirePseudo, userRouter);
+  // `requirePseudo` et pas `requireAccount` : un anonyme n'invite personne, et
+  // un compte qui n'a pas encore choisi son pseudonyme n'a rien à distribuer.
+  app.use('/api/invites', requirePseudo, invitesRouter);
   app.use('/api/metadata', requirePseudo, metadataRouter);
   // Publique, comme /api/avatars et pour une raison plus forte encore : une
   // réponse authentifiée est une réponse qu'aucun cache n'a le droit de
