@@ -35,6 +35,8 @@
   import { openVrSession, type VrSession } from '$lib/vr/xr-session';
   import { createVrScene, type VrScene } from '$lib/vr/scene';
   import { createDecor, type Decor } from '$lib/vr/decor/build';
+  import { createAvatars, type Avatars } from '$lib/vr/lobby/avatars';
+  import { createRoster, type LobbySnapshot, type Pose } from '$lib/vr/lobby/roster';
   import { counterRuns } from '$lib/vr/layout';
   import { measureFloor } from '$lib/vr/decor/floor';
   import { readAspectPreference } from '$lib/stores/aspect-preference';
@@ -154,6 +156,62 @@
   /** Le lobby est-il à l'écran. Vrai à l'ouverture : aucune partie ne tourne. */
   let decorShowing = true;
 
+  /** Les amis présents dans le lobby VR, et leur pose interpolée. */
+  let roster = createRoster();
+  let avatars: Avatars | null = null;
+  /** Ma dernière pose émise, gardée pour la proximité. */
+  let myPose: Pose | null = null;
+  /** L'horloge du dernier envoi, pour tenir les quinze par seconde. */
+  let posedAt = 0;
+  /** Faux pendant une partie : on quitte alors le lobby partagé. */
+  let inSharedLobby = false;
+
+  /**
+   * Quinze poses par seconde, la cadence du battement serveur.
+   *
+   * C'est `BEAT_MS` de `backend/src/websocket/vr-lobby.ts`, recopié parce que
+   * le frontend n'importe rien du backend. Émettre plus vite ne ferait pas un
+   * instantané de plus : le serveur n'envoie que sur son battement, et son
+   * plafond de débit finirait par jeter le surplus.
+   */
+  const POSE_INTERVAL_MS = 66;
+
+  /**
+   * Entrer dans le lobby partagé, et en sortir. Les deux sont idempotents.
+   *
+   * ACCROCHÉS AU FONDU DU RIDEAU - `showDecor` ci-dessous, le seul point qui
+   * bascule entre lobby et partie - et surtout PAS à `panelsVisible(false)` :
+   * celui-là a six sites d'appel dont la plupart sont des ouvertures de menu,
+   * et les amis disparaîtraient dès qu'on lève la tablette des options.
+   *
+   * Le voyage par les tuyaux n'en est pas un non plus : `travelFrame` noircit
+   * le monde par `decor.setVisible` directement, sans passer par ici. C'est
+   * voulu - on est toujours au lobby pendant qu'on descend un tuyau, et ses
+   * amis n'ont aucune raison de nous voir disparaître de la carte.
+   */
+  function joinSharedLobby(): void {
+    if (inSharedLobby) return;
+    $socket?.emit('vr:enter');
+    inSharedLobby = true;
+  }
+
+  function leaveSharedLobby(): void {
+    if (!inSharedLobby) return;
+    /*
+     * On quitte le lobby partagé en lançant une partie. Le rideau nous cache
+     * le décor de toute façon, et un ami à moins de `CURTAIN_RADIUS` - cinq
+     * mètres cinquante - serait DEDANS : une tête flottant dans le noir à côté
+     * de l'écran, pendant qu'on joue.
+     */
+    $socket?.emit('vr:leave');
+    inSharedLobby = false;
+    // Le registre reparti de zéro, et les têtes retirées TOUT DE SUITE plutôt
+    // qu'à la prochaine image : pendant une partie, `walkFrame` rend la main
+    // immédiatement et rien ne garantit qu'une image de lobby suive.
+    roster = createRoster();
+    avatars?.update(new Map(), myPose);
+  }
+
   /** Les six sites qui basculent lobby/jeu passent par ici, et rien d'autre. */
   function showDecor(visible: boolean): void {
     decorShowing = visible;
@@ -167,6 +225,10 @@
      */
     logger.info('vr decor visibility', { visible, built: decor !== null });
     decor?.setVisible(visible);
+    // Le fondu du rideau vers `'decor'` ou vers `'dark'` EST l'entrée et la
+    // sortie du lobby partagé - voir les deux fonctions ci-dessus.
+    if (visible) joinSharedLobby();
+    else leaveSharedLobby();
   }
 
   /**
@@ -214,6 +276,26 @@
     scene.addFar(decor.curtain);
     scene.addFurniture(decor.furniture);
     decor.setVisible(decorShowing);
+
+    /*
+     * Les avatars naissent AVEC le décor, et pas avec la session.
+     *
+     * Ils empruntent son atlas et son matériau de props, qui n'existent qu'à
+     * partir d'ici - et les emprunter plutôt que les reconstruire évite une
+     * seconde texture identique sur le GPU, ce que `build.ts` explique là où
+     * il les expose. `Decor` en reste le seul propriétaire : `createAvatars`
+     * clone le matériau par ami et ne libère que ses clones.
+     *
+     * Dans `room`, comme le décor : c'est le repère de `poseInRoom()`, donc
+     * celui dans lequel les poses reçues sont déjà exprimées. Aucune
+     * conversion, donc aucune erreur de signe possible.
+     */
+    avatars = createAvatars({
+      atlas: decor.atlas,
+      material: decor.propMaterial,
+      label: friendPseudo
+    });
+    scene.addDecor(avatars.group);
   }
 
   /** Où le joueur se tient, en mètres depuis l'ancre. Voir `vr/walk.ts`. */
@@ -403,6 +485,46 @@
       vertical.y - beforeY
     );
     scene.setWalkSpeed(walkSpeed([travelled, 0], dt));
+  }
+
+  /**
+   * Une image de lobby partagé : ma pose sur le fil, les leurs à l'écran.
+   *
+   * APPELÉE APRÈS `walkFrame`, ET L'ORDRE EST LA MOITIÉ DU TRAVAIL.
+   * `poseInRoom()` lit la matrice de `room` que `setPlayerAt` vient d'écrire ;
+   * lue avant elle, on émettrait la pose de l'image précédente - un retard
+   * d'une image chez tous ses amis, invisible au débogage et bien réel dans un
+   * casque.
+   *
+   * DEUX CADENCES, ET ELLES SONT DIFFÉRENTES EXPRÈS. On n'émet que quinze fois
+   * par seconde parce que c'est tout ce que le serveur consomme, mais on
+   * redessine à CHAQUE image : c'est l'interpolation de `roster.ts` qui
+   * empêche une tête de sauter six fois par seconde, et elle ne vaut que
+   * rejouée au rythme du rendu. Les confondre annulerait tout ce module.
+   */
+  function lobbyFrame(): void {
+    if (!avatars) return;
+
+    // `performance.now()`, et non le `t` du runtime XR : c'est l'horloge dont
+    // `handleVrLobby` estampille l'arrivée d'un instantané, et `roster.ts`
+    // n'interpole qu'entre deux instants de LA MÊME horloge.
+    const now = performance.now();
+
+    if (inSharedLobby && now - posedAt >= POSE_INTERVAL_MS) {
+      const pose = scene?.poseInRoom() ?? null;
+      // `null` veut dire « redemande », pas « pas de pose » : hors image ou
+      // avant que le suivi ne soit prêt. On saute l'envoi sans avancer
+      // `posedAt`, donc l'image suivante réessaie tout de suite.
+      if (pose) {
+        myPose = pose.head;
+        posedAt = now;
+        $socket?.emit('vr:pose', { head: pose.head, left: pose.left, right: pose.right });
+      }
+    }
+
+    // Hors du `if` ci-dessus : une image sans envoi doit quand même avancer
+    // l'interpolation.
+    avatars.update(roster.at(now), myPose);
   }
 
   /** Guards `leave()` against re-entrant calls - see the header. */
@@ -3291,6 +3413,57 @@
     repaintFriends();
   }
 
+  /**
+   * L'instantané du lobby, daté de son ARRIVÉE et de rien d'autre.
+   *
+   * L'horloge est locale parce que deux horloges qui ne se sont jamais parlé
+   * ne peuvent pas dater le même instant ; `roster.ts` porte le raisonnement
+   * complet, et c'est pourquoi `vr:lobby` n'a aucun champ de temps.
+   */
+  function handleVrLobby(snapshot: LobbySnapshot): void {
+    roster.accept(snapshot, performance.now());
+  }
+
+  /**
+   * Ce que porte la plaque au-dessus d'une tête, ou `null` si cet identifiant
+   * n'est pas un de mes amis - auquel cas `namedOnly` (`roster.ts`) ne le
+   * dessine pas du tout.
+   *
+   * LE PSEUDO SEUL, SANS SON DISCRIMINANT, et c'est un choix contre lequel il
+   * y a un vrai argument : `backend/src/utils/pseudo.ts` dit que le pseudo
+   * seul n'est pas unique, et deux amis nommés `Mario` porteraient donc la
+   * même plaque. Trois raisons de l'accepter quand même.
+   *
+   * D'abord, c'est ce que fait déjà tout le reste de l'application :
+   * `FriendsList.svelte` et `panels/friends.ts` affichent le pseudo seul, et
+   * seul `FriendDetailsModal` - un ami à la fois, choisi exprès - montre le
+   * couple complet. Une plaque de tête est une surface de LISTE, pas de fiche.
+   *
+   * Ensuite le budget. La plaque fait 240 pixels utiles en `600 40px`, soit
+   * dix à douze caractères ; `#0417` en mange cinq, et `truncate` couperait
+   * alors le pseudo lui-même. Le marché serait mauvais dans les deux sens :
+   * on paierait une illisibilité fréquente pour une ambiguïté rare, et on ne
+   * l'achèterait même pas - deux `Parallaxe` deviendraient `Para…#0417` et
+   * `Para…#0392`, à distinguer sur quatre chiffres lus à trois mètres, en
+   * mouvement.
+   *
+   * Enfin l'ambiguïté est plus rare ici que dans une liste : il faut que deux
+   * de MES amis partagent un pseudo ET soient dans le lobby au même instant.
+   * Et quand ça arrive, ce sont deux corps à deux endroits - la plaque répond
+   * à « laquelle de ces têtes », pas à « qui est-ce exactement », question
+   * pour laquelle la fiche existe déjà sur la page à plat.
+   *
+   * AUCUNE TRACE ICI, contrairement au reste de ce fichier : appelée une fois
+   * par ami et par image, une ligne sur l'inconnu partirait à septante-deux
+   * hertz vers le journal du serveur (`utils/logger.ts` y expédie les lignes
+   * du navigateur). Le cas qu'elle documenterait - `vr:lobby` arrivé avant
+   * `friends:online` - dure une seconde et se répare tout seul.
+   */
+  function friendPseudo(id: string): string | null {
+    const found = friendEntries.find((entry) => entry.friend.id === id);
+    return found ? found.friend.pseudo : null;
+  }
+
   async function enter(): Promise<void> {
     if (session) return;
     try {
@@ -3354,9 +3527,24 @@
         ensureDecor();
         decor?.update(t);
         walkFrame(t);
+        // En dernier, et c'est une dépendance et non un rangement : voir
+        // `lobbyFrame` sur ce que coûte une pose lue avant `setPlayerAt`.
+        lobbyFrame();
       });
       vrActive.set(true);
 
+
+      /*
+       * Posé ICI et non avec les autres `on` plus bas, parce que le
+       * `showDecor(true)` de la ligne suivante émet déjà `vr:enter`.
+       *
+       * Entre les deux endroits il y a deux `await` - `resolvableHere()` et le
+       * `fetch` des amis - donc un écouteur posé plus bas laisserait tomber
+       * tous les instantanés qui arrivent pendant ce temps-là. Rien n'est
+       * attendu pour autant : sans socket il n'y a pas de lobby partagé, et le
+       * reste de la VR marche.
+       */
+      $socket?.on('vr:lobby', handleVrLobby);
 
       // Until a game is launched, this is what the screen carries - and what
       // makes a wrong distance or height obvious.
@@ -3577,6 +3765,21 @@
     // takes it.
     void audio?.stop();
     audio = null;
+    /*
+     * LES AVATARS AVANT LE DÉCOR, et l'ordre n'est pas cosmétique : leurs
+     * matériaux sont des clones de `propMaterial` et tirent leurs uv de
+     * l'atlas, que `decor.dispose()` libère. Dans l'autre sens, la dernière
+     * image dessinerait des têtes avec une texture déjà détruite.
+     *
+     * `leaveSharedLobby()` d'abord : prévenir le serveur pendant que le socket
+     * est encore là. Il est idempotent, donc une sortie depuis une partie -
+     * où `showDecor(false)` a déjà quitté - ne réémet rien.
+     */
+    leaveSharedLobby();
+    avatars?.dispose();
+    avatars = null;
+    myPose = null;
+    posedAt = 0;
     decor?.dispose();
     decor = null;
     scene?.dispose();
@@ -3590,6 +3793,10 @@
     $socket?.off('game:started', onGameStarted);
     $socket?.off('game:stopped', onGameStopped);
     $socket?.off('rom:request', onRomRequested);
+    // Avec sa référence, comme les deux du dessus : un `off('vr:lobby')` nu
+    // retirerait TOUS les écouteurs de cet évènement, y compris ceux d'un
+    // autre composant resté monté.
+    $socket?.off('vr:lobby', handleVrLobby);
     window.removeEventListener('gamepadconnected', repaintControls);
     window.removeEventListener('gamepaddisconnected', repaintControls);
     friendsPanel = null;
