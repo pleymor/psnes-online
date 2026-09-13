@@ -18,7 +18,19 @@ const AUTH_MODE = getAuthMode();
 
 // Google OAuth routes (only available in google mode)
 if (AUTH_MODE === 'google') {
-  authRouter.get('/google', passport.authenticate('google', {
+  /**
+   * Le code d'invitation entre dans la session AVANT la redirection.
+   *
+   * Il ne peut pas voyager dans l'URL de rappel : celle-ci est déclarée chez
+   * Google et fixe. `state` reviendrait du navigateur ; la session, non.
+   */
+  authRouter.get('/google', (req, res, next) => {
+    const code = req.query.invite;
+    if (typeof code === 'string' && code.length > 0) {
+      req.session.pendingInviteCode = code;
+    }
+    next();
+  }, passport.authenticate('google', {
     // Identity only, and now not even that much. 'email' is gone with the
     // email column: a player is a pseudonym they chose, so there is nothing
     // Google could tell us about their address that we would be allowed to
@@ -38,9 +50,20 @@ if (AUTH_MODE === 'google') {
   }));
 
   authRouter.get('/google/callback',
-    passport.authenticate('google', { failureRedirect: '/login' }),
-    (req, res) => {
-      res.redirect(process.env.FRONTEND_URL || 'http://localhost:5173');
+    (req, res, next) => {
+      passport.authenticate('google', (err: unknown, user: User | false, info?: { message?: string }) => {
+        if (err) return next(err);
+        if (!user) {
+          const reason = info?.message ?? 'SIGNUP_REFUSED';
+          const target = new URL(process.env.FRONTEND_URL || 'http://localhost:5173');
+          target.searchParams.set('signupError', reason);
+          return res.redirect(target.toString());
+        }
+        req.login(user, loginErr => {
+          if (loginErr) return next(loginErr);
+          res.redirect(process.env.FRONTEND_URL || 'http://localhost:5173');
+        });
+      })(req, res, next);
     }
   );
 }

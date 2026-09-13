@@ -73,3 +73,42 @@ export function signupDoorDecision(input: {
   }
   return { ok: true, invite: input.invite };
 }
+
+import type { Database } from '../db/sqlite.js';
+import { countAccounts, countChargedInvites, findInviteByCode, maxUsers } from '../db/signup-invites.js';
+
+/**
+ * Ce que la porte a besoin de savoir, lu en base.
+ *
+ * Séparée de `signupDoorDecision` : celle-ci décide et se teste sans rien
+ * monter, celle-là va chercher. Le partage est délibéré -- une lecture ratée
+ * ne doit pas pouvoir se faire passer pour une décision.
+ */
+export function admitSignup(
+  db: Database,
+  input: { code: string | undefined; signedIn: boolean; blocked: boolean }
+): SignupDecision {
+  const invite = input.code ? findInviteByCode(db, input.code) : null;
+  return signupDoorDecision({
+    signedIn: input.signedIn,
+    blocked: input.blocked,
+    accounts: countAccounts(db),
+    maxUsers: maxUsers(),
+    invite,
+    inviterCharged: invite ? countChargedInvites(db, invite.inviterId) : 0
+  });
+}
+
+/**
+ * Le code d'invitation que porte la session, entre le clic sur le lien et le
+ * retour de Google.
+ *
+ * Dans la session du serveur et pas dans le paramètre `state` d'OAuth : `state`
+ * revient du navigateur, donc d'un endroit que l'utilisateur contrôle. Ce
+ * champ-là ne peut être posé que par notre propre route.
+ */
+declare module 'express-session' {
+  interface SessionData {
+    pendingInviteCode?: string;
+  }
+}

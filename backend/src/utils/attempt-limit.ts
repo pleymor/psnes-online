@@ -107,3 +107,14 @@ export const friendLookupLimit = new AttemptLimit({ max: 20, windowMs: 3_600_000
  * revenir après une déconnexion, sans laisser tourner une boucle.
  */
 export const anonymousDoorLimit = new AttemptLimit({ max: 10, windowMs: 3_600_000 });
+
+/**
+ * Les codes d'invitation présentés, par adresse.
+ *
+ * Comptée par IP et non par compte : personne n'est connecté ici, c'est le
+ * propre de l'inscription. Chaque tentative compte, réussie ou non -- une
+ * réussite pose une ligne, donc ne compter que les refus reviendrait à ne pas
+ * compter. Un code fait 128 bits, donc cette limite ne le protège pas du
+ * devinage : elle empêche d'en essayer un million par minute pour rien.
+ */
+export const inviteLookupLimit = new AttemptLimit({ max: 30, windowMs: 60 * 60 * 1000 });
