@@ -10,6 +10,8 @@
    * s'effacerait sous les yeux de qui vient le lire. Ce qui arrive pendant la
    * lecture s'y ajoute, visiblement, et part avec le reste.
    */
+  import { onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import { notices } from '$lib/services/notification';
@@ -25,6 +27,32 @@
     if ($open) notices.closeCentre();
     else notices.openCentre();
   }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    // Même geste que la cloche : fermer, c'est consommer, comme
+    // `ConfirmModal` et `PauseMenu` répondent déjà à Échap.
+    if (e.key === 'Escape' && $open) notices.closeCentre();
+  }
+
+  /**
+   * Refermer en partant, et non laisser l'état ouvert derrière soi.
+   *
+   * La barre n'est pas dans un layout partagé : chaque page la monte, et le
+   * salon la retire même quand la partie démarre. Sans ceci, un centre ouvert
+   * au moment du démontage laissait `open` à vrai dans le store - donc le
+   * panneau se rouvrait seul sur la page suivante - et sa liste n'était
+   * jamais consommée, puisque seule la fermeture la consomme.
+   */
+  onDestroy(() => {
+    if (get(open)) notices.closeCentre();
+  });
+
+  /**
+   * Ce que le panneau affiche, filtré comme le toast le fait déjà : un
+   * `kind` sans forme connue rendrait une ligne vide qui compterait quand
+   * même dans la pastille - la pastille compte le store, pas cet affichage.
+   */
+  $: visible = $list.filter((notice: Notice) => shapeOf(notice.kind) !== null);
 
   /**
    * Les actions en vol, pour que deux clics n'envoient pas deux réponses.
@@ -56,6 +84,8 @@
   }
 </script>
 
+<svelte:window on:keydown={handleKeyDown} />
+
 <!-- La cloche reste quand il n'y a rien : un élément de barre qui apparaît et
      disparaît fait sauter la mise en page, et une cloche muette dit « rien de
      nouveau », ce qui est une information. -->
@@ -81,11 +111,11 @@
 
   {#if $open}
     <div class="panel" role="dialog" aria-label={t($language, 'notices')}>
-      {#if $list.length === 0}
+      {#if visible.length === 0}
         <p class="empty">{t($language, 'noticesEmpty')}</p>
       {:else}
         <ul>
-          {#each $list as notice (notice.id)}
+          {#each visible as notice (notice.id)}
             {@const shape = shapeOf(notice.kind)}
             {@const actions = actionsOf(notice.kind)}
             <li>
