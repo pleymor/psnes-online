@@ -342,14 +342,20 @@ test('l offre de jeu depend d une session vivante', () => {
 	assert.equal(shapeOf('share-offer')?.live, true);
 });
 
-test('garder la ROM se repond pendant une partie, et ne s efface pas', () => {
-	// La barre du haut - donc la cloche - n existe pas en plein ecran : une
-	// question posee pendant une partie doit tenir jusqu a la reponse.
-	const shape = shapeOf('keep-rom');
-
-	assert.equal(shape?.duringGame, true);
-	assert.equal(shape?.seconds, 0);
-	assert.equal(shape?.live, true);
+/*
+ * Plus de question du conservage, decide le 13/09/2026.
+ *
+ * Un ROM recu ne reste plus jamais sur l appareil de l invite - c est le
+ * comportement de l ancien « Non merci », devenu le seul - donc il n y a plus
+ * rien a lui demander, ni pendant une partie ni ailleurs.
+ *
+ * La MECANIQUE `duringGame` reste dans NoticeToast, elle : `keep-rom` en etait
+ * le seul client, mais la surface vient d etre construite et la prochaine
+ * notification qui doit tenir en plein ecran la voudra. Ce qui part est la
+ * question, pas le moyen de poser une question.
+ */
+test('la question du conservage n est plus une notification connue', () => {
+	assert.equal(shapeOf('keep-rom'), null);
 });
 
 import { toneOf } from '../../frontend/src/lib/notices/shapes.js';
@@ -381,9 +387,11 @@ test('chaque offre porte SA regle, et ce ne sont pas les memes', () => {
 	// autorise personne, seule la licence du jeu le fait. La garder ensuite est
 	// de la DETENTION, ou la cartouche est justement ce qui compte. Deux
 	// moments, deux regles, et les confondre avertit de travers.
+	//
+	// `keep-rom` portait l autre des deux, et a disparu le 13/09/2026 ; la
+	// distinction reste ecrite ici parce que c est elle qui explique pourquoi
+	// `shareLegalShort` ne dit pas « si tu possedes la cartouche ».
 	assert.equal(shapeOf('share-offer')?.legal, 'shareLegalShort');
-	assert.equal(shapeOf('keep-rom')?.legal, 'keepRomLegal');
-	assert.notEqual(shapeOf('share-offer')?.legal, shapeOf('keep-rom')?.legal);
 });
 
 import { isOnScreen } from '../../frontend/src/lib/notices/shapes.js';

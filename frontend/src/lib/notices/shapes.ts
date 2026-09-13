@@ -56,22 +56,6 @@ export const NOTICE_SHAPES: Record<string, NoticeShape> = {
      * supprimé de l'autre - et c'est ici que la correction se reporte.
      */
     legal: 'shareLegalShort'
-  },
-
-  /**
-   * « Le garder sur cet appareil ? », posée pendant que la partie tourne.
-   *
-   * `seconds: 0` et `duringGame` vont ensemble : la cloche n'existe pas en
-   * plein écran, donc une question qui s'efface là serait sans recours.
-   */
-  'keep-rom': {
-    text: (params, lang) =>
-      `${params.title ? `${params.title} — ` : ''}${t(lang, 'keepRom')}`,
-    tone: 'info',
-    live: true,
-    duringGame: true,
-    seconds: 0,
-    legal: 'keepRomLegal'
   }
 };
 

@@ -6,9 +6,6 @@
   import PauseMenu from './PauseMenu.svelte';
   import LocateRom from './LocateRom.svelte';
   import { remember, resolveQuietly } from '$lib/roms/provider';
-  import { createKeepOffer } from '$lib/roms/keep-offer';
-  import { notices } from '$lib/services/notification';
-  import { registerNoticeActions } from '$lib/notices/actions';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { readShaderPreference } from '$lib/stores/shader-preference';
   import type { KeyConfig } from '$lib/types';
@@ -53,37 +50,6 @@
   let romPrompt: ((bytes: Uint8Array) => void) | null = null;
   /** Chunks sent or received, for a transfer the player can watch. */
   let romTransfer: { direction: 'in' | 'out'; done: number; total: number } | null = null;
-  /**
-   * La question posée à l'invité après un transfert : garder ce jeu ?
-   *
-   * `keep-offer.ts` porte la règle et dit pourquoi elle est posée après le
-   * transfert, et non avant comme sur l'écran de lancement VR.
-   */
-  const keepOffer = createKeepOffer();
-
-  registerNoticeActions('keep-rom', [
-    { label: 'keepRomYes', primary: true, run: () => keepOffer.accept() },
-    { label: 'keepRomNo', run: () => keepOffer.decline() }
-  ]);
-
-  let keepNotice: string | null = null;
-
-  const stopKeepWatch = keepOffer.asked.subscribe((checksum) => {
-    if (keepNotice) {
-      notices.dismiss(keepNotice);
-      keepNotice = null;
-    }
-    if (checksum) keepNotice = notices.post('keep-rom', { title: gameTitle ?? '' });
-  });
-
-  onDestroy(() => {
-    stopKeepWatch();
-    // Sans quoi une question restée sans réponse survivrait au salon qui l'a
-    // posée : `registerNoticeActions` est réécrit par le salon suivant, donc
-    // cliquer dessus appellerait son accept/decline à lui.
-    if (keepNotice) notices.dismiss(keepNotice);
-  });
-
   /** Kept so a guest arriving later can be served without touching the disk. */
   let loadedRom: Uint8Array | null = null;
   let romHash: string | null = null;
@@ -163,10 +129,11 @@
           onProgress: (done, total) => (romTransfer = { direction: 'in', done, total })
         });
         romTransfer = null;
-        // `remember` fait tourner la partie ; les octets meurent avec l'onglet
-        // tant que l'invité n'a pas répondu à la question que voici.
+        // `remember` fait tourner la partie, et les octets meurent avec l'onglet :
+        // c'est tout ce qui arrive à un jeu reçu depuis le 13/09/2026. Rien
+        // n'est écrit sur l'appareil de l'invité, donc rien à lui demander - le
+        // prix est que l'hôte renvoie le jeu à chaque partie.
         remember(rom);
-        keepOffer.received(gameCrc32, rom, gameTitle);
         logger.info(`📦 Received the ROM from the other player (${rom.byteLength} bytes)`);
         return rom;
       } catch (err) {
