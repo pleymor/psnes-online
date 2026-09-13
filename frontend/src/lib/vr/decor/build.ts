@@ -94,6 +94,21 @@ export interface Decor {
    * par construction plutôt que par réglage.
    */
   setGroundShift(shift: readonly [number, number]): void;
+  /**
+   * L'atlas et le matériau des props, pour qui doit dessiner dans la même
+   * texture.
+   *
+   * Exposés plutôt que reconstruits par l'appelant : `packAtlas(ALL_ART)` est
+   * déterministe, donc un second appel donnerait le même rangement — mais une
+   * SECONDE texture, un second téléversement et un bind de plus par image,
+   * pour des UV identiques. Les avatars sont dans `ALL_ART`, donc leur place
+   * est déjà dans celui-ci.
+   *
+   * `dispose()` ci-dessous en reste le SEUL propriétaire : qui emprunte le
+   * matériau le clone et libère son clone, jamais l'original.
+   */
+  atlas: Atlas;
+  propMaterial: THREE.Material;
   update(t: number): void;
   setVisible(visible: boolean): void;
   dispose(): void;
@@ -585,6 +600,8 @@ export function createDecor(opts: DecorOptions): Decor {
     far,
     curtain: curtainMesh,
     furniture,
+    atlas,
+    propMaterial: quadMaterial,
 
     setGroundShift(shift: readonly [number, number]): void {
       /*
