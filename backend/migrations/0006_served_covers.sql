@@ -1,0 +1,17 @@
+-- ------------------------------------------------------- servedCoverUrl
+--
+-- Où la jaquette est *servie*, par opposition à `coverUrl`, qui dit d'où ses
+-- octets viennent.
+--
+-- Deux colonnes, et ce n'est pas de la redondance. `syncCatalogue` réécrit
+-- `coverUrl` à partir de backend/metadata/snes-metadata.json à chaque
+-- rafraîchissement du catalogue -- c'est sa raison d'être. Si l'ingestion
+-- écrivait son résultat au même endroit, un seul rafraîchissement annulerait
+-- en silence les 1415 conversions, et la passe suivante irait les rechercher
+-- toutes sur le réseau. Le fichier garde sa colonne ; l'ingestion a la sienne.
+--
+-- NULL par défaut, ce qui est exactement l'état « pas encore ingérée » que la
+-- passe de chauffe cherche. `toMetadata` rend `servedCoverUrl ?? coverUrl`,
+-- donc rien en dehors de db/ n'a à connaître l'existence de cette colonne : une
+-- ligne non ingérée continue de servir son URL distante, comme avant.
+ALTER TABLE "GameMetadata" ADD COLUMN "servedCoverUrl" TEXT;
