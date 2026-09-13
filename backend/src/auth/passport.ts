@@ -4,9 +4,10 @@ import { getDb } from '../db/sqlite.js';
 import { findUserByGoogleId, findUserById, createUser, updateUserAvatar } from '../db/users.js';
 import { downloadAvatar } from '../utils/avatar.js';
 import { logger } from '../utils/logger.js';
-import { admitSignup } from './signup-door.js';
+import { signupOrSignIn } from './signup-door.js';
 import { consumeInvite } from '../db/signup-invites.js';
 import { inviteLookupLimit } from '../utils/attempt-limit.js';
+import type { User } from '../db/types.js';
 
 const AUTH_MODE = process.env.AUTH_MODE || 'google';
 
@@ -27,7 +28,18 @@ export function initializeAuth() {
         async (req, _accessToken, _refreshToken, profile, done) => {
           try {
             const db = getDb();
-            let user = findUserByGoogleId(db, profile.id);
+            const existingUser = findUserByGoogleId(db, profile.id);
+
+            // Lu et effacé ensemble, avant même de savoir dans quelle branche
+            // on tombe : que ce googleId soit déjà un compte, refusé, ou en
+            // train de s'inscrire, ce code ne doit pas survivre à la
+            // tentative. Le laisser vivant sur la session d'un compte déjà
+            // installé serait une place d'invitation qui traîne pour les
+            // sept jours de la fenêtre glissante (bootstrap/app.ts), prête à
+            // être dépensée par la prochaine inscription faite dans ce
+            // navigateur.
+            const code = req.session.pendingInviteCode;
+            delete req.session.pendingInviteCode;
 
             // Only two things are read off the Google profile: the account id,
             // which is the join key, and the photo. profile.displayName - the
@@ -39,28 +51,43 @@ export function initializeAuth() {
             // there is nothing left to call, and storing a refresh token you
             // never use is a standing liability for no benefit.
             //
-            // Se reconnecter n'est pas s'inscrire : un googleId connu ne
-            // consulte jamais la porte. Sans cette distinction, baisser
-            // MAX_USERS mettrait dehors des joueurs déjà installés.
-            if (!user) {
-              const code = req.session?.pendingInviteCode;
-              const decision = admitSignup(db, {
-                code,
-                signedIn: false,
-                blocked: inviteLookupLimit.blocked(req.ip ?? 'unknown')
-              });
+            // La décision (se reconnecter, s'inscrire, ou refuser) vit dans
+            // `signupOrSignIn`, testable sans monter de serveur. Les écritures
+            // restent ici : c'est le rappel Google qui crée le compte et
+            // consomme l'invitation, jamais la fonction de décision.
+            const result = signupOrSignIn(db, {
+              existingUser,
+              code,
+              blocked: inviteLookupLimit.blocked(req.ip ?? 'unknown')
+            });
+
+            let user: User;
+            if (result.kind === 'signin') {
+              user = result.user;
+            } else {
+              // Compté ici et pas dans `signupOrSignIn` : une reconnexion
+              // (branche ci-dessus) n'est pas une tentative d'inscription, et
+              // ne doit pas consommer la limite d'un joueur déjà installé.
               inviteLookupLimit.record(req.ip ?? 'unknown');
 
-              if (!decision.ok) {
-                logger.info({ error: decision.error }, 'Signup door refused a Google sign-in');
+              if (result.kind === 'refused') {
+                logger.info({ error: result.error }, 'Signup door refused a Google sign-in');
                 // `done(null, false, info)` et non une erreur : ce n'est pas
-                // une panne, c'est un refus. `failureRedirect` s'en charge.
-                return done(null, false, { message: decision.error });
+                // une panne, c'est un refus. Le rappel personnalisé de
+                // `/google/callback` (api/auth.ts) le transforme en
+                // `?signupError=<code>` sur la page d'accueil.
+                return done(null, false, { message: result.error });
               }
 
+              // Pas d'`await` entre ceci et `consumeInvite` juste en dessous :
+              // c'est ce qui rend inatteignable le no-op documenté sur
+              // `consumeInvite` (db/signup-invites.ts -- son `WHERE` ne
+              // matche que si le lien est encore ouvert). Un `await` inséré
+              // entre les deux rouvrirait la fenêtre où un lien décidé
+              // "encore ouvert" pourrait avoir été consommé ou révoqué
+              // entre-temps.
               user = createUser(db, { googleId: profile.id, avatar: null });
-              consumeInvite(db, decision.invite.id, user.id);
-              delete req.session.pendingInviteCode;
+              consumeInvite(db, result.invite.id, user.id);
             }
 
             // The avatar is fetched after the account exists, not before, so

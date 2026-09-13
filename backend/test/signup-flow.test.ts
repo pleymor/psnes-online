@@ -4,13 +4,19 @@
  * `signup-door.test.ts` épingle l'ordre des refus sur une fonction pure ; ce
  * fichier-ci vérifie que ce qu'on lui donne à décider vient bien de la base --
  * le quota du bon inviteur, le compte des vrais comptes.
+ *
+ * La deuxième moitié épingle `signupOrSignIn`, la décision entière du rappel
+ * Google (se reconnecter / s'inscrire / refuser) : ce dépôt n'a pas de
+ * harnais de route, donc c'est la seule façon de tester ces trois branches
+ * sans monter un serveur.
  */
 
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { migratedDb, insertUser } from './helpers.js';
-import { admitSignup } from '../src/auth/signup-door.js';
+import { admitSignup, signupOrSignIn } from '../src/auth/signup-door.js';
 import { mintInvite, consumeInvite } from '../src/db/signup-invites.js';
+import { findUserByGoogleId } from '../src/db/users.js';
 
 test('un code valide est admis, et rend la ligne à consommer', () => {
   const db = migratedDb();
@@ -68,4 +74,37 @@ test('le plafond compte les comptes, pas les invités anonymes', () => {
   } finally {
     delete process.env.MAX_USERS;
   }
+});
+
+test('un googleId déjà connu se reconnecte sans consulter la porte', () => {
+  const db = migratedDb();
+  const alice = insertUser(db);
+  const existingUser = findUserByGoogleId(db, alice.googleId)!;
+
+  // `blocked: true` et aucun code : la porte refuserait sur les deux motifs
+  // si elle était consultée. `kind === 'signin'` prouve qu'elle ne l'est pas.
+  const result = signupOrSignIn(db, { existingUser, code: undefined, blocked: true });
+
+  assert.equal(result.kind, 'signin');
+  assert.equal(result.kind === 'signin' && result.user.id, existingUser.id);
+});
+
+test('un googleId inconnu avec un code valide s\'inscrit', () => {
+  const db = migratedDb();
+  const alice = insertUser(db);
+  const invite = mintInvite(db, alice.id);
+
+  const result = signupOrSignIn(db, { existingUser: null, code: invite.code, blocked: false });
+
+  assert.equal(result.kind, 'signup');
+  assert.equal(result.kind === 'signup' && result.invite.id, invite.id);
+});
+
+test('un googleId inconnu sans code valide est refusé', () => {
+  const db = migratedDb();
+
+  const result = signupOrSignIn(db, { existingUser: null, code: undefined, blocked: false });
+
+  assert.equal(result.kind, 'refused');
+  assert.equal(result.kind === 'refused' && result.error, 'INVITE_UNKNOWN');
 });

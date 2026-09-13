@@ -1,9 +1,15 @@
 /**
  * Qui a le droit de faire naître un compte, et dans quel ordre on refuse.
  *
- * Une fonction pure, sans base ni requête, comme `anonymousDoorDecision` juste
- * à côté : l'ordre des refus est la décision de sécurité, et il doit pouvoir
- * être lu et épinglé sans monter un serveur.
+ * `signupDoorDecision` est une fonction pure, sans base ni requête, comme
+ * `anonymousDoorDecision` juste à côté : l'ordre des refus est la décision de
+ * sécurité, et il doit pouvoir être lu et épinglé sans monter un serveur.
+ *
+ * `admitSignup` et `signupOrSignIn`, plus bas dans ce même fichier, sont la
+ * couche qui va chercher en base ce que `signupDoorDecision` reçoit tout cuit.
+ * Le partage de fichier est délibéré : le lecteur voit d'un coup d'œil ce qui
+ * est lu et ce qui est décidé -- mais elles ne sont pas pures, et seule
+ * `signupDoorDecision` est exhaustivement testée comme telle.
  *
  * `SignupInvite` et non `Invitation` : `Invitation` est déjà pris dans ce
  * dépôt et veut dire « rejoins mon salon » (`db/invitations.ts`). Deux
@@ -111,4 +117,42 @@ declare module 'express-session' {
   interface SessionData {
     pendingInviteCode?: string;
   }
+}
+
+import type { User } from '../db/types.js';
+
+export type SignupOrSignInResult =
+  | { kind: 'signin'; user: User }
+  | { kind: 'signup'; invite: SignupInvite }
+  | { kind: 'refused'; error: SignupRefusal };
+
+/**
+ * Se reconnecter ou s'inscrire : la décision entière du rappel Google, sans
+ * l'écrire.
+ *
+ * Un `existingUser` posé court-circuite la porte -- `kind: 'signin'` sans
+ * jamais appeler `admitSignup`, quels que soient `code` et `blocked`. Se
+ * reconnecter n'est pas s'inscrire : baisser `MAX_USERS` ne doit jamais
+ * mettre dehors un joueur déjà installé, et un lien d'invitation traînant
+ * dans la session d'un compte existant ne doit rien lui coûter.
+ *
+ * Ne fait aucune écriture. `createUser` et `consumeInvite` restent dans le
+ * rappel Google (`auth/passport.ts`), immédiats et sans `await` entre eux --
+ * voir la note à cet endroit. Cette fonction s'arrête à la décision, ce qui la
+ * rend testable sans monter de serveur, de session, ni de route -- ce dépôt
+ * n'a pas de harnais de route (`backend/test/user-config.test.ts` le
+ * documente), donc c'est le seul endroit où les trois branches (`signin` /
+ * `signup` / `refused`) du rappel Google peuvent être épinglées.
+ */
+export function signupOrSignIn(
+  db: Database,
+  input: { existingUser: User | null; code: string | undefined; blocked: boolean }
+): SignupOrSignInResult {
+  if (input.existingUser) {
+    return { kind: 'signin', user: input.existingUser };
+  }
+  const decision = admitSignup(db, { code: input.code, signedIn: false, blocked: input.blocked });
+  return decision.ok
+    ? { kind: 'signup', invite: decision.invite }
+    : { kind: 'refused', error: decision.error };
 }
