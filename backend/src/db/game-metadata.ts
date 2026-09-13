@@ -349,6 +349,35 @@ export interface CoverWorkRow {
   hasCover: boolean;
 }
 
+/**
+ * Traduit des URL de jaquette SOURCE vers celles qu'on sert, pour celles qu'on
+ * a ingérées.
+ *
+ * `Game.coverUrl` est une copie prise au moment où le jeu a été ajouté, et elle
+ * porte donc l'URL distante d'alors. Plutôt que de réécrire les lignes des
+ * joueurs, on traduit à la lecture : c'est rétroactif, ça survit à un
+ * `covers-cli --rebuild` qui changerait les empreintes, et ce qui est stocké
+ * cesse simplement d'avoir de l'importance.
+ *
+ * Sans cache de module, et c'est délibéré : un cache ici devrait être invalidé
+ * par la passe de chauffe, par `syncCatalogue` et par chaque upload, et un seul
+ * oubli rendrait des URL périmées. Une bibliothèque fait quelques dizaines de
+ * lignes, donc la requête est bornée par un `IN` et coûte moins que le bug
+ * qu'elle évite.
+ */
+export function servedCoversFor(db: Database, urls: readonly string[]): Map<string, string> {
+  const wanted = [...new Set(urls)];
+  if (wanted.length === 0) return new Map();
+
+  const rows = db.prepare(`
+    SELECT coverUrl, servedCoverUrl FROM "GameMetadata"
+     WHERE servedCoverUrl IS NOT NULL
+       AND coverUrl IN (${wanted.map(() => '?').join(',')})
+  `).all(...wanted) as { coverUrl: string; servedCoverUrl: string }[];
+
+  return new Map(rows.map(r => [r.coverUrl, r.servedCoverUrl]));
+}
+
 /** The only path the cover bytes take out of the database. */
 export function findCover(db: Database, metadataId: string): { bytes: Buffer; mime: string } | null {
   const row = db.prepare(`SELECT cover, coverMime FROM "GameMetadata" WHERE id = ?`)
