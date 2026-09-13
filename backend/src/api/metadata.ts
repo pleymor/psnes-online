@@ -3,7 +3,8 @@ import { User } from '../types/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 import { getDb } from '../db/sqlite.js';
-import { findGameMetadataById, setCover, updateCommunityMetadata } from '../db/game-metadata.js';
+import { findGameMetadataById, updateCommunityMetadata } from '../db/game-metadata.js';
+import { acceptUploadedCover } from '../covers/upload.js';
 import { ownsDumpLinkedTo } from '../db/games.js';
 import { sanitiseEntry } from './entry-input.js';
 import { cachedCatalogue, invalidateMetadataCache } from '../services/metadata-loader.js';
@@ -107,7 +108,9 @@ metadataRouter.put(
       return res.status(415).json({ error: 'That file is not a PNG, JPEG or WebP image' });
     }
 
-    const coverUrl = setCover(db, entry.id, bytes, kind);
+    // Writes the BLOB and the two renditions on the covers volume, and
+    // answers with the public URL an edge is allowed to keep.
+    const coverUrl = await acceptUploadedCover(db, entry.id, bytes, kind);
     invalidateMetadataCache();
     res.json({ coverUrl });
   })
