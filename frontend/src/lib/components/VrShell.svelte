@@ -210,11 +210,54 @@
     // immédiatement et rien ne garantit qu'une image de lobby suive.
     roster = createRoster();
     avatars?.update(new Map(), myPose);
+    // Ma pose meurt avec la sortie. Gardée, elle servirait de référence de
+    // proximité au retour au lobby, pendant tout le battement qui précède ma
+    // première pose - et elle daterait d'avant la partie. `presenceFor(null, …)`
+    // rend `SOLID`, qui est exactement le bon repli : sans savoir où je suis,
+    // il n'y a aucune gêne à constater.
+    myPose = null;
+  }
+
+  /**
+   * Redire `vr:enter` après une reconnexion du socket.
+   *
+   * LE SOCKET REVIENT TOUT SEUL, PAS L'APPARTENANCE AU LOBBY. Le
+   * `disconnect` de `backend/src/websocket/vr-lobby.ts` retire le joueur de la
+   * carte des présents, et `joinSharedLobby` n'émet qu'aux bascules de
+   * `showDecor` - donc sans ce rejeu, plus rien ne repart de la session : on
+   * est invisible pour ses amis, on ne reçoit plus d'instantané, et comme
+   * `roster.ts` tient délibérément la dernière pose sans jamais l'expirer, les
+   * amis restent plantés comme des statues. Le symptôme accuserait `roster.ts`
+   * ou la proximité, c'est-à-dire le mauvais endroit.
+   *
+   * C'est exactement la classe de défaut que `rejoinRoom` ci-dessous documente
+   * pour `room:join` : « the socket comes back on its own, but `room:join` does
+   * not replay itself ». Émettre deux fois ne coûte rien - le serveur traite
+   * `vr:enter` comme un ÉTAT, et son commentaire le dit.
+   */
+  function rejoinSharedLobby(): void {
+    if (!inSharedLobby) return;
+    $socket?.emit('vr:enter');
+    // Ce qu'on tenait date d'avant la coupure, et son horodatage d'arrivée
+    // avec : le garder ferait interpoler entre les deux rives du trou.
+    roster = createRoster();
   }
 
   /** Les six sites qui basculent lobby/jeu passent par ici, et rien d'autre. */
   function showDecor(visible: boolean): void {
     decorShowing = visible;
+    /*
+     * Le fondu du rideau vers `'decor'` ou vers `'dark'` EST l'entrée et la
+     * sortie du lobby partagé - voir les deux fonctions ci-dessus.
+     *
+     * AVANT la trace et avant le fondu, alors que l'ordre naturel serait
+     * l'inverse : ces deux-là n'émettent qu'un message et remettent un
+     * registre à neuf, donc rien n'y dépend du rideau - et les placer ici est
+     * ce qui permet à la ligne suivante de rapporter l'état QUI EN RÉSULTE
+     * plutôt que celui d'avant.
+     */
+    if (visible) joinSharedLobby();
+    else leaveSharedLobby();
     /*
      * Tracé, parce qu'un défaut rapporté du casque le 2026-09-12 n'a pas
      * d'explication : « le décor ne réapparaît pas quand on quitte un jeu ».
@@ -222,13 +265,16 @@
      * de fondu de `build.ts` ne montre rien d'anormal à la relecture - donc
      * c'est une mesure qu'il faut, pas une hypothèse de plus. La ligne dira
      * si l'appel a lieu, avec quoi, et si le décor existait à ce moment-là.
+     *
+     * `inSharedLobby` s'y ajoute parce que la ligne dit désormais DEUX choses.
+     * Le défaut du 12 septembre veut aussi dire « mes amis ne reviennent
+     * jamais », et le distinguer coûte ici un champ : un `visible:true` avec
+     * `inSharedLobby:false` accuserait le socket, l'inverse accuserait le
+     * fondu. Toujours avant `setVisible`, pour témoigner de l'appel même si la
+     * machine de fondu lève.
      */
-    logger.info('vr decor visibility', { visible, built: decor !== null });
+    logger.info('vr decor visibility', { visible, built: decor !== null, inSharedLobby });
     decor?.setVisible(visible);
-    // Le fondu du rideau vers `'decor'` ou vers `'dark'` EST l'entrée et la
-    // sortie du lobby partagé - voir les deux fonctions ci-dessus.
-    if (visible) joinSharedLobby();
-    else leaveSharedLobby();
   }
 
   /**
@@ -503,14 +549,23 @@
    * rejouée au rythme du rendu. Les confondre annulerait tout ce module.
    */
   function lobbyFrame(): void {
-    if (!avatars) return;
+    /*
+     * `inSharedLobby` garde toute la fonction, et pas seulement l'envoi.
+     *
+     * Pendant une partie, `leaveSharedLobby` a déjà vidé l'écran ET le
+     * registre : il ne reste rien à interpoler, et ce qui tournerait ici
+     * tournerait à 72 ou 90 hertz DANS la boucle de l'émulateur, pour un
+     * `performance.now()` et deux cartes vides par image. Rien de grave, mais
+     * c'est la seule boucle de ce projet qu'on défende vraiment.
+     */
+    if (!avatars || !inSharedLobby) return;
 
     // `performance.now()`, et non le `t` du runtime XR : c'est l'horloge dont
     // `handleVrLobby` estampille l'arrivée d'un instantané, et `roster.ts`
     // n'interpole qu'entre deux instants de LA MÊME horloge.
     const now = performance.now();
 
-    if (inSharedLobby && now - posedAt >= POSE_INTERVAL_MS) {
+    if (now - posedAt >= POSE_INTERVAL_MS) {
       const pose = scene?.poseInRoom() ?? null;
       // `null` veut dire « redemande », pas « pas de pose » : hors image ou
       // avant que le suivi ne soit prêt. On saute l'envoi sans avancer
@@ -3545,6 +3600,10 @@
        * reste de la VR marche.
        */
       $socket?.on('vr:lobby', handleVrLobby);
+      // Et le rejeu après une coupure, avec l'écouteur qu'il sert : le socket
+      // revient tout seul, l'appartenance au lobby non. Voir
+      // `rejoinSharedLobby`, et `rejoinRoom` plus bas pour la même classe.
+      $socket?.on('connect', rejoinSharedLobby);
 
       // Until a game is launched, this is what the screen carries - and what
       // makes a wrong distance or height obvious.
@@ -3780,6 +3839,18 @@
     avatars = null;
     myPose = null;
     posedAt = 0;
+    /*
+     * Remis à neuf ICI et pas seulement dans `leaveSharedLobby`, qui ne fait
+     * rien quand on quitte la VR DEPUIS une partie - `inSharedLobby` y est déjà
+     * faux, donc le dernier instantané resterait en main.
+     *
+     * C'est la règle que le commentaire de `launchFor` énonce trente lignes
+     * plus bas : ce sont des `let` de composant, et ils survivent à la session
+     * qui les a posés. À la ré-entrée, `avatars.update(roster.at(now), …)`
+     * dessinerait des fantômes - corrigés au premier battement d'ordinaire,
+     * jamais si le socket est absent ou tombé à ce moment-là.
+     */
+    roster = createRoster();
     decor?.dispose();
     decor = null;
     scene?.dispose();
@@ -3793,10 +3864,12 @@
     $socket?.off('game:started', onGameStarted);
     $socket?.off('game:stopped', onGameStopped);
     $socket?.off('rom:request', onRomRequested);
-    // Avec sa référence, comme les deux du dessus : un `off('vr:lobby')` nu
+    // Avec leurs références, comme les deux du dessus : un `off('vr:lobby')` nu
     // retirerait TOUS les écouteurs de cet évènement, y compris ceux d'un
-    // autre composant resté monté.
+    // autre composant resté monté - et un `off('connect')` nu emporterait le
+    // `rejoinRoom` que le bloc du bas retire nommément, pour cette raison-là.
     $socket?.off('vr:lobby', handleVrLobby);
+    $socket?.off('connect', rejoinSharedLobby);
     window.removeEventListener('gamepadconnected', repaintControls);
     window.removeEventListener('gamepaddisconnected', repaintControls);
     friendsPanel = null;
