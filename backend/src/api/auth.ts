@@ -27,7 +27,19 @@ if (AUTH_MODE === 'google') {
    */
   authRouter.get('/google', (req, res, next) => {
     const code = req.query.invite;
-    if (typeof code === 'string' && code.length > 0) {
+    // Cette route ne demande aucune session : n'importe qui peut l'appeler, et
+    // `saveUninitialized: false` (bootstrap/app.ts) veut dire que c'est CETTE
+    // affectation qui décide si une ligne Redis naît pour la requête. Un test
+    // sur la forme, pas seulement sur la non-vacuité : une chaîne vide était
+    // déjà rejetée, mais rien n'empêchait un million de caractères d'atterrir
+    // dans une session posée pour sept jours (app.ts) sur un Redis lancé sans
+    // maxmemory (docker-compose.yml). Un vrai code fait toujours 22 caractères
+    // dans [A-Za-z0-9_-] -- 128 bits en base64url, voir `newCode` dans
+    // db/signup-invites.ts -- donc tout ce qui ne suit pas cette forme n'est
+    // pas un code tronqué ou mal formé, c'est un abus, et il est jeté en
+    // silence : le visiteur retombe sur le refus normal, exactement comme s'il
+    // n'avait porté aucun lien.
+    if (typeof code === 'string' && /^[A-Za-z0-9_-]{22}$/.test(code)) {
       req.session.pendingInviteCode = code;
     }
     next();

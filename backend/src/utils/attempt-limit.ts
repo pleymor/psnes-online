@@ -116,5 +116,13 @@ export const anonymousDoorLimit = new AttemptLimit({ max: 10, windowMs: 3_600_00
  * réussite pose une ligne, donc ne compter que les refus reviendrait à ne pas
  * compter. Un code fait 128 bits, donc cette limite ne le protège pas du
  * devinage : elle empêche d'en essayer un million par minute pour rien.
+ *
+ * Elle ne protège PAS `findInviteByCode` elle-même : dans `admitSignup`
+ * (auth/signup-door.ts), le code est cherché en base avant que
+ * `signupDoorDecision` ne regarde `blocked`, donc la lecture a déjà eu lieu
+ * quand ce plafond s'applique. Ce qu'il fait réellement : une fois atteint, il
+ * remplace le verdict précis (code inconnu, révoqué, déjà utilisé...) par un
+ * seul `TOO_MANY_ATTEMPTS` pour le reste de la fenêtre, et borne dans le temps
+ * combien de codes une adresse peut essayer.
  */
 export const inviteLookupLimit = new AttemptLimit({ max: 30, windowMs: 60 * 60 * 1000 });
