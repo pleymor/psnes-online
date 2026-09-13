@@ -21,7 +21,6 @@
 
   const list = notices.list;
   const open = notices.open;
-  const count = notices.count;
 
   function toggle() {
     if ($open) notices.closeCentre();
@@ -49,8 +48,14 @@
 
   /**
    * Ce que le panneau affiche, filtré comme le toast le fait déjà : un
-   * `kind` sans forme connue rendrait une ligne vide qui compterait quand
-   * même dans la pastille - la pastille compte le store, pas cet affichage.
+   * `kind` sans forme connue rendrait une ligne vide.
+   *
+   * La pastille compte `visible.length`, et non `notices.count` (qui vit
+   * dans `store.ts` et mesure la liste entière, formes inconnues comprises) :
+   * pastille et liste doivent venir de la même source, sinon la pastille
+   * peut annoncer un nombre que le panneau ne montre pas dès qu'un `kind`
+   * sans forme s'y glisse. `store.ts` reste ignorant des formes - c'est au
+   * composant qui affiche de décider ce qu'il annonce.
    */
   $: visible = $list.filter((notice: Notice) => shapeOf(notice.kind) !== null);
 
@@ -104,8 +109,8 @@
         fill="currentColor"
       />
     </svg>
-    {#if $count > 0}
-      <span class="badge">{$count}</span>
+    {#if visible.length > 0}
+      <span class="badge">{visible.length}</span>
     {/if}
   </button>
 
