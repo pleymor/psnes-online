@@ -121,6 +121,14 @@
       // plus. Seul un échec réseau (la promesse elle-même rejetée) mérite
       // d'être rattrapé ici.
       await fetch(`/api/invites/${id}`, { method: 'DELETE', credentials: 'include' });
+      // `refresh()` ne touche jamais `error` - à dessein, pour que `mint()`
+      // puisse poser son message puis resynchroniser sans se l'effacer. Ici
+      // c'est l'inverse qu'il faut : un retrait qui aboutit est un nouveau
+      // geste réussi, et un message laissé par une tentative de création
+      // précédente ("vous avez donné vos deux places") ne décrirait plus
+      // l'état qui va s'afficher juste après - potentiellement une place
+      // libérée à l'instant par ce même retrait.
+      error = '';
       await refresh();
     } catch (err) {
       logger.error('Could not withdraw the invitation', err);
