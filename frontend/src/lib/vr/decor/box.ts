@@ -10,6 +10,23 @@
  * Five faces. The underside of an object standing on the ground is never
  * seen, and the face that is never drawn can never be wrong.
  *
+ * SAUF POUR CE QUI FLOTTE, d'où le `bottom` optionnel de `BoxSpec`.
+ *
+ * L'hypothèse ci-dessus est celle d'un objet POSÉ. Une tête et une main d'ami
+ * flottent, et on les regarde par en dessous pour de vrai - une main levée
+ * au-dessus des yeux, un joueur assis face à un ami debout. Là, le trou se
+ * voit : la face manquante ne cache rien et les cinq autres sont dos-tournées,
+ * donc écartées. On voit à travers.
+ *
+ * `DoubleSide` masquait ce trou en rasterisant l'intérieur des faces hautes,
+ * mais au prix de faces intérieures rejetées pour rien partout ailleurs - et,
+ * sur un motif à marges transparentes, de faces intérieures qui se mélangent à
+ * travers la découpe. Une sixième face rend la prémisse VRAIE au lieu de
+ * contourner sa fausseté.
+ *
+ * Optionnelle, donc purement additive : tout le décor, qui est posé au sol,
+ * continue de n'émettre que cinq faces sans changer une ligne.
+ *
  * The winding is counter-clockwise as seen from outside, which is three's
  * convention for a front face. Getting it backwards makes the object
  * invisible rather than wrong-looking - the worse of the two, since it reads
@@ -56,6 +73,15 @@ export interface BoxSpec {
   /** Both flanks, and the back. */
   side: Uv;
   top: Uv;
+  /**
+   * Le dessous, et seulement pour ce qui FLOTTE.
+   *
+   * Omis, la boîte garde ses cinq faces - le cas de tout le décor, qui est
+   * posé au sol. Fourni, elle en émet six et devient close, ce qui est la
+   * condition pour la rendre en `FrontSide` sans voir à travers par en
+   * dessous.
+   */
+  bottom?: Uv;
 }
 
 export interface BoxMesh {
@@ -87,6 +113,27 @@ export function boxGeometry(spec: BoxSpec): BoxMesh {
     // Top (+Y)
     { corners: [[-x, y, z], [x, y, z], [-x, y, -z], [x, y, -z]], uv: spec.top }
   ];
+
+  /*
+   * Le dessous (-Y), et il est ÉMIS EN DERNIER exprès.
+   *
+   * La façade doit rester la première face pour que ses quatre premiers
+   * sommets soient ceux d'un quad : c'est ce dont dépend `writeFrame` de
+   * `build.ts`, qui anime une boîte en réécrivant les huit premiers flottants
+   * d'uv. Ajouter la sixième face en tête aurait animé le dessous à la place
+   * de la façade, silencieusement.
+   *
+   * L'ordre des coins est le miroir de celui du dessus - le `z` inversé - pour
+   * que l'enroulement reste antihoraire vu de l'EXTÉRIEUR, c'est-à-dire d'en
+   * dessous. Le recopier tel quel donnerait une face tournée vers l'intérieur,
+   * donc le trou qu'on vient précisément de boucher.
+   */
+  if (spec.bottom) {
+    faces.push({
+      corners: [[-x, -y, -z], [x, -y, -z], [-x, -y, z], [x, -y, z]],
+      uv: spec.bottom
+    });
+  }
 
   const positions = new Float32Array(faces.length * 4 * 3);
   const uvs = new Float32Array(faces.length * 4 * 2);

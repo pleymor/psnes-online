@@ -15,6 +15,45 @@ import { props } from '../../frontend/src/lib/vr/decor/placement.js';
 const UV = { u0: 0, v0: 0, u1: 0.5, v1: 0.5 };
 const SPEC = { width: 2, height: 1, depth: 0.5, front: UV, side: UV, top: UV };
 
+/*
+ * De quoi lire une normale sans GPU : le produit vectoriel de deux arêtes d'un
+ * triangle, comparé à l'axe qui sort de sa face. Hissé au module parce que
+ * deux tests s'en servent - celui des cinq faces, et celui de la sixième.
+ */
+const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const cross = (a: number[], b: number[]) => [
+  a[1] * b[2] - a[2] * b[1],
+  a[2] * b[0] - a[0] * b[2],
+  a[0] * b[1] - a[1] * b[0]
+];
+const dot3 = (a: number[], b: readonly number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+/** Chaque triangle de chaque face part-il vers l'extérieur annoncé ? */
+function assertOutward(
+  box: { positions: Float32Array; indices: Uint16Array },
+  outward: readonly (readonly [number, number, number])[]
+): void {
+  const at = (i: number): [number, number, number] => [
+    box.positions[i * 3],
+    box.positions[i * 3 + 1],
+    box.positions[i * 3 + 2]
+  ];
+
+  for (let face = 0; face < outward.length; face++) {
+    for (let triangle = 0; triangle < 2; triangle++) {
+      const base = face * 6 + triangle * 3;
+      const p0 = at(box.indices[base]);
+      const p1 = at(box.indices[base + 1]);
+      const p2 = at(box.indices[base + 2]);
+      const normal = cross(sub(p1, p0), sub(p2, p0));
+      assert.ok(
+        dot3(normal, outward[face]) > 0,
+        `face ${face}, triangle ${triangle} : normale ${normal} contre sortante ${outward[face]}`
+      );
+    }
+  }
+}
+
 test('cinq faces font vingt sommets et trente indices', () => {
   const box = boxGeometry(SPEC);
   assert.equal(box.positions.length, 20 * 3);
@@ -39,9 +78,11 @@ test('la boîte est centrée : chaque extrémité est atteinte', () => {
   assert.equal(Math.max(...xs), SPEC.width / 2);
 });
 
-test('il n_y a pas de face dessous', () => {
-  // Toutes les faces horizontales sont en HAUT. Une face du dessous serait
-  // invisible depuis le sol et doublerait la surface à remplir pour rien.
+test('sans `bottom`, il n_y a pas de face dessous', () => {
+  // Toutes les faces horizontales sont en HAUT. Le dessous d'un objet POSÉ est
+  // invisible depuis le sol, et une face de plus doublerait la surface à
+  // remplir pour rien. C'est le cas de tout le décor ; ce qui flotte demande
+  // `bottom`, et les tests plus bas le gardent.
   const box = boxGeometry(SPEC);
   const bottoms: number[] = [];
   for (let i = 0; i < box.positions.length; i += 3) {
@@ -84,43 +125,93 @@ test('chaque face est enroulée vers l_extérieur', () => {
    * arêtes donne la normale, et son produit scalaire avec l'axe sortant de la
    * face doit être positif.
    */
-  const box = boxGeometry(SPEC);
   // Dans l'ordre d'émission de `boxGeometry` : façade, arrière, flanc gauche,
   // flanc droit, dessus.
-  const OUTWARD: readonly (readonly [number, number, number])[] = [
+  assertOutward(boxGeometry(SPEC), [
     [0, 0, -1],
     [0, 0, 1],
     [-1, 0, 0],
     [1, 0, 0],
     [0, 1, 0]
-  ];
+  ]);
+});
 
-  const at = (i: number): [number, number, number] => [
-    box.positions[i * 3],
-    box.positions[i * 3 + 1],
-    box.positions[i * 3 + 2]
-  ];
-  const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-  const cross = (a: number[], b: number[]) => [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0]
-  ];
-  const dot = (a: number[], b: readonly number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+/*
+ * LA SIXIÈME FACE, et l'hypothèse fausse qu'elle répare.
+ *
+ * L'en-tête de `box.ts` dit « the underside of an object standing on the
+ * ground is never seen ». C'est vrai d'un objet POSÉ, et faux de ce qui
+ * FLOTTE : une tête et une main d'ami se regardent par en dessous pour de vrai
+ * - une main levée au-dessus des yeux, un joueur assis face à un ami debout.
+ *
+ * Ce que la face manquante coûte n'apparaît qu'en `FrontSide` : la face qui
+ * manque ne cache rien, les cinq autres sont dos-tournées donc écartées, et on
+ * voit à travers l'ami. `DoubleSide` le masquait en rasterisant l'intérieur des
+ * faces hautes - par accident, pas par conception.
+ *
+ * Ces tests-ci tiennent les deux moitiés du remède : que la face soit là, et
+ * qu'elle regarde vers le BAS. Une face du dessous enroulée comme celle du
+ * dessus rouvrirait exactement le trou qu'elle est censée boucher, et rien
+ * d'autre que son signe ne le dirait.
+ */
+const CLOSED = { ...SPEC, bottom: UV };
 
-  for (let face = 0; face < OUTWARD.length; face++) {
-    for (let triangle = 0; triangle < 2; triangle++) {
-      const base = face * 6 + triangle * 3;
-      const p0 = at(box.indices[base]);
-      const p1 = at(box.indices[base + 1]);
-      const p2 = at(box.indices[base + 2]);
-      const normal = cross(sub(p1, p0), sub(p2, p0));
-      assert.ok(
-        dot(normal, OUTWARD[face]) > 0,
-        `face ${face}, triangle ${triangle} : normale ${normal} contre sortante ${OUTWARD[face]}`
-      );
-    }
+test('avec `bottom`, six faces font vingt-quatre sommets et trente-six indices', () => {
+  const box = boxGeometry(CLOSED);
+  assert.equal(box.positions.length, 24 * 3);
+  assert.equal(box.uvs.length, 24 * 2);
+  assert.equal(box.indices.length, 6 * 6);
+});
+
+test('la boîte close touche le bas par douze sommets, dont quatre coplanaires', () => {
+  const box = boxGeometry(CLOSED);
+  let bottoms = 0;
+  for (let i = 0; i < box.positions.length; i += 3) {
+    if (box.positions[i + 1] === -CLOSED.height / 2) bottoms += 1;
   }
+  // Huit pour les quatre faces verticales, comme sans `bottom`, plus les
+  // quatre de la face neuve.
+  assert.equal(bottoms, 12);
+});
+
+test('le dessous est enroulé vers le bas, pas recopié du dessus', () => {
+  assertOutward(boxGeometry(CLOSED), [
+    [0, 0, -1],
+    [0, 0, 1],
+    [-1, 0, 0],
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, -1, 0]
+  ]);
+});
+
+test('le dessous porte ses propres uv, et il est émis en DERNIER', () => {
+  /*
+   * L'ordre n'est pas cosmétique : `writeFrame` (`build.ts`) anime une boîte en
+   * réécrivant les HUIT PREMIERS flottants d'uv, parce que la façade est la
+   * première face. Insérer la sixième en tête aurait animé le dessous à la
+   * place de la façade, sans qu'aucun compte de sommets ne bouge.
+   */
+  const front = { u0: 0.125, v0: 0.25, u1: 0.375, v1: 0.5 };
+  const bottom = { u0: 0.5, v0: 0.5, u1: 0.75, v1: 0.75 };
+  const box = boxGeometry({ ...CLOSED, front, bottom });
+
+  assert.deepEqual([...box.uvs.slice(0, 8)], [
+    front.u0, front.v1, front.u1, front.v1, front.u0, front.v0, front.u1, front.v0
+  ]);
+  assert.deepEqual([...box.uvs.slice(40, 48)], [
+    bottom.u0, bottom.v1, bottom.u1, bottom.v1, bottom.u0, bottom.v0, bottom.u1, bottom.v0
+  ]);
+});
+
+test('ajouter le dessous ne touche à rien des cinq faces existantes', () => {
+  // Purement additif : tout le décor, qui est posé au sol, doit continuer
+  // d'obtenir exactement le même maillage qu'avant.
+  const open = boxGeometry(SPEC);
+  const closed = boxGeometry(CLOSED);
+  assert.deepEqual([...closed.positions.slice(0, open.positions.length)], [...open.positions]);
+  assert.deepEqual([...closed.uvs.slice(0, open.uvs.length)], [...open.uvs]);
+  assert.deepEqual([...closed.indices.slice(0, open.indices.length)], [...open.indices]);
 });
 
 /*
