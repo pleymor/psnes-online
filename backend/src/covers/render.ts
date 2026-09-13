@@ -21,7 +21,7 @@ import type { ImageKind } from '../utils/image-kind.js';
  * 75 rather than the 82 the browser uses for an upload.
  *
  * The browser is encoding one picture a player chose and is looking at; this is
- * encoding 1415 scans nobody has asked for yet, and the difference between the
+ * encoding some 1400 scans nobody has asked for yet, and the difference between the
  * two settings was measured at 46.2 KB against 55.4 KB a cover -- 13 MB across
  * the catalogue for a difference no one can see at 512 px.
  */
