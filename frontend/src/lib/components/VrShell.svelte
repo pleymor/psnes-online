@@ -234,12 +234,29 @@
    * pour `room:join` : « the socket comes back on its own, but `room:join` does
    * not replay itself ». Émettre deux fois ne coûte rien - le serveur traite
    * `vr:enter` comme un ÉTAT, et son commentaire le dit.
+   *
+   * UNE DÉPENDANCE, ET ELLE EST SUPPOSÉE PLUTÔT QUE VÉRIFIÉE. La garde
+   * ci-dessous ne rejoint pas le lobby quand la coupure tombe PENDANT une
+   * partie, parce que `showDecor(true)` est censé le faire en fin de partie.
+   * Or c'est précisément ce que le défaut encore ouvert du 12 septembre met en
+   * doute - « le décor ne réapparaît pas quand on quitte un jeu ». S'il est
+   * réel, une coupure en cours de partie laisse invisible APRÈS la partie. Le
+   * champ `inSharedLobby` de la trace de `showDecor` est ce qui tranchera :
+   * pas de ligne du tout à la sortie du jeu accuse l'appelant, une ligne avec
+   * `visible:true` accuse le fondu, et une avec `inSharedLobby:false` accuse
+   * le socket.
    */
   function rejoinSharedLobby(): void {
     if (!inSharedLobby) return;
     $socket?.emit('vr:enter');
-    // Ce qu'on tenait date d'avant la coupure, et son horodatage d'arrivée
-    // avec : le garder ferait interpoler entre les deux rives du trou.
+    /*
+     * Le registre à neuf, SANS instantané de remplacement : les têtes
+     * disparaissent une image et reviennent au battement suivant, donc en
+     * moins de 66 ms. C'est voulu et ce n'est pas un défaut à chercher depuis
+     * le casque - ce qu'on tenait date d'avant la coupure, et son horodatage
+     * d'arrivée avec : le garder ferait interpoler par-dessus le trou, c'est-
+     * à-dire glisser chaque ami depuis là où il était avant.
+     */
     roster = createRoster();
   }
 
@@ -3809,7 +3826,31 @@
     // out from under it. `core` needs no line here - it never lived in this
     // component's state, only the engine's own closure, which `engine.stop()`
     // already released.
-    await engine?.stop();
+    /*
+     * ENVELOPPÉ, ET C'EST LA SUITE QU'ON PROTÈGE, PAS LUI.
+     *
+     * `teardown` est appelée en `void teardown()`, donc un rejet d'ici sautait
+     * TOUT ce qui suit - les `off` compris - et ne se signalait nulle part.
+     * C'était supportable tant que les écouteurs restés en place ne faisaient
+     * que lire : un `vr:lobby` orphelin mutait un registre que plus personne ne
+     * dessinait. `rejoinSharedLobby` est le premier qui ÉMET, et il change
+     * l'enjeu : laissé branché avec `inSharedLobby` resté vrai, il enverrait
+     * `vr:enter` à chaque reconnexion pour le reste de la vie de la page. Le
+     * joueur apparaîtrait « en VR » chez tous ses amis, indéfiniment, sans
+     * casque et sans autre issue qu'un rechargement - invisible pour celui qui
+     * le subit, visible par tous les autres.
+     *
+     * Un `try/finally` enveloppant tout le corps aurait le même effet au prix
+     * d'une réindentation de soixante lignes, et remonter le bloc des `off`
+     * avant ce `await` n'est PAS équivalent : `game:stopped` doit pouvoir
+     * arriver pendant que le moteur s'arrête. Cinq lignes suffisent donc, et
+     * la trace remplace en prime le rejet non capturé qu'on avait jusqu'ici.
+     */
+    try {
+      await engine?.stop();
+    } catch (err) {
+      logger.error('vr teardown: the engine failed to stop', err);
+    }
     engine = null;
     saveContext = null;
     groupRoomId = null;
