@@ -47,21 +47,40 @@ export function startNoticeBridges(): void {
    * complète à chaque changement. On pose ce qui est nouveau et on retire ce
    * qui n'y est plus - une invitation annulée, acceptée, ou périmée côté
    * serveur.
+   *
+   * `expiresAt` est retenue à côté du `noticeId` : ré-inviter renvoie le même
+   * id avec une échéance repoussée (`lobby/invitations.ts`), et un `posted`
+   * qui ne verrait que l'id garderait l'ancienne échéance - `sweep()`
+   * pourrait alors retirer une invitation encore valide.
    */
-  const posted = new Map<string, string>();
+  const posted = new Map<string, { noticeId: string; expiresAt: number }>();
 
   invitations.subscribe((list: Invitation[]) => {
     const live = new Set(list.map((i) => i.id));
 
-    for (const [invitationId, noticeId] of posted) {
+    for (const [invitationId, entry] of posted) {
       if (!live.has(invitationId)) {
-        notices.dismiss(noticeId);
+        notices.dismiss(entry.noticeId);
         posted.delete(invitationId);
       }
     }
 
+    // Ce que le centre affiche encore réellement : ne pas s'y fier ferait
+    // ignorer en silence une ré-invitation dont la notification précédente a
+    // déjà quitté l'écran (périmée par `sweep()`, par exemple) sans que ce
+    // pont l'ait su - `posted` seul aurait continué de croire qu'elle y était.
+    const onScreen = new Set(get(notices.list).map((n) => n.id));
+
     for (const invitation of list) {
-      if (posted.has(invitation.id)) continue;
+      const expiresAt = new Date(invitation.expiresAt).getTime();
+      const existing = posted.get(invitation.id);
+      const stillShown = existing ? onScreen.has(existing.noticeId) : false;
+
+      if (existing && stillShown) {
+        if (existing.expiresAt === expiresAt) continue;
+        notices.dismiss(existing.noticeId);
+      }
+
       const noticeId = notices.post(
         'invitation',
         {
@@ -69,9 +88,9 @@ export function startNoticeBridges(): void {
           name: invitation.fromPseudo,
           title: invitation.gameTitle ?? ''
         },
-        { expiresAt: new Date(invitation.expiresAt).getTime() }
+        { expiresAt }
       );
-      posted.set(invitation.id, noticeId);
+      posted.set(invitation.id, { noticeId, expiresAt });
     }
   });
 

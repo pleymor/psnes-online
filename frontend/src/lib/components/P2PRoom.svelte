@@ -76,7 +76,13 @@
     if (checksum) keepNotice = notices.post('keep-rom', { title: gameTitle ?? '' });
   });
 
-  onDestroy(stopKeepWatch);
+  onDestroy(() => {
+    stopKeepWatch();
+    // Sans quoi une question restée sans réponse survivrait au salon qui l'a
+    // posée : `registerNoticeActions` est réécrit par le salon suivant, donc
+    // cliquer dessus appellerait son accept/decline à lui.
+    if (keepNotice) notices.dismiss(keepNotice);
+  });
 
   /** Kept so a guest arriving later can be served without touching the disk. */
   let loadedRom: Uint8Array | null = null;

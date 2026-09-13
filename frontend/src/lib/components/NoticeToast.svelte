@@ -17,6 +17,20 @@
   import { actionsOf } from '$lib/notices/actions';
   import type { Notice } from '$lib/notices/notice';
 
+  /**
+   * Quelle moitié des notifications cette instance peint.
+   *
+   * `page` est celle du layout : tout ce qui s'affiche hors partie.
+   * `in-game` est celle qu'un salon monte DANS son élément plein écran, pour
+   * les seules notifications qui se répondent pendant une partie. L'API
+   * Fullscreen ne peint que l'élément passé en plein écran et ses
+   * descendants : une notification rendue ailleurs dans le document n'existe
+   * plus à l'écran, et « garder ce jeu ? » est justement posée là.
+   *
+   * Les deux moitiés sont disjointes, donc rien ne s'affiche deux fois.
+   */
+  export let surface: 'page' | 'in-game' = 'page';
+
   const list = notices.list;
 
   let now = Date.now();
@@ -49,7 +63,12 @@
   $: shown = $list.filter((notice: Notice) => {
     const shape = shapeOf(notice.kind);
     if (!shape) return false;
-    if ($inGame && shape.duringGame !== true) return false;
+
+    if (surface === 'in-game') {
+      if (!$inGame || shape.duringGame !== true) return false;
+    } else if ($inGame) {
+      return false;
+    }
 
     const seconds = screenSeconds(notice);
     return seconds === 0 || now < notice.at + seconds * 1000;

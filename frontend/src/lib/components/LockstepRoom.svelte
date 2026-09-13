@@ -33,6 +33,7 @@
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import LocateRom from './LocateRom.svelte';
+  import NoticeToast from './NoticeToast.svelte';
   import TouchControls from './TouchControls.svelte';
   import { TouchPad, touchPadWanted } from '$lib/controls/touch';
   import { remember, resolveQuietly } from '$lib/roms/provider';
@@ -166,7 +167,13 @@
     if (checksum) keepNotice = notices.post('keep-rom', { title: gameTitle ?? '' });
   });
 
-  onDestroy(stopKeepWatch);
+  onDestroy(() => {
+    stopKeepWatch();
+    // Sans quoi une question restée sans réponse survivrait au salon qui l'a
+    // posée : `registerNoticeActions` est réécrit par le salon suivant, donc
+    // cliquer dessus appellerait son accept/decline à lui.
+    if (keepNotice) notices.dismiss(keepNotice);
+  });
 
   let showStats = false;
 
@@ -1381,6 +1388,12 @@
   {#if romPrompt}
     <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
   {/if}
+
+  <!-- Une seconde instance, pour la même raison que la bannière de transfert
+       et `LocateRom` ci-dessus : l'API Fullscreen ne peint que `.lockstep` et
+       ses descendants, et « garder ce jeu ? » se pose pendant que la partie
+       tourne, donc pendant que cet élément est en plein écran. -->
+  <NoticeToast surface="in-game" />
 
   <!--
     Double-click toggles fullscreen, the way a video player does. It is not a
