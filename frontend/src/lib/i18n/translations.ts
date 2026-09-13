@@ -42,6 +42,19 @@ export const translations = {
     welcome: 'Welcome',
     goToLibrary: 'Go to my library',
 
+    // Invitation à rejoindre la plateforme
+    signupInviteOnly: 'psnes is invitation-only',
+    signupInviteOnlyHint: 'Ask a player who is already here for their invitation link.',
+    signupInviteValid: 'Your invitation is valid. Sign in to claim your place.',
+    signupAlreadySignedIn: 'You already have an account on this device.',
+    signupPlatformFull: 'psnes is full for now. Every place is taken.',
+    signupInviteUnknown: 'This invitation link is not one of ours.',
+    signupInviteRevoked: 'This invitation was withdrawn by the player who sent it.',
+    signupInviteUsed: 'This invitation has already been used.',
+    signupQuotaExhausted: 'The player who invited you has no places left.',
+    signupTooManyAttempts: 'Too many attempts. Try again later.',
+    signupRefused: 'Your invitation could not be accepted.',
+
     // Friends
     friends: 'Friends',
     requests: 'Requests',
@@ -632,6 +645,19 @@ export const translations = {
     authUnavailableHint: 'La connexion a besoin que le serveur indique comment procéder, et il ne répond pas. Vérifiez que le backend tourne, puis réessayez.',
     welcome: 'Bienvenue',
     goToLibrary: 'Accéder à ma bibliothèque',
+
+    // Invitation à rejoindre la plateforme
+    signupInviteOnly: 'psnes se joue sur invitation',
+    signupInviteOnlyHint: 'Demandez son lien d\'invitation à un joueur déjà présent.',
+    signupInviteValid: 'Votre invitation est valide. Connectez-vous pour prendre votre place.',
+    signupAlreadySignedIn: 'Vous avez déjà un compte sur cet appareil.',
+    signupPlatformFull: 'psnes est complet pour le moment. Toutes les places sont prises.',
+    signupInviteUnknown: 'Ce lien d\'invitation n\'est pas des nôtres.',
+    signupInviteRevoked: 'Cette invitation a été retirée par le joueur qui vous l\'a envoyée.',
+    signupInviteUsed: 'Cette invitation a déjà servi.',
+    signupQuotaExhausted: 'Le joueur qui vous a invité n\'a plus de place à donner.',
+    signupTooManyAttempts: 'Trop de tentatives. Réessayez plus tard.',
+    signupRefused: 'Votre invitation n\'a pas pu être acceptée.',
 
     // Friends
     friends: 'Amis',

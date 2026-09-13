@@ -5,7 +5,7 @@
   import type { Game } from '$lib/stores/games';
   import { goto } from '$app/navigation';
   import { language } from '$lib/stores/language';
-  import { t } from '$lib/i18n/translations';
+  import { t, type TranslationKey } from '$lib/i18n/translations';
   import { myRoom } from '$lib/rooms/my-room';
   import { gameClick } from '$lib/rooms/game-click';
   import { roomIntent } from '$lib/rooms/room-intent';
@@ -42,6 +42,7 @@
   import { createLogger } from '$lib/utils/logger';
   import { setPageTitle } from '$lib/utils/page-title';
   import { notifications } from '$lib/services/notification';
+  import { signupRefusalKey } from '$lib/auth/signup-refusal';
 
   const logger = createLogger('HomePage');
 
@@ -440,6 +441,56 @@
   let authMode: 'google' | 'dev' | 'unknown' = 'unknown';
   let isLoadingAuthMode = true;
 
+  let inviteCode: string | null = null;
+  let inviteVerdict: 'checking' | 'valid' | 'refused' | 'none' = 'none';
+  let inviteMessageKey = '';
+
+  /**
+   * Le verdict est demandé au serveur avant que le visiteur clique.
+   *
+   * Ce n'est pas une autorisation -- la porte est reconsultée côté serveur au
+   * retour de Google, et c'est elle qui fait foi. C'est ce qui évite à
+   * quelqu'un de traverser tout le parcours Google pour apprendre en revenant
+   * que son lien avait déjà servi.
+   */
+  async function checkInvite() {
+    const params = new URLSearchParams(window.location.search);
+    const refusedOnReturn = params.get('signupError');
+    if (refusedOnReturn) {
+      inviteVerdict = 'refused';
+      inviteMessageKey = signupRefusalKey(refusedOnReturn);
+      return;
+    }
+
+    inviteCode = params.get('invite');
+    if (!inviteCode) return;
+
+    inviteVerdict = 'checking';
+    try {
+      const res = await fetch(`/auth/invite/${encodeURIComponent(inviteCode)}`);
+      if (res.ok) {
+        inviteVerdict = 'valid';
+        inviteMessageKey = 'signupInviteValid';
+      } else {
+        const body = await res.json().catch(() => ({}));
+        inviteVerdict = 'refused';
+        inviteMessageKey = signupRefusalKey(body?.error);
+      }
+    } catch {
+      // Le serveur ne répond pas : le message existe déjà pour ce cas.
+      inviteVerdict = 'refused';
+      inviteMessageKey = 'authUnavailable';
+    }
+  }
+
+  // `inviteMessageKey` est construit à partir d'une table (`signup-refusal.ts`)
+  // que le composant ne connaît pas au type près -- ce petit détour est ce qui
+  // permet le `as TranslationKey` sans l'écrire dans le balisage, où Svelte ne
+  // sait pas parser une assertion de type.
+  function inviteNoteText(key: string): string {
+    return t($language, key as TranslationKey);
+  }
+
   async function loadAuthMode() {
     isLoadingAuthMode = true;
     try {
@@ -465,8 +516,18 @@
     }
   }
 
+  /**
+   * Le code d'invitation suit le joueur jusqu'à Google.
+   *
+   * Lu depuis l'URL à chaque clic plutôt que mémorisé au chargement : un
+   * visiteur peut coller un second lien dans la barre d'adresse sans recharger
+   * la page, et c'est le dernier qui doit compter.
+   */
   function login() {
-    window.location.href = '/auth/google';
+    const invite = new URLSearchParams(window.location.search).get('invite');
+    window.location.href = invite
+      ? `/auth/google?invite=${encodeURIComponent(invite)}`
+      : '/auth/google';
   }
 
   async function loginDev(userId: string) {
@@ -496,6 +557,7 @@
 
   onMount(() => {
     loadAuthMode();
+    checkInvite();
   });
 </script>
 
@@ -513,6 +575,17 @@
 
       <div class="login-section">
         <LanguageSelector />
+
+        {#if inviteVerdict === 'valid'}
+          <p class="invite-note invite-note--ok">{inviteNoteText(inviteMessageKey)}</p>
+        {:else if inviteVerdict === 'refused'}
+          <p class="invite-note invite-note--refused" role="alert">{inviteNoteText(inviteMessageKey)}</p>
+        {:else if inviteVerdict === 'none'}
+          <p class="invite-note">
+            {t($language, 'signupInviteOnly')}<br />
+            <span class="invite-note__hint">{t($language, 'signupInviteOnlyHint')}</span>
+          </p>
+        {/if}
 
         {#if isLoadingAuthMode}
           <div class="loading">{t($language, 'loading')}</div>
@@ -828,6 +901,27 @@
     flex-direction: column;
     align-items: center;
     gap: 1rem;
+  }
+
+  .invite-note {
+    font-size: 0.9375rem;
+    color: #a0a0a0;
+    margin: 0;
+    line-height: 1.5;
+    text-align: center;
+  }
+
+  .invite-note--ok {
+    color: var(--go);
+  }
+
+  .invite-note--refused {
+    color: #ff5252;
+  }
+
+  .invite-note__hint {
+    font-size: 0.8125rem;
+    color: #888;
   }
 
   .loading {
