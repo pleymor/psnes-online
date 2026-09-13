@@ -12,8 +12,10 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import {
   createRoster,
+  namedOnly,
   slerp,
   INTERPOLATION_DELAY_MS,
+  type PeerPose,
   type Pose
 } from '../../frontend/src/lib/vr/lobby/roster.js';
 
@@ -145,4 +147,58 @@ test('le slerp rend un quaternion unitaire', () => {
   const mid = slerp(a, b, 0.37);
   const norm = Math.hypot(mid[3], mid[4], mid[5], mid[6]);
   assert.ok(Math.abs(norm - 1) < 1e-6, `norme=${norm}`);
+});
+
+/*
+ * `namedOnly` : la garantie qu'aucun inconnu n'apparaît dans le lobby de
+ * personne.
+ *
+ * C'est une règle de SÉCURITÉ, et elle vivait dans la boucle de dessin -
+ * c'est-à-dire dans le seul module du lobby qu'aucun test ne peut exécuter,
+ * puisqu'il importe three. Une garantie invérifiable n'en est pas une.
+ */
+function posed(x: number): PeerPose {
+  return { head: head(x), left: null, right: null };
+}
+
+test("un identifiant qu'on ne sait pas nommer est écarté", () => {
+  const peers = new Map<string, PeerPose>([
+    ['ami', posed(1)],
+    ['inconnu', posed(2)]
+  ]);
+
+  const named = namedOnly(peers, (id) => (id === 'ami' ? 'Mario' : null));
+  assert.deepEqual([...named.keys()], ['ami']);
+  assert.equal(named.get('ami')!.pseudo, 'Mario');
+});
+
+test("l'écart est total : un inconnu n'est pas non plus rendu invisible", () => {
+  // La distinction compte : « absent de la carte » veut dire qu'aucun maillage
+  // ne sera construit pour lui, et non qu'on en construira un qu'on masquera.
+  const peers = new Map<string, PeerPose>([['inconnu', posed(1)]]);
+  assert.equal(namedOnly(peers, () => null).size, 0);
+});
+
+test('la pose traverse le filtre intacte', () => {
+  const peers = new Map<string, PeerPose>([['ami', posed(3)]]);
+  const named = namedOnly(peers, () => 'Luigi');
+  assert.deepEqual([...named.get('ami')!.pose.head], [...head(3)]);
+});
+
+test("un pseudo vide est un nom connu, pas une absence de nom", () => {
+  // Seul `null` écarte. Un pseudo vide viendrait d'ailleurs - d'une donnée
+  // abîmée, pas d'un ami inconnu - et le faire disparaître ici cacherait ce
+  // défaut-là derrière la règle de sécurité.
+  const peers = new Map<string, PeerPose>([['ami', posed(1)]]);
+  assert.equal(namedOnly(peers, () => '').size, 1);
+});
+
+test('une carte vide reste vide, sans consulter la liste d’amis', () => {
+  let asked = 0;
+  const named = namedOnly(new Map(), () => {
+    asked += 1;
+    return 'Mario';
+  });
+  assert.equal(named.size, 0);
+  assert.equal(asked, 0);
 });

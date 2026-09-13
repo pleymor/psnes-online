@@ -33,15 +33,32 @@ export interface Presence {
 }
 
 const ABSENT: Presence = { visible: false, opacity: 0 };
+const SOLID: Presence = { visible: true, opacity: 1 };
 
-export function presenceFor(mine: Pose, theirs: Pose): Presence {
+/**
+ * `mine` est `null` tant que je n'ai pas encore de pose.
+ *
+ * Le repli habite ICI plutôt que chez l'appelant, et ce n'est pas du rangement :
+ * « que montre-t-on quand on ne sait pas où l'on est » est une politique de
+ * proximité comme les deux seuils, et écrite chez celui qui dessine elle serait
+ * hors de portée de tout test - `avatars.ts` importe three, donc rien sous Bun
+ * ne peut l'exécuter.
+ *
+ * Et le repli est SOLIDE, pas absent : l'effacement existe pour qu'un ami ne
+ * me gêne pas, or sans ma propre pose il n'y a aucune gêne à constater. Choisir
+ * l'inverse ferait disparaître tout le lobby pendant la première image de
+ * chaque session, ce qui se lirait comme « les amis ne se chargent pas ».
+ */
+export function presenceFor(mine: Pose | null, theirs: Pose): Presence {
+  if (mine === null) return SOLID;
+
   // En trois dimensions, et non à plat : un ami perché sur un tuyau est au
   // même point au sol et pourtant loin. À plat, il disparaîtrait sous nos
   // pieds sans rien gêner du tout.
   const distance = Math.hypot(theirs[0] - mine[0], theirs[1] - mine[1], theirs[2] - mine[2]);
 
   if (distance <= FADE_NEAR) return ABSENT;
-  if (distance >= FADE_FULL) return { visible: true, opacity: 1 };
+  if (distance >= FADE_FULL) return SOLID;
 
   return {
     visible: true,

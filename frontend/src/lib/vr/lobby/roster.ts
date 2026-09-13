@@ -51,6 +51,45 @@ export interface PeerPose {
  */
 export const INTERPOLATION_DELAY_MS = 100;
 
+/** Un ami qu'on sait nommer : sa pose, et le pseudo à écrire au-dessus. */
+export interface NamedPeer {
+  readonly pose: PeerPose;
+  readonly pseudo: string;
+}
+
+/**
+ * Ne garde que les identifiants qu'on sait nommer.
+ *
+ * LA GARANTIE DE DERNIER RECOURS, et c'est pour ça qu'elle vit ici plutôt que
+ * dans la boucle de dessin. Même si le serveur se trompait un jour de
+ * destinataire, aucun inconnu n'apparaîtrait dans le lobby de personne - mais
+ * une règle de sécurité écrite chez celui qui dessine serait invérifiable,
+ * puisque `avatars.ts` importe three et que rien sous Bun ne peut l'exécuter.
+ * Ici, un test la tient.
+ *
+ * Le cas qui arrive VRAIMENT n'est pas l'attaque : c'est la seconde pendant
+ * laquelle `vr:lobby` a devancé `friends:online`. Un ami sans nom encore connu
+ * n'est pas dessiné du tout - ni construit, ni rendu invisible - et il
+ * apparaîtra à l'image suivante avec sa plaque.
+ *
+ * Une carte de plus par image, et c'est assumé : `at()` en alloue déjà une, et
+ * quelques amis y tiennent. Filtrer en place demanderait à `createRoster` de
+ * connaître la liste d'amis, c'est-à-dire de lier l'horloge à un état qui
+ * arrive par un tout autre message.
+ */
+export function namedOnly(
+  peers: ReadonlyMap<string, PeerPose>,
+  label: (id: string) => string | null
+): ReadonlyMap<string, NamedPeer> {
+  const named = new Map<string, NamedPeer>();
+  for (const [id, pose] of peers) {
+    const pseudo = label(id);
+    if (pseudo === null) continue;
+    named.set(id, { pose, pseudo });
+  }
+  return named;
+}
+
 export interface Roster {
   /** `at` est l'arrivée LOCALE, en millisecondes. */
   accept(snapshot: LobbySnapshot, at: number): void;
