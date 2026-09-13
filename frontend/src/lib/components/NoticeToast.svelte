@@ -55,11 +55,31 @@
     return seconds === 0 || now < notice.at + seconds * 1000;
   });
 
+  /**
+   * Les actions en vol, pour que deux clics n'envoient pas deux réponses.
+   *
+   * Un `Set` réassigné et non muté : en Svelte 4, muter un `Set` ne
+   * redéclenche rien, et c'est l'état désactivé des boutons qui en dépend.
+   */
+  let running = new Set<string>();
+
   async function act(notice: Notice, index: number) {
-    // Retirée d'abord : `run` peut attendre le réseau, et un second clic sur
-    // un bouton déjà pressé enverrait deux réponses.
-    notices.dismiss(notice.id);
-    await actionsOf(notice.kind)[index]?.run(notice.params);
+    if (running.has(notice.id)) return;
+    running = new Set(running).add(notice.id);
+
+    try {
+      await actionsOf(notice.kind)[index]?.run(notice.params);
+      // Retirée seulement une fois l'action passée. L'inverse - retirer
+      // d'abord - faisait disparaître la notification du centre avant de
+      // savoir si le geste avait abouti : un réseau qui tombe laissait la
+      // question sans bouton et sans trace.
+      notices.dismiss(notice.id);
+    } catch {
+      // L'action a échoué : la notification reste, avec ses boutons, et
+      // peut être retentée.
+    } finally {
+      running = new Set([...running].filter((id) => id !== notice.id));
+    }
   }
 </script>
 
@@ -73,7 +93,11 @@
         {#if actions.length > 0}
           <div class="toast-actions">
             {#each actions as action, index}
-              <button class:primary={action.primary} on:click={() => act(notice, index)}>
+              <button
+                class:primary={action.primary}
+                disabled={running.has(notice.id)}
+                on:click={() => act(notice, index)}
+              >
                 {t($language, action.label)}
               </button>
             {/each}
