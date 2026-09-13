@@ -31,6 +31,7 @@ import {
   PIRANHA_OPEN
 } from './creatures';
 import { COUNTER_BRICK, COUNTER_SIDE, COUNTER_TOP } from './furniture';
+import { AVATAR_FACE, AVATAR_SIDE, AVATAR_TOP, AVATAR_HAND } from '../../lobby/avatar-art';
 
 export const ALL_ART: Readonly<Record<string, Art>> = {
   groundBrick: GROUND_BRICK,
@@ -54,7 +55,11 @@ export const ALL_ART: Readonly<Record<string, Art>> = {
   piranhaOpen: PIRANHA_OPEN,
   counterBrick: COUNTER_BRICK,
   counterSide: COUNTER_SIDE,
-  counterTop: COUNTER_TOP
+  counterTop: COUNTER_TOP,
+  avatarFace: AVATAR_FACE,
+  avatarSide: AVATAR_SIDE,
+  avatarTop: AVATAR_TOP,
+  avatarHand: AVATAR_HAND
 };
 
 export type ArtName = keyof typeof ALL_ART;
