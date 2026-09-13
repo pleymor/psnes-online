@@ -202,3 +202,22 @@ test('ecrire une liste vide efface l entree', () => {
 
 	assert.equal(storage.data.has(NOTICES_KEY), false);
 });
+
+import {
+	actionsOf,
+	hasActions,
+	registerNoticeActions
+} from '../../frontend/src/lib/notices/actions.js';
+
+test('un kind sans boutons enregistres n en a pas', () => {
+	assert.equal(hasActions('raw'), false);
+	assert.deepEqual(actionsOf('raw'), []);
+});
+
+test('des boutons enregistres se retrouvent par leur kind', () => {
+	const run = () => {};
+	registerNoticeActions('essai', [{ label: 'cancel', run }]);
+
+	assert.equal(hasActions('essai'), true);
+	assert.equal(actionsOf('essai').length, 1);
+});

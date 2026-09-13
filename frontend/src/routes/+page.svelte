@@ -41,6 +41,7 @@
   import { columnsThatFit, rowBottoms, trackWidth } from '$lib/games/shelves';
   import { createLogger } from '$lib/utils/logger';
   import { setPageTitle } from '$lib/utils/page-title';
+  import { notifications } from '$lib/services/notification';
 
   const logger = createLogger('HomePage');
 
@@ -122,9 +123,6 @@
   const share = sharing();
   const shareWaiting = share.waiting;
   const shareAnswer = share.answer;
-  let showToast = false;
-  let toastMessage = '';
-  let toastType: 'success' | 'error' = 'success';
   let showDeleteConfirm = false;
   let gameToDelete: Game | null = null;
 
@@ -354,12 +352,7 @@
   }
 
   function showNotification(message: string, type: 'success' | 'error' = 'success') {
-    toastMessage = message;
-    toastType = type;
-    showToast = true;
-    setTimeout(() => {
-      showToast = false;
-    }, 4000);
+    notifications.show(message, type);
   }
 
   async function loadUserData() {
@@ -791,15 +784,6 @@
           <button on:click={cancelDelete} class="btn-cancel">{t($language, 'cancel')}</button>
           <button on:click={confirmDelete} class="btn-confirm-delete">{t($language, 'delete')}</button>
         </div>
-      </div>
-    </div>
-  {/if}
-
-  {#if showToast}
-    <div class="toast toast-{toastType}">
-      <div class="toast-content">
-        <span class="toast-icon">{toastType === 'success' ? '✅' : '❌'}</span>
-        <span class="toast-message">{toastMessage}</span>
       </div>
     </div>
   {/if}
@@ -1311,55 +1295,6 @@
     transform: translateY(-2px);
   }
 
-  .toast {
-    position: fixed;
-    bottom: 2rem;
-    right: 2rem;
-    background: rgba(42, 42, 42, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 12px;
-    padding: 1rem 1.5rem;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    z-index: 3000;
-    backdrop-filter: blur(10px);
-    animation: slideInUp 0.3s ease-out;
-  }
-
-  @keyframes slideInUp {
-    from {
-      transform: translateY(100px);
-      opacity: 0;
-    }
-    to {
-      transform: translateY(0);
-      opacity: 1;
-    }
-  }
-
-  .toast-success {
-    border-left: 4px solid #4caf50;
-  }
-
-  .toast-error {
-    border-left: 4px solid #f44336;
-  }
-
-  .toast-content {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-
-  .toast-icon {
-    font-size: 1.5rem;
-  }
-
-  .toast-message {
-    color: #fff;
-    font-size: 1rem;
-    font-weight: 500;
-  }
-
   .modal-overlay {
     position: fixed;
     top: 0;
@@ -1465,12 +1400,6 @@
          les retire quand elle ne l'est plus - `shelvesFit` - parce que c'est
          lui qui sait la largeur mesurée. */
       column-gap: 1rem;
-    }
-
-    .toast {
-      left: 1rem;
-      right: 1rem;
-      bottom: 1rem;
     }
   }
 

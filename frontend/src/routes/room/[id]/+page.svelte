@@ -49,9 +49,6 @@
    * ordinary start the first thing we see is a playing room we are not yet in.
    */
   let seenRoomState = false;
-  let showToast = false;
-  let toastMessage = '';
-  let toastType: 'success' | 'error' = 'success';
   /** My two-player config, from my account - the one the panel edits. */
   let userControls: ControlsConfig = defaultControlsConfig();
 
@@ -227,7 +224,6 @@
     resumeSaveId = resumeSaveToRequest(room, view.isCreator, urlSaveId);
     resumeSaveResolved = true;
   }
-  let toastTimer: ReturnType<typeof setTimeout> | undefined;
   /**
    * Whether this component is still mounted.
    *
@@ -311,13 +307,7 @@
   }
 
   function showNotification(message: string, type: 'success' | 'error' = 'success') {
-    toastMessage = message;
-    toastType = type;
-    showToast = true;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => {
-      showToast = false;
-    }, 4000);
+    notifications.show(message, type);
   }
 
   /**
@@ -521,13 +511,12 @@
 
     departing = true;
     /*
-     * The layout's toast, not this page's own.
+     * `notifications.show` directement, pas `showNotification`.
      *
-     * `showNotification` writes to a `showToast` this page renders itself, and
-     * the `goto` below unmounts it about a frame later - so the partner was
-     * told nothing, which is the exact silence the notice exists to prevent.
-     * `NotificationToast` is mounted once in `+layout.svelte`, outside the
-     * slot, precisely so a toast can outlive the screen that raised it.
+     * `showNotification`, plus haut, ne prend pas de durée : ce message-ci en
+     * veut cinq secondes, pas les trois par défaut, le temps que le partenaire
+     * ait une chance de le lire avant de suivre le `goto` ci-dessous vers
+     * l'accueil.
      */
     notifications.show(t($language, 'gameReleasedNotice', { name: payload.byPseudo }), 'info', 5000);
     goto('/');
@@ -686,7 +675,6 @@
      */
     unsubscribeRoom?.();
 
-    clearTimeout(toastTimer);
     // A game does not go on running on a page that has been left.
     inGame.set(false);
 
@@ -979,13 +967,6 @@
       />
     {/if}
   {/if}
-
-  {#if showToast}
-    <div class="toast toast-{toastType}">
-      <span class="toast-icon">{toastType === 'success' ? '✅' : '❌'}</span>
-      <span>{toastMessage}</span>
-    </div>
-  {/if}
 </div>
 
 <style>
@@ -1109,8 +1090,6 @@
     padding: 0.75rem;
     text-align: left;
   }
-
-  .panel-empty,
 
   .start-hint {
     color: #8b8ba3;
@@ -1297,42 +1276,4 @@
     margin: 2rem 0;
   }
 
-  .toast {
-    position: fixed;
-    bottom: 2rem;
-    right: 2rem;
-    background: rgba(42, 42, 42, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    padding: 1rem 1.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    z-index: 2000;
-    animation: slideIn 0.3s ease-out;
-    backdrop-filter: blur(10px);
-  }
-
-  .toast-success {
-    border-left: 4px solid #4caf50;
-  }
-
-  .toast-error {
-    border-left: 4px solid #f44336;
-  }
-
-  .toast-icon {
-    font-size: 1.25rem;
-  }
-
-  @keyframes slideIn {
-    from {
-      transform: translateX(100%);
-      opacity: 0;
-    }
-    to {
-      transform: translateX(0);
-      opacity: 1;
-    }
-  }
 </style>
