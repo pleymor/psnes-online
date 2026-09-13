@@ -28,6 +28,12 @@ import { aimable, hit, type PanelSize } from './panel';
 import type { PointerTarget } from './pointer';
 import { TRIGGER } from './pad';
 import { ROOM_DARK, CAMERA_FAR } from './decor/composition';
+import type { Pose } from '$lib/vr/lobby/roster';
+
+/** Pas d'échelle, et une seule instance : `compose` en exige une, et en
+ *  allouer une par main et par image serait trois cents `Vector3` par seconde
+ *  pour toujours la même valeur. */
+const ONE = new THREE.Vector3(1, 1, 1);
 
 export interface VrScene {
   screen: VrScreen;
@@ -72,6 +78,27 @@ export interface VrScene {
    * orienté avec elle ne peut pas être en retard d'une image.
    */
   headPosition(): { x: number; y: number; z: number };
+  /**
+   * Ma tête et mes mains DANS LE REPÈRE DU DÉCOR — celui de `addDecor`, où
+   * `decor/placement.ts` pose ses tuyaux et où `playerAt` s'accumule.
+   *
+   * C'est le repère que deux clients partagent par construction : « deux
+   * mètres à gauche du comptoir » y désigne le même endroit pour tout le
+   * monde. C'est donc lui, et pas l'espace de référence, qui part sur le fil.
+   *
+   * AUCUNE TRIGONOMÉTRIE ICI, ET C'EST DÉLIBÉRÉ. `place()` écrit l'aller à la
+   * main et son commentaire raconte ce qu'a coûté le centre de rotation mal
+   * placé ; `decor/box.ts` en garde deux autres. Écrire le retour à la main
+   * serait la cinquième erreur de signe de ce dépôt. L'inverse de
+   * `room.matrixWorld` traverse la matrice que three tient déjà, donc il porte
+   * gratuitement la marche, le lacet, la hauteur et l'accroupissement — un
+   * joueur perché sur un tuyau apparaît sur le tuyau sans une ligne de plus.
+   *
+   * Rend `null` hors image ou tant que le suivi n'est pas prêt : à traiter
+   * comme « redemande », jamais comme « pas de pose », exactement comme
+   * `poseIn`.
+   */
+  poseInRoom(): { head: Pose; left: Pose | null; right: Pose | null } | null;
   /**
    * L'origine de `space`, exprimée dans l'espace de référence de CETTE scène.
    *
@@ -652,6 +679,66 @@ export function createVrScene(opts: {
       // décor de quelques centièmes de degré à chaque image.
       const xr = renderer.xr.getCamera();
       return { x: xr.position.x, y: xr.position.y, z: xr.position.z };
+    },
+
+    poseInRoom(): { head: Pose; left: Pose | null; right: Pose | null } | null {
+      const frame = renderer.xr.getFrame();
+      // L'espace de three, comme `poseIn` : c'est celui dans lequel tout, dans
+      // cette boucle, est exprimé.
+      const reference = renderer.xr.getReferenceSpace();
+      if (!frame || !reference) return null;
+
+      /*
+       * Les matrices d'abord, et ce n'est pas décoratif.
+       *
+       * La lecture a lieu dans `onFrame`, donc AVANT le rendu qui rafraîchit
+       * les matrices. Sans ça, la pose émise est celle de l'image précédente -
+       * un retard d'une image chez tous ses amis, invisible au débogage et
+       * bien réel dans un casque.
+       */
+      room.updateMatrixWorld(true);
+
+      // La tête se lit sur la caméra XR et non sur `getViewerPose`, pour la
+      // raison que `headPosition` donne : c'est celle qui a effectivement servi
+      // au rendu de l'image en cours, donc elle ne peut pas être en retard.
+      const eye = renderer.xr.getCamera();
+      const position = new THREE.Vector3();
+      const quaternion = new THREE.Quaternion();
+      const scale = new THREE.Vector3();
+
+      const toRoom = new THREE.Matrix4().copy(room.matrixWorld).invert();
+
+      const headMatrix = new THREE.Matrix4().compose(eye.position, eye.quaternion, ONE);
+      headMatrix.premultiply(toRoom);
+      headMatrix.decompose(position, quaternion, scale);
+      const head: Pose = [
+        position.x, position.y, position.z,
+        quaternion.x, quaternion.y, quaternion.z, quaternion.w
+      ];
+
+      let left: Pose | null = null;
+      let right: Pose | null = null;
+
+      for (const source of renderer.xr.getSession()?.inputSources ?? []) {
+        if (!source.gripSpace) continue;
+        const pose = frame.getPose(source.gripSpace, reference);
+        // Une manette posée sur la table n'est pas suivie : pas de pose, pas
+        // de main. Elle disparaît chez les amis plutôt que de rester figée, ce
+        // que le `tween` de `roster.ts` traite déjà.
+        if (!pose) continue;
+
+        const gripMatrix = new THREE.Matrix4().fromArray(pose.transform.matrix);
+        gripMatrix.premultiply(toRoom);
+        gripMatrix.decompose(position, quaternion, scale);
+        const hand: Pose = [
+          position.x, position.y, position.z,
+          quaternion.x, quaternion.y, quaternion.z, quaternion.w
+        ];
+        if (source.handedness === 'left') left = hand;
+        else if (source.handedness === 'right') right = hand;
+      }
+
+      return { head, left, right };
     },
 
     poseIn(space: unknown): { y: number } | null {
