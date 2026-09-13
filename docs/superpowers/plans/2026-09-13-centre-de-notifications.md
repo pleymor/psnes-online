@@ -768,7 +768,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun test core/test/notices.test.ts
 ```
 
-Attendu : 19 pass, 0 fail.
+Attendu : 21 pass, 0 fail.
 
 - [ ] **Step 5: Réécrire `services/notification.ts` en couche de compatibilité**
 
@@ -813,18 +813,48 @@ function storage(): Storage | null {
   }
 }
 
+let writing = false;
+
 /** Ce que le rechargement a laissé. Appelée une fois, depuis le layout. */
 export function restoreNotices(): void {
   const store = storage();
   if (store) notices.hydrate(readNotices(store, Date.now()));
+  startWriting();
 }
 
-// Écrit à chaque changement plutôt qu'au déchargement : `beforeunload` n'est
-// pas tenu sur mobile, et un onglet tué n'en dit rien.
-notices.list.subscribe((list) => {
-  const store = storage();
-  if (store) writeNotices(store, list);
-});
+/**
+ * L'écriture ne s'ouvre qu'une fois la relecture faite, et une seule fois.
+ *
+ * `subscribe` d'un `writable` tire IMMÉDIATEMENT et synchroniquement avec la
+ * valeur courante. Établi au niveau module, cet abonnement écrivait donc une
+ * liste vide dès l'import - c'est-à-dire effaçait la clé - avant que
+ * `restoreNotices()`, appelée depuis un `onMount` forcément postérieur, ait pu
+ * la lire. Toute la persistance était morte sans que rien ne le dise, et aucun
+ * test unitaire ne pouvait le voir : ils construisent des centres à la main,
+ * sans jamais rejouer le cycle import → abonnement d'un vrai navigateur.
+ *
+ * Le drapeau sert au layout, qui se remonte à chaque navigation côté client :
+ * deux abonnements écriraient deux fois la même chose.
+ *
+ * Écrit à chaque changement plutôt qu'au déchargement : `beforeunload` n'est
+ * pas tenu sur mobile, et un onglet tué n'en dit rien.
+ */
+function startWriting(): void {
+  if (writing) return;
+  writing = true;
+  notices.list.subscribe((list) => {
+    const store = storage();
+    if (!store) return;
+    try {
+      writeNotices(store, list);
+    } catch {
+      // Quota à zéro en navigation privée : `storage()` ne garde que l'accès
+      // au global, pas `setItem`. Ne rien retenir vaut mieux que faire
+      // remonter une exception dans les dix appelants de `show()`, puisque cet
+      // abonnement tourne synchroniquement à l'intérieur de `post()`.
+    }
+  });
+}
 
 /**
  * Le tableau que les appelants historiques lisent.
@@ -916,7 +946,7 @@ bun run test:ui
 cd frontend && bun run check
 ```
 
-Attendu : **1267 pass**, et `svelte-check` à **0 erreur**. Le nombre
+Attendu : **1269 pass**, et `svelte-check` à **0 erreur**. Le nombre
 d'avertissements doit rester à 14 ou baisser ; s'il monte, c'est du CSS devenu
 inutilisé qu'on a oublié de supprimer aux étapes 6 et 7.
 
@@ -1010,7 +1040,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun test core/test/notices.test.ts
 ```
 
-Attendu : 22 pass, 0 fail.
+Attendu : 24 pass, 0 fail.
 
 - [ ] **Step 5: Écrire le composant**
 
@@ -1471,7 +1501,7 @@ bun run test:ui
 cd frontend && bun run check
 ```
 
-Attendu : 1270 pass, 0 erreur.
+Attendu : 1272 pass, 0 erreur.
 
 - [ ] **Step 5: Regarder à l'écran**
 
@@ -1600,7 +1630,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun test core/test/notices.test.ts
 ```
 
-Attendu : 25 pass, 0 fail.
+Attendu : 27 pass, 0 fail.
 
 - [ ] **Step 6: Écrire les ponts**
 
@@ -1791,7 +1821,7 @@ bun run test:backend
 cd frontend && bun run check
 ```
 
-Attendu : 1273 pass sur `test:ui`, backend inchangé, 0 erreur de typage. Les
+Attendu : 1275 pass sur `test:ui`, backend inchangé, 0 erreur de typage. Les
 avertissements de `svelte-check` doivent **baisser** — quatre composants
 supprimés, dont ceux qui portaient des règles CSS inutilisées.
 
