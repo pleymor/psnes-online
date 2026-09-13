@@ -541,9 +541,12 @@ test('un inviteur au-delà de son quota ne fait plus entrer personne', () => {
   assert.equal(!decision.ok && decision.status, 403);
 });
 
-test('un lien frappé par le CLI ouvre même si son inviteur est au bout', () => {
+test('un lien frappé par le CLI ouvre même si son inviteur est au-delà', () => {
+  // 3 et non 2 : à 2 la porte ouvre de toute façon, donc le test réussirait
+  // même si `grantedByCli` était ignoré. À 3 il échoue si l'exemption
+  // disparaît, ce qui est tout ce qu'on lui demande.
   const decision = signupDoorDecision({
-    ...OPEN, invite: invite({ grantedByCli: true }), inviterCharged: 2
+    ...OPEN, invite: invite({ grantedByCli: true }), inviterCharged: 3
   });
   assert.equal(decision.ok, true);
 });
@@ -1166,22 +1169,11 @@ authRouter.get('/invite/:code', (req, res) => {
 
 Avec les imports correspondants (`admitSignup`, `inviteLookupLimit`).
 
-- [ ] **Step 6 : Compléter `GET /auth/mode`**
+- [ ] **Step 6 : Ne PAS toucher à `GET /auth/mode`**
 
-Remplacer le corps de la route par :
+Une première rédaction de ce plan y ajoutait `inviteOnly: true`. Décision prise au scan pré-vol : **ne pas l'ajouter**. Personne ne le lit — la Task 6 affiche « psnes se joue sur invitation » sans condition, ce qui est correct puisque la porte n'a aucune variable pour la désactiver. Un champ constant que rien ne consomme laisserait croire qu'il existe un déploiement où l'inscription est ouverte.
 
-```ts
-authRouter.get('/mode', (req, res) => {
-  res.json({
-    mode: AUTH_MODE,
-    anonymousJoin: anonymousJoinEnabled(),
-    // Le front n'a aucun moyen de savoir autrement que l'inscription est
-    // fermée, et il doit le dire à un visiteur sans lien plutôt que de lui
-    // offrir un bouton qui le renverra avec une erreur.
-    inviteOnly: true
-  });
-});
-```
+Le chantier 2 ajoutera `passwordAuth` à cette route ; celui-ci la laisse telle quelle.
 
 - [ ] **Step 7 : Vérifier**
 
