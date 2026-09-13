@@ -140,6 +140,15 @@
     cursor: pointer;
   }
 
+  /* Même règle que `.bar-button svg, .icon-button svg` dans `TopBar.svelte` :
+     scopée à ce composant-là, elle n'atteint pas la cloche. Sans elle, le
+     glyphe fixe en pixels donne à la cloche une hauteur différente de son
+     voisin « Amis ». */
+  .bell svg {
+    height: 1.25em;
+    width: auto;
+  }
+
   .badge {
     position: absolute;
     top: -0.35rem;

@@ -115,7 +115,14 @@
 <style>
   .toasts {
     position: fixed;
-    top: 20px;
+    /* Sous la barre du haut, et non à 20px du haut de la fenêtre : la barre
+       est sticky à z-index 101 mais mesure environ 57px (un bouton de 38px,
+       0,5rem de marge intérieure de chaque côté, un liseré de 3px), et un
+       toast fixé plus haut passe par-dessus elle - juste sur la cloche, à
+       droite, qui devient inatteignable au moment où on aurait une raison
+       de l'ouvrir. Sur un écran sans barre, un toast un peu plus bas ne
+       gêne personne ; un toast qui mange la cloche, si. */
+    top: 4.5rem;
     right: 20px;
     z-index: 9999;
     display: flex;
