@@ -39,10 +39,26 @@ export async function notifyFriendsRoomStatusChanged(
   });
 }
 
+/**
+ * `inVr` est un paramètre, et il n'est pas facultatif.
+ *
+ * `friend:statusChanged` a TROIS émetteurs, et quiconque en ajoute un quatrième
+ * a besoin de la liste juste : celui-ci, `websocket/vr-lobby.ts` (l'entrée et
+ * la sortie du lobby VR) et `api/friends.ts` (l'acceptation d'une demande
+ * d'ami, qui annonce à chacun le statut de l'autre).
+ *
+ * Le client lit `payload.inVr` directement. Si cet émetteur-ci omettait le
+ * champ, `undefined` serait faux et un ami bel et bien présent dans le lobby VR
+ * en sortirait chez ses amis au premier changement de statut sans rapport. Les
+ * trois émetteurs doivent donc produire la même forme, et un paramètre requis
+ * est ce qui empêche un appelant de l'oublier - là où les deux autres
+ * construisent des littéraux, que rien ne contraint.
+ */
 export async function notifyFriendsStatusChanged(
   io: Server,
   userId: string,
   online: boolean,
+  inVr: boolean,
   getUserSocket: (id: string) => string | undefined
 ) {
   const friendships = await getFriendships(userId);
@@ -54,7 +70,8 @@ export async function notifyFriendsStatusChanged(
     if (friendSocketId) {
       io.to(friendSocketId).emit('friend:statusChanged', {
         userId,
-        online
+        online,
+        inVr
       });
     }
   });
@@ -77,11 +94,13 @@ export interface OnlineFriend {
   discriminator: string;
   avatar: string | null;
   online: boolean;
+  inVr: boolean;
 }
 
 export async function getOnlineFriends(
   userId: string,
-  presence: { socketFor(userId: string): string | undefined }
+  presence: { socketFor(userId: string): string | undefined },
+  vr: { isInVr(userId: string): boolean }
 ): Promise<OnlineFriend[]> {
   const friendships = listAcceptedFriendshipsWithProfiles(getDb(), userId);
 
@@ -96,7 +115,8 @@ export async function getOnlineFriends(
       pseudo: friend.pseudo,
       discriminator: friend.discriminator,
       avatar: friend.avatar,
-      online: presence.socketFor(friend.id) !== undefined
+      online: presence.socketFor(friend.id) !== undefined,
+      inVr: vr.isInVr(friend.id)
     };
   });
 }

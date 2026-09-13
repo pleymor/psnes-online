@@ -45,6 +45,18 @@ export function getUserSocket(userId: string): string | undefined {
   return presence.socketFor(userId);
 }
 
+/**
+ * Qui est en VR, pour les trois endroits qui l'annoncent aux amis.
+ *
+ * Une fonction plutôt que `vrLobby.isInVr` passé directement : `vrLobby` est
+ * nul tant que `initializeWebSocket` n'a pas tourné, et `api/friends.ts` a
+ * besoin de la même réponse sans rien savoir de cette variable. Nul se lit
+ * « personne n'est en VR », ce qui est la vérité avant qu'un lobby existe.
+ */
+export function isUserInVr(userId: string): boolean {
+  return vrLobby?.isInVr(userId) === true;
+}
+
 export function getRooms(): Map<string, Room> {
   return rooms;
 }
@@ -172,7 +184,7 @@ async function handleConnection(io: Server, socket: Socket) {
   // events that arrive with no listener attached, so any await placed before
   // this point is a window in which a client's first emit is silently dropped.
   socket.on('friends:getOnlineStatus', async () => {
-    const onlineFriends = await getOnlineFriends(user.id, presence);
+    const onlineFriends = await getOnlineFriends(user.id, presence, { isInVr: isUserInVr });
     socket.emit('friends:online', onlineFriends);
   });
 
@@ -211,7 +223,11 @@ async function handleConnection(io: Server, socket: Socket) {
   socket.emit('rooms:list', visible.map(room => toPublicRoomFor(room, user.id)));
 
   // Notify friends that this user is now online
-  await notifyFriendsStatusChanged(io, user.id, true, getUserSocket);
+  //
+  // `isUserInVr` plutôt que `false` : une reconnexion pendant une session VR
+  // repasse par ici, et annoncer « en ligne, pas en VR » la ferait disparaître
+  // du lobby chez ses amis alors qu'elle a toujours le casque sur la tête.
+  await notifyFriendsStatusChanged(io, user.id, true, isUserInVr(user.id), getUserSocket);
 
   // Disconnect
   socket.on('disconnect', async () => {
@@ -236,7 +252,9 @@ async function handleConnection(io: Server, socket: Socket) {
       return;
     }
 
-    await notifyFriendsStatusChanged(io, user.id, false, getUserSocket);
+    // `false` en dur, et pas `isUserInVr` : un socket fermé ne porte pas de
+    // casque, et la sortie du lobby VR peut arriver après cette ligne.
+    await notifyFriendsStatusChanged(io, user.id, false, false, getUserSocket);
 
     // Away, not gone. Their seat, their port and their membership are all
     // still theirs; what changes is that a game can no longer start against

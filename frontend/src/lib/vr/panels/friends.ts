@@ -82,6 +82,8 @@ export interface FriendRow {
   id: string;
   pseudo: string;
   online: boolean;
+  /** Il a ouvert la VR et n'est pas en partie : on peut aller le voir. */
+  inVr: boolean;
   /** The game's title, when they are in one. */
   playing: string | null;
 }
@@ -96,6 +98,8 @@ export interface FriendsLabels {
   invited: string;
   /** On the row of a friend who is already here. See `FriendsState.members`. */
   inGroup: string;
+  /** Sur la ligne d'un ami présent dans le lobby VR. */
+  inVr: string;
   cancel: string;
   accept: string;
   decline: string;
@@ -121,6 +125,7 @@ export interface FriendsLabels {
 export function friendRows(
   friends: readonly { friend: { id: string; pseudo: string } }[],
   online: ReadonlyMap<string, boolean>,
+  inVr: ReadonlySet<string>,
   playingByUserId: ReadonlyMap<string, string>,
   cap: number,
   invitedId?: string
@@ -132,6 +137,10 @@ export function friendRows(
     // freshly opened socket looks like before `friends:online` arrives, and
     // guessing "online" there would show everyone as present for a second.
     online: online.get(entry.friend.id) === true,
+    // Hors ligne prime : un socket fermé ne porte pas de casque. Sans ce ET,
+    // un ami dont la déconnexion arrive avant la sortie de VR resterait
+    // « en VR » jusqu'au rechargement.
+    inVr: online.get(entry.friend.id) === true && inVr.has(entry.friend.id),
     playing: playingByUserId.get(entry.friend.id) ?? null
   }));
 
@@ -345,12 +354,18 @@ export function drawFriendsPanel(
      * true beats two that compete - decides the order: a friend in the room
      * is neither waiting to answer nor merely online, and the game title they
      * would otherwise show is the one this player is in too.
+     *
+     * Et « en VR » se glisse entre la partie et « en ligne », dans cet ordre
+     * parce que c'est celui de la précision : on quitte le lobby partagé en
+     * lançant, donc annoncer « en VR » quelqu'un qui joue serait faux, tandis
+     * que « en ligne » est vrai mais n'apprend plus rien à qui a déjà le
+     * casque sur la tête.
      */
     const status = here
       ? labels.inGroup
       : invited
         ? labels.invited
-        : (row.playing ?? (row.online ? labels.online : labels.offline));
+        : (row.playing ?? (row.inVr ? labels.inVr : row.online ? labels.online : labels.offline));
     ctx.fillText(truncate(ctx, status, STATUS_W), STATUS_RIGHT, y);
 
     const cancel = state.pending && invited ? byId.get(`cancel-invite:${state.pending.id}`) : null;
