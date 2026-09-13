@@ -695,8 +695,14 @@ export function createVrScene(opts: {
        * les matrices. Sans ça, la pose émise est celle de l'image précédente -
        * un retard d'une image chez tous ses amis, invisible au débogage et
        * bien réel dans un casque.
+       *
+       * `updateWorldMatrix(true, false)` et non `updateMatrixWorld(true)` :
+       * « mes ancêtres et moi, pas mes enfants ». Seule la matrice de `room`
+       * est lue ici, alors que descendre le sous-arbre recomposerait les
+       * quelques centaines d'`Object3D` du décor - pour rien, puisque le rendu
+       * qui suit refait le graphe entier de toute façon.
        */
-      room.updateMatrixWorld(true);
+      room.updateWorldMatrix(true, false);
 
       // La tête se lit sur la caméra XR et non sur `getViewerPose`, pour la
       // raison que `headPosition` donne : c'est celle qui a effectivement servi
@@ -708,6 +714,19 @@ export function createVrScene(opts: {
 
       const toRoom = new THREE.Matrix4().copy(room.matrixWorld).invert();
 
+      /*
+       * `compose` depuis la pose de la caméra, et SURTOUT PAS
+       * `copy(eye.matrixWorld)` - qui serait pourtant plus court et ressemble à
+       * ce que `headBasis` fait dix lignes plus bas.
+       *
+       * La caméra XR n'est pas dans le graphe : sa `matrixWorld` n'est écrite
+       * que par `WebXRManager.updateCamera`, appelé depuis `renderer.render`,
+       * donc APRÈS nous. Ses `position` et `quaternion`, eux, sont décomposés
+       * de la vue de l'image en cours avant que la boucle nous rende la main.
+       * Lire `matrixWorld` ici rendrait donc la tête de l'image PRÉCÉDENTE -
+       * exactement le retard que le rafraîchissement ci-dessus existe pour
+       * éviter, réintroduit par la porte d'à côté.
+       */
       const headMatrix = new THREE.Matrix4().compose(eye.position, eye.quaternion, ONE);
       headMatrix.premultiply(toRoom);
       headMatrix.decompose(position, quaternion, scale);
