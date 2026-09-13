@@ -61,6 +61,9 @@ services:
       - backend-node-modules:/app/node_modules
       - backend-data:/app/data
       - backend-avatars:/app/avatars
+      # Les jaquettes ingérées. En dev il n'y a pas de nginx : c'est le
+      # backend qui sert /covers (bootstrap/app.ts) et Vite qui y relaie.
+      - backend-covers:/app/covers
       - ./backend/data/snes-metadata.json:/app/metadata/snes-metadata.json:ro
     # Dependencies are installed once at image build time (backend/dev.Dockerfile),
     # not on every container start. backend-node-modules is a NAMED volume, so it
@@ -110,3 +113,4 @@ volumes:
   backend-data:
   backend-node-modules:
   backend-avatars:
+  backend-covers:

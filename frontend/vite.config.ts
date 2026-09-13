@@ -44,6 +44,13 @@ export default defineConfig({
         target: process.env.BACKEND_URL || 'http://localhost:3000',
         changeOrigin: true
       },
+      // En production c'est nginx qui sert ce chemin depuis le volume, sans
+      // jamais passer par Bun. Ici il n'y a pas de nginx, donc on va chercher
+      // les mêmes fichiers chez le backend, qui les sert aussi.
+      '/covers': {
+        target: process.env.BACKEND_URL || 'http://localhost:3000',
+        changeOrigin: true
+      },
       '/socket.io': {
         target: process.env.BACKEND_URL || 'http://localhost:3000',
         changeOrigin: true,
