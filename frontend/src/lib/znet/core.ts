@@ -133,6 +133,30 @@ export class PsnesCore {
 		options: Parameters<PsnesCoreFactory>[0] = {}
 	): Promise<PsnesCore> {
 		const module = await factory(options);
+
+		/*
+		 * Le tas, avant tout le reste.
+		 *
+		 * Une glu neuve appariée à un wasm d'une build antérieure s'instancie
+		 * sans bruit : les lettres d'export changent d'une build à l'autre, donc
+		 * la glu ne trouve plus la mémoire, et toutes ses vues naissent à
+		 * longueur nulle. `_pn_init` répond quand même, et `_malloc` rend des
+		 * pointeurs parfaitement valides - il s'exécute dans le wasm, sans
+		 * passer par ces vues.
+		 *
+		 * Le défaut ne se voyait donc qu'au premier `HEAPU8.set`, sous la forme
+		 * d'un « offset is out of bounds » qui accusait le chargement de la ROM.
+		 * Il a coûté une soirée d'enquête le 2026-09-13, et sept hypothèses
+		 * réfutées, pour une cause qui n'était pas dans ce fichier.
+		 */
+		if (!module.HEAPU8 || module.HEAPU8.length === 0) {
+			throw new Error(
+				"le cœur wasm n'expose aucune mémoire utilisable : la glu et le wasm ne " +
+					'viennent probablement pas de la même build (un cache de navigateur ' +
+					"qui garde un artefact périmé suffit à produire exactement ça)"
+			);
+		}
+
 		if (!module._pn_init()) {
 			throw new Error('psnes core failed to initialise');
 		}

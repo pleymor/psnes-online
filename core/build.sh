@@ -179,7 +179,34 @@ docker_run "em++ -O3 \
 # core has not been built yet, instead of failing on a missing module.
 STATIC_DIR="$REPO_DIR/frontend/static/psnes-core"
 mkdir -p "$STATIC_DIR"
-cp "$DIST_DIR/psnes_core.mjs" "$DIST_DIR/psnes_core.wasm" "$STATIC_DIR/"
+
+# Le nom porte le hachage du contenu, comme les chunks que vite produit.
+#
+# Sous un nom fixe, ces deux fichiers étaient les SEULS du déploiement qu'un
+# cache pouvait figer d'une build à l'autre : tout le reste est haché, et
+# `static/` est copié verbatim. Le 2026-09-13, un navigateur a gardé un wasm
+# d'une build antérieure et l'a apparié à la glu neuve. Les lettres d'export
+# changent d'une build à l'autre, donc la glu n'a plus trouvé la mémoire et
+# toutes ses vues sont nées vides - ce qui ne s'est vu qu'au premier accès,
+# sous la forme d'un « offset is out of bounds » accusant le chargement de la
+# ROM. Un nom qui change avec le contenu rend ce désappariement impossible,
+# au lieu de le rendre seulement improbable.
+rm -f "$STATIC_DIR"/psnes_core.*.mjs "$STATIC_DIR"/psnes_core.*.wasm \
+      "$STATIC_DIR"/psnes_core.mjs "$STATIC_DIR"/psnes_core.wasm \
+      "$STATIC_DIR"/manifest.json
+
+MJS_NAME="psnes_core.$(sha256sum "$DIST_DIR/psnes_core.mjs" | cut -c1-8).mjs"
+WASM_NAME="psnes_core.$(sha256sum "$DIST_DIR/psnes_core.wasm" | cut -c1-8).wasm"
+
+cp "$DIST_DIR/psnes_core.mjs" "$STATIC_DIR/$MJS_NAME"
+cp "$DIST_DIR/psnes_core.wasm" "$STATIC_DIR/$WASM_NAME"
+
+# Le seul nom fixe qui reste, et le seul fichier que le client relit sans
+# cache : s'il se figeait, il désignerait éternellement des artefacts passés
+# et le hachage n'aurait servi à rien. Quelques dizaines d'octets contre les
+# trois mégaoctets qu'il nomme.
+printf '{"module":"%s","wasm":"%s"}\n' "$MJS_NAME" "$WASM_NAME" \
+  > "$STATIC_DIR/manifest.json"
 
 log "done:"
 ls -lh "$DIST_DIR"/psnes_core.mjs "$DIST_DIR"/psnes_core.wasm | sed 's/^/  /'
