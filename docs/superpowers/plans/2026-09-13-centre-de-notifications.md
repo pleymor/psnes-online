@@ -341,6 +341,36 @@ test('retirer par identifiant ne touche pas les autres', () => {
 		['deux']
 	);
 });
+
+test('fermer le centre laisse ce qui porte des boutons', () => {
+	// L autre moitie de la regle. Sans ce test, un `list.set([])` qui ignore
+	// `hasActions` passe tout le fichier : la consommation est verifiee, la
+	// preservation ne l est pas, et c est elle qui garde les demandes en
+	// attente de reponse.
+	const notices = createNotices({ hasActions: (kind) => kind === 'avec-boutons' });
+	notices.post('raw', { message: 'a lire' });
+	notices.post('avec-boutons', { message: 'a repondre' });
+
+	notices.openCentre();
+	notices.closeCentre();
+
+	assert.deepEqual(
+		get(notices.list).map((n) => n.kind),
+		['avec-boutons']
+	);
+});
+
+test('une notification sans echeance survit au balayage', () => {
+	// Sans ce test, supprimer la clause `expiresAt === undefined` de `sweep`
+	// ferait disparaitre en silence tout ce qui n a pas d echeance - c est
+	// a dire presque tout.
+	const notices = createNotices();
+	notices.post('raw', { message: 'pour toujours' });
+
+	notices.sweep(Date.now() + 1_000_000);
+
+	assert.equal(get(notices.list).length, 1);
+});
 ```
 
 - [ ] **Step 2: Le lancer pour le voir échouer**
@@ -447,7 +477,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun test core/test/notices.test.ts
 ```
 
-Attendu : 9 pass, 0 fail.
+Attendu : 11 pass, 0 fail.
 
 - [ ] **Step 5: Commit**
 
@@ -632,7 +662,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun test core/test/notices.test.ts
 ```
 
-Attendu : 15 pass, 0 fail.
+Attendu : 17 pass, 0 fail.
 
 - [ ] **Step 5: Commit**
 
@@ -738,7 +768,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun test core/test/notices.test.ts
 ```
 
-Attendu : 17 pass, 0 fail.
+Attendu : 19 pass, 0 fail.
 
 - [ ] **Step 5: Réécrire `services/notification.ts` en couche de compatibilité**
 
@@ -886,7 +916,7 @@ bun run test:ui
 cd frontend && bun run check
 ```
 
-Attendu : **1265 pass**, et `svelte-check` à **0 erreur**. Le nombre
+Attendu : **1267 pass**, et `svelte-check` à **0 erreur**. Le nombre
 d'avertissements doit rester à 14 ou baisser ; s'il monte, c'est du CSS devenu
 inutilisé qu'on a oublié de supprimer aux étapes 6 et 7.
 
@@ -980,7 +1010,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun test core/test/notices.test.ts
 ```
 
-Attendu : 20 pass, 0 fail.
+Attendu : 22 pass, 0 fail.
 
 - [ ] **Step 5: Écrire le composant**
 
@@ -1310,21 +1340,31 @@ git commit -m "Une seule pile là où six surfaces se tenaient"
 <style>
   .bell-wrap { position: relative; }
 
+  /* Les déclarations de `.bar-button` de `TopBar`, recopiées et non
+     réinventées.
+
+     Svelte scope les styles au composant, donc la classe du parent ne
+     traverse pas ; mais ces valeurs sont toutes des propriétés
+     personnalisées globales, donc les recopier rend exactement le même
+     bouton. Inventer un bord et un fond ici mettrait une cloche étrangère
+     à côté du casque et des amis - c'est mot pour mot la faute que
+     `GameDetailsModal` a payée avec `.share`, livré en bouton brut du
+     navigateur à côté de son voisin habillé. */
   .bell {
     position: relative;
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    width: 2.25rem;
-    height: 2.25rem;
-    border-radius: 8px;
-    background: transparent;
-    border: 1px solid #3d3d52;
-    color: #b7b7cc;
+    line-height: 1.25;
+    background: var(--ground);
+    border: var(--btn-border) solid var(--edge);
+    box-shadow: var(--btn-bevel);
+    color: var(--shell);
+    font-family: var(--display);
+    font-size: var(--btn-size);
+    padding: var(--btn-pad);
+    border-radius: var(--btn-radius);
     cursor: pointer;
   }
-
-  .bell:hover { border-color: var(--edge); color: var(--label); }
 
   .badge {
     position: absolute;
@@ -1413,8 +1453,15 @@ Dans `frontend/src/lib/i18n/translations.ts`, aux deux locales :
 
 - [ ] **Step 3: Monter la cloche dans la barre**
 
-Dans `frontend/src/lib/components/TopBar.svelte`, importer `NoticeCentre` et
-le placer dans la rangée de droite, avant le sélecteur de langue.
+Dans `frontend/src/lib/components/TopBar.svelte`, importer `NoticeCentre` et le
+placer dans `<div class="right">` (l. 409), **en premier**, avant le bouton VR
+conditionnel — la cloche est toujours là, lui non, et un élément qui apparaît
+en tête de rangée ne déplace pas ses voisins.
+
+Vérifier à l'œil, pas seulement au typage : la cloche doit avoir exactement la
+même hauteur, le même biseau et la même couleur que le bouton « amis » juste à
+côté. Si elle en diffère, c'est qu'une déclaration de `.bar-button` a été
+oubliée à l'étape 1.
 
 - [ ] **Step 4: Vérifier**
 
@@ -1424,7 +1471,7 @@ bun run test:ui
 cd frontend && bun run check
 ```
 
-Attendu : 1268 pass, 0 erreur.
+Attendu : 1270 pass, 0 erreur.
 
 - [ ] **Step 5: Regarder à l'écran**
 
@@ -1553,7 +1600,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun test core/test/notices.test.ts
 ```
 
-Attendu : 23 pass, 0 fail.
+Attendu : 25 pass, 0 fail.
 
 - [ ] **Step 6: Écrire les ponts**
 
@@ -1744,7 +1791,7 @@ bun run test:backend
 cd frontend && bun run check
 ```
 
-Attendu : 1271 pass sur `test:ui`, backend inchangé, 0 erreur de typage. Les
+Attendu : 1273 pass sur `test:ui`, backend inchangé, 0 erreur de typage. Les
 avertissements de `svelte-check` doivent **baisser** — quatre composants
 supprimés, dont ceux qui portaient des règles CSS inutilisées.
 
