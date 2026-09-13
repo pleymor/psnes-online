@@ -90,7 +90,7 @@ COPY --from=builder /app/backend/dist ./dist
 # The unprivileged user is `bun` here, where the Node base image called it
 # `node`. Both are uid/gid 1000, so an existing data volume keeps working
 # untouched -- but the *name* changed, and docker-entrypoint.sh names it.
-RUN mkdir -p roms saves data avatars metadata && \
+RUN mkdir -p roms saves data avatars covers metadata && \
     chown -R bun:bun /app
 
 # Copy metadata file into image (not in /data to avoid volume shadowing)

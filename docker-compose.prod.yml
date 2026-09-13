@@ -38,6 +38,13 @@ services:
     volumes:
       - backend-data:/app/data
       - backend-avatars:/app/avatars
+      # Les jaquettes ingérées, écrites par le backend et servies par nginx.
+      #
+      # Le volume est entièrement dérivé : la source d'une jaquette du catalogue
+      # est l'URL distante dans snes-metadata.json, celle d'un upload est le BLOB
+      # dans la base. `covers-cli --rebuild` le refait donc de zéro, et il n'a
+      # pas besoin d'être sauvegardé.
+      - backend-covers:/app/covers
     depends_on:
       db-migration:
         condition: service_completed_successfully
@@ -51,6 +58,10 @@ services:
       dockerfile: frontend/Dockerfile
     ports:
       - "5173:80"
+    volumes:
+      # En lecture seule : nginx sert ces fichiers, le backend est le seul
+      # à les écrire. Le chemin est celui de la `location /covers/`.
+      - backend-covers:/var/www/covers:ro
     depends_on:
       - backend
     restart: unless-stopped
@@ -58,4 +69,5 @@ services:
 volumes:
   redis-data:
   backend-data:
+  backend-covers:
   backend-avatars:
