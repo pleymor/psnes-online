@@ -40,9 +40,22 @@ export const NOTICE_SHAPES: Record<string, NoticeShape> = {
       t(lang, 'shareOffer', { name: String(params.name), title: String(params.title) }),
     tone: 'info',
     live: true,
-    // Posée avant l'envoi : c'est le moment où elle peut encore changer la
-    // réponse. `ShareOffer` la portait avec ce commentaire même.
-    legal: 'keepRomLegal'
+    /*
+     * La règle du PARTAGE, et non celle de la détention.
+     *
+     * Posée avant l'envoi : c'est le moment où elle peut encore changer la
+     * réponse, et `ShareOffer` la portait avec ce commentaire même. Mais elle
+     * disait `keepRomLegal` - « ne garde un jeu que si tu possèdes la
+     * cartouche » - qui parle de DÉTENTION. Recevoir une copie est une
+     * redistribution : posséder la cartouche n'y autorise personne, seule la
+     * licence du jeu le fait.
+     *
+     * Ces deux lignes ont failli se croiser sans se voir : la branche du
+     * disclaimer a corrigé la phrase DANS `ShareOffer`, et celle-ci a supprimé
+     * `ShareOffer`. Le rebase a posé la question - fichier modifié d'un côté,
+     * supprimé de l'autre - et c'est ici que la correction se reporte.
+     */
+    legal: 'shareLegalShort'
   },
 
   /**

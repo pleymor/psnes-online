@@ -372,10 +372,18 @@ test('un kind inconnu sans ton dans les params rend info', () => {
 	assert.equal(toneOf({ kind: 'rien-de-tel', params: {} }), 'info');
 });
 
-test('l offre de jeu et garder la ROM portent la meme mention legale', () => {
-	// Les deux cartes d offre l affichaient avant de perdre leur rendu propre.
-	assert.equal(shapeOf('share-offer')?.legal, 'keepRomLegal');
+test('chaque offre porte SA regle, et ce ne sont pas les memes', () => {
+	// Les deux cartes d offre affichaient une mention legale avant de perdre
+	// leur rendu propre, et ce test a d abord affirme qu elles portaient LA
+	// MEME - ce qui n etait vrai que par accident de restauration.
+	//
+	// Recevoir une copie est une REDISTRIBUTION : posseder la cartouche n y
+	// autorise personne, seule la licence du jeu le fait. La garder ensuite est
+	// de la DETENTION, ou la cartouche est justement ce qui compte. Deux
+	// moments, deux regles, et les confondre avertit de travers.
+	assert.equal(shapeOf('share-offer')?.legal, 'shareLegalShort');
 	assert.equal(shapeOf('keep-rom')?.legal, 'keepRomLegal');
+	assert.notEqual(shapeOf('share-offer')?.legal, shapeOf('keep-rom')?.legal);
 });
 
 import { isOnScreen } from '../../frontend/src/lib/notices/shapes.js';
