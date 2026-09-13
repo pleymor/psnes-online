@@ -136,3 +136,69 @@ test('une notification sans echeance survit au sweep', () => {
 		['sans echeance']
 	);
 });
+
+import {
+	NOTICES_KEY,
+	readNotices,
+	writeNotices
+} from '../../frontend/src/lib/notices/persist.js';
+
+/** Un stockage de test, sans navigateur. */
+function fakeStorage(initial: Record<string, string> = {}) {
+	const data = new Map(Object.entries(initial));
+	return {
+		data,
+		getItem: (key: string) => data.get(key) ?? null,
+		setItem: (key: string, value: string) => void data.set(key, value),
+		removeItem: (key: string) => void data.delete(key)
+	};
+}
+
+const RAW = { id: 'a', kind: 'raw', params: { message: 'un' }, at: 10 };
+
+test('ce qui est ecrit se relit', () => {
+	const storage = fakeStorage();
+
+	writeNotices(storage, [RAW]);
+
+	assert.deepEqual(readNotices(storage, 100), [RAW]);
+});
+
+test('une echeance depassee ne ressort pas', () => {
+	const storage = fakeStorage();
+	writeNotices(storage, [{ ...RAW, expiresAt: 50 }]);
+
+	assert.deepEqual(readNotices(storage, 51), []);
+});
+
+test('un kind qui depend d une session vivante ne ressort pas', () => {
+	// La socket est morte avec l onglet : la reposer, c est offrir un bouton
+	// qui ne peut plus rien declencher.
+	const storage = fakeStorage();
+	writeNotices(storage, [{ ...RAW, kind: 'share-offer' }]);
+
+	assert.deepEqual(readNotices(storage, 100), []);
+});
+
+test('un kind que cette version ne connait plus ne ressort pas', () => {
+	const storage = fakeStorage();
+	writeNotices(storage, [{ ...RAW, kind: 'ce-kind-a-ete-supprime' }]);
+
+	assert.deepEqual(readNotices(storage, 100), []);
+});
+
+test('un stockage illisible rend une liste vide et s efface', () => {
+	const storage = fakeStorage({ [NOTICES_KEY]: '{ pas du json' });
+
+	assert.deepEqual(readNotices(storage, 100), []);
+	assert.equal(storage.data.has(NOTICES_KEY), false);
+});
+
+test('ecrire une liste vide efface l entree', () => {
+	const storage = fakeStorage();
+	writeNotices(storage, [RAW]);
+
+	writeNotices(storage, []);
+
+	assert.equal(storage.data.has(NOTICES_KEY), false);
+});
