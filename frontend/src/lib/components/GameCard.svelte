@@ -72,7 +72,23 @@
 >
   <div class="cover">
     {#if game.coverUrl && !coverBroken}
-      <img src={game.coverUrl} alt="" on:error={() => (coverBroken = true)} />
+      <!--
+        `lazy` parce qu'une bibliothèque défile : mesuré le 13/09/2026, une
+        jaquette du catalogue pesait 266 Ko médians et la grille les chargeait
+        toutes, visibles ou non. Les dimensions sont celles de la rendition
+        servie (512 de large, dans un cadre 10/7) : sans elles le navigateur ne
+        sait pas quelle place réserver et la grille sursaute au fur et à mesure
+        que les images arrivent.
+      -->
+      <img
+        src={game.coverUrl}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        width="512"
+        height="358"
+        on:error={() => (coverBroken = true)}
+      />
     {:else}
       <!-- Le titre EST l'étiquette : c'est ce qu'une cartouche sans jaquette
            montre, et c'est plus utile qu'une manette générique. -->

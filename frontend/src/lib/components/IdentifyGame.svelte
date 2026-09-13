@@ -12,7 +12,7 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
-  import { encodeCover } from '$lib/games/cover';
+  import { encodeCover, thumbUrlOf } from '$lib/games/cover';
   import { createLogger } from '$lib/utils/logger';
 
   const logger = createLogger('IdentifyGame');
@@ -325,7 +325,22 @@
           <li>
             <button class="result" on:click={() => linkTo(match)} disabled={busy}>
               {#if match.coverUrl}
-                <img src={match.coverUrl} alt="" class="thumb" />
+                <!--
+                  La petite rendition, pas le scan entier. Cette image est
+                  dessinée en 40x30 : mesuré le 13/09/2026, elle téléchargeait
+                  275 Ko pour ça, soit 5,5 Mo pour vingt résultats. La vignette
+                  ingérée en fait 7 Ko, et `thumbUrlOf` rend l'URL telle quelle
+                  pour une ligne pas encore ingérée.
+                -->
+                <img
+                  src={thumbUrlOf(match.coverUrl)}
+                  alt=""
+                  class="thumb"
+                  loading="lazy"
+                  decoding="async"
+                  width="40"
+                  height="30"
+                />
               {:else}
                 <span class="thumb">🎮</span>
               {/if}
