@@ -74,3 +74,23 @@ test("l'orientation n'entre pas dans le calcul", () => {
   const straight: Pose = [3, 0, 0, 0, 0, 0, 1];
   assert.deepEqual(presenceFor(at(0), turned), presenceFor(at(0), straight));
 });
+
+/*
+ * Le repli quand je n'ai pas encore ma propre pose.
+ *
+ * Il vivait dans la boucle de dessin, donc hors de portée de tout test :
+ * `avatars.ts` importe three, que Bun ne sait pas exécuter. Une politique de
+ * proximité invérifiable est exactement ce que ce module existe pour éviter.
+ */
+test("sans ma propre pose, un ami est montré solide plutôt que masqué", () => {
+  const p = presenceFor(null, at(0));
+  assert.equal(p.visible, true, "faire disparaître le lobby serait le pire repli");
+  assert.equal(p.opacity, 1);
+});
+
+test("sans ma propre pose, même un ami superposé reste visible", () => {
+  // Le cas qui décide : à zéro mètre, la règle de distance dirait « absent ».
+  // Mais l'effacement existe pour qu'un ami ne me gêne PAS, et sans ma pose il
+  // n'y a aucune gêne à constater - seulement une distance inconnue.
+  assert.equal(presenceFor(null, at(0, 0, 0)).visible, true);
+});

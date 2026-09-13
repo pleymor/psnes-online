@@ -3,7 +3,7 @@
  *
  * La jumelle de `decor/build.ts`, et pour la même raison : three n'est pas
  * exécutable sous Bun, donc tout ce qui pourrait se tromper est déjà parti
- * ailleurs. `roster.ts` dit où sont les amis, `proximity.ts` dit ce qu'on en
+ * ailleurs. `roster.ts` dit QUI est là et où, `proximity.ts` dit ce qu'on en
  * montre, `avatar-art.ts` dit à quoi ils ressemblent. Ici on pose des boîtes.
  *
  * TROIS PIÈGES, DÉSARMÉS ICI PARCE QU'ILS ONT DÉJÀ COÛTÉ.
@@ -30,6 +30,7 @@ import { uvOf, type Atlas } from '../decor/atlas';
 import { truncate } from '../panel';
 import { SMW } from '../panels/chrome';
 import { presenceFor } from './proximity';
+import { namedOnly } from './roster';
 import type { Pose, PeerPose } from './roster';
 
 /** Une tête d'adulte fait vingt-quatre centimètres de large. */
@@ -61,7 +62,8 @@ export interface AvatarsOptions {
    * Un rappel de plus serait un paramètre que personne ne lit.
    */
   /** Le pseudo d'un identifiant, ou `null` si on ne le connaît pas — auquel
-   *  cas l'ami n'est PAS dessiné : voir `update`. */
+   *  cas l'ami n'est PAS dessiné. C'est `namedOnly` (`roster.ts`) qui applique
+   *  la règle, pour qu'un test puisse la tenir. */
   label: (id: string) => string | null;
 }
 
@@ -69,9 +71,9 @@ export interface Avatars {
   /** À passer à `scene.addDecor`. */
   group: THREE.Object3D;
   /**
-   * `mine` est ma propre tête, pour la proximité. `null` tant que je n'ai pas
-   * de pose : dans ce cas on montre tout le monde solide plutôt que de faire
-   * disparaître le lobby.
+   * `mine` est ma propre tête, pour la proximité, et `null` tant que je n'ai
+   * pas de pose. Ce que ça vaut se lit dans `presenceFor` (`proximity.ts`),
+   * qui porte le repli : ce module n'en décide rien.
    */
   update(peers: ReadonlyMap<string, PeerPose>, mine: Pose | null): void;
   dispose(): void;
@@ -215,7 +217,32 @@ export function createAvatars(opts: AvatarsOptions): Avatars {
      */
     const material = opts.material.clone();
     material.transparent = true;
-    material.alphaTest = 0;
+    /*
+     * PAS zéro, et pas non plus le 0,5 dont on hérite.
+     *
+     * `build.ts` prend 0,5 parce que ses découpes sont franches et ses quads
+     * opaques ; mais `alphaTest` compare `opacity × alphaTexel`, donc 0,5
+     * ferait disparaître l'ami ENTIER dès que le fondu de proximité passe sous
+     * la moitié. Zéro, lui, garde les texels de marge d'`AVATAR_HAND` - des
+     * `.`, donc alpha 0 : invisibles à la couleur, mais ÉCRITS dans le tampon
+     * de profondeur, ce qui donne à chaque main une empreinte carrée qui
+     * découpe les transparents dessinés après elle - la plaque d'un autre ami,
+     * le rideau. C'est le piège du transparent qui coûte son tri, sous une
+     * autre forme.
+     *
+     * 0,01 rejette les texels d'alpha nul et survit à tout le fondu : l'ami ne
+     * s'efface qu'en deçà d'une opacité déjà invisible. Posé une fois à la
+     * création, donc `USE_ALPHATEST` ne se recompile pas par image.
+     */
+    material.alphaTest = 0.01;
+    /*
+     * `DoubleSide` était le réglage des billboards du décor, qui pivotent et
+     * passent par des angles montrant leur dos. Une tête et une main sont des
+     * cubes FERMÉS : leurs faces intérieures ne seraient rasterisées que pour
+     * être rejetées, et sur la main elles se mélangeraient à travers la marge
+     * transparente.
+     */
+    material.side = THREE.FrontSide;
     material.depthWrite = true;
 
     const headGeometry = geometryFor(opts.atlas, HEAD_SIZE, 'avatarFace', 'avatarSide', 'avatarTop');
@@ -257,36 +284,36 @@ export function createAvatars(opts: AvatarsOptions): Avatars {
     group,
 
     update(peers, mine) {
-      // Les partis, d'abord : un ami absent de la carte a quitté le lobby, et
-      // `roster` a déjà décidé ça pour nous.
+      /*
+       * Qui est dessinable, décidé par `roster` : un identifiant qu'on ne sait
+       * pas nommer n'est pas là. La règle est une garantie de sécurité - aucun
+       * inconnu dans le lobby de personne - donc elle vit chez un module qu'un
+       * test peut exécuter, et pas dans cette boucle-ci.
+       */
+      const shown = namedOnly(peers, opts.label);
+
+      // Les partis, d'abord. Contre `shown` et non contre `peers` : un ami
+      // qu'on ne sait plus nommer doit s'en aller comme un ami qui a quitté le
+      // lobby, sinon il resterait figé à sa dernière pose pour toujours.
       for (const [id, avatar] of avatars) {
-        if (peers.has(id)) continue;
+        if (shown.has(id)) continue;
         release(avatar);
         group.remove(avatar.root);
         avatars.delete(id);
       }
 
-      for (const [id, pose] of peers) {
-        const pseudo = opts.label(id);
-        /*
-         * Un identifiant qu'on ne connaît pas comme ami n'est PAS dessiné.
-         *
-         * La garantie de dernier recours : même si le serveur se trompait un
-         * jour de destinataire, aucun inconnu n'apparaîtrait dans le lobby de
-         * personne. C'est aussi ce qui arrive légitimement pendant la seconde
-         * où `friends:online` n'est pas encore arrivé.
-         */
-        if (pseudo === null) continue;
+      for (const [id, named] of shown) {
+        const pose = named.pose;
 
         let avatar = avatars.get(id);
         if (!avatar) {
-          avatar = build(id, pseudo);
+          avatar = build(id, named.pseudo);
           avatars.set(id, avatar);
         }
 
-        const presence = mine === null
-          ? { visible: true, opacity: 1 }
-          : presenceFor(mine, pose.head);
+        // Y compris quand je n'ai pas encore ma propre pose : `presenceFor`
+        // porte ce repli, parce que c'est une politique de proximité.
+        const presence = presenceFor(mine, pose.head);
 
         avatar.root.visible = presence.visible;
         if (!presence.visible) continue;
