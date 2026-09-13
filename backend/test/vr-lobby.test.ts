@@ -560,11 +560,11 @@ test('un client qui inonde est plafonné, pas déconnecté', async () => {
     const a = await client(alice);
     const b = await client(bob);
 
-    b.emit('vr:enter');
-    b.emit('vr:pose', BOB_POSE);
+    // Alice d'abord et seule : le battement tourne, et la fenêtre du plafond de
+    // Bob n'est pas encore née. Aucune attente ne sera plus possible après.
     a.emit('vr:enter');
     a.emit('vr:pose', ALICE_POSE);
-    await lobbyWhere(a, s => s.peers.length === 1);
+    await once(a, 'vr:lobby');
 
     /*
      * Des poses DISTINGUABLES, et c'est tout l'intérêt : inonder avec deux
@@ -572,37 +572,70 @@ test('un client qui inonde est plafonné, pas déconnecté', async () => {
      * moitié-là passe aussi bien sans plafond du tout. Numérotées, la dernière
      * que ses amis voient dit combien le serveur en a réellement acceptées.
      *
+     * LA RAFALE PART COLLÉE AU `vr:enter`, sans un seul `await` entre les deux,
+     * et c'est ce qui rend la borne exacte. La fenêtre est sautante et
+     * `Date.now()` est relu à chaque message : un saut TOMBANT AU MILIEU de la
+     * rafale remettrait le compteur à zéro et laisserait passer jusqu'à
+     * vingt-cinq poses de plus - jusqu'à la toute dernière si le saut tombait
+     * près de la fin. Aucune borne fixe ne survit à ça. Naître avec la fenêtre
+     * met le saut hors d'atteinte : il ne peut arriver qu'une seconde plus tard,
+     * et la rafale se traite en quelques millisecondes.
+     *
      * Une rafale peut venir d'un réveil de tâche ou d'une image en retard, donc
      * on ignore le surplus plutôt que de couper la session : ce serait une
      * punition sans faute.
      */
     const FLOOD_FROM = 100;
     const FLOOD_COUNT = 200;
+    /*
+     * La sonde qui borne le temps mural, et qui sert deux fois.
+     *
+     * Le serveur répond à chaque `vr:enter` par un `friend:statusChanged` vers
+     * les amis en ligne. On en attend DEUX : celui de l'entrée qui ouvre la
+     * fenêtre, et celui de la réentrée émise juste après la rafale. Socket.io
+     * préserve l'ordre par socket, donc recevoir le second prouve que le serveur
+     * a déjà traité les deux cents poses d'entre les deux - et il prouve du même
+     * coup, sur le socket d'Alice, que tout `vr:lobby` reçu APRÈS lui a été
+     * calculé après la fin de la rafale.
+     */
+    const bothEnters = collect(a, 'friend:statusChanged', 2);
+    const startedAt = Date.now();
+    b.emit('vr:enter');
     for (let i = 0; i < FLOOD_COUNT; i += 1) b.emit('vr:pose', poseAt(FLOOD_FROM + i));
-
-    // Les trois derniers d'une série de six : la rafale part d'un seul bloc et
-    // a donc atterri bien avant, mais prendre les derniers rend l'assertion
-    // indifférente au battement qui aurait attrapé le milieu de la rafale.
-    const still = await collect<Snapshot>(a, 'vr:lobby', 6);
-    const settled = still.slice(3).map(snapshot => snapshot.peers[0]?.head[0]);
+    // La réentrée garde la pose (même socket) : elle ne sert que de sonde.
+    b.emit('vr:enter');
+    await bothEnters;
+    const floodMs = Date.now() - startedAt;
 
     assert.equal(b.connected, true, 'un client qui inonde est plafonné, jamais déconnecté');
-    assert.equal(
-      new Set(settled).size, 1,
-      'passé le plafond, l\'instantané se fige sur la dernière pose acceptée'
-    );
+
     /*
-     * La borne tient quoi qu'il arrive à la fenêtre : si elle a sauté juste
-     * avant la rafale, le compteur repart de zéro et 25 poses passent ; sinon
-     * il en reste moins. Jamais plus. Sans plafond, ce serait la 200e.
+     * La garde du harnais, avant toute conclusion sur le plafond.
+     *
+     * Si la rafale a traîné au point de friser la seconde, la fenêtre a pu
+     * sauter en son milieu et l'assertion suivante ne veut plus rien dire. On
+     * échoue alors en le DISANT, plutôt que d'accuser un plafond qui marchait :
+     * un flake muet coûte une demi-journée à quelqu'un, dans six mois.
      */
     assert.ok(
-      settled[0]! <= FLOOD_FROM + MAX_POSES_PER_SECOND,
-      `le plafond doit arrêter d'accepter bien avant la ${FLOOD_COUNT}e pose, `
-        + `or la dernière vue est la ${settled[0]! - FLOOD_FROM + 1}e`
+      floodMs < 500,
+      `la rafale a pris ${floodMs}ms : la fenêtre du plafond a pu sauter pendant, `
+        + 'donc ce test ne conclut rien. C\'est le harnais qui est en cause, pas le plafond.'
     );
+
+    // Aucun saut possible, donc la borne est EXACTE : la fenêtre s'ouvre à zéro
+    // avec le `vr:enter`, les vingt-cinq premières poses passent, et la
+    // vingt-cinquième est la dernière que ses amis verront. Sans plafond, ce
+    // serait la deux centième.
+    const expected = FLOOD_FROM + MAX_POSES_PER_SECOND - 1;
+    const still = await collect<Snapshot>(a, 'vr:lobby', 4);
     for (const snapshot of still) {
       assert.equal(snapshot.peers.length, 1, 'et ses amis continuent d\'être servis');
+      assert.equal(
+        snapshot.peers[0].head[0], expected,
+        `passé le plafond, l'instantané se fige sur la ${MAX_POSES_PER_SECOND}e pose ; `
+          + `or celle-ci montre la ${snapshot.peers[0].head[0] - FLOOD_FROM + 1}e`
+      );
     }
   });
 });
