@@ -29,6 +29,14 @@ const logger = createLogger('AnonymousGate');
  *   posséder. Un anonyme en est le cas le plus fort.
  * - **Le carnet d'adresses.** Amis et invitations supposent un compte à
  *   retrouver la semaine prochaine.
+ * - **Le lobby VR.** `vr:enter` et `vr:pose` ne fuient rien - un anonyme n'a
+ *   aucun ami, donc son instantané est vide et personne ne le voit - mais ils
+ *   sont un levier asymétrique : une seule session sans compte arme le
+ *   battement du serveur ENTIER à 15 Hz et déclenche une lecture en base, pour
+ *   une liste d'amis qui ne peut jamais être non vide. Un coût sans contrepartie
+ *   possible. `vr:leave` n'est pas dans la liste et n'a pas à y être : sans
+ *   entrée dans la carte il ne retire rien, et le refuser n'aurait fermé que la
+ *   sortie d'une porte déjà condamnée.
  *
  * L'inverse compte autant : s'asseoir, prendre un port, se dire prêt, lancer,
  * mettre en pause, quitter et tout le transport pair-à-pair restent ouverts.
@@ -52,7 +60,10 @@ export const ACCOUNT_ONLY_EVENTS: ReadonlySet<string> = new Set([
   'lobby:invite',
   'lobby:cancel',
   'lobby:accept',
-  'lobby:decline'
+  'lobby:decline',
+  // Le lobby VR
+  'vr:enter',
+  'vr:pose'
 ]);
 
 export function isAccountOnly(event: string): boolean {

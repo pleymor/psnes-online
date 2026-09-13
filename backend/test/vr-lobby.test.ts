@@ -37,7 +37,11 @@ const { insertUser } = await import('./helpers.js');
 const { findUserById } = await import('../src/db/users.js');
 const { createFriendshipRequest, acceptFriendship } = await import('../src/db/friendships.js');
 const { Presence } = await import('../src/websocket/presence.js');
-const { registerVrLobby, BEAT_MS } = await import('../src/websocket/vr-lobby.js');
+const { gateAnonymousSocket } = await import('../src/websocket/anonymous-gate.js');
+const { ANONYMOUS_FORBIDDEN } = await import('../src/auth/anonymous.js');
+const {
+  registerVrLobby, BEAT_MS, MAX_POSES_PER_SECOND
+} = await import('../src/websocket/vr-lobby.js');
 type User = import('../src/db/types.js').User;
 
 // `bun test` fait tourner tous les fichiers dans un seul processus, donc le
@@ -170,6 +174,8 @@ interface Harness {
   bob: User;
   /** Une inconnue : une demande d'amitié avec Alice, jamais acceptée. */
   carol: User;
+  /** Un joueur entré par un lien de salon, sans compte et donc sans amis. */
+  anon: User;
   client(user: User): Promise<ClientSocket>;
   /** Ferme ce socket-là pour de vrai, et attend que le serveur l'ait vu. */
   drop(socket: ClientSocket): Promise<void>;
@@ -231,6 +237,9 @@ async function withVrLobby(run: (harness: Harness) => Promise<void>): Promise<vo
   const alice = findUserById(db, insertUser(db, { id: `${tag}-alice`, pseudo: 'Alice' }).id)!;
   const bob = findUserById(db, insertUser(db, { id: `${tag}-bob`, pseudo: 'Bob' }).id)!;
   const carol = findUserById(db, insertUser(db, { id: `${tag}-carol`, pseudo: 'Carol' }).id)!;
+  const anon = findUserById(db, insertUser(db, {
+    id: `${tag}-anon`, pseudo: 'Invité', isAnonymous: 1
+  }).id)!;
 
   acceptFriendship(db, createFriendshipRequest(db, alice.id, bob.id).id);
   // Laissée en attente exprès : une demande que personne n'a acceptée n'est pas
@@ -240,63 +249,82 @@ async function withVrLobby(run: (harness: Harness) => Promise<void>): Promise<vo
   const httpServer: HttpServer = createServer();
   const io = new Server(httpServer);
   const presence = new Presence();
-  // Posé AVANT l'enregistrement : c'est un battement armé là, avant que
-  // quiconque n'ait mis un casque, qu'il s'agit de voir.
-  const beats = countBeats();
-  const vrLobby = registerVrLobby(io, presence);
-  const serverSockets = new Map<string, ServerSocket>();
-
-  io.on('connection', socket => {
-    const userId = socket.handshake.auth.userId as string;
-    const user = findUserById(db, userId)!;
-    serverSockets.set(socket.id, socket);
-    // L'ordre de `websocket/index.ts` : la présence d'abord - `attach` en
-    // dépend pour joindre les amis - puis les écouteurs VR.
-    presence.register(user, socket.id);
-    vrLobby.attach(socket, user);
-    // La moitié présence de ce que fait `websocket/index.ts` sur un disconnect,
-    // avec sa garde : c'est elle qui rend la reconnexion tardive testable ici.
-    socket.on('disconnect', () => { presence.unregister(user.id, socket.id); });
-  });
-
-  await new Promise<void>(done => httpServer.listen(0, done));
-  const port = (httpServer.address() as { port: number }).port;
-
-  const clients: ClientSocket[] = [];
-  const client = async (user: User) => {
-    const socket = connect(`http://localhost:${port}`, {
-      auth: { userId: user.id }, transports: ['websocket']
-    });
-    clients.push(socket);
-    await once(socket, 'connect');
-    return socket;
-  };
 
   /*
-   * Une vraie fermeture, attendue côté serveur.
+   * Rien entre l'enveloppement des globales et le `try`.
    *
-   * C'est le socket serveur qu'il faut attendre et pas le client : le client se
-   * sait fermé bien avant que le serveur n'ait exécuté son gestionnaire, et
-   * c'est exactement la fenêtre qui rendrait les assertions aléatoires. L'écoute
-   * posée ici court après celle du module, donc l'attendre garantit que la
-   * sortie a déjà été traitée.
+   * `countBeats` est posé AVANT `registerVrLobby` - c'est un battement armé là,
+   * avant que quiconque n'ait mis un casque, qu'il s'agit de voir - et tout ce
+   * qui suit est dans le `try`, y compris l'enregistrement et la mise à
+   * l'écoute. Une ligne qui jetterait entre les deux, ou un `listen` qui
+   * n'aboutirait jamais avant que bun ne coupe au délai, laisserait
+   * `setInterval` et `clearInterval` enveloppés pour TOUS les fichiers suivants
+   * du processus unique que `bun test` partage.
    */
-  const drop = async (socket: ClientSocket) => {
-    // L'identifiant AVANT la fermeture : socket.io-client l'efface en partant.
-    const id = socket.id!;
-    const server = serverSockets.get(id)!;
-    const closed = new Promise<void>(done => server.once('disconnect', () => done()));
-    socket.close();
-    await closed;
-  };
+  const beats = countBeats();
+  let vrLobby: ReturnType<typeof registerVrLobby> | null = null;
+  const clients: ClientSocket[] = [];
 
   try {
-    await run({ alice, bob, carol, client, drop, beatsRunning: beats.running });
+    vrLobby = registerVrLobby(io, presence);
+    const lobby = vrLobby;
+    const serverSockets = new Map<string, ServerSocket>();
+
+    io.on('connection', socket => {
+      const userId = socket.handshake.auth.userId as string;
+      const user = findUserById(db, userId)!;
+      serverSockets.set(socket.id, socket);
+      // L'ordre de `websocket/index.ts` : le grillage d'abord et avant tout
+      // enregistrement, la présence ensuite - `attach` en dépend pour joindre
+      // les amis - puis les écouteurs VR.
+      gateAnonymousSocket(socket, user);
+      presence.register(user, socket.id);
+      lobby.attach(socket, user);
+      // La moitié présence de ce que fait `websocket/index.ts` sur un
+      // disconnect, avec sa garde : c'est elle qui rend la reconnexion tardive
+      // testable ici.
+      socket.on('disconnect', () => { presence.unregister(user.id, socket.id); });
+    });
+
+    await new Promise<void>(done => httpServer.listen(0, done));
+    const port = (httpServer.address() as { port: number }).port;
+
+    const client = async (user: User) => {
+      const socket = connect(`http://localhost:${port}`, {
+        auth: { userId: user.id }, transports: ['websocket']
+      });
+      clients.push(socket);
+      await once(socket, 'connect');
+      return socket;
+    };
+
+    /*
+     * Une vraie fermeture, attendue côté serveur.
+     *
+     * C'est le socket serveur qu'il faut attendre et pas le client : le client
+     * se sait fermé bien avant que le serveur n'ait exécuté son gestionnaire,
+     * et c'est exactement la fenêtre qui rendrait les assertions aléatoires.
+     * L'écoute posée ici court après celle du module, donc l'attendre garantit
+     * que la sortie a déjà été traitée.
+     */
+    const drop = async (socket: ClientSocket) => {
+      // L'identifiant AVANT la fermeture : socket.io-client l'efface en partant.
+      const id = socket.id!;
+      const server = serverSockets.get(id)!;
+      const closed = new Promise<void>(done => server.once('disconnect', () => done()));
+      socket.close();
+      await closed;
+    };
+
+    await run({ alice, bob, carol, anon, client, drop, beatsRunning: beats.running });
   } finally {
-    // Avant tout le reste : un battement encore armé tiendrait le processus
-    // éveillé et ferait traîner la suite entière.
-    vrLobby.stop();
+    // Les globales d'abord : rendre le vrai `setInterval` ne peut rien casser -
+    // les poignées en vol restent de vraies poignées - alors qu'un `stop()` qui
+    // jetterait emporterait la restauration avec lui.
     beats.restore();
+    // Puis le battement : encore armé, il tiendrait le processus éveillé et
+    // ferait traîner la suite entière.
+    vrLobby?.stop();
     for (const socket of clients) socket.close();
     /*
      * Sous Bun, les websockets que socket.io a montées ne sont jamais comptées
@@ -538,15 +566,43 @@ test('un client qui inonde est plafonné, pas déconnecté', async () => {
     a.emit('vr:pose', ALICE_POSE);
     await lobbyWhere(a, s => s.peers.length === 1);
 
-    // Une rafale peut venir d'un réveil de tâche ou d'une image en retard.
-    // Couper la session de quelqu'un pour ça serait une punition sans faute.
-    for (let i = 0; i < 200; i += 1) b.emit('vr:pose', BOB_POSE);
+    /*
+     * Des poses DISTINGUABLES, et c'est tout l'intérêt : inonder avec deux
+     * cents fois la même pose ne prouve que « pas déconnecté », et cette
+     * moitié-là passe aussi bien sans plafond du tout. Numérotées, la dernière
+     * que ses amis voient dit combien le serveur en a réellement acceptées.
+     *
+     * Une rafale peut venir d'un réveil de tâche ou d'une image en retard, donc
+     * on ignore le surplus plutôt que de couper la session : ce serait une
+     * punition sans faute.
+     */
+    const FLOOD_FROM = 100;
+    const FLOOD_COUNT = 200;
+    for (let i = 0; i < FLOOD_COUNT; i += 1) b.emit('vr:pose', poseAt(FLOOD_FROM + i));
 
-    const still = await collect<Snapshot>(a, 'vr:lobby', 3);
+    // Les trois derniers d'une série de six : la rafale part d'un seul bloc et
+    // a donc atterri bien avant, mais prendre les derniers rend l'assertion
+    // indifférente au battement qui aurait attrapé le milieu de la rafale.
+    const still = await collect<Snapshot>(a, 'vr:lobby', 6);
+    const settled = still.slice(3).map(snapshot => snapshot.peers[0]?.head[0]);
+
     assert.equal(b.connected, true, 'un client qui inonde est plafonné, jamais déconnecté');
+    assert.equal(
+      new Set(settled).size, 1,
+      'passé le plafond, l\'instantané se fige sur la dernière pose acceptée'
+    );
+    /*
+     * La borne tient quoi qu'il arrive à la fenêtre : si elle a sauté juste
+     * avant la rafale, le compteur repart de zéro et 25 poses passent ; sinon
+     * il en reste moins. Jamais plus. Sans plafond, ce serait la 200e.
+     */
+    assert.ok(
+      settled[0]! <= FLOOD_FROM + MAX_POSES_PER_SECOND,
+      `le plafond doit arrêter d'accepter bien avant la ${FLOOD_COUNT}e pose, `
+        + `or la dernière vue est la ${settled[0]! - FLOOD_FROM + 1}e`
+    );
     for (const snapshot of still) {
       assert.equal(snapshot.peers.length, 1, 'et ses amis continuent d\'être servis');
-      assert.deepEqual(snapshot.peers[0].head, BOB_POSE.head);
     }
   });
 });
@@ -588,6 +644,31 @@ test('le battement ne tourne pas quand personne n\'est en VR', async () => {
     assert.equal(
       await countDuring(a, 'vr:lobby', 300), 0,
       'plus personne en VR, donc plus rien sur le fil'
+    );
+  });
+});
+
+test('une session sans compte n\'arme pas le battement', async () => {
+  await withVrLobby(async ({ anon, client, beatsRunning }) => {
+    const guest = await client(anon);
+
+    /*
+     * Rien ne fuyait : un anonyme n'a aucun ami, donc son instantané est vide et
+     * personne ne le voit. Ce qui se ferme ici est un levier asymétrique - une
+     * seule session sans compte armait le battement du serveur ENTIER à 15 Hz et
+     * déclenchait une lecture en base, pour une liste d'amis qui ne peut jamais
+     * être non vide.
+     */
+    const refused = once<{ code: string; event: string }>(guest, 'error');
+    guest.emit('vr:enter');
+    const answer = await refused;
+    assert.equal(answer.code, ANONYMOUS_FORBIDDEN, 'et le refus est bruyant, pas un silence');
+    assert.equal(answer.event, 'vr:enter');
+
+    assert.equal(beatsRunning(), 0, 'une session sans compte ne réveille pas le serveur');
+    assert.equal(
+      await countDuring(guest, 'vr:lobby', 200), 0,
+      'et elle ne reçoit rien non plus'
     );
   });
 });
