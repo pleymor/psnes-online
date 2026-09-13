@@ -35,7 +35,9 @@ const { getDb, forgetDbForTest } = await import('../src/db/sqlite.js');
 const { migrate } = await import('../src/db/migrate.js');
 const { insertUser } = await import('./helpers.js');
 const { findUserById } = await import('../src/db/users.js');
-const { createFriendshipRequest, acceptFriendship } = await import('../src/db/friendships.js');
+const {
+  createFriendshipRequest, acceptFriendship, deleteFriendship, findFriendshipBetween
+} = await import('../src/db/friendships.js');
 const { Presence } = await import('../src/websocket/presence.js');
 const { gateAnonymousSocket } = await import('../src/websocket/anonymous-gate.js');
 const { ANONYMOUS_FORBIDDEN } = await import('../src/auth/anonymous.js');
@@ -179,6 +181,21 @@ interface Harness {
   client(user: User): Promise<ClientSocket>;
   /** Ferme ce socket-là pour de vrai, et attend que le serveur l'ait vu. */
   drop(socket: ClientSocket): Promise<void>;
+  /**
+   * Défait une amitié comme le fait `DELETE /api/friends/:id`.
+   *
+   * Les deux lignes que la route exécute, dans son ordre : la base d'abord,
+   * puis l'oubli du cache du lobby. Elles sont rejouées ici plutôt
+   * qu'atteintes par une vraie requête, comme ce harnais rejoue déjà l'ordre
+   * de branchement de `websocket/index.ts` - monter express et
+   * l'authentification pour deux appels de fonction coûterait plus que ça ne
+   * garderait.
+   *
+   * CE QUE CE RACCOURCI NE GARDE PAS : que la route appelle bien
+   * `forgetVrFriendship`. C'est `api/friends.ts` qu'il faut lire pour ça, et
+   * son commentaire pointe ici en retour.
+   */
+  unfriend(a: User, b: User): void;
   /** Combien de battements tournent en ce moment. Voir `countBeats`. */
   beatsRunning(): number;
 }
@@ -316,7 +333,12 @@ async function withVrLobby(run: (harness: Harness) => Promise<void>): Promise<vo
       await closed;
     };
 
-    await run({ alice, bob, carol, anon, client, drop, beatsRunning: beats.running });
+    const unfriend = (a: User, b: User) => {
+      deleteFriendship(db, findFriendshipBetween(db, a.id, b.id)!.id);
+      lobby.forgetFriendship(a.id, b.id);
+    };
+
+    await run({ alice, bob, carol, anon, client, drop, unfriend, beatsRunning: beats.running });
   } finally {
     // Les globales d'abord : rendre le vrai `setInterval` ne peut rien casser -
     // les poignées en vol restent de vraies poignées - alors qu'un `stop()` qui
@@ -430,6 +452,54 @@ test('un non-ami en VR est invisible des deux côtés', async () => {
         'un non-ami en VR ne doit jamais apparaître dans un instantané'
       );
       assert.deepEqual(snapshot.peers, [], 'et rien d\'autre ne doit s\'y être glissé');
+    }
+  });
+});
+
+test('une désamitié en séance coupe les poses des deux côtés', async () => {
+  await withVrLobby(async ({ alice, bob, client, unfriend }) => {
+    const a = await client(alice);
+    const b = await client(bob);
+
+    a.emit('vr:enter');
+    a.emit('vr:pose', ALICE_POSE);
+    b.emit('vr:enter');
+    b.emit('vr:pose', BOB_POSE);
+
+    // Ils se voient : sans ça, la suite ne prouverait rien.
+    await lobbyWhere(a, s => s.peers.length === 1);
+    await lobbyWhere(b, s => s.peers.length === 1);
+
+    /*
+     * LA SEULE RÈGLE DE CONFIDENTIALITÉ DE LA FONCTIONNALITÉ, prise à l'heure
+     * où elle est le plus facile à rater : en séance.
+     *
+     * L'ensemble des destinataires est mis en cache à `vr:enter` et vit toute
+     * la session VR. Sans invalidation, chacun continue de recevoir la pose de
+     * l'autre jusqu'à ce que l'un des deux ôte son casque - et la défense
+     * côté client ne rattrape rien, sa liste d'amis étant périmée dans le même
+     * sens.
+     */
+    unfriend(alice, bob);
+
+    // Sur plusieurs battements des DEUX côtés : une fuite dans un seul sens
+    // reste une fuite, et le cache a deux entrées à nettoyer.
+    const [aliceSaw, bobSaw] = await Promise.all([
+      collect<Snapshot>(a, 'vr:lobby', 4),
+      collect<Snapshot>(b, 'vr:lobby', 4)
+    ]);
+
+    for (const snapshot of aliceSaw) {
+      assert.deepEqual(
+        snapshot.peers, [],
+        'un ami retiré en séance ne doit plus apparaître dans l\'instantané'
+      );
+    }
+    for (const snapshot of bobSaw) {
+      assert.deepEqual(
+        snapshot.peers, [],
+        'et pas davantage dans l\'autre sens : la coupure est symétrique'
+      );
     }
   });
 });
@@ -584,6 +654,15 @@ test('un client qui inonde est plafonné, pas déconnecté', async () => {
      * Une rafale peut venir d'un réveil de tâche ou d'une image en retard, donc
      * on ignore le surplus plutôt que de couper la session : ce serait une
      * punition sans faute.
+     *
+     * DEUX INVARIANTS IMPLICITES PORTENT L'ÉGALITÉ EXACTE PLUS BAS, et il vaut
+     * mieux les écrire que les redécouvrir : le transport est websocket seul
+     * (`transports: ['websocket']` dans le harnais, donc pas de bascule depuis
+     * un sondage qui rejouerait ou réordonnerait la rafale), et les
+     * gestionnaires `vr:enter` et `vr:pose` sont SYNCHRONES - c'est ce qui fait
+     * que la sonde `friend:statusChanged` de la réentrée prouve que les deux
+     * cents poses d'avant ont déjà été comptées. Rendre l'un des deux `async`
+     * ne casserait pas ce test : il le rendrait intermittent, ce qui est pire.
      */
     const FLOOD_FROM = 100;
     const FLOOD_COUNT = 200;

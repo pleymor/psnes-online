@@ -66,7 +66,15 @@ interface Present {
    * `presence.ts` et la reconnexion tardive plus bas.
    */
   socketId: string;
-  friendIds: ReadonlySet<string>;
+  /**
+   * Mutable, et c'est `forgetFriendship` qui l'exige.
+   *
+   * Ce cache est lu une fois à l'entrée - une lecture en base par battement et
+   * par joueur serait le défaut que ce module existe pour ne pas avoir - donc
+   * une amitié défaite en séance doit pouvoir y être retirée sur place, sans
+   * rouvrir la base.
+   */
+  friendIds: Set<string>;
   pose: PeerPose | null;
   /** Fenêtre sautante du plafond de débit : voir `MAX_POSES_PER_SECOND`. */
   windowStart: number;
@@ -76,6 +84,24 @@ interface Present {
 export interface VrLobby {
   /** Pour `getOnlineFriends` : qui est actuellement en VR. */
   isInVr(userId: string): boolean;
+  /**
+   * Ces deux-là ne sont plus amis : qu'ils cessent de se voir, tout de suite.
+   *
+   * LE CACHE D'AMIS EST LU À L'ENTRÉE, donc une désamitié en séance ne
+   * l'atteint pas : sans cet appel, chacun continue de recevoir la pose de
+   * l'autre jusqu'à ce que l'un des deux quitte la VR. C'est la seule règle de
+   * confidentialité de cette fonctionnalité - « aucune pose n'atteint quelqu'un
+   * qui n'est pas un ami accepté » - et elle se tiendrait autrement à la durée
+   * d'une session.
+   *
+   * DES DEUX CÔTÉS, parce que la carte porte deux entrées symétriques et qu'un
+   * seul côté nettoyé laisserait la fuite dans l'autre sens.
+   *
+   * La défense côté client ne rattrape rien : sa liste d'amis est périmée dans
+   * le MÊME sens que ce cache-ci - les deux se trompent ensemble - donc la
+   * profondeur est illusoire et c'est bien ici qu'il faut couper le fil.
+   */
+  forgetFriendship(userA: string, userB: string): void;
   /** Arrête le battement. Pour les tests et l'arrêt du serveur. */
   stop(): void;
   /** Branche les écouteurs d'une connexion. Appelé une fois par socket. */
@@ -207,6 +233,18 @@ export function registerVrLobby(io: Server, presence: Presence): VrLobby {
 
   return {
     isInVr: userId => present.has(userId),
+
+    /*
+     * Aucune sortie du lobby, et c'est voulu : ils restent chacun en VR, avec
+     * leurs autres amis. Ce qui disparaît est la ligne entre eux deux, et rien
+     * d'autre - le battement suivant ne les mettra plus dans l'instantané de
+     * l'autre, ce qui est exactement « un départ est une absence » appliqué à
+     * un seul destinataire.
+     */
+    forgetFriendship(userA, userB) {
+      present.get(userA)?.friendIds.delete(userB);
+      present.get(userB)?.friendIds.delete(userA);
+    },
 
     stop: disarm,
 

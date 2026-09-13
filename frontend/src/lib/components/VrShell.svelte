@@ -191,7 +191,21 @@
    */
   function joinSharedLobby(): void {
     if (inSharedLobby) return;
-    $socket?.emit('vr:enter');
+    /*
+     * PAS DE SOCKET, PAS DE LOBBY PARTAGÉ - ET LA TRACE LE DIRA.
+     *
+     * `$socket?.emit` est un no-op quand le socket est absent, donc sans cette
+     * ligne l'état passait quand même à vrai : `inSharedLobby` valait toujours
+     * `visible`, et le champ que `showDecor` journalise pour distinguer « le
+     * fondu n'a pas eu lieu » de « le socket n'était pas là » ne portait
+     * strictement aucune information. La combinaison qui accuse le socket -
+     * `visible:true` avec `inSharedLobby:false` - était inatteignable.
+     *
+     * Effet de bord bienvenu : `lobbyFrame` cesse d'appeler `poseInRoom()` et
+     * `avatars.update()` à 72 ou 90 hertz pour un lobby qui n'existe pas.
+     */
+    if (!$socket) return;
+    $socket.emit('vr:enter');
     inSharedLobby = true;
   }
 
@@ -258,6 +272,29 @@
      * à-dire glisser chaque ami depuis là où il était avant.
      */
     roster = createRoster();
+  }
+
+  /**
+   * Le symétrique de `rejoinSharedLobby` : la COUPURE, et pas seulement le
+   * retour.
+   *
+   * Sans elle, pendant toute la coupure `inSharedLobby` reste vrai, le registre
+   * tient son dernier instantané - `roster.ts` ne l'expire jamais, c'est
+   * délibéré - et les amis restent plantés comme des statues. C'est le pire
+   * symptôme, celui que le commentaire de `rejoinSharedLobby` décrit lui-même,
+   * et il accuse `roster.ts` ou la proximité, c'est-à-dire le mauvais fichier.
+   *
+   * `inSharedLobby` RESTE VRAI, et c'est la moitié du travail : c'est lui que
+   * `rejoinSharedLobby` lit pour savoir qu'il y a un lobby à rejoindre au
+   * retour. Ce qui se vide ici est ce qu'on affiche, pas ce qu'on veut être.
+   */
+  function lobbyLostSocket(): void {
+    if (!inSharedLobby) return;
+    roster = createRoster();
+    // L'écran TOUT DE SUITE, comme `leaveSharedLobby` : `lobbyFrame` redessine
+    // bien à chaque image, mais rien ne garantit qu'une image suive - le
+    // socket peut être tombé pendant une partie, où `walkFrame` rend la main.
+    avatars?.update(new Map(), myPose);
   }
 
   /** Les six sites qui basculent lobby/jeu passent par ici, et rien d'autre. */
@@ -3621,6 +3658,9 @@
       // revient tout seul, l'appartenance au lobby non. Voir
       // `rejoinSharedLobby`, et `rejoinRoom` plus bas pour la même classe.
       $socket?.on('connect', rejoinSharedLobby);
+      // Et la coupure, qui n'avait rien : sans elle les amis restent plantés
+      // pendant toute la panne. Voir `lobbyLostSocket`.
+      $socket?.on('disconnect', lobbyLostSocket);
 
       // Until a game is launched, this is what the screen carries - and what
       // makes a wrong distance or height obvious.
@@ -3911,6 +3951,9 @@
     // `rejoinRoom` que le bloc du bas retire nommément, pour cette raison-là.
     $socket?.off('vr:lobby', handleVrLobby);
     $socket?.off('connect', rejoinSharedLobby);
+    // Et son symétrique : socket.io émet `disconnect` à d'autres écoutants,
+    // donc celui-ci se retire nommément comme les deux du dessus.
+    $socket?.off('disconnect', lobbyLostSocket);
     window.removeEventListener('gamepadconnected', repaintControls);
     window.removeEventListener('gamepaddisconnected', repaintControls);
     friendsPanel = null;
