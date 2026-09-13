@@ -54,6 +54,9 @@ services:
       # toucher à AUTH_MODE, dont env-guard.ts teste l'égalité stricte pour
       # refuser `dev` en production.
       - ANONYMOUS_JOIN=${ANONYMOUS_JOIN:-on}
+      # Le plafond de comptes. Passé depuis l'hôte pour qu'il puisse monter
+      # sans redéploiement d'image.
+      - MAX_USERS=${MAX_USERS:-100}
     env_file:
       - ./backend/.env
     volumes:

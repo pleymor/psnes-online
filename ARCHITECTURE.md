@@ -326,6 +326,54 @@ enregistrés par `index.ts` à chaque connexion authentifiée
   statut de présence (`user:{userId}:status`). C'est aussi la source dont
   `bootstrap/jobs.ts` restaure les rooms au redémarrage.
 
+## L'entrée sur la plateforme
+
+Créer un compte n'est plus libre : il faut un lien d'invitation. Rejoindre une
+room en spectateur anonyme, lui, ne change pas — voir plus bas.
+
+- **Invitation obligatoire.** Un compte se crée soit par une invitation
+  frappée par un joueur déjà installé (`POST /api/invites`), soit par une
+  invitation frappée par le propriétaire en CLI, soit — dans les tests et en
+  développement — par les comptes de démonstration d'`AUTH_MODE=dev`, qui ne
+  passent pas par cette porte. La décision (quel refus, dans quel ordre) vit
+  dans `backend/src/auth/signup-door.ts::signupDoorDecision`, une fonction
+  pure testée pour elle-même ; `admitSignup` et `signupOrSignIn`, dans le même
+  fichier, vont chercher en base ce que la première reçoit tout cuit. La
+  consommation elle-même (`consumeInvite`) n'a lieu que dans le rappel Google
+  (`backend/src/auth/passport.ts`) : un lien frappé ou vérifié
+  (`GET /auth/invite/:code`) n'est pas encore une place prise.
+- **Quota à vie : deux places par compte.** `INVITE_QUOTA` dans
+  `backend/src/db/signup-invites.ts` vaut 2, et compte les invitations vivantes
+  ou consommées, pas les comptes effectivement nés — une invitation en
+  circulation coûte une place à son émetteur même avant d'être utilisée.
+  Révoquer un lien non consommé (`DELETE /api/invites/:id`) rend la place ;
+  un lien déjà consommé ne se révoque pas. `countChargedInvites` recompte
+  toujours depuis la table `SignupInvite`, plutôt que de maintenir un
+  compteur qui pourrait dériver d'un chemin oublié.
+- **Plafond de plateforme : `MAX_USERS`.** Le nombre total de comptes
+  (`countAccounts`, qui exclut les invités anonymes, `isAnonymous = 1`) ne
+  peut pas dépasser `MAX_USERS` (100 par défaut, réglable par variable
+  d'environnement sans reconstruire l'image — voir `docker-compose.yml` et
+  `docker-compose.prod.yml`). Une valeur illisible dans l'environnement
+  retombe sur 100 plutôt que de désactiver le plafond. `PLATFORM_FULL` est
+  vérifié avant toute lecture du code d'invitation, à la fois pour ne pas
+  frapper un lien vers une plateforme pleine (`POST /api/invites`) et pour ne
+  pas transformer un lien mort en oracle de places disponibles
+  (`signupDoorDecision`).
+- **La porte anonyme est inchangée.** `POST /auth/anonymous` (voir
+  `anonymous.ts` et `api/auth.ts`) laisse toujours un invité s'asseoir dans une
+  room sur la seule foi d'un lien de salon, sans compte, sans invitation, sans
+  toucher à `MAX_USERS` ni à `INVITE_QUOTA`. Ce sont deux portes distinctes :
+  l'une fait naître un compte durable, l'autre une ligne éphémère nettoyée à la
+  déconnexion.
+- **L'échappatoire du propriétaire.** `bun src/db/invite-cli.ts` (documenté
+  dans son en-tête) frappe une invitation qui ne débite le quota de personne
+  (`grant <Pseudo#1234>`), liste l'occupation de la plateforme (`list`), ou
+  éteint un lien vivant (`revoke <code>`). Une commande derrière ssh plutôt
+  qu'une route web : elle a exactement la portée de l'accès ssh, qui existe
+  déjà, sans ajouter de surface d'attaque permanente pour un besoin
+  occasionnel.
+
 ## La VR : une présentation, pas un cinquième mode
 
 Le casque ne change rien à l'émulation. `VrShell.svelte` pilote les mêmes

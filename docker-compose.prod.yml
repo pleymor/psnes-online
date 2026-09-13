@@ -33,6 +33,9 @@ services:
       - REDIS_PORT=6379
       - COOKIE_DOMAIN=
       - BEHIND_PROXY=false
+      # Le plafond de comptes. Passé depuis l'hôte pour qu'il puisse monter
+      # sans redéploiement d'image.
+      - MAX_USERS=${MAX_USERS:-100}
     env_file:
       - ./backend/.env
     volumes:
