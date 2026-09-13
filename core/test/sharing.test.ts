@@ -18,6 +18,11 @@ import assert from 'node:assert/strict';
 import { get } from 'svelte/store';
 
 import { createSharing } from '../../frontend/src/lib/roms/sharing.js';
+import {
+	SHARE_CONSENT_KEY,
+	grantShareConsent,
+	hasShareConsent
+} from '../../frontend/src/lib/roms/share-consent.js';
 
 const ROM = new Uint8Array([1, 2, 3]);
 const CRC = 'AAAA1111';
@@ -304,4 +309,50 @@ test('un refus n a rien a demander au dossier', async () => {
 	sharing.decline();
 
 	assert.deepEqual(order, []);
+});
+
+/*
+ * L accord sur la licence, demande une fois avant le premier envoi.
+ *
+ * Envoyer une copie est une redistribution : posseder la cartouche n y
+ * autorise pas, seule la licence du jeu le fait. La phrase existait deja de
+ * l autre cote du geste - `keepRomLegal` - mais elle parle de DETENTION, ce
+ * qui est une autre regle, et celui qui envoie ne lisait rien du tout.
+ *
+ * Sur l appareil et pas en base : c est un avertissement lu, pas une preuve
+ * opposable, et le stocker cote serveur demanderait une route pour une chose
+ * dont personne ne se sert.
+ */
+
+/** Un stockage de test, sans navigateur. */
+function fakeStorage(initial: Record<string, string> = {}) {
+	const data = new Map(Object.entries(initial));
+	return {
+		data,
+		getItem: (key: string) => data.get(key) ?? null,
+		setItem: (key: string, value: string) => void data.set(key, value),
+		removeItem: (key: string) => void data.delete(key)
+	};
+}
+
+test('sans rien de stocke, l accord n est pas donne', () => {
+	assert.equal(hasShareConsent(fakeStorage()), false);
+});
+
+test('accorder tient a la relecture', () => {
+	const storage = fakeStorage();
+
+	grantShareConsent(storage);
+
+	assert.equal(hasShareConsent(storage), true);
+});
+
+test('un accord donne sur un texte anterieur ne vaut plus', () => {
+	// Le jour ou l avertissement est reecrit, sa version change et tout le
+	// monde le relit. Sans quoi un accord donne sur une phrase disparue
+	// couvrirait une phrase que personne n a jamais lue.
+	const storage = fakeStorage({ [SHARE_CONSENT_KEY]: '0' });
+
+	assert.equal(hasShareConsent(storage), false);
+	assert.equal(storage.data.has(SHARE_CONSENT_KEY), false);
 });

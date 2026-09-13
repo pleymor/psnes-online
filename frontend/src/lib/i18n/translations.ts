@@ -581,6 +581,13 @@ export const translations = {
     noGameMatches: 'No game matches “{query}”.',
     clearSearch: 'Clear the search',
     shareGame: 'Send to {name}',
+    // Sending a copy is redistribution, which owning the cartridge has never
+    // authorised - a different rule from `keepRomLegal`, which is about
+    // holding a game. Bump SHARE_CONSENT_VERSION whenever this text changes.
+    shareLegal:
+      'Sending a copy is redistributing it. That is only lawful when the game’s licence allows it: homebrew, freeware, public domain. Owning the cartridge is not enough.',
+    shareLegalConfirm: 'Understood — send',
+    shareLegalShort: 'Only for games whose licence allows redistribution.',
     shareWaiting: 'Waiting for {name}…',
     shareOffer: '{name} wants to send you {title}',
     shareAccept: 'Receive it',
@@ -1139,6 +1146,10 @@ export const translations = {
     noGameMatches: 'Aucun jeu ne correspond à « {query} ».',
     clearSearch: 'Effacer la recherche',
     shareGame: 'Envoyer à {name}',
+    shareLegal:
+      'Envoyer une copie, c\'est la redistribuer. Ce n\'est légal que si la licence du jeu l\'autorise : homebrew, freeware, domaine public. Posséder la cartouche ne suffit pas.',
+    shareLegalConfirm: 'J\'ai compris — envoyer',
+    shareLegalShort: 'Uniquement pour les jeux dont la licence autorise la redistribution.',
     shareWaiting: 'En attente de {name}…',
     shareOffer: '{name} veut t\'envoyer {title}',
     shareAccept: 'Le recevoir',

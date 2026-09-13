@@ -30,11 +30,15 @@
       <p class="share-offer-question">
         {t($language, 'shareOffer', { name: fromName, title: $offered.title })}
       </p>
-      <!-- La même phrase qu'au moment de garder, et pour la même raison : on
-           ne garde un jeu que si l'on possède la cartouche. Ici elle arrive
-           avant l'envoi, donc au moment où elle peut encore changer la
-           réponse. -->
-      <p class="share-offer-legal">{t($language, 'keepRomLegal')}</p>
+      <!-- La règle du PARTAGE, et non celle de la détention.
+           `keepRomLegal` - « ne garde un jeu que si tu possèdes la cartouche »
+           - tenait cette place et disait la mauvaise chose : posséder la
+           cartouche n'autorise personne à en distribuer une copie, et ce qui
+           est sur le point d'arriver est une distribution. Celui qui envoie
+           lit la même règle devant son bouton ; un geste, deux bouts, une
+           phrase. La question de la détention se pose plus tard, à
+           `KeepRomOffer`, et c'est là qu'elle appartient. -->
+      <p class="share-offer-legal">{t($language, 'shareLegalShort')}</p>
     </div>
     <div class="share-offer-actions">
       <button type="button" class="accept" on:click={() => sharing.accept()}>

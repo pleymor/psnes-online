@@ -7,6 +7,8 @@
   import type { SaveSummary } from '$lib/saves/api';
   import { downloadArchive } from '$lib/saves/portability';
   import type { TranslationKey } from '$lib/i18n/translations';
+  import { grantShareConsent, hasShareConsent } from '$lib/roms/share-consent';
+  import type { PreferenceStorage } from '$lib/stores/shader-preference';
 
   export let game: Game;
   /**
@@ -74,6 +76,44 @@
     const result = await downloadArchive({ gameId: game.id });
     if (!result.ok) exportError = t($language, result.reason as TranslationKey);
     exporting = false;
+  }
+
+  /**
+   * L'avertissement sur la licence, lu une fois avant le premier envoi.
+   *
+   * L'accord vit dans le stockage de l'appareil - voir `share-consent.ts` pour
+   * pourquoi il n'est pas en base - et n'est lu qu'au clic : à la construction
+   * du composant, le rendu serveur n'a pas de `localStorage`, et un accès
+   * gardé par un `try` à cet endroit ne dirait rien de plus.
+   */
+  let askingConsent = false;
+
+  /** Le stockage de l'appareil, ou rien quand il est refusé ou absent. */
+  function consentStorage(): PreferenceStorage | null {
+    try {
+      return typeof localStorage === 'undefined' ? null : localStorage;
+    } catch {
+      // Navigation privée, cookies tiers bloqués : l'accord ne peut pas être
+      // retenu. L'avertissement est alors reposé à chaque envoi, ce qui est le
+      // bon sens de l'échec - jamais l'inverse.
+      return null;
+    }
+  }
+
+  function requestShare() {
+    const storage = consentStorage();
+    if (storage && hasShareConsent(storage)) {
+      dispatch('share');
+      return;
+    }
+    askingConsent = true;
+  }
+
+  function confirmShare() {
+    const storage = consentStorage();
+    if (storage) grantShareConsent(storage);
+    askingConsent = false;
+    dispatch('share');
   }
 
   function formatDate(dateString?: string): string {
@@ -221,15 +261,50 @@
             lancement, déclenché par l'absence de fichier chez l'invité au
             pire moment ; ce bouton est le geste délibéré qui le remplace.
           -->
-          <button class="share" on:click={() => dispatch('share')} disabled={sharePending}>
-            {sharePending
-              ? t($language, 'shareWaiting', { name: partnerName })
-              : t($language, 'shareGame', { name: partnerName })}
-          </button>
-          {#if answerKey && !sharePending}
-            <p class="share-answer">
-              {t($language, answerKey, { name: partnerName })}
-            </p>
+          {#if askingConsent}
+            <!--
+              L'avertissement remplace le bouton au lieu de s'ouvrir par-dessus.
+              Une modale au-dessus d'une modale, pour une phrase et deux
+              boutons, c'est un écran de plus à fermer ; et l'avertissement doit
+              se lire là où le geste part, pas ailleurs.
+            -->
+            <div class="share-consent">
+              <p class="share-consent-text">{t($language, 'shareLegal')}</p>
+              <div class="share-consent-actions">
+                <button class="share" on:click={confirmShare}>
+                  {t($language, 'shareLegalConfirm')}
+                </button>
+                <button class="share-consent-cancel" on:click={() => (askingConsent = false)}>
+                  {t($language, 'cancel')}
+                </button>
+              </div>
+            </div>
+          {:else}
+            <!--
+              Le bouton et son rappel dans un même bloc : posés côte à côte
+              dans le flux, la phrase prenait toute la largeur sous la rangée
+              et se lisait comme une note sur « Compléter la fiche » autant que
+              sur l'envoi.
+            -->
+            <div class="share-block">
+              <button class="share" on:click={requestShare} disabled={sharePending}>
+                {sharePending
+                  ? t($language, 'shareWaiting', { name: partnerName })
+                  : t($language, 'shareGame', { name: partnerName })}
+              </button>
+              <!--
+                Le rappel court reste, alors que l'avertissement complet ne se
+                lit qu'une fois. C'est ce qui rattrape ce que l'accord unique
+                laisse passer : la licence dépend de CHAQUE jeu envoyé, et
+                personne ne relit une question qui ne revient plus.
+              -->
+              <p class="share-legal-short">{t($language, 'shareLegalShort')}</p>
+              {#if answerKey && !sharePending}
+                <p class="share-answer">
+                  {t($language, answerKey, { name: partnerName })}
+                </p>
+              {/if}
+            </div>
           {/if}
         {/if}
 
@@ -391,6 +466,72 @@
   .identify:hover,
   .share:hover:not(:disabled) {
     border-color: var(--edge);
+    color: var(--label);
+  }
+
+  /* En ligne, pour que le bouton reste à côté de « Compléter la fiche » comme
+     avant - les deux sont des boutons de même poids - tout en emportant sa
+     phrase avec lui. `max-content` la laisse tenir sur une ligne quand la
+     colonne est large, et la colonne la borne quand elle ne l'est pas. */
+  .share-block {
+    display: inline-block;
+    vertical-align: top;
+    max-width: 100%;
+    width: max-content;
+  }
+
+  /* Le rappel court porte la couleur des réponses de partage juste au-dessus :
+     c'est la même voix - ce que la machine dit à côté du bouton - et deux gris
+     différents pour deux lignes voisines se lisent comme une hiérarchie qui
+     n'existe pas. */
+  .share-legal-short {
+    margin: 0.4rem 0 0;
+    font-size: 0.75rem;
+    color: #8b8ba3;
+  }
+
+  .share-consent {
+    margin-top: 1rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid #3d3d52;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.2);
+  }
+
+  .share-consent-text {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: #b7b7cc;
+  }
+
+  .share-consent-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  /* La marge de `.share` sert à le décoller de ce qui le précède dans la
+     colonne ; à l'intérieur du cadre elle ne décolle plus rien et creuse un
+     trou sous le texte. */
+  .share-consent-actions .share {
+    margin-top: 0.75rem;
+  }
+
+  .share-consent-cancel {
+    margin-top: 0.75rem;
+    align-self: flex-start;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #8b8ba3;
+    border-radius: 6px;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .share-consent-cancel:hover {
     color: var(--label);
   }
 
