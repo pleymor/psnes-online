@@ -33,13 +33,9 @@
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import LocateRom from './LocateRom.svelte';
-  import NoticeToast from './NoticeToast.svelte';
   import TouchControls from './TouchControls.svelte';
   import { TouchPad, touchPadWanted } from '$lib/controls/touch';
   import { remember, resolveQuietly } from '$lib/roms/provider';
-  import { createKeepOffer } from '$lib/roms/keep-offer';
-  import { notices } from '$lib/services/notification';
-  import { registerNoticeActions } from '$lib/notices/actions';
   import { receiveRom, sendRom } from '$lib/roms/transfer';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import { readAspectPreference, writeAspectPreference } from '$lib/stores/aspect-preference';
@@ -143,37 +139,6 @@
   let romPrompt: ((bytes: Uint8Array) => void) | null = null;
   /** Chunks sent or received, for a transfer the player can watch. */
   let romTransfer: { direction: 'in' | 'out'; done: number; total: number } | null = null;
-
-  /**
-   * La question posée à l'invité après un transfert : garder ce jeu ?
-   *
-   * `keep-offer.ts` porte la règle et dit pourquoi elle est posée ici plutôt
-   * qu'avant le transfert comme en VR.
-   */
-  const keepOffer = createKeepOffer();
-
-  registerNoticeActions('keep-rom', [
-    { label: 'keepRomYes', primary: true, run: () => keepOffer.accept() },
-    { label: 'keepRomNo', run: () => keepOffer.decline() }
-  ]);
-
-  let keepNotice: string | null = null;
-
-  const stopKeepWatch = keepOffer.asked.subscribe((checksum) => {
-    if (keepNotice) {
-      notices.dismiss(keepNotice);
-      keepNotice = null;
-    }
-    if (checksum) keepNotice = notices.post('keep-rom', { title: gameTitle ?? '' });
-  });
-
-  onDestroy(() => {
-    stopKeepWatch();
-    // Sans quoi une question restée sans réponse survivrait au salon qui l'a
-    // posée : `registerNoticeActions` est réécrit par le salon suivant, donc
-    // cliquer dessus appellerait son accept/decline à lui.
-    if (keepNotice) notices.dismiss(keepNotice);
-  });
 
   let showStats = false;
 
@@ -1072,10 +1037,11 @@
         onProgress: (done, total) => (romTransfer = { direction: 'in', done, total })
       });
       romTransfer = null;
-      // `remember` fait tourner la partie ; les octets meurent avec l'onglet
-      // tant que l'invité n'a pas répondu à la question que voici.
+      // `remember` fait tourner la partie, et les octets meurent avec l'onglet :
+      // c'est tout ce qui arrive à un jeu reçu depuis le 13/09/2026. Rien n'est
+      // écrit sur l'appareil de l'invité, donc rien à lui demander - le prix
+      // est que l'hôte renvoie le jeu à chaque partie.
       remember(rom);
-      keepOffer.received(gameCrc32, rom, gameTitle);
       logger.info(`Received the ROM from the other player (${rom.byteLength} bytes)`, { crc32: gameCrc32 });
       return rom;
     } catch (err) {
@@ -1388,12 +1354,6 @@
   {#if romPrompt}
     <LocateRom checksum={gameCrc32 ?? ''} title={gameTitle} on:found={(e) => romPrompt?.(e.detail)} />
   {/if}
-
-  <!-- Une seconde instance, pour la même raison que la bannière de transfert
-       et `LocateRom` ci-dessus : l'API Fullscreen ne peint que `.lockstep` et
-       ses descendants, et « garder ce jeu ? » se pose pendant que la partie
-       tourne, donc pendant que cet élément est en plein écran. -->
-  <NoticeToast surface="in-game" />
 
   <!--
     Double-click toggles fullscreen, the way a video player does. It is not a
