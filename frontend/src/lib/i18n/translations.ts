@@ -67,6 +67,7 @@ export const translations = {
     invitesSpent: 'You have given away both of your places.',
     invitesPlatformFull: 'psnes is full: new invitations cannot be used right now.',
     inviteMintFailed: 'The invitation could not be created.',
+    invitesLoadFailed: 'Your invitations could not be loaded.',
 
     // Friends
     friends: 'Friends',
@@ -684,6 +685,7 @@ export const translations = {
     invitesSpent: 'Vous avez donné vos deux places.',
     invitesPlatformFull: 'psnes est complet : une nouvelle invitation ne pourrait pas servir pour l\'instant.',
     inviteMintFailed: 'Le lien n\'a pas pu être créé.',
+    invitesLoadFailed: 'Vos invitations n\'ont pas pu être chargées.',
 
     // Friends
     friends: 'Amis',

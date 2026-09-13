@@ -22,9 +22,26 @@
     inviteePseudo: string | null;
   }
 
-  // Les deux seules erreurs que ce composant montre ; les nommer ici évite
-  // le cast `as TranslationKey` (qui ne s'analyse pas dans le template).
-  type InviteError = 'inviteMintFailed' | 'invitesPlatformFull';
+  // Les erreurs qu'une tentative de création peut produire ; les nommer ici
+  // évite le cast `as TranslationKey` (qui ne s'analyse pas dans le
+  // template). `invitesLoadFailed` est distincte : elle ne vient jamais
+  // d'une mutation, seulement d'un chargement qui a échoué.
+  type MintErrorKey = 'invitesSpent' | 'invitesPlatformFull' | 'inviteMintFailed';
+  type InviteError = MintErrorKey | 'invitesLoadFailed';
+
+  /**
+   * 403 et 503 ne veulent pas dire la même chose pour un joueur : l'un est
+   * son propre quota épuisé (un message qui existe déjà et qui est le bon),
+   * l'autre est la plateforme entière qui est pleine. Une fonction nommée
+   * plutôt qu'un ternaire à deux branches, mais pas un module à part : l'ordre
+   * des trois cas ne porte aucune décision à figer par un test, contrairement
+   * à `signupDoorDecision`.
+   */
+  function mintErrorKey(code: unknown): MintErrorKey {
+    if (code === 'QUOTA_EXHAUSTED') return 'invitesSpent';
+    if (code === 'PLATFORM_FULL') return 'invitesPlatformFull';
+    return 'inviteMintFailed';
+  }
 
   let quota = 0;
   let remaining = 0;
@@ -32,12 +49,23 @@
   let invites: InviteView[] = [];
   let loading = true;
   let minting = false;
+  let revokingId: string | null = null;
   let error: InviteError | '' = '';
   let copied: string | null = null;
 
-  async function load(): Promise<void> {
-    loading = true;
-    error = '';
+  /**
+   * Recharge quota/remaining/platformFull/invites depuis le serveur, sans
+   * toucher `loading` ni `error`.
+   *
+   * Utilisée après une mutation (créer, retirer) pour resynchroniser
+   * l'affichage sur l'état réel du serveur - y compris quand la mutation
+   * elle-même a échoué, puisque c'est justement le signe que l'état affiché
+   * datait d'avant un changement arrivé ailleurs (un lien révoqué par une
+   * autre session, un filleul arrivé entre deux chargements). `load()` s'en
+   * sert pour le chargement initial ; les gestes qui ont déjà un message à
+   * montrer l'appellent directement pour ne pas l'effacer.
+   */
+  async function refresh(): Promise<boolean> {
     try {
       const res = await fetch('/api/invites', { credentials: 'include' });
       if (!res.ok) throw new Error(String(res.status));
@@ -46,12 +74,19 @@
       remaining = body.remaining;
       platformFull = body.platformFull;
       invites = body.invites;
+      return true;
     } catch (err) {
       logger.error('Could not load invitations', err);
-      error = 'inviteMintFailed';
-    } finally {
-      loading = false;
+      return false;
     }
+  }
+
+  async function load(): Promise<void> {
+    loading = true;
+    error = '';
+    const ok = await refresh();
+    if (!ok) error = 'invitesLoadFailed';
+    loading = false;
   }
 
   async function mint(): Promise<void> {
@@ -61,18 +96,37 @@
       const res = await fetch('/api/invites', { method: 'POST', credentials: 'include' });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        error = body?.error === 'PLATFORM_FULL' ? 'invitesPlatformFull' : 'inviteMintFailed';
+        // Le message d'abord, puis la resynchronisation : sinon le bouton
+        // resterait actif et le compte resterait faux avec aplomb, ce que
+        // le composant se reproche à lui-même plus haut.
+        error = mintErrorKey(body?.error);
+        await refresh();
         return;
       }
-      await load();
+      await refresh();
+    } catch (err) {
+      logger.error('Could not create an invitation', err);
+      error = 'inviteMintFailed';
     } finally {
       minting = false;
     }
   }
 
   async function revoke(id: string): Promise<void> {
-    await fetch(`/api/invites/${id}`, { method: 'DELETE', credentials: 'include' });
-    await load();
+    if (revokingId) return;
+    revokingId = id;
+    try {
+      // Une 409/404 est absorbée par le `refresh()` inconditionnel qui suit :
+      // la liste redevient exacte que le lien ait déjà servi ou n'existe
+      // plus. Seul un échec réseau (la promesse elle-même rejetée) mérite
+      // d'être rattrapé ici.
+      await fetch(`/api/invites/${id}`, { method: 'DELETE', credentials: 'include' });
+      await refresh();
+    } catch (err) {
+      logger.error('Could not withdraw the invitation', err);
+    } finally {
+      revokingId = null;
+    }
   }
 
   async function copy(invite: InviteView): Promise<void> {
@@ -98,6 +152,14 @@
 
   {#if loading}
     <p class="note">{t($language, 'loading')}</p>
+  {:else if error === 'invitesLoadFailed'}
+    <!-- Un chargement raté n'est pas une liste vide : ne pas afficher
+         "vous n'avez encore invité personne" à côté d'un compte à 0/0
+         auquel il ne faut pas croire. -->
+    <p class="note error">
+      {t($language, 'invitesLoadFailed')}
+      <button class="retry" on:click={load}>{t($language, 'retry')}</button>
+    </p>
   {:else}
     <p class="remaining">
       <strong>{remaining} / {quota}</strong>
@@ -133,7 +195,11 @@
                 <button class="copy" on:click={() => copy(invite)}>
                   {copied === invite.id ? t($language, 'inviteCopied') : t($language, 'inviteCopy')}
                 </button>
-                <button class="revoke" on:click={() => revoke(invite.id)}>
+                <button
+                  class="revoke"
+                  disabled={revokingId === invite.id}
+                  on:click={() => revoke(invite.id)}
+                >
                   {t($language, 'inviteRevoke')}
                 </button>
               </div>
@@ -186,6 +252,12 @@
   .note.error {
     opacity: 1;
     color: #ff8a80;
+  }
+
+  .retry {
+    margin-left: 0.5rem;
+    padding: 0.1rem 0.6rem;
+    font-size: 0.8rem;
   }
 
   button:disabled {
