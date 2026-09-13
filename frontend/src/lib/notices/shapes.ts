@@ -16,7 +16,7 @@ export const NOTICE_SHAPES: Record<string, NoticeShape> = {
   /**
    * Le message déjà traduit, tel que `notifications.show()` le reçoit.
    *
-   * Le pont de compatibilité : ses huit appelants passent une chaîne, pas une
+   * Le pont de compatibilité : ses dix appelants passent une chaîne, pas une
    * clé, et les réécrire serait un second chantier.
    */
   raw: {

@@ -4,7 +4,7 @@
 
 **Goal:** Réunir les six surfaces de notification derrière un seul store, un seul toast, et une cloche à pastille dans la barre du haut.
 
-**Architecture:** Une notification est une donnée sérialisable (`kind` + `params`), jamais un composant ni une closure — c'est ce qui lui permet de survivre au rechargement. Un registre **pur** donne le texte et le ton de chaque `kind` ; les **actions**, qui ont besoin de la socket et des stores du navigateur, sont enregistrées à l'exécution par des ponts, de sorte que tout le reste se teste sous Bun sans navigateur. `notifications.show()` survit en couche de compatibilité pour ses huit appelants.
+**Architecture:** Une notification est une donnée sérialisable (`kind` + `params`), jamais un composant ni une closure — c'est ce qui lui permet de survivre au rechargement. Un registre **pur** donne le texte et le ton de chaque `kind` ; les **actions**, qui ont besoin de la socket et des stores du navigateur, sont enregistrées à l'exécution par des ponts, de sorte que tout le reste se teste sous Bun sans navigateur. `notifications.show()` survit en couche de compatibilité pour ses dix appelants.
 
 **Tech Stack:** Svelte 4 + SvelteKit, stores Svelte, `bun test` + `node:assert/strict`, `localStorage`.
 
@@ -13,7 +13,8 @@
 
 ## Global Constraints
 
-- **`notifications.show(message, type, duration)` ne change ni de nom, ni de signature, ni de comportement.** Huit fichiers l'appellent (`saves/quick-actions.ts`, `SaveGameMenu`, `LoadSavesMenu`, `TopBar`, `VrShell`, `SoloRoom`, `routes/room/[id]/+page.svelte`) et aucun n'est modifié par ce plan.
+- **`notifications.show(message, type, duration)` garde son nom et sa signature, et aucun de ses appelants n'est modifié par ce plan.** Ils sont **dix** : `saves/quick-actions.ts`, `vr/panels/profile.ts`, `SaveGameMenu`, `LoadSavesMenu`, `SaveGrid`, `TopBar`, `VrShell`, `SoloRoom`, `LockstepRoom`, `routes/room/[id]/+page.svelte`.
+- **Une seule chose change dans son comportement, et c'est délibéré : `duration` devient un temps d'ÉCRAN et non une durée de vie.** La tâche 4 le fait et l'explique. Sans ce changement, le centre ne retiendrait rien — une notification effacée trois secondes après sa naissance n'est jamais rattrapée, ce qui vide le chantier de son objet. Le retour passe aussi de `number` à `string` ; `TopBar` garde ce retour dans une variable, donc `svelte-check` doit rester à 0 erreur après la tâche 4.
 - **`VrShell.svelte` l. 774 lit `$notifications.at(-1)?.message`.** Le store exporté doit rester un tableau d'objets portant `id`, `message` et `type`. Casser cette forme rend muet le bandeau du casque, et aucun test ne le voit.
 - **Pas d'alias SvelteKit (`$lib`, `$app`) dans un module testé sous Bun.** Imports relatifs avec l'extension `.js`, comme `roms/transfer.ts` l'explique en tête de fichier. Un `import type` est effacé à l'exécution et reste autorisé.
 - **Un module qui persiste prend son stockage en argument**, il n'attrape jamais `localStorage` — même forme que `stores/aspect-preference.ts` et `roms/share-consent.ts`.
@@ -215,7 +216,7 @@ export const NOTICE_SHAPES: Record<string, NoticeShape> = {
   /**
    * Le message déjà traduit, tel que `notifications.show()` le reçoit.
    *
-   * Le pont de compatibilité : ses huit appelants passent une chaîne, pas une
+   * Le pont de compatibilité : ses dix appelants passent une chaîne, pas une
    * clé, et les réécrire serait un second chantier.
    */
   raw: {
@@ -745,7 +746,7 @@ Remplacer tout le contenu de `frontend/src/lib/services/notification.ts` par :
 
 ```ts
 /**
- * L'API que huit fichiers appellent, au-dessus du centre.
+ * L'API que dix fichiers appellent, au-dessus du centre.
  *
  * Elle ne bouge pas : `show(message, type, duration)` rend un identifiant,
  * `dismiss` le reprend, et le store reste un tableau d'objets portant `id`,
