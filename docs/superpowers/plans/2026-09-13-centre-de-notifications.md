@@ -17,7 +17,7 @@
 - **`VrShell.svelte` l. 774 lit `$notifications.at(-1)?.message`.** Le store exporté doit rester un tableau d'objets portant `id`, `message` et `type`. Casser cette forme rend muet le bandeau du casque, et aucun test ne le voit.
 - **Pas d'alias SvelteKit (`$lib`, `$app`) dans un module testé sous Bun.** Imports relatifs avec l'extension `.js`, comme `roms/transfer.ts` l'explique en tête de fichier. Un `import type` est effacé à l'exécution et reste autorisé.
 - **Un module qui persiste prend son stockage en argument**, il n'attrape jamais `localStorage` — même forme que `stores/aspect-preference.ts` et `roms/share-consent.ts`.
-- **Un nouveau fichier de test ne tourne que s'il est nommé dans `test:ui`** de `package.json`. Vérifier le total, pas la couleur : 1251 avant ce plan.
+- **Un nouveau fichier de test ne tourne que s'il est nommé dans `test:ui`** de `package.json`. Vérifier le total, pas la couleur : **1248 avant ce plan** — cette branche part d'`origin/main`, sans le commit du disclaimer qui en ajoute 3. Si elle est rebasée après une fusion de celui-ci, tous les totaux ci-dessous montent de 3.
 - **Tout `kind` doit avoir un texte dans les deux langues.** `core/test/i18n-parity.test.ts` garde la parité des clés ; la tâche 1 ajoute la garde qui attrape un `kind` sans traduction.
 - **Pas de configuration de formateur dans ce dépôt.** Suivre l'indentation du fichier voisin : tabulations dans `lib/roms/` et `core/test/`, deux espaces dans `lib/components/` et `lib/services/`.
 - **Les commentaires expliquent pourquoi, pas quoi**, en français dans les fichiers récents. C'est la voix du dépôt ; la respecter fait partie de la tâche.
@@ -245,7 +245,7 @@ bun test core/test/notices.test.ts
 bun run test:ui
 ```
 
-Attendu : 3 tests dans le fichier, et **1254 pass** au total (1251 avant). Si le total est resté à 1251, l'ajout à `test:ui` n'a pas pris.
+Attendu : 3 tests dans le fichier, et **1251 pass** au total (1248 avant). Si le total est resté à 1248, l'ajout à `test:ui` n'a pas pris.
 
 - [ ] **Step 7: Commit**
 
@@ -885,7 +885,7 @@ bun run test:ui
 cd frontend && bun run check
 ```
 
-Attendu : **1268 pass**, et `svelte-check` à **0 erreur**. Le nombre
+Attendu : **1265 pass**, et `svelte-check` à **0 erreur**. Le nombre
 d'avertissements doit rester à 14 ou baisser ; s'il monte, c'est du CSS devenu
 inutilisé qu'on a oublié de supprimer aux étapes 6 et 7.
 
@@ -1423,7 +1423,7 @@ bun run test:ui
 cd frontend && bun run check
 ```
 
-Attendu : 1271 pass, 0 erreur.
+Attendu : 1268 pass, 0 erreur.
 
 - [ ] **Step 5: Regarder à l'écran**
 
@@ -1743,7 +1743,7 @@ bun run test:backend
 cd frontend && bun run check
 ```
 
-Attendu : 1274 pass sur `test:ui`, backend inchangé, 0 erreur de typage. Les
+Attendu : 1271 pass sur `test:ui`, backend inchangé, 0 erreur de typage. Les
 avertissements de `svelte-check` doivent **baisser** — quatre composants
 supprimés, dont ceux qui portaient des règles CSS inutilisées.
 
