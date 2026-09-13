@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { asBuffer, type Database } from './sqlite.js';
 import type { Game, Save, SaveSummary } from './types.js';
 import { mergeIdentity, needsIdentification, type IdentityFields } from './game-identity.js';
+import { servedCoversFor } from './game-metadata.js';
 
 /**
  * How many games one account may hold.
@@ -110,7 +111,12 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
            m.title AS metaTitle, m.genre AS metaGenre, m.publisher AS metaPublisher,
            m.developer AS metaDeveloper, m.releaseDate AS metaReleaseDate,
            m.players AS metaPlayers, m.region AS metaRegion,
-           m.description AS metaDescription, m.coverUrl AS metaCoverUrl
+           m.description AS metaDescription, m.coverUrl AS metaCoverUrl,
+           -- Ce qu'on sert, quand la passe de chauffe y est passee. Sans
+           -- cette colonne, cette requete lisait la source distante et la
+           -- couture de toMetadata ne la voyait jamais : la grille a charge
+           -- ses jaquettes chez libretro jusqu'au 13/09/2026.
+           m.servedCoverUrl AS metaServedCoverUrl
     FROM "Game" g
     LEFT JOIN "GameMetadataChecksum" k ON k.crc32 = g.crc32
     LEFT JOIN "GameMetadata" m ON m.id = k.metadataId
@@ -122,6 +128,7 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
     metaTitle: string | null; metaGenre: string | null; metaPublisher: string | null;
     metaDeveloper: string | null; metaReleaseDate: string | null; metaPlayers: string | null;
     metaRegion: string | null; metaDescription: string | null; metaCoverUrl: string | null;
+    metaServedCoverUrl: string | null;
   })[];
   if (games.length === 0) return [];
 
@@ -146,6 +153,21 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
     byGame.set(s.gameId, list);
   }
 
+  /*
+   * La jaquette d'un jeu NON identifie : `Game.coverUrl` est une copie prise
+   * quand le jeu a ete ajoute, et elle porte donc l'URL distante d'alors.
+   * Trente-trois des soixante-six jeux de la production sont dans ce cas - sans
+   * lien de checksum, cette colonne est tout ce qu'il y a.
+   *
+   * Traduite ici plutot que reecrite en base : la ligne appartient au joueur,
+   * et une traduction a la lecture rattrape aussi les jeux ajoutes avant la
+   * chauffe.
+   */
+  const served = servedCoversFor(
+    db,
+    games.map(g => g.coverUrl).filter((u): u is string => u !== null)
+  );
+
   return games.map(row => {
     const identity: IdentityFields | null = row.linkedMetadataId === null ? null : {
       title: row.metaTitle,
@@ -156,9 +178,12 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
       players: row.metaPlayers,
       region: row.metaRegion,
       description: row.metaDescription,
-      coverUrl: row.metaCoverUrl
+      coverUrl: row.metaServedCoverUrl ?? row.metaCoverUrl
     };
-    const game = toGame(row);
+    const base = toGame(row);
+    const game: Game = base.coverUrl === null
+      ? base
+      : { ...base, coverUrl: served.get(base.coverUrl) ?? base.coverUrl };
     return {
       ...mergeIdentity(game, identity),
       saves: byGame.get(row.id) ?? [],
@@ -336,7 +361,16 @@ export function findOwnedGameForRoom(
 ): { crc32: string | null; coverUrl: string | null } | null {
   const row = db.prepare(`SELECT crc32, coverUrl FROM "Game" WHERE id = ? AND userId = ?`)
     .get(gameId, userId) as { crc32: string | null; coverUrl: string | null } | undefined;
-  return row ?? null;
+  if (!row) return null;
+
+  // Traduite comme partout ailleurs : ce qui part d'ici devient une source
+  // d'image chez l'autre joueur, et l'URL figee sur la ligne l'enverrait
+  // chercher l'octet chez un tiers.
+  if (row.coverUrl === null) return row;
+  return {
+    crc32: row.crc32,
+    coverUrl: servedCoversFor(db, [row.coverUrl]).get(row.coverUrl) ?? row.coverUrl
+  };
 }
 
 /**

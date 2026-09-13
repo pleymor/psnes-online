@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { asBuffer, type Database } from './sqlite.js';
 import type { Game, Save } from './types.js';
+import { servedCoversFor } from './game-metadata.js';
 
 export interface SaveWithGame extends Save {
   game: Game;
@@ -45,11 +46,19 @@ export function findSaveWithGame(db: Database, id: string): SaveWithGame | null 
   `).get(id) as Record<string, unknown> | undefined;
   if (!row) return null;
 
+  /*
+   * La meme traduction que dans `listGamesWithSaveSummaries` : `Game.coverUrl`
+   * est une copie figee de l'URL distante d'alors, et cette requete a la
+   * sienne, donc elle passait a cote de la correction.
+   */
+  const frozen = (row.g_coverUrl as string | null) ?? null;
+  const served = frozen === null ? null : servedCoversFor(db, [frozen]).get(frozen) ?? frozen;
+
   const game: Game = {
     id: row.g_id as string,
     title: row.g_title as string,
     filename: row.g_filename as string,
-    coverUrl: (row.g_coverUrl as string | null) ?? null,
+    coverUrl: served,
     uploadedAt: new Date(row.g_uploadedAt as number),
     genre: (row.g_genre as string | null) ?? null,
     publisher: (row.g_publisher as string | null) ?? null,
