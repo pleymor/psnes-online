@@ -57,6 +57,22 @@ export function isUserInVr(userId: string): boolean {
   return vrLobby?.isInVr(userId) === true;
 }
 
+/**
+ * Deux joueurs viennent de cesser d'être amis : que le lobby VR l'apprenne.
+ *
+ * Le même détour que `isUserInVr` juste au-dessus, et pour la même raison :
+ * `api/friends.ts` supprime l'amitié et n'a aucune raison de connaître
+ * `vrLobby`, qui n'existe de toute façon pas avant `initializeWebSocket`. Nul
+ * se lit « personne n'est en VR », donc il n'y a rien à oublier.
+ *
+ * Sans cet appel, le cache d'amis que le lobby a lu à `vr:enter` continue de
+ * faire voyager la pose de chacun vers l'autre jusqu'à ce que l'un des deux
+ * quitte la VR - voir `VrLobby.forgetFriendship`.
+ */
+export function forgetVrFriendship(userA: string, userB: string): void {
+  vrLobby?.forgetFriendship(userA, userB);
+}
+
 export function getRooms(): Map<string, Room> {
   return rooms;
 }

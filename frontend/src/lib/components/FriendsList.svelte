@@ -50,6 +50,41 @@
    * Keyed by `createdBy` like every other writer here, so the three sources
    * agree on which friend a room belongs to.
    */
+  /*
+   * Nommés, et enregistrés puis retirés avec LA MÊME référence.
+   *
+   * `VrShell.svelte` écoute ces deux évènements-là sur le même socket et reste
+   * monté pendant toute une session VR ; en socket.io v4, `off(event)` sans
+   * gestionnaire retire TOUS les écouteurs de l'évènement, donc le
+   * `off('friends:online')` nu qui était ici arrachait aussi le sien. Le
+   * symptôme - « mes amis ne passent plus jamais en VR dans le casque, ni en
+   * ligne d'ailleurs », sans une erreur de console - n'accuse aucun des deux
+   * fichiers. `VrShell.svelte` a payé exactement ce piège dans l'autre sens et
+   * son bloc de `teardown` nomme ses six gestionnaires pour cette raison.
+   */
+  function handleFriendsOnline(friendsWithStatus: any[]) {
+    onlineFriends = new Map(friendsWithStatus.map(f => [f.id, f.online]));
+    inVrFriends = new Set(friendsWithStatus.filter(f => f.inVr).map(f => f.id));
+  }
+
+  function handleFriendStatusChanged({ userId, online, inVr }: any) {
+    onlineFriends.set(userId, online);
+    onlineFriends = onlineFriends; // Trigger reactivity
+    /*
+     * Un `inVr` absent ne fait rien, au lieu de valoir « non ».
+     *
+     * Le champ est émis par les trois émetteurs de cet événement, mais un
+     * serveur d'avant ce changement - le temps d'un déploiement - l'omettrait,
+     * et `undefined` étant faux, un ami présent en VR sortirait du lobby au
+     * premier changement de statut sans rapport.
+     */
+    if (inVr !== undefined) {
+      if (inVr) inVrFriends.add(userId);
+      else inVrFriends.delete(userId);
+      inVrFriends = inVrFriends; // Trigger reactivity
+    }
+  }
+
   function handleRoomUpdate(room: any) {
     const creatorId = room?.createdBy || room?.hostId;
     if (!creatorId) return;
@@ -85,32 +120,10 @@
       friendRequests = await reqRes.json();
     }
 
-    // Listen for initial online status
-    $socket?.on('friends:online', (friendsWithStatus: any[]) => {
-      // Initialize online status map
-      onlineFriends = new Map(friendsWithStatus.map(f => [f.id, f.online]));
-      onlineFriends = onlineFriends; // Trigger reactivity
-      inVrFriends = new Set(friendsWithStatus.filter(f => f.inVr).map(f => f.id));
-    });
-
-    // Listen for friend status changes (online/offline/in VR)
-    $socket?.on('friend:statusChanged', ({ userId, online, inVr }: any) => {
-      onlineFriends.set(userId, online);
-      onlineFriends = onlineFriends; // Trigger reactivity
-      /*
-       * Un `inVr` absent ne fait rien, au lieu de valoir « non ».
-       *
-       * Le champ est émis par les trois émetteurs de cet événement, mais un
-       * serveur d'avant ce changement - le temps d'un déploiement - l'omettrait,
-       * et `undefined` étant faux, un ami présent en VR sortirait du lobby au
-       * premier changement de statut sans rapport.
-       */
-      if (inVr !== undefined) {
-        if (inVr) inVrFriends.add(userId);
-        else inVrFriends.delete(userId);
-        inVrFriends = inVrFriends; // Trigger reactivity
-      }
-    });
+    // Listen for initial online status, and for the changes that follow.
+    // Both by reference - see the two handlers above.
+    $socket?.on('friends:online', handleFriendsOnline);
+    $socket?.on('friend:statusChanged', handleFriendStatusChanged);
 
     // Request initial online status (after listeners are set up)
     $socket?.emit('friends:getOnlineStatus');
@@ -180,8 +193,10 @@
 
   onDestroy(() => {
     // Clean up event listeners
-    $socket?.off('friends:online');
-    $socket?.off('friend:statusChanged');
+    // Named, like `room:update` below: `VrShell.svelte` binds these same two
+    // events on the same socket, and a bare off() took its listeners down too.
+    $socket?.off('friends:online', handleFriendsOnline);
+    $socket?.off('friend:statusChanged', handleFriendStatusChanged);
     $socket?.off('friend:requestReceived');
     $socket?.off('friend:requestAccepted');
     $socket?.off('friend:requestRejected');

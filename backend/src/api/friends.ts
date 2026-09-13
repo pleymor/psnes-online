@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { User } from '../types/index.js';
-import { getIO, getUserSocket, isUserInVr } from '../websocket/index.js';
+import { getIO, getUserSocket, isUserInVr, forgetVrFriendship } from '../websocket/index.js';
 import { getDb } from '../db/sqlite.js';
 import {
   listAcceptedFriendshipsWithProfiles, listPendingRequestsFor,
@@ -185,6 +185,26 @@ friendsRouter.delete('/:friendshipId', asyncHandler(async (req, res) => {
   // the other's rooms in /api/rooms.
   cache.delete(`friendships:${friendship.initiatorId}`);
   cache.delete(`friendships:${friendship.receiverId}`);
+
+  /*
+   * Et le troisième cache, celui du lobby VR.
+   *
+   * Il est lu une fois à `vr:enter` et vit toute la session ; sans cette
+   * ligne, deux joueurs qui viennent de se retirer continuent de recevoir la
+   * pose l'un de l'autre jusqu'à ce que l'un des deux ôte son casque. C'est la
+   * seule règle de confidentialité de la VR partagée, et elle se couperait
+   * autrement à l'échelle d'une session plutôt que d'une requête.
+   *
+   * INCONDITIONNEL, à la différence de la notification ci-dessous : celle-ci
+   * n'a de sens que s'il y a un socket à qui parler, alors qu'ici c'est un
+   * état du serveur qu'on corrige, et un joueur peut très bien être en VR sur
+   * une connexion dont on ne fait rien ici. Sans lobby, c'est un no-op.
+   *
+   * Vaut aussi pour une demande en attente : une amitié jamais acceptée n'a
+   * jamais peuplé ce cache, donc l'oubli ne trouve rien et ne coûte rien -
+   * bien moins qu'une condition de plus à tenir juste.
+   */
+  forgetVrFriendship(friendship.initiatorId, friendship.receiverId);
 
   // Notify the other user via WebSocket
   const io = getIO();

@@ -184,10 +184,22 @@ il ne sera pas réintroduit ici.
 **`roster.ts`** — le cœur, et le seul endroit qui a une horloge.
 
 Les instantanés arrivent à 15 Hz, on dessine à 72 ou 90. Sans interpolation,
-chaque tête saute six fois par seconde. Donc : on garde les **deux** derniers
+chaque tête saute six fois par seconde. Donc : on garde les **trois** derniers
 instantanés par ami et on dessine à `maintenant − 100 ms`, entre les deux qui
-encadrent cet instant. Un retard d'un battement et demi — invisible sur une
+**encadrent** cet instant. Un retard d'un battement et demi — invisible sur une
 tête, et suffisant pour absorber une image réseau perdue.
+
+> **Corrigé le 2026-09-13 (revue finale).** Cette section disait « les **deux**
+> derniers instantanés » *et* « un retard d'un battement et demi ». Les deux ne
+> peuvent pas être vrais ensemble : le battement vaut 66 ms, donc deux
+> instantanés ne couvrent que 66 ms quand le retard en vaut 100, et l'instant
+> dessiné tombe avant le plus ancien des deux pendant les 34 premières
+> millisecondes de chaque battement. Le code écrit d'après ce texte figeait
+> 13 images sur 45 et rattrapait à 3,2 m/s pour un ami qui marche à 1. C'est le
+> **nombre d'instantanés** qui était faux, pas le retard : la demi-période de
+> marge est ce qui absorbe la gigue, et la ramener à un battement exact
+> échangerait la saccade contre un gel au premier instantané en retard.
+> L'invariant à tenir : `(instantanés − 1) × BEAT_MS > INTERPOLATION_DELAY_MS`.
 
 Deux détails qui décident de la justesse :
 
@@ -261,8 +273,12 @@ des deux.
 
 ## 7. Les tests
 
-- `core/test/vr-lobby-roster.test.ts` — interpolation entre deux instantanés,
-  ami qui disparaît, instantané en retard, slerp par l'arc court.
+- `core/test/vr-lobby-roster.test.ts` — interpolation entre les deux
+  instantanés qui encadrent, ami qui disparaît, instantané en retard, slerp par
+  l'arc court, et la **régularité de la vitesse sur plusieurs battements** :
+  tous les instantanés y sont espacés de `BEAT_MS` et non du retard
+  d'interpolation, parce qu'un test qui bat à 100 ms encadre par construction
+  et ne peut rien voir.
 - `core/test/vr-lobby-proximity.test.ts` — la courbe, et le seuil
   `visible: false` sous 50 cm.
 - `core/test/vr-lobby-art.test.ts` — les pixels, sur le modèle de
