@@ -17,6 +17,7 @@ import { userRouter } from '../api/user.js';
 import { avatarsRouter } from '../api/avatars.js';
 import { metadataRouter } from '../api/metadata.js';
 import { coversRouter } from '../api/covers.js';
+import { COVERS_DIR } from '../covers/store.js';
 import { logsRouter } from '../api/logs.js';
 import { pseudoRouter } from '../api/pseudo.js';
 import { requireAccount, requirePseudo } from '../middleware/auth.js';
@@ -195,8 +196,46 @@ export function buildApp(redisClient: RedisClientType): { app: Express; sessionM
   app.use('/api/rooms', requirePseudo, roomsRouter);
   app.use('/api/user', requirePseudo, userRouter);
   app.use('/api/metadata', requirePseudo, metadataRouter);
-  app.use('/api/covers', requirePseudo, coversRouter);
+  // Publique, comme /api/avatars et pour une raison plus forte encore : une
+  // réponse authentifiée est une réponse qu'aucun cache n'a le droit de
+  // garder, donc chaque jaquette repartait du VPS à chaque visite. Voir
+  // api/covers.ts. Ce n'est plus le chemin habituel non plus : les lignes
+  // ingérées pointent vers /covers/<empreinte>.webp.
+  app.use('/api/covers', coversRouter);
   app.use('/api/logs', requirePseudo, logsRouter);
+
+  /*
+   * Les jaquettes ingérées.
+   *
+   * En production nginx sert ce chemin depuis le volume et cette ligne ne
+   * voit jamais une requête (frontend/nginx.conf a sa propre `location
+   * /covers/`, qui ne relaie rien). Elle existe pour le mode dev, où le
+   * frontend est Vite et où il n'y a pas de nginx du tout - sans elle, une
+   * jaquette ingérée serait introuvable sur la machine du développeur.
+   *
+   * Le nom d'un fichier est l'empreinte de ses octets sources, donc
+   * `immutable` est vrai plutôt qu'espéré.
+   */
+  app.use(
+    '/covers',
+    express.static(COVERS_DIR, {
+      immutable: true,
+      maxAge: '1y'
+    })
+  );
+
+  /*
+   * Une jaquette pas encore ingérée est un cas ordinaire, pas une panne.
+   *
+   * Mesuré en lançant le serveur : avec `fallthrough: false`, express.static
+   * fait remonter le fichier manquant au gestionnaire d'erreurs terminal, qui
+   * répond 500. Un catalogue dont la passe de chauffe n'est pas finie aurait
+   * rempli le journal d'erreurs serveur pour des images simplement absentes,
+   * et `<img on:error>` retombe déjà sur l'étiquette de cartouche.
+   */
+  app.use('/covers', (_req, res) => {
+    res.status(404).json({ error: 'Cover not found' });
+  });
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
