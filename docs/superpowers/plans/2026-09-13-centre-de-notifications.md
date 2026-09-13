@@ -768,7 +768,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun test core/test/notices.test.ts
 ```
 
-Attendu : 21 pass, 0 fail.
+Attendu : 25 pass, 0 fail.
 
 - [ ] **Step 5: Réécrire `services/notification.ts` en couche de compatibilité**
 
@@ -946,7 +946,7 @@ bun run test:ui
 cd frontend && bun run check
 ```
 
-Attendu : **1269 pass**, et `svelte-check` à **0 erreur**. Le nombre
+Attendu : **1273 pass**, et `svelte-check` à **0 erreur**. Le nombre
 d'avertissements doit rester à 14 ou baisser ; s'il monte, c'est du CSS devenu
 inutilisé qu'on a oublié de supprimer aux étapes 6 et 7.
 
@@ -1040,7 +1040,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun test core/test/notices.test.ts
 ```
 
-Attendu : 24 pass, 0 fail.
+Attendu : 28 pass, 0 fail.
 
 - [ ] **Step 5: Écrire le composant**
 
@@ -1501,7 +1501,7 @@ bun run test:ui
 cd frontend && bun run check
 ```
 
-Attendu : 1272 pass, 0 erreur.
+Attendu : 1276 pass, 0 erreur.
 
 - [ ] **Step 5: Regarder à l'écran**
 
@@ -1630,7 +1630,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 bun test core/test/notices.test.ts
 ```
 
-Attendu : 27 pass, 0 fail.
+Attendu : 31 pass, 0 fail.
 
 - [ ] **Step 6: Écrire les ponts**
 
@@ -1821,7 +1821,7 @@ bun run test:backend
 cd frontend && bun run check
 ```
 
-Attendu : 1275 pass sur `test:ui`, backend inchangé, 0 erreur de typage. Les
+Attendu : 1279 pass sur `test:ui`, backend inchangé, 0 erreur de typage. Les
 avertissements de `svelte-check` doivent **baisser** — quatre composants
 supprimés, dont ceux qui portaient des règles CSS inutilisées.
 
