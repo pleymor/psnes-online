@@ -12,6 +12,7 @@
 import { get } from 'svelte/store';
 import {
   invitations,
+  answering,
   acceptInvitation,
   declineInvitation,
   invitationError,
@@ -21,8 +22,17 @@ import { sharing } from '$lib/stores/sharing';
 import { myRoom } from '$lib/rooms/my-room';
 import { notices } from '$lib/services/notification';
 import { registerNoticeActions } from '$lib/notices/actions';
+import { waitFor } from '$lib/notices/wait-for';
 
 let started = false;
+
+/**
+ * Le temps qu'on laisse au serveur pour répondre à une invitation, avant de
+ * rendre la main quand même - le même ordre de grandeur que
+ * `waitForSocket()` (`$lib/api/socket.ts`) pour la même sorte d'attente : un
+ * aller-retour serveur qui peut ne jamais revenir.
+ */
+const INVITATION_ANSWER_TIMEOUT_MS = 10_000;
 
 export function startNoticeBridges(): void {
   // Le layout se remonte à chaque navigation côté client ; deux ponts sur une
@@ -30,9 +40,31 @@ export function startNoticeBridges(): void {
   if (started) return;
   started = true;
 
+  /**
+   * `acceptInvitation`/`declineInvitation` rendent dès que l'émission part
+   * sur la socket, avant toute réponse du serveur - qui vide `answering` par
+   * `forget()` une fois qu'elle arrive. Sans attendre cette retombée, `run()`
+   * rendrait une promesse déjà résolue : la garde anti-double-clic
+   * (`actionsInFlight`) serait posée puis retirée dans la même microtâche, et
+   * les boutons ne se désactiveraient jamais le temps d'un aller-retour
+   * réseau.
+   */
   registerNoticeActions('invitation', [
-    { label: 'accept', primary: true, run: (params) => acceptInvitation(String(params.id)) },
-    { label: 'decline', run: (params) => declineInvitation(String(params.id)) }
+    {
+      label: 'accept',
+      primary: true,
+      run: (params) => {
+        acceptInvitation(String(params.id));
+        return waitFor(answering, (id) => id === null, INVITATION_ANSWER_TIMEOUT_MS);
+      }
+    },
+    {
+      label: 'decline',
+      run: (params) => {
+        declineInvitation(String(params.id));
+        return waitFor(answering, (id) => id === null, INVITATION_ANSWER_TIMEOUT_MS);
+      }
+    }
   ]);
 
   registerNoticeActions('share-offer', [

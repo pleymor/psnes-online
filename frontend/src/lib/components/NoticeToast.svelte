@@ -13,7 +13,7 @@
   import { t } from '$lib/i18n/translations';
   import { inGame } from '$lib/stores/in-game';
   import { notices, inGameSurfaces, actionsInFlight } from '$lib/services/notification';
-  import { shapeOf, screenSeconds, toneOf } from '$lib/notices/shapes';
+  import { shapeOf, isOnScreen, toneOf } from '$lib/notices/shapes';
   import { actionsOf } from '$lib/notices/actions';
   import type { Notice } from '$lib/notices/notice';
 
@@ -78,8 +78,7 @@
       if (shape.duringGame !== true || $inGameSurfaces > 0) return false;
     }
 
-    const seconds = screenSeconds(notice);
-    return seconds === 0 || now < notice.at + seconds * 1000;
+    return isOnScreen(notice, now);
   });
 
   /**
@@ -122,7 +121,12 @@
       {@const shape = shapeOf(notice.kind)}
       {@const actions = actionsOf(notice.kind)}
       <div class="toast toast-{toneOf(notice)}" role="alert" transition:fly={{ y: -20, duration: 300 }}>
-        <span class="toast-text">{shape?.text(notice.params, $language) ?? ''}</span>
+        <div class="toast-text">
+          <span class="toast-message">{shape?.text(notice.params, $language) ?? ''}</span>
+          {#if shape?.legal}
+            <span class="toast-legal">{t($language, shape.legal)}</span>
+          {/if}
+        </div>
         {#if actions.length > 0}
           <div class="toast-actions">
             {#each actions as action, index}
@@ -180,6 +184,16 @@
   .toast-text {
     flex: 1;
     min-width: 10rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  /* Le ton discret que `ShareOffer` et `KeepRomOffer` portaient déjà pour
+     cette même ligne. */
+  .toast-legal {
+    color: #8b8ba3;
+    font-size: 0.78rem;
   }
 
   .toast-actions {

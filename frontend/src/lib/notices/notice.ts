@@ -53,9 +53,21 @@ export interface NoticeShape {
   /**
    * Secondes à l'écran. 0 = jusqu'à réponse.
    *
-   * Zéro n'existe que pour `keep-rom`, qui naît pendant une partie : la barre
-   * du haut - donc la cloche - disparaît en plein écran, et une notification
-   * qui s'efface serait alors sans recours.
+   * `keep-rom` en fait un trait permanent de sa forme, pour la même raison :
+   * elle naît pendant une partie, où la barre du haut - donc la cloche -
+   * disparaît en plein écran, et une notification qui s'efface serait alors
+   * sans recours. Mais `seconds: 0` n'est pas réservé à un `kind` : `TopBar`
+   * le passe aussi par instance à un `raw` (le chargement de la bibliothèque
+   * VR), pour la même raison - une notification qui dure le temps d'une
+   * tâche ne doit pas s'effacer avant qu'elle ne finisse.
    */
   readonly seconds?: number;
+  /**
+   * Une seconde ligne, plus discrète, sous la question.
+   *
+   * Les deux cartes d'offre la portaient et l'ont perdue avec leur rendu :
+   * elle n'était pas de la décoration, elle arrive au moment où elle peut
+   * encore changer la réponse.
+   */
+  readonly legal?: TranslationKey;
 }

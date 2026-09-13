@@ -203,13 +203,10 @@ export const translations = {
     waitingForInvitee: 'Waiting for {name}',
     cancelInvitation: 'Cancel the invitation',
     invitationCancelled: 'Invitation cancelled.',
-    invitedYou: '{name} invited you',
     invitationWithGame: '{name} invites you to play {title}',
     invitationNoGame: '{name} invites you to play',
     accept: 'Accept',
     decline: 'Decline',
-    expiresInMinutes: '{count} min left',
-    expiresInAMinute: 'Less than a minute left',
 
     // Groups, on the library page
     lookingForController: 'Looking for a controller — press any button on it',
@@ -797,13 +794,10 @@ export const translations = {
     waitingForInvitee: 'En attente de {name}',
     cancelInvitation: 'Annuler l’invitation',
     invitationCancelled: 'Invitation annulée.',
-    invitedYou: '{name} vous invite',
     invitationWithGame: '{name} t\'invite à jouer à {title}',
     invitationNoGame: '{name} t\'invite à jouer',
     accept: 'Accepter',
     decline: 'Refuser',
-    expiresInMinutes: 'encore {count} min',
-    expiresInAMinute: 'moins d’une minute',
 
     // Groupes, sur la bibliothèque
     lookingForController: 'Recherche d’une manette — appuyez sur un de ses boutons',

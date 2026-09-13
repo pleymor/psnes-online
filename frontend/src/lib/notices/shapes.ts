@@ -39,7 +39,10 @@ export const NOTICE_SHAPES: Record<string, NoticeShape> = {
     text: (params, lang) =>
       t(lang, 'shareOffer', { name: String(params.name), title: String(params.title) }),
     tone: 'info',
-    live: true
+    live: true,
+    // Posée avant l'envoi : c'est le moment où elle peut encore changer la
+    // réponse. `ShareOffer` la portait avec ce commentaire même.
+    legal: 'keepRomLegal'
   },
 
   /**
@@ -54,7 +57,8 @@ export const NOTICE_SHAPES: Record<string, NoticeShape> = {
     tone: 'info',
     live: true,
     duringGame: true,
-    seconds: 0
+    seconds: 0,
+    legal: 'keepRomLegal'
   }
 };
 
@@ -75,6 +79,19 @@ export const DEFAULT_SECONDS = 6;
 export function screenSeconds(notice: Pick<Notice, 'kind' | 'params'>): number {
   const declared = notice.params.seconds ?? shapeOf(notice.kind)?.seconds ?? DEFAULT_SECONDS;
   return Number(declared);
+}
+
+/**
+ * Cette notification est-elle encore dans son temps d'écran ? Zéro = toujours.
+ *
+ * Extrait de `NoticeToast`, qui la calculait en ligne, parce que
+ * `services/notification.ts` en a désormais besoin lui aussi : c'est ce qui
+ * borne la durée de vie du bandeau VR, qui n'a ni cloche ni bouton pour
+ * fermer quoi que ce soit.
+ */
+export function isOnScreen(notice: Pick<Notice, 'kind' | 'params' | 'at'>, now: number): boolean {
+  const seconds = screenSeconds(notice);
+  return seconds === 0 || now < notice.at + seconds * 1000;
 }
 
 const VALID_TONES: readonly NoticeTone[] = ['info', 'success', 'error', 'warning'];

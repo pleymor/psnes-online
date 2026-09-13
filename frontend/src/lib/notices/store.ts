@@ -23,6 +23,23 @@ export interface PostOptions {
   readonly expiresAt?: number;
 }
 
+/**
+ * Un jour : ce qui n'a ni échéance ni bouton et qui traîne depuis plus
+ * longtemps que ça n'intéresse plus personne, même si rien n'est jamais venu
+ * fermer la cloche. Plus court condamnerait une notification lue la veille et
+ * jamais rouverte depuis ; plus long ne protège plus grand-chose contre une
+ * session laissée ouverte des jours durant.
+ */
+const MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Cinquante : le centre reste lisible d'un coup d'œil, et le JSON que
+ * `writeNotices` réécrit à chaque `post` reste petit même si la cloche n'est
+ * jamais fermée sur une longue session. Les plus récentes l'emportent - la
+ * liste est déjà en ordre d'arrivée.
+ */
+const MAX_RETAINED = 50;
+
 export interface Notices {
   readonly list: Readable<Notice[]>;
   readonly open: Readable<boolean>;
@@ -31,7 +48,10 @@ export interface Notices {
   dismiss(id: string): void;
   openCentre(): void;
   closeCentre(): void;
-  /** Retire ce qui a passé son échéance. Appelée par une horloge, et testable. */
+  /**
+   * Retire ce qui a passé son échéance, ce qui a passé son âge, et ce qui
+   * dépasse le nombre retenu. Appelée par une horloge, et testable.
+   */
   sweep(now: number): void;
   /** Remet en place ce qui revient du stockage, sans rien notifier. */
   hydrate(notices: readonly Notice[]): void;
@@ -72,7 +92,14 @@ export function createNotices(deps: NoticesDeps = {}): Notices {
     openCentre: () => open.set(true),
     closeCentre,
     sweep(at: number) {
-      list.update((current) => current.filter((n) => n.expiresAt === undefined || n.expiresAt > at));
+      list.update((current) => {
+        const fresh = current.filter(
+          (n) => (n.expiresAt === undefined || n.expiresAt > at) && at - n.at < MAX_AGE_MS
+        );
+        // La liste est déjà en ordre d'arrivée : tronquer par la tête garde
+        // les plus récentes.
+        return fresh.length > MAX_RETAINED ? fresh.slice(fresh.length - MAX_RETAINED) : fresh;
+      });
     },
     hydrate(notices) {
       list.set([...get(list), ...notices]);

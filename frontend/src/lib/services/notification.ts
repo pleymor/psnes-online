@@ -10,11 +10,11 @@
  * `'raw'`, retenue par le centre après que le toast a disparu.
  */
 
-import { derived, get, writable } from 'svelte/store';
+import { get, readable, writable } from 'svelte/store';
 import { createNotices } from '$lib/notices/store';
 import { hasActions } from '$lib/notices/actions';
 import { startNoticeSession } from '$lib/notices/session';
-import type { Notice } from '$lib/notices/notice';
+import { isOnScreen, toneOf } from '$lib/notices/shapes';
 
 export type NotificationType = 'success' | 'error' | 'info' | 'warning';
 
@@ -82,20 +82,48 @@ export function restoreNotices(): void {
 /**
  * Le tableau que les appelants historiques lisent.
  *
- * Seules les notifications de `kind` `'raw'` y figurent : c'est la forme que
- * cette API sait décrire, et le bandeau VR n'a que faire d'une invitation
- * qu'il ne peut pas peindre.
+ * Seules les notifications de `kind` `'raw'` ENCORE À L'ÉCRAN y figurent :
+ * `'raw'` est la forme que cette API sait décrire, et le bandeau VR n'a que
+ * faire d'une invitation qu'il ne peut pas peindre. « À l'écran » est ce qui
+ * manquait : `VrShell` n'a ni cloche ni bouton pour fermer quoi que ce soit,
+ * donc sans cette borne le dernier message resterait peint sur le pupitre
+ * pour le reste de la session immersive - et une `raw` revenue du stockage
+ * après un rechargement resurgirait, message d'une session précédente compris.
+ *
+ * Un `derived` seul ne suffit pas : le temps d'écran s'écoule même quand la
+ * liste ne change pas, il faut une horloge qui tourne à côté. `readable` avec
+ * fonction de démarrage la fait tourner SEULEMENT tant qu'un abonné existe -
+ * `VrShell` aujourd'hui - au lieu de battre pour rien tant que personne ne
+ * regarde le casque.
  */
+const onScreen = readable<Notification[]>([], (set) => {
+  function recompute(): void {
+    const now = Date.now();
+    set(
+      get(notices.list)
+        .filter((notice) => notice.kind === 'raw' && isOnScreen(notice, now))
+        .map((notice) => ({
+          id: notice.id,
+          message: String(notice.params.message ?? ''),
+          // `toneOf`, pas `params.tone` cru : c'est elle qui valide le champ
+          // (absent, mal orthographié) et retombe sur `'info'` sinon.
+          type: toneOf(notice)
+        }))
+    );
+  }
+
+  recompute();
+  const unsubscribe = notices.list.subscribe(recompute);
+  const clock = setInterval(recompute, 500);
+
+  return () => {
+    clearInterval(clock);
+    unsubscribe();
+  };
+});
+
 export const notifications = {
-  subscribe: derived(notices.list, (list: Notice[]) =>
-    list
-      .filter((notice) => notice.kind === 'raw')
-      .map((notice) => ({
-        id: notice.id,
-        message: String(notice.params.message ?? ''),
-        type: (notice.params.tone ?? 'info') as NotificationType
-      }))
-  ).subscribe,
+  subscribe: onScreen.subscribe,
 
   /**
    * `duration` est un temps d'ÉCRAN, et non une durée de vie.

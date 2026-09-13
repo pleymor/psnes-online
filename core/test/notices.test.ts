@@ -220,6 +220,11 @@ test('des boutons enregistres se retrouvent par leur kind', () => {
 
 	assert.equal(hasActions('essai'), true);
 	assert.equal(actionsOf('essai').length, 1);
+
+	// La table est un module partage par tout le processus bun : sans ce
+	// nettoyage, le kind 'essai' fuit dans les autres fichiers de test qui
+	// tournent dans le meme processus.
+	registerNoticeActions('essai', []);
 });
 
 test('un abonnement pose apres hydrate() voit la liste hydratee, jamais une liste vide d abord', () => {
@@ -365,4 +370,92 @@ test('un ton invalide dans les params est ignore, pas affiche tel quel', () => {
 
 test('un kind inconnu sans ton dans les params rend info', () => {
 	assert.equal(toneOf({ kind: 'rien-de-tel', params: {} }), 'info');
+});
+
+test('l offre de jeu et garder la ROM portent la meme mention legale', () => {
+	// Les deux cartes d offre l affichaient avant de perdre leur rendu propre.
+	assert.equal(shapeOf('share-offer')?.legal, 'keepRomLegal');
+	assert.equal(shapeOf('keep-rom')?.legal, 'keepRomLegal');
+});
+
+import { isOnScreen } from '../../frontend/src/lib/notices/shapes.js';
+
+test('dans son temps d ecran, une notification y est encore', () => {
+	assert.equal(isOnScreen({ kind: 'raw', params: {}, at: 0 }, 3_000), true);
+});
+
+test('hors de son temps d ecran, elle n y est plus', () => {
+	// Six secondes par defaut : a sept secondes, c est fini.
+	assert.equal(isOnScreen({ kind: 'raw', params: {}, at: 0 }, 7_000), false);
+});
+
+test('seconds: 0 reste toujours a l ecran', () => {
+	assert.equal(isOnScreen({ kind: 'raw', params: { seconds: 0 }, at: 0 }, 1_000_000), true);
+});
+
+test('sweep purge par l age, meme sans echeance posee', () => {
+	// Le plafond nomme dans store.ts : un jour.
+	const notices = createNotices({ now: () => 0 });
+	notices.post('raw', { message: 'vieille' });
+
+	notices.sweep(24 * 60 * 60 * 1000 + 1);
+
+	assert.equal(get(notices.list).length, 0);
+});
+
+test('une notification dans le plafond d age survit au sweep', () => {
+	const notices = createNotices({ now: () => 0 });
+	notices.post('raw', { message: 'fraiche' });
+
+	notices.sweep(24 * 60 * 60 * 1000 - 1);
+
+	assert.equal(get(notices.list).length, 1);
+});
+
+test('sweep borne le nombre de notifications retenues, en gardant les plus recentes', () => {
+	const notices = createNotices({ now: () => 0 });
+	for (let i = 0; i < 60; i++) {
+		notices.post('raw', { message: `n${i}` });
+	}
+
+	notices.sweep(0);
+
+	const list = get(notices.list);
+	assert.equal(list.length, 50);
+	assert.equal(list[0].params.message, 'n10');
+	assert.equal(list[list.length - 1].params.message, 'n59');
+});
+
+import { writable } from 'svelte/store';
+import { waitFor } from '../../frontend/src/lib/notices/wait-for.js';
+
+test('waitFor se resout tout de suite si le predicat est deja vrai', async () => {
+	const store = writable(1);
+	const start = Date.now();
+
+	await waitFor(store, (v) => v === 1, 1_000);
+
+	assert.ok(Date.now() - start < 200, 'ne doit pas attendre le delai de garde');
+});
+
+test('waitFor se resout quand le store finit par satisfaire le predicat', async () => {
+	const store = writable<string | null>('en-vol');
+	const seen: (string | null)[] = [];
+
+	const done = waitFor(store, (v) => v === null, 1_000).then(() => seen.push('resolu'));
+
+	assert.deepEqual(seen, [], 'pas encore resolu avant le changement');
+	store.set(null);
+	await done;
+
+	assert.deepEqual(seen, ['resolu']);
+});
+
+test('waitFor rend la main par le delai de garde si la reponse ne vient jamais', async () => {
+	const store = writable<string | null>('en-vol');
+	const start = Date.now();
+
+	await waitFor(store, (v) => v === null, 20);
+
+	assert.ok(Date.now() - start < 500, 'le delai de garde doit ecourter l attente');
 });

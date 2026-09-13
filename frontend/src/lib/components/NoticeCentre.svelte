@@ -128,7 +128,12 @@
             {@const shape = shapeOf(notice.kind)}
             {@const actions = actionsOf(notice.kind)}
             <li class="tone-{toneOf(notice)}">
-              <span class="text">{shape?.text(notice.params, $language) ?? ''}</span>
+              <div class="text">
+                <span class="message">{shape?.text(notice.params, $language) ?? ''}</span>
+                {#if shape?.legal}
+                  <span class="legal">{t($language, shape.legal)}</span>
+                {/if}
+              </div>
               {#if actions.length > 0}
                 <div class="row-actions">
                   {#each actions as action, index}
@@ -239,7 +244,20 @@
   li.tone-error { border-left-color: #b8455a; }
   li.tone-warning { border-left-color: #b8934a; }
 
-  .text { flex: 1; min-width: 9rem; }
+  .text {
+    flex: 1;
+    min-width: 9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  /* Le ton discret que `ShareOffer` et `KeepRomOffer` portaient déjà pour
+     cette même ligne. */
+  .legal {
+    color: #8b8ba3;
+    font-size: 0.78rem;
+  }
 
   .empty {
     margin: 0;
