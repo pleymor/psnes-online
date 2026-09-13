@@ -19,11 +19,20 @@ import { gateAnonymousSocket } from './anonymous-gate.js';
 import { anonymousRoomOf } from '../auth/anonymous.js';
 import { createLogger } from '../utils/logger.js';
 import { Presence } from './presence.js';
+import { registerVrLobby, type VrLobby } from './vr-lobby.js';
 
 const logger = createLogger('WebSocket');
 
 const rooms = new Map<string, Room>();
 const presence = new Presence();
+
+/*
+ * Le lobby VR détient sa carte et son battement, donc il n'existe qu'une fois -
+ * et pas avant `io`, dont il a besoin pour parler. D'où cette variable plutôt
+ * qu'un `const` à côté de `presence` : c'est `initializeWebSocket` qui la
+ * remplit, et `attach` qui branche chaque connexion dessus.
+ */
+let vrLobby: VrLobby | null = null;
 
 // Export io instance for use in other modules
 let ioInstance: Server | null = null;
@@ -63,6 +72,7 @@ function protectHandlers(socket: Socket) {
 
 export function initializeWebSocket(io: Server) {
   ioInstance = io;
+  vrLobby = registerVrLobby(io, presence);
 
   io.on('connection', async (socket: Socket) => {
     try {
@@ -153,6 +163,10 @@ async function handleConnection(io: Server, socket: Socket) {
   logger.info({ userId: user.id, user: user.pseudo }, 'User connected');
 
   presence.register(user, socket.id);
+
+  // Après `presence.register` : l'annonce « je suis en VR » passe par la carte
+  // de présence pour joindre les amis, donc celui qui entre doit d'abord y être.
+  vrLobby?.attach(socket, user);
 
   // Register every handler before awaiting anything else. socket.io discards
   // events that arrive with no listener attached, so any await placed before
