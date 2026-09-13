@@ -107,3 +107,32 @@ test('retirer par identifiant ne touche pas les autres', () => {
 		['deux']
 	);
 });
+
+test('fermer le centre laisse ce qui porte des boutons', () => {
+	// closeCentre() doit à la fois consommer ce qui n'en a pas ET laisser ce qui en a.
+	const notices = createNotices({ hasActions: (kind) => kind === 'avec-boutons' });
+	notices.post('raw', { message: 'a lire' });
+	notices.post('avec-boutons', { message: 'a repondre' });
+
+	notices.openCentre();
+	notices.closeCentre();
+
+	assert.deepEqual(
+		get(notices.list).map((n) => n.kind),
+		['avec-boutons']
+	);
+});
+
+test('une notification sans echeance survit au sweep', () => {
+	// sweep() doit retirer ce qui a passé expiresAt, mais garder ce qui n'en a pas.
+	const notices = createNotices();
+	notices.post('raw', { message: 'sans echeance' });
+	notices.post('raw', { message: 'expiree' }, { expiresAt: 1_000 });
+
+	notices.sweep(1_001);
+
+	assert.deepEqual(
+		get(notices.list).map((n) => n.params.message),
+		['sans echeance']
+	);
+});
