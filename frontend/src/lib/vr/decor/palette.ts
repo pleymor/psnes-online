@@ -27,6 +27,10 @@ export const COLOURS = {
   brickDark: '#8a5000',
   goomba: '#a04000',
   goombaFoot: '#e09050',
+  skin: '#f8b070',
+  skinShade: '#c07038',
+  cap: '#d82800',
+  capShade: '#a01800',
   outline: '#000000'
 } as const;
 
