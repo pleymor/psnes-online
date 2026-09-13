@@ -20,6 +20,7 @@
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import RomSourcePanel from '$lib/components/RomSourcePanel.svelte';
   import SavesPortabilityPanel from '$lib/components/SavesPortabilityPanel.svelte';
+  import MyInvites from '$lib/components/MyInvites.svelte';
   import { SHADERS } from '$lib/shaders';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import {
@@ -418,6 +419,8 @@
       </form>
     </div>
   </header>
+
+  <MyInvites />
 
   <!-- The controls card always spans the full grid width: it needs the
        whole page width for its two side-by-side pad drawings (46rem

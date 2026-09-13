@@ -55,6 +55,19 @@ export const translations = {
     signupTooManyAttempts: 'Too many attempts. Try again later.',
     signupRefused: 'Your invitation could not be accepted.',
 
+    // Mes invitations (profil)
+    myInvites: 'My invitations',
+    invitesRemaining: 'places left to give',
+    mintInvite: 'Create an invitation link',
+    inviteCopy: 'Copy link',
+    inviteCopied: 'Copied',
+    inviteRevoke: 'Withdraw',
+    inviteJoined: 'joined with this link',
+    invitesNone: 'You have not invited anyone yet.',
+    invitesSpent: 'You have given away both of your places.',
+    invitesPlatformFull: 'psnes is full: new invitations cannot be used right now.',
+    inviteMintFailed: 'The invitation could not be created.',
+
     // Friends
     friends: 'Friends',
     requests: 'Requests',
@@ -658,6 +671,19 @@ export const translations = {
     signupQuotaExhausted: 'Le joueur qui vous a invité n\'a plus de place à donner.',
     signupTooManyAttempts: 'Trop de tentatives. Réessayez plus tard.',
     signupRefused: 'Votre invitation n\'a pas pu être acceptée.',
+
+    // Mes invitations (profil)
+    myInvites: 'Mes invitations',
+    invitesRemaining: 'places à donner',
+    mintInvite: 'Créer un lien d\'invitation',
+    inviteCopy: 'Copier le lien',
+    inviteCopied: 'Copié',
+    inviteRevoke: 'Retirer',
+    inviteJoined: 'est entré par ce lien',
+    invitesNone: 'Vous n\'avez encore invité personne.',
+    invitesSpent: 'Vous avez donné vos deux places.',
+    invitesPlatformFull: 'psnes est complet : une nouvelle invitation ne pourrait pas servir pour l\'instant.',
+    inviteMintFailed: 'Le lien n\'a pas pu être créé.',
 
     // Friends
     friends: 'Amis',
