@@ -67,7 +67,12 @@ export function runInviteCli(db: Database, argv: string[]): { code: number; line
       return { code: 1, lines: [`Ce lien est déjà consommé ; une place occupée ne se rend pas`] };
     }
     revokeInvite(db, invite.id);
-    return { code: 0, lines: [`Lien éteint. Il reste ${listInvitesOf(db, invite.inviterId).length} lien(s) vivant(s) à son inviteur.`] };
+    // `listInvitesOf` exclut les liens révoqués mais garde les liens
+    // consommés : sa longueur n'est pas « vivants », c'est « non révoqués ».
+    // Un joueur qui a déjà placé son unique invitation se ferait dire qu'il
+    // lui en reste une. Seul `usedAt === null` est un lien encore vivant.
+    const stillLive = listInvitesOf(db, invite.inviterId).filter(i => i.usedAt === null).length;
+    return { code: 0, lines: [`Lien éteint. Il reste ${stillLive} lien(s) vivant(s) à son inviteur.`] };
   }
 
   return { code: 1, lines: USAGE };

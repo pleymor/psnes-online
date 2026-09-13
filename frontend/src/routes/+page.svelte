@@ -457,6 +457,18 @@
     const params = new URLSearchParams(window.location.search);
     const refusedOnReturn = params.get('signupError');
     if (refusedOnReturn) {
+      // INVITE_UNKNOWN sans `invite` dans l'URL n'est pas quelqu'un dont le
+      // lien s'est révélé mauvais -- c'est le nouveau cas courant, un visiteur
+      // qui n'en a jamais porté un, arrivé par exemple par le lien nu de
+      // AnonymousJoin.svelte. « Ce lien n'est pas de nous » lui parlerait d'un
+      // lien qu'il n'a pas ; le verdict neutre `none`, avec son indice, dit ce
+      // qui est vrai. Cette distinction n'existe que côté client : le serveur
+      // ne sait pas si le POST vers Google portait un `invite`, seulement que
+      // le code (absent) n'a rien trouvé.
+      if (refusedOnReturn === 'INVITE_UNKNOWN' && !params.has('invite')) {
+        inviteVerdict = 'none';
+        return;
+      }
       inviteVerdict = 'refused';
       inviteMessageKey = signupRefusalKey(refusedOnReturn);
       return;
@@ -580,7 +592,12 @@
           <p class="invite-note invite-note--ok">{inviteNoteText(inviteMessageKey)}</p>
         {:else if inviteVerdict === 'refused'}
           <p class="invite-note invite-note--refused" role="alert">{inviteNoteText(inviteMessageKey)}</p>
-        {:else if inviteVerdict === 'none'}
+        {:else if inviteVerdict === 'none' || inviteVerdict === 'checking'}
+          <!-- `checking` affiche la même note neutre que `none`, pas rien :
+               sans cette branche un visiteur avec un lien valide voyait un
+               trou pendant l'aller-retour au serveur, puis le texte
+               apparaissait d'un coup -- et le bloc ne doit pas non plus
+               changer de hauteur entre les deux états. -->
           <p class="invite-note">
             {t($language, 'signupInviteOnly')}<br />
             <span class="invite-note__hint">{t($language, 'signupInviteOnlyHint')}</span>

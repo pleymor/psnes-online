@@ -184,6 +184,14 @@
 
     {#if remaining === 0 && !error}
       <p class="note">{t($language, 'invitesSpent')}</p>
+    {:else if platformFull && !error}
+      <!-- `remaining > 0` ici : sinon la branche du dessus a déjà expliqué le
+           bouton mort. Sans cette branche, un joueur qui a encore des places
+           mais tombe sur une plateforme pleine voit un bouton désactivé sans
+           un mot -- et ne peut jamais envoyer le POST qui aurait affiché
+           `invitesPlatformFull` comme erreur, puisque c'est ce même bouton
+           désactivé qui l'en empêche. -->
+      <p class="note">{t($language, 'invitesPlatformFull')}</p>
     {/if}
 
     <div class="list">
