@@ -83,8 +83,16 @@ function replayWithPads(
   return verdicts;
 }
 
-/** Plein, plein, puis le port 2 à zéro : un KO du port 1 sur trois images. */
-const KO_OF_P2 = [ram(100, 100, 100, 100), ram(100, 100, 100, 100), ram(100, 80, 100, 0)];
+/**
+ * Plein, entamé, puis le port 2 à zéro : un KO du port 1 sur trois images.
+ *
+ * L'image du milieu n'est délibérément PAS à pleine vie. La branche qui arme
+ * se reprend à chaque échantillon où les deux barres sont pleines et remet
+ * l'activité à zéro : avec deux images pleines d'affilée, il ne resterait
+ * qu'une seule image pour prouver quoi que ce soit, et chaque test serait à un
+ * appui près de ne plus rien dire.
+ */
+const KO_OF_P2 = [ram(100, 100, 100, 100), ram(100, 90, 100, 40), ram(100, 80, 100, 0)];
 
 test('un port muet pendant tout le combat ne produit aucun verdict', () => {
   const verdicts = replayWithPads(KO_OF_P2, [[PAD.A, 0], [PAD.B, 0], [PAD.A, 0]]);
@@ -92,7 +100,8 @@ test('un port muet pendant tout le combat ne produit aucun verdict', () => {
 });
 
 test('les deux ports actifs produisent le verdict', () => {
-  const verdicts = replayWithPads(KO_OF_P2, [[PAD.A, PAD.B], [0, 0], [PAD.A, 0]]);
+  // Les appuis comptés sont ceux d'APRÈS la dernière image de pleine vie.
+  const verdicts = replayWithPads(KO_OF_P2, [[0, 0], [0, PAD.B], [PAD.A, 0]]);
   assert.equal(verdicts.length, 1);
   assert.equal(verdicts[0].winner, 1);
 });
@@ -107,7 +116,7 @@ test('START et SELECT ne sont pas des appuis de combat', () => {
 });
 
 test('les gâchettes en sont, elles', () => {
-  const verdicts = replayWithPads(KO_OF_P2, [[PAD.A, PAD.L], [0, 0], [0, PAD.R]]);
+  const verdicts = replayWithPads(KO_OF_P2, [[0, 0], [PAD.L, 0], [0, PAD.R]]);
   assert.equal(verdicts.length, 1);
 });
 
@@ -470,9 +479,11 @@ test('un KO joué des deux côtés est annoncé et rapporté une fois', () => {
   })!;
 
   // Le guetteur échantillonne une image sur 30 : rester sur des multiples.
+  // L'image 0 arme et remet l'activité à zéro, donc ce sont les manettes de
+  // l'image 30 qui doivent porter les deux appuis.
   recorder.onFrame(0, PAD.A, PAD.B);
   wram = ram(100, 80, 100, 0);
-  recorder.onFrame(30, PAD.A, 0);
+  recorder.onFrame(30, PAD.A, PAD.B);
 
   assert.equal(announced.length, 1);
   assert.equal(reported.length, 1);
