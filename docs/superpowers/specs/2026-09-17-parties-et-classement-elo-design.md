@@ -152,11 +152,19 @@ CREATE INDEX "Rating_gameCrc32_rating_idx" ON "Rating" ("gameCrc32", "rating");
 
 `sessionId` est posé **par le serveur**, pas par le client, quand le salon entre en `playing` — les deux pairs héritent donc du même sans rien s'échanger, et personne ne peut le forger.
 
-**Il doit être posé en un seul endroit**, dans une fonction que les trois transitions appellent : `game-handlers.ts:70`, `game-handlers.ts:127` et `room-handlers.ts:106` écrivent aujourd'hui `status = 'playing'` chacune de leur côté. C'est exactement la configuration de `rooms/presence.ts`, dont l'en-tête explique la règle qu'on reprend ici :
+**Il doit être posé en un seul endroit**, dans une fonction que les transitions appellent. C'est la configuration de `rooms/presence.ts`, dont l'en-tête explique la règle qu'on reprend ici :
 
 > *Set and cleared in exactly one place [...] because three call sites trigger the transition and a room whose flag disagrees with its occupants either lives for ever or vanishes under two players.*
 
-Un `sessionId` oublié à l'une des trois transitions donnerait un salon dont les parties se rattachent à la session précédente — donc rejetées comme doublons. La même erreur, et la même parade.
+**Mais toutes les écritures de `status = 'playing'` ne sont pas des débuts de partie**, et c'est le piège :
+
+| site | ce que c'est | estampille ? |
+|---|---|---|
+| `game-handlers.ts:70` (`game:start`) | une partie commence | **oui** |
+| `room-handlers.ts:106` (salon créé en `autoStart`) | une partie commence | **oui** |
+| `game-handlers.ts:127` (`game:resume`) | une pause se termine | **non** |
+
+Restamper sur `game:resume` casserait la déduplication autour d'une pause : deux rapports du même KO encadrant une reprise porteraient deux `sessionId` différents, et la ligne serait écrite deux fois. Le compteur d'images ne repart pas de zéro à la reprise, donc il n'y a rien à protéger — la session de jeu continue, et son identifiant avec elle.
 
 **`ON DELETE SET NULL` sur `Match`, `CASCADE` sur `Rating`.** Asymétrie voulue, et c'est le raisonnement de `SignupInvite.inviteeId` en 0007 : une partie jouée est un fait qui a eu lieu et survit à la suppression d'un compte ; une cote est une propriété de ce compte et n'a plus de sens sans lui.
 
