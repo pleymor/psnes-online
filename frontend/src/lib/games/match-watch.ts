@@ -24,9 +24,17 @@
  * address again, so a watcher that reports on a byte reports a dozen winners
  * for one knockout. What is watched is the transition: both sides at full
  * health arms a match, and the first zero after that decides it, once.
+ *
+ * **Both ports must have played.** Health alone cannot tell a versus from a
+ * story mode - the computer's bar empties exactly like a player's - nor from a
+ * match where the second pad was never touched. The discriminant is the
+ * inputs, and it is the right one for a second reason: inputs are what lockstep
+ * guarantees identical on both peers, so the guard costs the verdict none of
+ * its silence.
  */
 
 import { WATCHED_ROMS } from './watched-roms.js';
+import { PAD, type PadMask } from '../znet/protocol.js';
 
 /** One port's health, in whatever units the game counts in. */
 export interface PlayerHealth {
@@ -97,6 +105,19 @@ const HEALTH_CEILING = 999;
  */
 const DEFAULT_SAMPLE_EVERY = 30;
 
+/**
+ * Les boutons avec lesquels on se bat.
+ *
+ * START et SELECT en sont exclus : ils servent à passer les écrans et à mettre
+ * en pause, jamais à frapper. Les garder ferait passer la garde à un joueur 2
+ * qui pianote pour sauter un dialogue, ce qui est exactement le faux positif
+ * qu'elle existe pour attraper.
+ *
+ * Tout le reste compte, gâchettes comprises : dans Super Butouden 2, L et R
+ * sont des boutons de combat.
+ */
+const FIGHT_BUTTONS = ~(PAD.SELECT | PAD.START);
+
 export interface ObserverOptions {
 	watcher: MatchWatcher;
 	/**
@@ -128,6 +149,16 @@ export class MatchObserver {
 	/** Whether a match is under way, i.e. whether a zero would mean anything. */
 	private armed = false;
 
+	/**
+	 * Quels ports ont joué depuis que le combat s'est armé.
+	 *
+	 * Ici et pas dans un filtre posé sur le verdict, pour deux raisons qui se
+	 * cumulent : la fenêtre est celle du combat et seul `armed` sait où elle
+	 * commence, et un appui doit être compté à chaque image alors que la RAM
+	 * n'est lue qu'une image sur trente.
+	 */
+	private activity: [boolean, boolean] = [false, false];
+
 	private wins: [number, number] = [0, 0];
 	private drawn = 0;
 
@@ -149,6 +180,18 @@ export class MatchObserver {
 	}
 
 	/**
+	 * Appelée à chaque image, avant `observe`.
+	 *
+	 * Deux `|=` sur des entiers masqués : c'est tout le coût sur la boucle
+	 * chaude. L'ordre compte à l'image du verdict - un appui de cette image-là
+	 * doit être compté avant d'être jugé.
+	 */
+	note(pad1: PadMask, pad2: PadMask): void {
+		if ((pad1 & FIGHT_BUTTONS) !== 0) this.activity[0] = true;
+		if ((pad2 & FIGHT_BUTTONS) !== 0) this.activity[1] = true;
+	}
+
+	/**
 	 * Called once per frame; reads work RAM on a schedule.
 	 *
 	 * The modulo is the whole cost on the frames it skips, which is what makes
@@ -165,6 +208,10 @@ export class MatchObserver {
 			// both sides back to full when the next round starts, so there is no
 			// separate "the last verdict is spent" state to keep.
 			this.armed = true;
+			// Cette branche se reprend à chaque échantillon de pleine vie, donc
+			// l'activité ne compte qu'à partir du dernier : les appuis dans les
+			// menus qui précèdent le round sont écartés gratuitement.
+			this.activity = [false, false];
 			return;
 		}
 
@@ -176,6 +223,14 @@ export class MatchObserver {
 		if (!p1Down && !p2Down) return;
 
 		this.armed = false;
+
+		// Un port qui n'a pressé aucun bouton de combat n'a pas joué : ni le
+		// processeur du mode histoire, ni le joueur 2 qui n'a pas touché sa
+		// manette. Avant `wins++` comme avant `onVerdict` - un combat qui n'a
+		// pas eu lieu ne compte pas non plus au score courant. `armed` s'est
+		// libéré quand même : le combat est fini quelle que soit la garde.
+		if (!this.activity[0] || !this.activity[1]) return;
+
 		const winner: 0 | 1 | 2 = p1Down && p2Down ? 0 : p1Down ? 2 : 1;
 		if (winner === 0) this.drawn++;
 		else this.wins[winner - 1]++;

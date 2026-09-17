@@ -24,6 +24,7 @@ import type { MatchVerdict } from '../../frontend/src/lib/games/match-watch.js';
 import { verdictMessage } from '../../frontend/src/lib/rooms/match-report.js';
 import { PsnesCore } from '../../frontend/src/lib/znet/core.js';
 import type { PsnesCoreModule } from '../../frontend/src/lib/znet/core.js';
+import { PAD } from '../../frontend/src/lib/znet/protocol.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -62,6 +63,7 @@ function replay(frames: Uint8Array[], sampleEvery = 1): MatchVerdict[] {
 
   for (let frame = 0; frame < frames.length; frame++) {
     current = frames[frame];
+    observer.note(PAD.A, PAD.B);
     observer.observe(frame);
   }
   return verdicts;
@@ -216,6 +218,7 @@ test('the running score is what a session is worth telling', () => {
 
   for (let frame = 0; frame < frames.length; frame++) {
     current = frames[frame];
+    observer.note(PAD.A, PAD.B);
     observer.observe(frame);
   }
 
@@ -335,4 +338,112 @@ test('match-watch.ts reaches for nothing but the bytes it is handed', () => {
   );
   const forbidden = /\bsend\b|transport|socket|fetch\(|localStorage|Date\.now|performance\.now/;
   assert.equal(forbidden.test(source), false, 'a verdict is derived, never exchanged or timed');
+});
+
+/* ------------------------------------------------ la garde d'activité */
+
+/** Comme `replay`, mais en poussant un masque de manette par image. */
+function replayWithPads(
+  frames: Uint8Array[],
+  pads: [number, number][],
+  sampleEvery = 1
+): MatchVerdict[] {
+  const verdicts: MatchVerdict[] = [];
+  let current = frames[0];
+  const observer = new MatchObserver({
+    watcher: watcherFor(DBZ2)!,
+    readWram: () => current,
+    onVerdict: (verdict) => verdicts.push(verdict),
+    sampleEvery
+  });
+
+  for (let frame = 0; frame < frames.length; frame++) {
+    current = frames[frame];
+    observer.note(pads[frame][0], pads[frame][1]);
+    observer.observe(frame);
+  }
+  return verdicts;
+}
+
+/**
+ * Plein, entamé, puis le port 2 à zéro : un KO du port 1 sur trois images.
+ *
+ * L'image du milieu n'est délibérément PAS à pleine vie. La branche qui arme
+ * se reprend à chaque échantillon où les deux barres sont pleines et remet
+ * l'activité à zéro : avec deux images pleines d'affilée, il ne resterait
+ * qu'une seule image pour prouver quoi que ce soit, et chaque test serait à un
+ * appui près de ne plus rien dire.
+ */
+const KO_OF_P2 = [ram(100, 100, 100, 100), ram(100, 90, 100, 40), ram(100, 80, 100, 0)];
+
+test('un port muet pendant tout le combat ne produit aucun verdict', () => {
+  const verdicts = replayWithPads(KO_OF_P2, [[PAD.A, 0], [PAD.B, 0], [PAD.A, 0]]);
+  assert.deepEqual(verdicts, []);
+});
+
+test('les deux ports actifs produisent le verdict', () => {
+  // Les appuis comptés sont ceux d'APRÈS la dernière image de pleine vie.
+  const verdicts = replayWithPads(KO_OF_P2, [[0, 0], [0, PAD.B], [PAD.A, 0]]);
+  assert.equal(verdicts.length, 1);
+  assert.equal(verdicts[0].winner, 1);
+});
+
+test('START et SELECT ne sont pas des appuis de combat', () => {
+  const pads: [number, number][] = [
+    [PAD.A, PAD.START],
+    [PAD.A, PAD.SELECT],
+    [PAD.A, PAD.START | PAD.SELECT]
+  ];
+  assert.deepEqual(replayWithPads(KO_OF_P2, pads), []);
+});
+
+test('les gâchettes en sont, elles', () => {
+  const verdicts = replayWithPads(KO_OF_P2, [[0, 0], [PAD.L, 0], [0, PAD.R]]);
+  assert.equal(verdicts.length, 1);
+});
+
+test('un appui avant que le combat s’arme ne compte pas', () => {
+  // Le port 2 joue pendant les menus, puis se tait dès que les deux barres
+  // sont pleines : c’est le joueur qui repose sa manette avant le round.
+  const frames = [ram(100, 40, 100, 90), ...KO_OF_P2];
+  const pads: [number, number][] = [[0, PAD.A], [PAD.A, 0], [PAD.B, 0], [PAD.A, 0]];
+  assert.deepEqual(replayWithPads(frames, pads), []);
+});
+
+test('un appui entre deux échantillons compte quand même', () => {
+  // La raison d’être de `note()` : `observe()` ne lit la RAM qu’une image sur
+  // 30, et l’unique appui du port 2 tombe sur une image non échantillonnée.
+  const frames: Uint8Array[] = [];
+  const pads: [number, number][] = [];
+  for (let f = 0; f < 61; f++) {
+    frames.push(f < 60 ? ram(100, 100, 100, 100) : ram(100, 80, 100, 0));
+    pads.push([PAD.A, f === 45 ? PAD.B : 0]);
+  }
+  const verdicts = replayWithPads(frames, pads, 30);
+  assert.equal(verdicts.length, 1);
+  assert.equal(verdicts[0].winner, 1);
+});
+
+test('un combat refusé ne compte pas non plus au score courant', () => {
+  const verdicts: MatchVerdict[] = [];
+  let wram = ram(100, 100, 100, 100);
+  const observer = new MatchObserver({
+    watcher: watcherFor(DBZ2)!,
+    readWram: () => wram,
+    onVerdict: (verdict) => verdicts.push(verdict),
+    sampleEvery: 1
+  });
+
+  // Armer pour de bon - deux barres pleines - puis un KO que seul le port 1 a
+  // joué. Sans l'armement, la machine sortirait sur `!armed` et ce test
+  // passerait sans jamais atteindre la garde.
+  observer.note(PAD.A, 0);
+  observer.observe(0);
+  wram = ram(100, 80, 100, 0);
+  observer.note(PAD.A, 0);
+  observer.observe(1);
+
+  assert.deepEqual(verdicts, []);
+  assert.deepEqual([...observer.score], [0, 0]);
+  assert.equal(observer.draws, 0);
 });
