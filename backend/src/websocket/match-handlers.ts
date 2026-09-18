@@ -12,6 +12,15 @@
  * n'est pas un gaspillage - un `emit` sur un socket coupé disparaît sans
  * erreur et rien ne le rejoue, donc il faut que les deux tombent au même
  * instant pour perdre la ligne.
+ *
+ * Ce qui est vérifié s'arrête à la forme du rapport : `winner` dans
+ * {0,1,2}, `frame` un entier positif, les deux santés des entiers ≥ 0. Ce qui
+ * reste volontairement non vérifié : que `frame` corresponde à un instant
+ * réel de la partie. N'importe quel membre du salon peut émettre un rapport
+ * à une image arbitraire, et rien ici ne le recoupe avec l'avancement réel du
+ * match - un choix, pas un oubli, tant que la seule conséquence est une ligne
+ * d'historique de plus sur un salon dont on croit déjà le client sur le
+ * vainqueur.
  */
 
 import type { Server, Socket } from 'socket.io';
@@ -31,9 +40,23 @@ interface MatchReport {
   p2Health: number;
 }
 
-/** L'identité classable derrière un port, ou null pour un invité ou un siège vide. */
+/**
+ * L'identité classable derrière un port, ou null pour un invité ou un siège vide.
+ *
+ * Le "port" ici est le rôle netcode - lequel entrée de `timeline` ce joueur
+ * pilote - et non le siège affiché dans le salon. `LockstepRoom.svelte` et
+ * `lockstep-engine.ts` posent `playerIndex: isHost ? 0 : 1` : l'hôte est
+ * toujours au port 1, le pair au port 2, quel que soit `RoomPlayer.port`.
+ * Or `room:selectPort` échange librement les sièges (`room-handlers.ts`,
+ * `room:selectPort`) sans jamais toucher `hostId` - les deux peuvent donc
+ * diverger. Dériver ce port de `p.port` créditerait le perdant dès qu'un
+ * échange de sièges a eu lieu. Un salon est plafonné à deux joueurs
+ * (`room-handlers.ts`), donc "l'autre" pour le port 2 est sans ambiguïté.
+ */
 function rankableAt(room: Room, port: 1 | 2): string | null {
-  const player = room.players.find(p => p.port === port);
+  const player = port === 1
+    ? room.players.find(p => p.userId === room.hostId)
+    : room.players.find(p => p.userId !== room.hostId);
   if (!player) return null;
   const user = findUserById(getDb(), player.userId);
   // Un anonyme n'a pas d'identité durable : la colonne reste vide dès
@@ -52,6 +75,16 @@ export function registerMatchHandlers(
     if (!room) return;
     // Un rapport ne peut venir que d'un membre du salon qu'il décrit.
     if (!room.players.some(p => p.userId === userId)) return;
+
+    if (
+      (data.winner !== 0 && data.winner !== 1 && data.winner !== 2) ||
+      !Number.isInteger(data.frame) || data.frame < 0 ||
+      !Number.isInteger(data.p1Health) || data.p1Health < 0 ||
+      !Number.isInteger(data.p2Health) || data.p2Health < 0
+    ) {
+      logger.warn({ roomId: room.id, data }, 'Dropped a malformed match report');
+      return;
+    }
 
     if (!room.gameCrc32 || !room.playSessionId) {
       // Ne devrait pas arriver : le guetteur ne s'arme que sur un CRC32 connu,
