@@ -64,8 +64,15 @@
     p2: { userId: string; pseudo: string; discriminator: string } | null;
     p1Health: number; p2Health: number;
   }
+  export interface PlayerStanding {
+    userId: string; pseudo: string; discriminator: string; avatar: string | null;
+    isAnonymous: boolean;
+    /** null quand ce joueur n'a jamais joué de partie classée sur ce jeu. */
+    rating: number | null;
+    matches: number | null;
+  }
   export function rankingFor(db: Database, gameCrc32: string, limit: number, offset: number): RankedPlayer[];
-  export function ratingsOf(db: Database, gameCrc32: string, userIds: string[]): RankedPlayer[];
+  export function standingsOf(db: Database, gameCrc32: string, userIds: string[]): PlayerStanding[];
   export function recentMatches(db: Database, gameCrc32: string, limit: number, offset: number): PlayedRow[];
   ```
 
@@ -87,7 +94,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { migratedDb, insertUser } from './helpers.js';
 import { recordMatch } from '../src/db/matches.js';
-import { rankingFor, ratingsOf, recentMatches } from '../src/db/matches.js';
+import { rankingFor, standingsOf, recentMatches } from '../src/db/matches.js';
 
 const GAME = '8F24F886';
 
@@ -151,20 +158,43 @@ test('un autre jeu a son propre classement', () => {
   assert.equal(ailleurs[0].pseudo, 'Bob', 'les deux classements sont indépendants');
 });
 
-test('ratingsOf ne rend que les joueurs demandés, et rien pour un inconnu', () => {
+test('standingsOf rend une ligne par joueur demandé, class\u00e9 ou non', () => {
+  // Une ligne MEME sans cote : c'est ce qui permet a l'ecran de distinguer
+  // « pas encore classe » de « jamais classable », que l'absence confondrait.
   const db = migratedDb();
   const a = insertUser(db);
   const b = insertUser(db);
   const c = insertUser(db);
   play(db, a.id, b.id, 1, 1000, 30);
 
-  const deux = ratingsOf(db, GAME, [a.id, c.id]);
-  assert.deepEqual(deux.map(r => r.userId), [a.id], 'c n a pas de ligne, il est absent');
+  const rows = standingsOf(db, GAME, [a.id, c.id]);
+  assert.equal(rows.length, 2);
+  const alice = rows.find(r => r.userId === a.id)!;
+  const carol = rows.find(r => r.userId === c.id)!;
+  assert.ok(alice.rating !== null && alice.matches === 1);
+  assert.equal(carol.rating, null, 'jamais joue : pas de cote, mais une ligne');
+  assert.equal(carol.matches, null);
 });
 
-test('ratingsOf sur une liste vide ne rend rien et ne jette pas', () => {
+test('standingsOf dit si un joueur est un invite', () => {
   const db = migratedDb();
-  assert.deepEqual(ratingsOf(db, GAME, []), []);
+  const compte = insertUser(db);
+  const invite = insertUser(db, { isAnonymous: 1 });
+
+  const rows = standingsOf(db, GAME, [compte.id, invite.id]);
+  assert.equal(rows.find(r => r.userId === compte.id)!.isAnonymous, false);
+  assert.equal(rows.find(r => r.userId === invite.id)!.isAnonymous, true);
+});
+
+test('standingsOf ignore un identifiant qui ne correspond a personne', () => {
+  const db = migratedDb();
+  const a = insertUser(db);
+  assert.deepEqual(standingsOf(db, GAME, [a.id, 'inconnu']).map(r => r.userId), [a.id]);
+});
+
+test('standingsOf sur une liste vide ne rend rien et ne jette pas', () => {
+  const db = migratedDb();
+  assert.deepEqual(standingsOf(db, GAME, []), []);
 });
 
 test('l historique est du plus récent au plus ancien, invités compris', () => {
@@ -212,6 +242,18 @@ export interface RankedPlayer {
   matches: number;
 }
 
+/** Un joueur du salon, classé ou non, invité ou non. */
+export interface PlayerStanding {
+  userId: string;
+  pseudo: string;
+  discriminator: string;
+  avatar: string | null;
+  isAnonymous: boolean;
+  /** null quand ce joueur n'a jamais joué de partie classée sur ce jeu. */
+  rating: number | null;
+  matches: number | null;
+}
+
 /**
  * Le classement d'un jeu, du plus fort au plus faible.
  *
@@ -237,25 +279,48 @@ export function rankingFor(
 }
 
 /**
- * Les cotes de joueurs nommés, pour le salon.
+ * Ce que le salon a besoin de savoir de ses deux joueurs.
  *
- * Rend moins de lignes qu'on en demande quand l'un d'eux n'a jamais joué :
- * c'est à l'appelant de traduire l'absence en « non classé », pas à la base
- * d'inventer une ligne.
+ * Une ligne par joueur demandé, **même sans cote** - et c'est tout l'intérêt.
+ * Un siège sans cote peut vouloir dire deux choses opposées : un compte qui n'a
+ * pas encore joué, et qui sera classé au premier combat, ou un invité qui ne le
+ * sera jamais, sa colonne étant NULL dès l'insertion depuis #61. Rendre
+ * l'absence confondrait les deux, et l'écran dirait « non classé » à quelqu'un
+ * à qui il faut dire « invité ».
+ *
+ * Le fait vient de `User`, sa source, plutôt que d'un champ recopié dans
+ * `RoomPlayer` : un salon relu depuis un instantané porterait une valeur
+ * périmée, et élargir ce type ferait payer le lobby VR et la présence pour un
+ * affichage.
+ *
+ * `LEFT JOIN` sur `Rating`, donc, et la sélection part de `User`.
  */
-export function ratingsOf(
+export function standingsOf(
   db: Database, gameCrc32: string, userIds: string[]
-): RankedPlayer[] {
+): PlayerStanding[] {
   // Une liste vide produirait `IN ()`, que SQLite refuse. Court-circuiter est
   // plus honnête que de fabriquer un marqueur qui ne correspond à personne.
   if (userIds.length === 0) return [];
   const marks = userIds.map(() => '?').join(', ');
-  return db.prepare(`
-    SELECT r.userId, u.pseudo, u.discriminator, u.avatar, r.rating, r.matches
-    FROM "Rating" r
-    JOIN "User" u ON u.id = r.userId
-    WHERE r.gameCrc32 = ? AND r.userId IN (${marks})
-  `).all(gameCrc32, ...userIds) as RankedPlayer[];
+  const rows = db.prepare(`
+    SELECT u.id AS userId, u.pseudo, u.discriminator, u.avatar, u.isAnonymous,
+           r.rating, r.matches
+    FROM "User" u
+    LEFT JOIN "Rating" r ON r.userId = u.id AND r.gameCrc32 = ?
+    WHERE u.id IN (${marks})
+  `).all(gameCrc32, ...userIds) as Record<string, unknown>[];
+
+  return rows.map(r => ({
+    userId: r.userId as string,
+    pseudo: r.pseudo as string,
+    discriminator: r.discriminator as string,
+    avatar: (r.avatar as string | null) ?? null,
+    // SQLite n'a pas de booléen, et ce champ décide de ce que l'écran dit :
+    // `=== 1` comme `db/users.ts`, jamais un test de véracité.
+    isAnonymous: r.isAnonymous === 1,
+    rating: (r.rating as number | null) ?? null,
+    matches: (r.matches as number | null) ?? null
+  }));
 }
 
 /** Un joueur tel qu'une ligne d'historique le nomme, ou null. */
@@ -342,7 +407,7 @@ git commit -m "Lire le classement, les cotes de deux joueurs, et l'historique"
 - Test: `backend/test/ratings-read.test.ts` (étendu)
 
 **Interfaces:**
-- Consumes: `rankingFor`, `ratingsOf`, `recentMatches` (Task 1).
+- Consumes: `rankingFor`, `standingsOf`, `recentMatches` (Task 1).
 - Produces: `export const ratingsRouter` ; les trois routes décrites ci-dessous.
 
 - [ ] **Step 1 : Écrire les tests qui échouent**
@@ -402,7 +467,7 @@ Créer `backend/src/api/ratings.ts` :
 
 import { Router } from 'express';
 import { getDb } from '../db/sqlite.js';
-import { rankingFor, ratingsOf, recentMatches } from '../db/matches.js';
+import { rankingFor, standingsOf, recentMatches } from '../db/matches.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 
@@ -451,7 +516,9 @@ ratingsRouter.use(requireAuth);
  * Le classement d'un jeu, ou les cotes de joueurs nommés.
  *
  * `?users=a,b` sert le salon, qui n'a besoin que de deux lignes et n'a aucune
- * raison de tirer la table entière pour les trouver.
+ * raison de tirer la table entière pour les trouver. Cette forme-là rend une
+ * ligne par joueur demandé même sans cote, parce que l'écran doit distinguer
+ * « pas encore classé » de « jamais classable ».
  */
 ratingsRouter.get('/:crc32', asyncHandler(async (req, res) => {
   const { crc32 } = req.params;
@@ -463,7 +530,7 @@ ratingsRouter.get('/:crc32', asyncHandler(async (req, res) => {
 
   if (users) {
     // Borné comme le reste : `?users=` est une liste écrite par un client.
-    return res.json(ratingsOf(getDb(), crc32, users.slice(0, MAX_LIMIT)));
+    return res.json(standingsOf(getDb(), crc32, users.slice(0, MAX_LIMIT)));
   }
 
   const { limit, offset } = pageOf(req.query.limit, req.query.offset);
@@ -523,11 +590,15 @@ git commit -m "Servir le classement et l'historique aux joueurs connectés"
     | { kind: 'unranked' }
     | { kind: 'rated'; rating: number; matches: number };
 
+  /** La ligne que `standingsOf` rend pour ce joueur, ou null pour un siège vide. */
+  export interface Standing {
+    userId: string; isAnonymous: boolean;
+    rating: number | null; matches: number | null;
+  }
   export function ratingDisplay(input: {
     gameCrc32: string | null | undefined;
     watched: boolean;
-    player: { userId: string; isAnonymous?: boolean } | null | undefined;
-    ratings: { userId: string; rating: number; matches: number }[];
+    standing: Standing | null | undefined;
   }): RatingDisplay;
   ```
 
@@ -549,12 +620,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ratingDisplay } from '../../frontend/src/lib/ratings/presentation.js';
 
-const ALICE = { userId: 'alice' };
-const RATED = [{ userId: 'alice', rating: 1016, matches: 3 }];
+const CLASSEE = { userId: 'alice', isAnonymous: false, rating: 1016, matches: 3 };
+const JAMAIS_JOUE = { userId: 'bob', isAnonymous: false, rating: null, matches: null };
+const INVITE = { userId: 'guest', isAnonymous: true, rating: null, matches: null };
 
 test('sans jeu choisi, on ne montre rien', () => {
   assert.deepEqual(
-    ratingDisplay({ gameCrc32: null, watched: false, player: ALICE, ratings: RATED }),
+    ratingDisplay({ gameCrc32: null, watched: false, standing: CLASSEE }),
     { kind: 'hidden' }
   );
 });
@@ -563,53 +635,62 @@ test('sur un jeu que personne ne sait lire, on ne montre rien non plus', () => {
   // Et surtout pas « non classé », qui laisserait croire qu'une partie
   // suffirait à remplir la case.
   assert.deepEqual(
-    ratingDisplay({ gameCrc32: 'DEADBEEF', watched: false, player: ALICE, ratings: RATED }),
+    ratingDisplay({ gameCrc32: 'DEADBEEF', watched: false, standing: CLASSEE }),
     { kind: 'hidden' }
   );
 });
 
 test('un siège vide ne montre rien', () => {
   assert.deepEqual(
-    ratingDisplay({ gameCrc32: '8F24F886', watched: true, player: null, ratings: RATED }),
+    ratingDisplay({ gameCrc32: '8F24F886', watched: true, standing: null }),
     { kind: 'hidden' }
   );
 });
 
 test('un invité est dit invité, pas non classé', () => {
-  // Il n a pas d identité durable : sa colonne est NULL dès l insertion, donc
-  // il ne sera jamais classé. « Non classé » suggérerait le contraire.
+  // Il n'a pas d'identité durable : sa colonne est NULL dès l'insertion, donc
+  // il ne sera JAMAIS classé. « Non classé » suggérerait qu'un combat suffirait.
   assert.deepEqual(
-    ratingDisplay({
-      gameCrc32: '8F24F886', watched: true,
-      player: { userId: 'guest', isAnonymous: true }, ratings: []
-    }),
+    ratingDisplay({ gameCrc32: '8F24F886', watched: true, standing: INVITE }),
     { kind: 'guest' }
   );
 });
 
 test('un compte sans partie sur ce jeu est non classé', () => {
   assert.deepEqual(
-    ratingDisplay({ gameCrc32: '8F24F886', watched: true, player: { userId: 'bob' }, ratings: RATED }),
+    ratingDisplay({ gameCrc32: '8F24F886', watched: true, standing: JAMAIS_JOUE }),
     { kind: 'unranked' }
   );
 });
 
 test('un compte qui a joué montre sa cote et son nombre de parties', () => {
   assert.deepEqual(
-    ratingDisplay({ gameCrc32: '8F24F886', watched: true, player: ALICE, ratings: RATED }),
+    ratingDisplay({ gameCrc32: '8F24F886', watched: true, standing: CLASSEE }),
     { kind: 'rated', rating: 1016, matches: 3 }
   );
 });
 
 test('une ligne à zéro partie est traitée comme non classée', () => {
-  // La base ne devrait pas en produire, mais l écran ne doit pas afficher
+  // La base ne devrait pas en produire, mais l'écran ne doit pas afficher
   // « 1000 · 0 partie », qui est la formulation la plus trompeuse possible.
   assert.deepEqual(
     ratingDisplay({
-      gameCrc32: '8F24F886', watched: true, player: ALICE,
-      ratings: [{ userId: 'alice', rating: 1000, matches: 0 }]
+      gameCrc32: '8F24F886', watched: true,
+      standing: { userId: 'alice', isAnonymous: false, rating: 1000, matches: 0 }
     }),
     { kind: 'unranked' }
+  );
+});
+
+test('un invité prime sur tout le reste', () => {
+  // Si une ligne d'invité portait une cote - ce que #61 rend impossible, mais
+  // qu'un defaut futur pourrait produire - c'est « invité » qu'il faut dire.
+  assert.deepEqual(
+    ratingDisplay({
+      gameCrc32: '8F24F886', watched: true,
+      standing: { userId: 'guest', isAnonymous: true, rating: 1200, matches: 9 }
+    }),
+    { kind: 'guest' }
   );
 });
 ```
@@ -654,24 +735,35 @@ export type RatingDisplay =
   | { kind: 'unranked' }
   | { kind: 'rated'; rating: number; matches: number };
 
+/** La ligne que `standingsOf` rend pour un joueur, ou null pour un siège vide. */
+export interface Standing {
+  userId: string;
+  isAnonymous: boolean;
+  rating: number | null;
+  matches: number | null;
+}
+
 export function ratingDisplay(input: {
   /** Le jeu du salon, ou null tant qu'aucun n'est choisi. */
   gameCrc32: string | null | undefined;
   /** Si ce jeu a une ligne dans `watched-roms.ts`. Faux : aucune partie n'en sortira. */
   watched: boolean;
-  player: { userId: string; isAnonymous?: boolean } | null | undefined;
-  ratings: { userId: string; rating: number; matches: number }[];
+  standing: Standing | null | undefined;
 }): RatingDisplay {
   if (!input.gameCrc32 || !input.watched) return { kind: 'hidden' };
-  if (!input.player) return { kind: 'hidden' };
-  if (input.player.isAnonymous) return { kind: 'guest' };
+  if (!input.standing) return { kind: 'hidden' };
 
-  const found = input.ratings.find((r) => r.userId === input.player!.userId);
+  // Avant tout le reste : un invité n'a pas d'identité durable, donc il ne sera
+  // jamais classé. Le dire « non classé » laisserait croire qu'un combat
+  // suffirait à remplir la case.
+  if (input.standing.isAnonymous) return { kind: 'guest' };
+
+  const { rating, matches } = input.standing;
   // Zéro partie vaut absence : la base ne devrait pas produire une telle ligne,
   // mais « 1000 · 0 partie » serait la formulation la plus trompeuse possible.
-  if (!found || found.matches === 0) return { kind: 'unranked' };
+  if (rating === null || matches === null || matches === 0) return { kind: 'unranked' };
 
-  return { kind: 'rated', rating: found.rating, matches: found.matches };
+  return { kind: 'rated', rating, matches };
 }
 ```
 
@@ -709,7 +801,9 @@ git commit -m "Décider ce qu'un écran montre quand il n'y a pas de cote"
   export type RankingResult = { ok: true; players: RankedPlayer[] } | { ok: false; reason: RatingsFailure };
   export type MatchesResult = { ok: true; matches: PlayedRow[] } | { ok: false; reason: RatingsFailure };
   export function fetchRanking(crc32: string): Promise<RankingResult>;
-  export function fetchRatingsOf(crc32: string, userIds: string[]): Promise<RankingResult>;
+  export interface PlayerStanding { userId: string; pseudo: string; discriminator: string; avatar: string | null; isAnonymous: boolean; rating: number | null; matches: number | null }
+  export type StandingsResult = { ok: true; standings: PlayerStanding[] } | { ok: false; reason: RatingsFailure };
+  export function fetchStandings(crc32: string, userIds: string[]): Promise<StandingsResult>;
   export function fetchMatches(crc32: string): Promise<MatchesResult>;
   ```
 
@@ -794,11 +888,26 @@ export async function fetchRanking(crc32: string): Promise<RankingResult> {
   return res.ok ? { ok: true, players: res.data } : res;
 }
 
-export async function fetchRatingsOf(crc32: string, userIds: string[]): Promise<RankingResult> {
-  if (userIds.length === 0) return { ok: true, players: [] };
+/** Un joueur du salon, classé ou non, invité ou non. */
+export interface PlayerStanding {
+  userId: string;
+  pseudo: string;
+  discriminator: string;
+  avatar: string | null;
+  isAnonymous: boolean;
+  rating: number | null;
+  matches: number | null;
+}
+
+export type StandingsResult =
+  | { ok: true; standings: PlayerStanding[] }
+  | { ok: false; reason: RatingsFailure };
+
+export async function fetchStandings(crc32: string, userIds: string[]): Promise<StandingsResult> {
+  if (userIds.length === 0) return { ok: true, standings: [] };
   const query = encodeURIComponent(userIds.join(','));
-  const res = await get<RankedPlayer[]>(`/api/ratings/${crc32}?users=${query}`);
-  return res.ok ? { ok: true, players: res.data } : res;
+  const res = await get<PlayerStanding[]>(`/api/ratings/${crc32}?users=${query}`);
+  return res.ok ? { ok: true, standings: res.data } : res;
 }
 
 export async function fetchMatches(crc32: string): Promise<MatchesResult> {
@@ -828,7 +937,7 @@ git commit -m "Lire les classements sans confondre l'échec avec le vide"
 - Modify: `frontend/src/lib/i18n/translations.ts`
 
 **Interfaces:**
-- Consumes: `ratingDisplay` (Task 3), `fetchRatingsOf` (Task 4), `watcherFor` de `$lib/games/match-watch`.
+- Consumes: `ratingDisplay` (Task 3), `fetchStandings` (Task 4), `watcherFor` de `$lib/games/match-watch`.
 
 - [ ] **Step 1 : Les chaînes, dans les deux langues**
 
@@ -860,9 +969,9 @@ Dans le `<script>` de `RoomPlayers.svelte` :
 ```ts
   import { watcherFor } from '$lib/games/match-watch';
   import { ratingDisplay } from '$lib/ratings/presentation';
-  import { fetchRatingsOf, type RankedPlayer } from '$lib/api/ratings';
+  import { fetchStandings, type PlayerStanding } from '$lib/api/ratings';
 
-  let ratings: RankedPlayer[] = [];
+  let standings: PlayerStanding[] = [];
 
   /** Le jeu du salon est-il un de ceux dont on sait lire le résultat. */
   $: watched = Boolean(room?.gameCrc32 && watcherFor(room.gameCrc32));
@@ -872,18 +981,25 @@ Dans le `<script>` de `RoomPlayers.svelte` :
    * seulement : les cotes ne bougent qu'entre deux parties, et `room:updated`
    * arrive à chaque clic de siège.
    */
-  $: void loadRatings(room?.gameCrc32, player1?.userId, player2?.userId);
+  $: void loadStandings(room?.gameCrc32, player1?.userId, player2?.userId);
 
-  async function loadRatings(crc32?: string, a?: string, b?: string) {
-    if (!crc32 || !watched) { ratings = []; return; }
-    const res = await fetchRatingsOf(crc32, [a, b].filter(Boolean) as string[]);
-    // Un échec laisse la liste précédente : `ratingDisplay` dira « non classé »
-    // plutôt que d'effacer une cote déjà affichée pour un hoquet réseau.
-    if (res.ok) ratings = res.players;
+  async function loadStandings(crc32?: string, a?: string, b?: string) {
+    if (!crc32 || !watched) { standings = []; return; }
+    const res = await fetchStandings(crc32, [a, b].filter(Boolean) as string[]);
+    // Un échec laisse la liste précédente plutôt que de l'effacer : une cote
+    // déjà affichée ne doit pas disparaître pour un hoquet réseau.
+    if (res.ok) standings = res.standings;
   }
 
-  $: display1 = ratingDisplay({ gameCrc32: room?.gameCrc32, watched, player: player1, ratings });
-  $: display2 = ratingDisplay({ gameCrc32: room?.gameCrc32, watched, player: player2, ratings });
+  /** La ligne de ce joueur, ou undefined tant qu'elle n'est pas arrivée. */
+  const standingOf = (userId?: string) => standings.find((s) => s.userId === userId);
+
+  $: display1 = ratingDisplay({
+    gameCrc32: room?.gameCrc32, watched, standing: standingOf(player1?.userId)
+  });
+  $: display2 = ratingDisplay({
+    gameCrc32: room?.gameCrc32, watched, standing: standingOf(player2?.userId)
+  });
 ```
 
 - [ ] **Step 3 : Les afficher, et poser le lien SOUS les boutons**
