@@ -10,11 +10,15 @@
  * **Read-only, off the emulation path.** Nothing observed may feed back into
  * `session.tick()`, the same rule the renderer obeys. In lockstep both peers
  * run the same emulation, so both read the same bytes and reach the same
- * verdict with nothing exchanged - and that is deliberate. A verdict put on
- * the wire would turn a dropped packet into a disagreement about who won a
- * match both players watched.
+ * verdict with nothing exchanged. The verdict does now go over the wire, as
+ * `match:report` (see `match-recorder.ts` and the backend's match handlers)
+ * - but that is a report of an already-reached local verdict, not a source of
+ * one: each peer still decides for itself, and the backend treats the two
+ * peers disagreeing as the signal of a desync, not something this module
+ * needs to reconcile.
  *
- * That is also why only the lockstep and solo rooms report anything. Dual and
+ * That is also why only the lockstep and VR rooms report anything today. Solo
+ * has nobody to disagree with and does not arm the recorder. Dual and
  * streaming mode run the RetroArch stack, which exposes no work RAM at all, so
  * there is no verdict there rather than a one-sided one - and saying so here is
  * cheaper than someone discovering it in a room that stays silent.

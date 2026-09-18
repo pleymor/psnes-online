@@ -25,8 +25,12 @@ test('un double KO entre égaux ne bouge rien, mais compte une partie', () => {
 });
 
 test('la somme des cotes est exactement conservée', () => {
-  // Le delta est arrondi une fois puis appliqué symétriquement : ce test est
-  // ce qui interdit de l'arrondir deux fois, ce qui ferait fuir des points.
+  // Le même delta est ajouté à l'un et retranché à l'autre : arrondir une
+  // fois ou arrondir les deux cotes séparément donne le même total, tant que
+  // ce qui est gagné d'un côté est très exactement ce qui est perdu de
+  // l'autre (round(n + x) = n + round(x) pour n entier). Ce test pince cette
+  // symétrie-là - elle casserait, par exemple, sous un facteur K asymétrique
+  // entre gagnant et perdant.
   const standings = fold([
     { p1UserId: 'a', p2UserId: 'b', winner: 1 },
     { p1UserId: 'a', p2UserId: 'b', winner: 1 },

@@ -159,8 +159,17 @@ test('une partie contre un invité est gardée, mais ne classe personne', () => 
 });
 
 test('une partie arrivée en retard se range à sa place', () => {
-  // Deux bases identiques sauf l'ordre d'insertion : les cotes finales doivent
-  // être les mêmes, puisque le recalcul relit l'historique trié.
+  // Quatre bases identiques sauf l'ordre d'insertion : les cotes finales
+  // doivent être les mêmes, puisque le recalcul relit l'historique trié par
+  // `(playedAt, frame)`. Deux parties partagent ici le même `playedAt`
+  // (2000) : sans `frame` dans l'ORDER BY, leur ordre relatif dépendrait de
+  // l'ordre d'insertion plutôt que de l'image, et un `ORDER BY playedAt`
+  // suffirait à faire passer ce test tant que les `playedAt` restent
+  // distincts - ce que les deux ordres ci-dessous ne permettent plus.
+  //
+  // Les cotes attendues sont épinglées en dur plutôt que seulement comparées
+  // entre elles : un recalcul qui renverrait toujours `INITIAL_RATING` pour
+  // tout le monde serait aussi "stable" d'un ordre à l'autre.
   const ratingsAfter = (order: number[]) => {
     const db = migratedDb();
     const alice = insertUser(db, { id: `a-${order.join('')}` });
@@ -169,7 +178,8 @@ test('une partie arrivée en retard se range à sa place', () => {
     const rows = [
       match({ playedAt: 1000, frame: 30, p1UserId: alice.id, p2UserId: bob.id, winner: 1 }),
       match({ playedAt: 2000, frame: 60, p1UserId: alice.id, p2UserId: carol.id, winner: 1 }),
-      match({ playedAt: 3000, frame: 90, p1UserId: bob.id, p2UserId: carol.id, winner: 2 })
+      match({ playedAt: 3000, frame: 90, p1UserId: bob.id, p2UserId: carol.id, winner: 2 }),
+      match({ playedAt: 2000, frame: 45, p1UserId: bob.id, p2UserId: carol.id, winner: 1 })
     ];
     for (const i of order) recordMatch(db, rows[i]);
     return [
@@ -179,7 +189,11 @@ test('une partie arrivée en retard se range à sa place', () => {
     ];
   };
 
-  assert.deepEqual(ratingsAfter([2, 0, 1]), ratingsAfter([0, 1, 2]));
+  // La partie du frame 45 (playedAt 2000) doit être repliée avant celle du
+  // frame 60 (même playedAt), quel que soit l'ordre d'arrivée des rapports.
+  const expected = [1030, 984, 986];
+  assert.deepEqual(ratingsAfter([0, 1, 2, 3]), expected);
+  assert.deepEqual(ratingsAfter([3, 2, 1, 0]), expected);
 });
 
 test('deux jeux ont deux classements', () => {

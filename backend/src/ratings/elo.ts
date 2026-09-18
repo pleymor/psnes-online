@@ -27,40 +27,42 @@ export const INITIAL_RATING = 1000;
 export const K_FACTOR = 32;
 
 export interface PlayedMatch {
-	p1UserId: string;
-	p2UserId: string;
-	/** Le port qui a gagné, ou 0 pour un double KO. */
-	winner: 0 | 1 | 2;
+  p1UserId: string;
+  p2UserId: string;
+  /** Le port qui a gagné, ou 0 pour un double KO. */
+  winner: 0 | 1 | 2;
 }
 
 export interface Standing {
-	rating: number;
-	matches: number;
+  rating: number;
+  matches: number;
 }
 
 /**
  * Les cotes que produit cette suite de parties, dans cet ordre.
  *
- * Le delta est arrondi **une fois**, puis ajouté à l'un et retranché à l'autre.
- * Arrondir les deux cotes séparément ferait fuir un point de temps en temps, et
- * la somme des cotes cesserait d'être conservée sans que personne le voie.
+ * Le delta est arrondi **une fois**, puis ajouté à l'un et retranché à l'autre
+ * - ce qui revient au même que d'arrondir les deux cotes séparément, tant que
+ * les deux cotes de départ sont des entiers (round(n + x) = n + round(x)).
+ * Cette symétrie est ce qui conserve la somme des cotes ; elle casserait sous
+ * un facteur K asymétrique entre gagnant et perdant, par exemple.
  */
 export function fold(matches: readonly PlayedMatch[]): Map<string, Standing> {
-	const standings = new Map<string, Standing>();
-	const of = (id: string): Standing =>
-		standings.get(id) ?? { rating: INITIAL_RATING, matches: 0 };
+  const standings = new Map<string, Standing>();
+  const of = (id: string): Standing =>
+    standings.get(id) ?? { rating: INITIAL_RATING, matches: 0 };
 
-	for (const match of matches) {
-		const p1 = of(match.p1UserId);
-		const p2 = of(match.p2UserId);
+  for (const match of matches) {
+    const p1 = of(match.p1UserId);
+    const p2 = of(match.p2UserId);
 
-		const scored = match.winner === 0 ? 0.5 : match.winner === 1 ? 1 : 0;
-		const expected = 1 / (1 + 10 ** ((p2.rating - p1.rating) / 400));
-		const delta = Math.round(K_FACTOR * (scored - expected));
+    const scored = match.winner === 0 ? 0.5 : match.winner === 1 ? 1 : 0;
+    const expected = 1 / (1 + 10 ** ((p2.rating - p1.rating) / 400));
+    const delta = Math.round(K_FACTOR * (scored - expected));
 
-		standings.set(match.p1UserId, { rating: p1.rating + delta, matches: p1.matches + 1 });
-		standings.set(match.p2UserId, { rating: p2.rating - delta, matches: p2.matches + 1 });
-	}
+    standings.set(match.p1UserId, { rating: p1.rating + delta, matches: p1.matches + 1 });
+    standings.set(match.p2UserId, { rating: p2.rating - delta, matches: p2.matches + 1 });
+  }
 
-	return standings;
+  return standings;
 }

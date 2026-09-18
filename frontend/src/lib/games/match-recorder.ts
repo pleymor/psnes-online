@@ -20,6 +20,9 @@
 
 import { MatchObserver, watcherFor, type MatchVerdict } from './match-watch.js';
 import type { PadMask } from '../znet/protocol.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('MatchRecorder');
 
 export interface MatchRecorderPorts {
 	/** Le checksum du jeu, ou null quand le salon n'en porte pas. */
@@ -44,6 +47,9 @@ export interface MatchRecorder {
 export function createMatchRecorder(ports: MatchRecorderPorts): MatchRecorder | null {
 	const watcher = ports.crc32 ? watcherFor(ports.crc32) : null;
 	if (!watcher) return null;
+	// La seule trace, côté client, disant que le guetteur est armé - elle
+	// remonte jusqu'aux journaux du backend via `log-shipper`.
+	logger.info('Watching for a match result', { rom: watcher.rom });
 
 	// Nommé plutôt que retourné directement, pour que la notification lise le
 	// score sur l'observateur qui a produit le verdict et non sur ce que le

@@ -151,9 +151,12 @@
    * Set only for a cartridge whose memory layout has been measured.
    *
    * Both peers run the same emulation and so read the same bytes: each side
-   * reaches this verdict on its own, nothing about it crosses the wire, and a
-   * dropped packet therefore cannot make the two of them disagree about a match
-   * they both watched.
+   * reaches this verdict on its own, without exchanging anything to get there.
+   * The verdict is then reported to the server (`$socket.emit('match:report', ...)`
+   * below) so it can be turned into a rating - but that is a report of an
+   * already-reached local verdict, not a source of one, and the backend
+   * (`match-handlers.ts`) treats the two peers disagreeing as the sign of a
+   * desync, not something this component needs to reconcile.
    */
   let matchWatch: MatchRecorder | null = null;
   let governor: FrameGovernor | null = null;

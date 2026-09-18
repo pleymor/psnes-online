@@ -247,6 +247,8 @@ export class NetplayHarness {
 	clearLogs(): void {
 		this.host.crcLog.clear();
 		this.guest.crcLog.clear();
+		this.host.padLog.clear();
+		this.guest.padLog.clear();
 	}
 
 	dispose(): void {

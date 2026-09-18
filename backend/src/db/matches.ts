@@ -9,6 +9,16 @@
  *
  * Le jour où il cesse de l'être, on passe à l'incrémental sans changer le
  * schéma - ce qui est exactement pourquoi `Match` reste la source de vérité.
+ *
+ * Trou connu, laissé tel quel : supprimer un compte met `p1UserId`/`p2UserId`
+ * à NULL (migration 0008, ON DELETE SET NULL) mais ne déclenche aucun
+ * recalcul - celui-ci n'a lieu qu'à l'insertion suivante sur ce même jeu. Les
+ * adversaires du compte supprimé gardent donc une cote qui inclut encore ses
+ * parties jusqu'au prochain KO sur ce jeu, où elle saute d'un coup en même
+ * temps que tout l'historique se replie sans lui. Recalculer à la suppression
+ * réglerait ça mais c'est un chantier à part (il faudrait recalculer sur
+ * chaque jeu où le compte a joué, pas seulement le prochain qui reçoit une
+ * insertion) ; le dire ici suffit pour l'instant.
  */
 
 import { randomUUID } from 'node:crypto';
