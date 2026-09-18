@@ -536,6 +536,10 @@ export const translations = {
     // has been measured. Players, not nicknames: what the game knows is which
     // controller port was left standing.
     matchWonBy: 'Player {player} wins',
+    /* La colonne du vainqueur dans l'historique : sans ce mot, « A — B / B »
+       se devine mais ne se lit pas. */
+    wonBy: 'won by {name}',
+    drawnLabel: 'drawn',
     matchDrawn: 'Double knockout',
     matchScore: 'Score {p1} - {p2}',
 
@@ -1161,6 +1165,8 @@ export const translations = {
     anonymousJoinFailed: 'Impossible de rejoindre ce salon.',
     pseudoInvalid: 'Un nom fait de {min} à {max} caractères : lettres, chiffres, - et _',
     matchWonBy: 'Le joueur {player} gagne',
+    wonBy: 'gagné par {name}',
+    drawnLabel: 'match nul',
     matchDrawn: 'Double K.O.',
     matchScore: 'Score {p1} - {p2}',
 

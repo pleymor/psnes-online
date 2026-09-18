@@ -141,6 +141,17 @@ export const notifications = {
     return notices.post('raw', { message, tone: type, seconds: duration / 1000 });
   },
 
+  /**
+   * Le verdict d'un combat, qui doit s'afficher PENDANT la partie.
+   *
+   * `show()` ne peut pas servir : elle poste un `raw`, et `raw` n'est pas
+   * déclaré affichable en jeu - à raison, puisque ses appelants annoncent des
+   * choses qui peuvent attendre la fin. Le verdict, lui, ne le peut pas.
+   */
+  matchVerdict(message: string, seconds = 5): string {
+    return notices.post('match-verdict', { message, seconds });
+  },
+
   dismiss(id: string): void {
     notices.dismiss(id);
   },

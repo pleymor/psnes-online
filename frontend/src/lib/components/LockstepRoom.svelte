@@ -27,6 +27,7 @@
   import PauseMenu from './PauseMenu.svelte';
   import { language } from '$lib/stores/language';
   import { notifications } from '$lib/services/notification';
+  import NoticeToast from '$lib/components/NoticeToast.svelte';
   import { createMatchRecorder, type MatchRecorder } from '$lib/games/match-recorder';
   import { verdictMessage } from '$lib/rooms/match-report';
   import { t } from '$lib/i18n/translations';
@@ -662,7 +663,7 @@
         crc32: gameCrc32,
         wram: () => core!.wram(),
         announce: (verdict, score) =>
-          notifications.show(verdictMessage($language, verdict, score), 'info', 5000),
+          notifications.matchVerdict(verdictMessage($language, verdict, score)),
         report: (verdict) =>
           $socket?.emit('match:report', {
             roomId,
@@ -1328,6 +1329,15 @@
   class:chrome-hidden={isFullscreen && !chromeVisible}
   bind:this={stage}
 >
+  <!-- La pile de notices, montée ICI et pas dans le layout, pour la raison que
+       le commentaire ci-dessous donne déjà pour les deux autres surimpressions :
+       le navigateur ne peint que le sous-arbre de l'élément mis en plein écran.
+       Celle du layout reste en place et sert partout ailleurs ; `in-game` lui
+       dit de se taire dès que celle-ci est montée, pour qu'aucune notification
+       ne s'affiche deux fois. C'est ce que `$inGameSurfaces` compte, et cette
+       prop attendait un appelant depuis qu'elle a été écrite. -->
+  <NoticeToast surface="in-game" />
+
   <!-- The transfer banner and the ROM prompt live inside .lockstep rather than
        beside it: both are fixed overlays, so their position is unchanged, but
        as descendants of the fullscreen element they still render once a player

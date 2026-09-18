@@ -2913,7 +2913,7 @@
         crc32,
         wram: () => core.wram(),
         announce: (verdict, score) =>
-          notifications.show(verdictMessage($language, verdict, score), 'info', 5000),
+          notifications.matchVerdict(verdictMessage($language, verdict, score)),
         report: (verdict) =>
           $socket?.emit('match:report', {
             roomId,

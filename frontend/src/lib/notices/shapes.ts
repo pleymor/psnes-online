@@ -24,6 +24,31 @@ export const NOTICE_SHAPES: Record<string, NoticeShape> = {
     tone: 'info'
   },
 
+  /**
+   * « Le joueur 1 gagne - Score 1 - 0 », à la fin d'un combat.
+   *
+   * La SEULE forme qui s'affiche pendant une partie, et c'est tout son objet.
+   * `duringGame` est faux partout ailleurs pour une bonne raison - un panneau
+   * au-dessus d'un émulateur vole un clic, et accepter une invitation sortirait
+   * le joueur de son match - mais un verdict n'a rien à cliquer, et il annonce
+   * ce qui vient de se passer dans le jeu lui-même. Le garder pour la fin de la
+   * partie, c'est l'annoncer quand il ne veut plus rien dire.
+   *
+   * Sans cette entrée, le verdict partait par `notifications.show()`, donc en
+   * `raw`, donc filtré : il atterrissait dans le centre et n'était jamais peint.
+   * Six combats réels ont été joués avant que quiconque s'en aperçoive, parce
+   * que la cloche, elle, les avait tous.
+   *
+   * Le message arrive déjà écrit, comme pour `raw` : `rooms/match-report.ts`
+   * possède la formulation et la partage entre les salons, et la refaire ici en
+   * ferait une seconde à tenir en accord avec la première.
+   */
+  'match-verdict': {
+    text: (params) => String(params.message ?? ''),
+    tone: 'info',
+    duringGame: true
+  },
+
   /** « Bob t'invite sur Umihara Kawase ». Dix minutes, puis elle s'en va seule. */
   invitation: {
     text: (params, lang) =>

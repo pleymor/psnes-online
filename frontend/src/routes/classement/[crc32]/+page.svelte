@@ -54,10 +54,20 @@
    */
 
   /** Le vainqueur d'une ligne, dit avec son handle complet plutôt qu'un numéro de port. */
+  /**
+   * Le vainqueur, dit comme une phrase et non comme un troisième nom.
+   *
+   * « Pleymor#2147 — fredoche#6055 / fredoche#6055 » se devine ; « gagné par »
+   * se lit. Le double KO garde son propre mot : il n'a personne à nommer, et
+   * l'habiller en « gagné par » demanderait un nom qui n'existe pas.
+   */
   function winnerOf(row: PlayedRow, lang: Language): string {
-    if (row.winner === 0) return t(lang, 'matchDrawn');
+    if (row.winner === 0) return t(lang, 'drawnLabel');
     const side = row.winner === 1 ? row.p1 : row.p2;
-    return side ? formatHandle(side.pseudo, side.discriminator) : t(lang, 'unknownHistoryPlayer');
+    const name = side
+      ? formatHandle(side.pseudo, side.discriminator)
+      : t(lang, 'unknownHistoryPlayer');
+    return t(lang, 'wonBy', { name });
   }
 
   /**

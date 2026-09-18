@@ -475,3 +475,25 @@ test('waitFor rend la main par le delai de garde si la reponse ne vient jamais',
 
 	assert.ok(Date.now() - start < 500, 'le delai de garde doit ecourter l attente');
 });
+
+/* ------------------------------------ ce qui s'affiche pendant une partie */
+
+test('le verdict d un combat est la seule forme affichable pendant une partie', () => {
+	// Ce qui manquait : le verdict partait en `raw`, `raw` n'est pas déclaré
+	// affichable en jeu, et le toast écarte tout le reste tant qu'`inGame` est
+	// vrai. Six combats réels ont été joués avant que quiconque s'en aperçoive,
+	// parce que le centre, lui, les avait tous.
+	assert.equal(shapeOf('match-verdict')?.duringGame, true);
+});
+
+test('raw ne devient pas affichable en jeu pour autant', () => {
+	// La tentation, en réparant, est de basculer `raw` : ça marcherait pour le
+	// verdict et ferait surgir par-dessus l'émulateur les dix autres appelants,
+	// dont des invitations qu'un clic accepterait - ce que le dessin refuse.
+	assert.notEqual(shapeOf('raw')?.duringGame, true);
+});
+
+test('aucune autre forme ne s affiche en jeu sans l avoir dit', () => {
+	const enJeu = Object.keys(NOTICE_SHAPES).filter((k) => shapeOf(k)?.duringGame === true);
+	assert.deepEqual(enJeu, ['match-verdict']);
+});
