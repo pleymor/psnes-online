@@ -12,6 +12,7 @@ import { authRouter } from '../api/auth.js';
 import { gamesRouter } from '../api/games.js';
 import { savesRouter } from '../api/saves.js';
 import { friendsRouter } from '../api/friends.js';
+import { ratingsRouter } from '../api/ratings.js';
 import { roomsRouter } from '../api/rooms.js';
 import { userRouter } from '../api/user.js';
 import { invitesRouter } from '../api/invites.js';
@@ -194,6 +195,7 @@ export function buildApp(redisClient: RedisClientType): { app: Express; sessionM
   app.use('/api/games', requirePseudo, gamesRouter);
   app.use('/api/saves', requirePseudo, savesRouter);
   app.use('/api/friends', requirePseudo, friendsRouter);
+  app.use('/api/ratings', requirePseudo, ratingsRouter);
   app.use('/api/rooms', requirePseudo, roomsRouter);
   app.use('/api/user', requirePseudo, userRouter);
   // `requirePseudo` et pas `requireAccount` : un anonyme n'invite personne, et

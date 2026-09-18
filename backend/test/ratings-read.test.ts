@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { migratedDb, insertUser } from './helpers.js';
 import { recordMatch } from '../src/db/matches.js';
 import { rankingFor, standingsOf, recentMatches } from '../src/db/matches.js';
+import { pageOf, isCrc32 } from '../src/api/ratings.js';
 
 const GAME = '8F24F886';
 
@@ -147,4 +148,21 @@ test('l historique est du plus récent au plus ancien, invités compris', () => 
   assert.equal(rows[0].p2, null, 'un invité laisse la place vide sans casser la ligne');
   assert.equal(rows[1].p1!.pseudo, 'Alice');
   assert.equal(rows[1].p2!.pseudo, 'Bob');
+});
+
+test('un CRC32 est huit caractères hexadécimaux majuscules', () => {
+  assert.equal(isCrc32('8F24F886'), true);
+  assert.equal(isCrc32('8f24f886'), false, 'la casse compte : Game.crc32 est en majuscules');
+  assert.equal(isCrc32('8F24F88'), false);
+  assert.equal(isCrc32('../../etc/passwd'), false);
+  assert.equal(isCrc32(''), false);
+});
+
+test('la pagination est bornée, et un paramètre absurde retombe sur le défaut', () => {
+  assert.deepEqual(pageOf(undefined, undefined), { limit: 50, offset: 0 });
+  assert.deepEqual(pageOf('10', '20'), { limit: 10, offset: 20 });
+  assert.deepEqual(pageOf('100000', '0').limit, 200, 'le plafond protège la base');
+  assert.deepEqual(pageOf('0', '0').limit, 50, 'zéro n est pas une page');
+  assert.deepEqual(pageOf('-5', '-5'), { limit: 50, offset: 0 });
+  assert.deepEqual(pageOf('abc', 'abc'), { limit: 50, offset: 0 });
 });
