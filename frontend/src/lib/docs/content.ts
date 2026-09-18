@@ -25,6 +25,13 @@
  * - « une session anonyme est balayée après 24 h » :
  *   `ANONYMOUS_SESSION_TTL_MS` dans `backend/src/bootstrap/jobs.ts`.
  * - « aucun traqueur » : vérifié par recherche sur tout le dépôt.
+ * - « le résultat des combats est enregistré » :
+ *   `backend/migrations/0008_match_ratings.sql` crée `Match` et `Rating`, et
+ *   `backend/src/websocket/match-handlers.ts` est le seul endroit qui y écrit.
+ * - « l'effacement laisse la ligne, sans vous » : la même migration met
+ *   `Match.p1UserId`/`p2UserId` en `ON DELETE SET NULL` et `Rating.userId` en
+ *   `ON DELETE CASCADE` - asymétrie voulue, une partie jouée est un fait qui a
+ *   eu lieu, une cote est une propriété du compte.
  *
  * Les deux citations de droit ont été relues sur Legifrance, mot pour mot, et
  * les liens vérifiés un par un : un lien inventé sur une page de ce genre
@@ -90,7 +97,7 @@ const FR: DocPage = {
     'en réseau, et dans un casque de réalité virtuelle. Cette page explique ce ' +
     'qu’il fait, où vivent vos fichiers, quelles données il garde, et ce que dit ' +
     'la loi sur les ROMs.',
-  updated: 'Dernière mise à jour : 8 septembre 2026.',
+  updated: 'Dernière mise à jour : 18 septembre 2026.',
   sections: [
     {
       id: 'what',
@@ -176,8 +183,16 @@ const FR: DocPage = {
         'Ce qui est conservé pour un compte : l’identifiant opaque fourni par ' +
           'Google lors de la connexion, votre pseudonyme et son discriminant, ' +
           'votre avatar, votre configuration de touches, et les dates de création ' +
-          'et de mise à jour. S’y ajoutent votre bibliothèque, vos sauvegardes et ' +
-          'vos liens d’amitié.',
+          'et de mise à jour. S’y ajoutent votre bibliothèque, vos sauvegardes, ' +
+          'vos liens d’amitié, vos parties enregistrées et le classement qui en ' +
+          'dérive.',
+        'Le service enregistre le résultat des combats, sur les jeux dont il sait ' +
+          'lire la mémoire. Une ligne par combat : la date, le jeu, les deux ' +
+          'joueurs, qui a gagné, et les points de vie restants. Elle alimente un ' +
+          'classement Elo par jeu, distinct pour chaque cartouche. Effacer votre ' +
+          'compte retire votre identifiant de ces lignes et supprime vos ' +
+          'classements, mais la ligne subsiste : sans vous, elle n’est plus que la ' +
+          'trace d’une partie que votre adversaire a jouée.',
         'Vous pouvez aussi jouer sans compte. Une session anonyme n’a aucune ' +
           'identité persistante : elle est effacée à la déconnexion, et balayée ' +
           'automatiquement au bout de vingt-quatre heures.',
@@ -186,9 +201,10 @@ const FR: DocPage = {
           'vous garde connecté, et c’est le seul. Le seul tiers est Google, pour ' +
           'la connexion.',
         'Vos droits d’accès, de rectification, d’effacement, de portabilité et ' +
-          'd’opposition s’exercent à l’adresse ci-dessus. Deux précisions ' +
+          'd’opposition s’exercent à l’adresse ci-dessus. Trois précisions ' +
           'honnêtes : la portabilité est déjà en libre-service, par l’export de ' +
-          'vos réglages et de vos sauvegardes ; l’effacement d’un compte, lui, se ' +
+          'vos réglages et de vos sauvegardes ; elle ne couvre pas encore vos ' +
+          'parties ni votre classement ; l’effacement d’un compte, lui, se ' +
           'demande par courriel - il n’y a pas encore de bouton pour cela, et une ' +
           'demande est traitée à la main.'
       ]
@@ -234,7 +250,7 @@ const EN: DocPage = {
     'the network, and inside a virtual reality headset. This page explains what ' +
     'it does, where your files live, what data it keeps, and what the law says ' +
     'about ROMs.',
-  updated: 'Last updated: 8 September 2026.',
+  updated: 'Last updated: 18 September 2026.',
   sections: [
     {
       id: 'what',
@@ -318,7 +334,15 @@ const EN: DocPage = {
         'What is kept for an account: the opaque identifier Google provides when ' +
           'you sign in, your pseudonym and its discriminator, your avatar, your ' +
           'control bindings, and the creation and update dates. To that are added ' +
-          'your library, your saves and your friendships.',
+          'your library, your saves, your friendships, your recorded matches and ' +
+          'the rating derived from them.',
+        'The service records the outcome of fights, on the games whose memory it ' +
+          'knows how to read. One row per fight: the date, the game, both ' +
+          'players, who won, and the health left. It feeds an Elo rating per ' +
+          'game, separate for each cartridge. Erasing your account removes your ' +
+          'identifier from those rows and deletes your ratings, but the row ' +
+          'itself remains: without you, it is no more than the trace of a match ' +
+          'your opponent played.',
         'You can also play without an account. An anonymous session has no ' +
           'persistent identity at all: it is erased when you sign out, and swept ' +
           'automatically after twenty-four hours.',
@@ -326,9 +350,10 @@ const EN: DocPage = {
           'tool. A session cookie keeps you signed in, and it is the only one. The ' +
           'only third party is Google, for signing in.',
         'Your rights of access, rectification, erasure, portability and objection ' +
-          'are exercised at the address above. Two honest details: portability is ' +
-          'already self-service, through the export of your settings and saves; ' +
-          'erasing an account, however, is requested by email - there is no button ' +
+          'are exercised at the address above. Three honest details: portability ' +
+          'is already self-service, through the export of your settings and ' +
+          'saves; it does not yet cover your matches or your rating; erasing an ' +
+          'account, however, is requested by email - there is no button ' +
           'for it yet, and a request is handled by hand.'
       ]
     },
