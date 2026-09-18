@@ -169,7 +169,15 @@ needsDbz2('a knockout is reported once, to the player left standing', async () =
 	wram[0x0663] = 0;
 
 	for (let f = 1; f < 900; f++) {
-		core.runFrame(ATTACKS[f % ATTACKS.length], 0);
+		const pad1 = ATTACKS[f % ATTACKS.length];
+		// A real second player, not a fabricated mask: port 2 throws a punch in
+		// place every frame, which the activity guard counts as play without
+		// moving it out of range of port 1's approach - the same knockout still
+		// lands. `note` mirrors exactly what `runFrame` was handed, the same
+		// contract the real onFrame callback keeps.
+		const pad2 = PAD.B;
+		core.runFrame(pad1, pad2);
+		observer.note(pad1, pad2);
 		observer.observe(f);
 	}
 
