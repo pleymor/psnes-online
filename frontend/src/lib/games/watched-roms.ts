@@ -71,4 +71,62 @@ const DBZ2_FRANCE: MatchWatcher = {
 	}
 };
 
-export const WATCHED_ROMS: readonly MatchWatcher[] = [DBZ2_FRANCE];
+/**
+ * Dragon Ball Z: Super Butouden - the French release of the FIRST one.
+ *
+ * Internal header title "SFX DRAGONBALLZ2", which is a quirk of this release
+ * and not a mistake here: the cartridge announces Z2 and is Z1. The checksum is
+ * what the table keys on, so the lie costs nothing.
+ *
+ * How the addresses were found, so they can be checked or redone:
+ *
+ *  1. The dump boots into an attract demo, not a title screen - 868 bytes of
+ *     work RAM move with no pad touched at all, and both fighters take damage
+ *     on their own. A differential search run there finds two hundred addresses
+ *     and means nothing, which is worth knowing before spending an hour on it.
+ *     A first A leaves the demo, a second opens the menu.
+ *  2. The menu is a 2x2 grid - HISTOIRE and CHAMPIONNAT above, OPTION and
+ *     COMBAT below. RIGHT then DOWN reaches COMBAT; A enters it; RIGHT moves
+ *     from "1P VS ORD" to "1P VS 2P"; A takes it. Then one A per port on the
+ *     character grid.
+ *  3. The screen after the characters is this game's HANDICAP: it prints
+ *     "VIE 300" for each side, in decimal, which is what makes the search a
+ *     search rather than a trawl. Scanning 128KB for the 16-bit value 300 gives
+ *     seven hits, six of them in two blocks 0x100 apart - the same per-player
+ *     stride Z2 uses, the two games sharing an engine.
+ *  4. Have player 1 walk in and swing while player 2 stands still: $7E0660 and
+ *     $7E0664 fall, $7E0640 does not. Reverse it and $7E0560 and $7E0564 fall
+ *     while $7E0540 holds. Raise VIE for player 1 alone on the options screen
+ *     and $7E0540 and $7E0560 come up to the new number while player 2 keeps
+ *     300 - which is what proves those are maxima and not a constant that
+ *     happened to read 300.
+ *
+ * **Why this row reads $7E0564 and not $7E0560.** Both fall with damage, but
+ * they are not the same number. $7E0560 is the real health and it UNDERFLOWS:
+ * a finishing blow that overshoots leaves 65535, not 0. Z2 clamps and this one
+ * does not, and `isPlausible` rejects a current above its maximum - so a
+ * knockout read there would be discarded in silence, which is exactly the
+ * failure this table exists to avoid. $7E0564 is the bar as drawn: it lags by a
+ * few points, it stops at 0, and it stays there through the knockout animation
+ * and every menu after it, measured over 1800 frames.
+ *
+ * One consequence of reading the drawn bar: it starts a round at 0 and fills,
+ * so "both sides full" arrives a moment after the fight does rather than on its
+ * first frame. The observer samples twice a second for the whole match, so it
+ * arms either way.
+ */
+const DBZ1_FRANCE: MatchWatcher = {
+	crc32: 'EA7ABAD1',
+	rom: 'Dragon Ball Z: Super Butouden (France)',
+	read(wram: Uint8Array) {
+		// Same rule as the row above: the last byte this row needs, not the
+		// console's nominal size.
+		if (wram.length < 0x0666) return null;
+		return {
+			p1: { max: u16(wram, 0x0540), current: u16(wram, 0x0564) },
+			p2: { max: u16(wram, 0x0640), current: u16(wram, 0x0664) }
+		};
+	}
+};
+
+export const WATCHED_ROMS: readonly MatchWatcher[] = [DBZ2_FRANCE, DBZ1_FRANCE];
