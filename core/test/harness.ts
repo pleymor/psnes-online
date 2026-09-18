@@ -42,6 +42,9 @@ export interface Peer {
 	events: SessionEvent[];
 	/** Work-RAM CRC after each executed frame, keyed by frame number. */
 	crcLog: Map<number, number>;
+	/** The two pad masks `onFrame` was actually called with, keyed by the
+	 * frame they applied to. What each peer's guetteur would have seen. */
+	padLog: Map<number, [number, number]>;
 }
 
 export class NetplayHarness {
@@ -66,8 +69,8 @@ export class NetplayHarness {
 
 		const harness = new NetplayHarness(
 			link,
-			{ name: 'host', core: hostCore, session: null!, events: [], crcLog: new Map() },
-			{ name: 'guest', core: guestCore, session: null!, events: [], crcLog: new Map() }
+			{ name: 'host', core: hostCore, session: null!, events: [], crcLog: new Map(), padLog: new Map() },
+			{ name: 'guest', core: guestCore, session: null!, events: [], crcLog: new Map(), padLog: new Map() }
 		);
 
 		const hostInput = options.hostInput ?? [];
@@ -104,7 +107,10 @@ export class NetplayHarness {
 				// the link rather than been given.
 				readLocalInput: () => tape[peer.session.currentFrame + peer.session.inputDelay] ?? 0,
 				onEvent: (e) => peer.events.push(e),
-				onFrame: (frame) => peer.crcLog.set(frame - 1, peer.core.wramCrc())
+				onFrame: (frame, pad1, pad2) => {
+					peer.crcLog.set(frame - 1, peer.core.wramCrc());
+					peer.padLog.set(frame - 1, [pad1, pad2]);
+				}
 			});
 			peer.session.now = () => harness.time;
 		};

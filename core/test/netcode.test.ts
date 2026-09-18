@@ -803,6 +803,39 @@ test('both peers run the identical input tape', async () => {
 	harness.dispose();
 });
 
+test('onFrame hands both peers the identical pair of pad masks', async () => {
+	// The activity guard the upcoming ranked matches lean on reads its pads from
+	// this callback, and the whole design assumes both peers reach the same
+	// verdict without exchanging anything beyond the timeline itself. That only
+	// holds if what `onFrame` is handed for a given frame is bit-identical on
+	// both sides - not derived from local input, not "close enough".
+	const harness = await NetplayHarness.create(
+		harnessOptions(300, { link: { latency: 30, jitter: 5, seed: 21 }, inputDelay: 4 })
+	);
+	harness.handshake();
+	harness.run(4_000);
+
+	const overlap = [...harness.host.padLog.keys()].filter((f) => harness.guest.padLog.has(f));
+	assert.ok(overlap.length > 30, `too few overlapping frames to prove anything: ${overlap.length}`);
+
+	let sawNonZero = false;
+	for (const frame of overlap) {
+		const hostPads = harness.host.padLog.get(frame)!;
+		const guestPads = harness.guest.padLog.get(frame)!;
+		assert.deepEqual(
+			guestPads,
+			hostPads,
+			`frame ${frame}: host saw [${hostPads}], guest saw [${guestPads}]`
+		);
+		if (hostPads[0] !== 0 || hostPads[1] !== 0) sawNonZero = true;
+	}
+	// Without this, an unfed callback (both sides stuck at 0) would pass the
+	// equality above for the wrong reason - the exact trap this assertion has
+	// to close.
+	assert.ok(sawNonZero, 'every mask observed was zero; the tapes were never exercised');
+	harness.dispose();
+});
+
 /* ----------------------------------------------------------------- resync */
 
 test('a corrupted peer is detected and resynchronised', async () => {
