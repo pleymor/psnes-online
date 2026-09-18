@@ -170,7 +170,7 @@ export interface SessionOptions {
 	stallResendEvery?: number;
 	readLocalInput: () => PadMask;
 	onEvent?: (event: SessionEvent) => void;
-	onFrame?: (frame: number) => void;
+	onFrame?: (frame: number, pad1: PadMask, pad2: PadMask) => void;
 }
 
 /** Reships tolerated before a host gives up and restarts the handshake. */
@@ -294,7 +294,7 @@ export class NetplaySession implements TickSource {
 	>;
 	private readLocalInput: () => PadMask;
 	private onEvent: (event: SessionEvent) => void;
-	private onFrame: (frame: number) => void;
+	private onFrame: (frame: number, pad1: PadMask, pad2: PadMask) => void;
 	private romCrc: number;
 
 	private _state: SessionState = 'idle';
@@ -830,7 +830,7 @@ export class NetplaySession implements TickSource {
 		// Keep well clear of the re-send window: a pruned pad is one we can no
 		// longer retransmit, and the peer may still be waiting for it.
 		this.timeline.prune(this.frame - Math.max(120, this.epochMaxDelay * 4));
-		this.onFrame(this.frame);
+		this.onFrame(this.frame, pad1, pad2);
 
 		return 'ran';
 	}

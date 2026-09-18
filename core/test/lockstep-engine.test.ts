@@ -302,6 +302,23 @@ test('stopping releases the link, and still writes the cartridge save', async ()
   );
 });
 
+test('les masques de manette traversent le rappel d’image', async () => {
+  const { options, session } = harness();
+  const seen: [number, number, number][] = [];
+  options.onFrame = (_c: unknown, frame: number, pad1: number, pad2: number) =>
+    seen.push([frame, pad1, pad2]);
+
+  const engine = await createLockstepEngine(options);
+
+  // Le rappel tel que l'engine l'a donné à la session, appelé comme la session
+  // l'appellera : c'est la couture que `makeSession` existe pour offrir.
+  const onFrame = session()!.onFrame as (f: number, p1: number, p2: number) => void;
+  onFrame(42, 0x0101, 0x0202);
+
+  assert.deepEqual(seen, [[42, 0x0101, 0x0202]]);
+  await engine.stop();
+});
+
 test('a guest never writes the cartridge save it never loaded', async () => {
   /*
    * The mirror of the host-only load, and the reason it matters more.

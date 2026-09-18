@@ -77,7 +77,7 @@ export interface LockstepEngineOptions {
 	 * which is exactly the shape `vr/pad.ts`'s `readVrPad` produces. */
 	readLocalInput(): number;
 	onEvent(event: SessionEvent): void;
-	onFrame(core: PsnesCore, frame: number): void;
+	onFrame(core: PsnesCore, frame: number, pad1: number, pad2: number): void;
 	onError(err: unknown): void;
 	onSlice?(ran: number, stalled: boolean): void;
 	/** Left undefined so the host sizes it from the link it measures. A
@@ -146,9 +146,9 @@ export async function createLockstepEngine(
 		inputDelay: options.inputDelay || undefined,
 		readLocalInput,
 		onEvent,
-		onFrame: (frame: number) => {
+		onFrame: (frame: number, pad1: number, pad2: number) => {
 			try {
-				options.onFrame(core, frame);
+				options.onFrame(core, frame, pad1, pad2);
 				audio.push(core.audio());
 			} catch (err) {
 				onError(err);
