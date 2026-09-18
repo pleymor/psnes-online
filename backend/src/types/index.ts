@@ -19,6 +19,16 @@ export interface Room {
   createdBy: string; // Original creator of the room
   players: RoomPlayer[];
   status: 'waiting' | 'playing' | 'paused';
+  /**
+   * La session de jeu en cours, renouvelée à chaque partie qui commence.
+   *
+   * C'est la clé sur laquelle les deux rapports d'un même KO se dédupliquent.
+   * Pas `id` : le compteur d'images repart de zéro à chaque session alors que
+   * le salon, lui, ne change pas, donc deux parties du même salon peuvent
+   * tomber sur la même image. Posée par `rooms/play-session.ts` et nulle part
+   * ailleurs.
+   */
+  playSessionId?: string;
   emulationMode: EmulationMode;
   /**
    * Which way this room trades input latency against the other player's

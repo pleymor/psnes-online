@@ -17,6 +17,7 @@ import { deleteInvitationsForRoom } from '../db/invitations.js';
 import { requireGame } from '../rooms/require-game.js';
 import { endsWithItsPlayer, markOffline, markOnline } from '../rooms/presence.js';
 import { getJoinableRoom, getMemberRoom } from './guards.js';
+import { newPlaySessionId } from '../rooms/play-session.js';
 
 const logger = createLogger('Room');
 
@@ -104,6 +105,7 @@ export function registerRoomHandlers(
         keyConfig: userKeyConfig
       }],
       status: autoStart ? 'playing' : 'waiting',
+      playSessionId: autoStart ? newPlaySessionId() : undefined,
       // Lockstep by default: both players run the same deterministic core and
       // exchange inputs, so a room cannot end up with two machines quietly
       // diverging the way the dual mode does.

@@ -11,6 +11,7 @@ import { saveSuitsRoom } from '../rooms/save-suits-room.js';
 import { findOwnGameIdForRoom } from '../rooms/own-game.js';
 import { onlinePlayers } from '../rooms/online-players.js';
 import { broadcastRoomUpdate } from './room-handlers.js';
+import { beginPlaySession } from '../rooms/play-session.js';
 
 const logger = createLogger('Game');
 
@@ -67,7 +68,7 @@ export function registerGameHandlers(
       p.emulationReady = false;
     });
 
-    room.status = 'playing';
+    beginPlaySession(room);
     io.to(data.roomId).emit('room:updated', room);
     // Also to `room:update`: the VR launch screen reads `status` off
     // `my-room.ts`, which only `broadcastRoomUpdate` feeds. Without this the

@@ -660,8 +660,14 @@
         wram: () => core!.wram(),
         announce: (verdict, score) =>
           notifications.show(verdictMessage($language, verdict, score), 'info', 5000),
-        // Branché en Task 8.
-        report: () => {}
+        report: (verdict) =>
+          $socket?.emit('match:report', {
+            roomId,
+            frame: verdict.frame,
+            winner: verdict.winner,
+            p1Health: verdict.health.p1,
+            p2Health: verdict.health.p2
+          })
       });
 
       pushRememberedLatencyMode();

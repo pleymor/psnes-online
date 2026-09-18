@@ -14,6 +14,7 @@ import { registerP2PHandlers } from './p2p-handlers.js';
 import { registerSyncHandlers } from './sync-handlers.js';
 import { registerZnetHandlers } from './znet-handlers.js';
 import { registerRomTransferHandlers } from './rom-transfer.js';
+import { registerMatchHandlers } from './match-handlers.js';
 import { toPublicRoomFor, visibleRoomsFor } from './room-view.js';
 import { gateAnonymousSocket } from './anonymous-gate.js';
 import { anonymousRoomOf } from '../auth/anonymous.js';
@@ -211,6 +212,7 @@ async function handleConnection(io: Server, socket: Socket) {
   registerSyncHandlers(socket, io, user.id, rooms);
   registerZnetHandlers(socket, user, io, rooms);
   registerRomTransferHandlers(socket, user, io, rooms, getUserSocket);
+  registerMatchHandlers(socket, io, user.id, rooms);
 
   /*
    * Back from wherever they were: their seat is theirs again in every room they
