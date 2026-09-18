@@ -136,8 +136,17 @@ n'existera pas.
 
 `frontend/src/lib/components/RoomPlayers.svelte` affiche déjà les deux sièges,
 leur occupant, son pseudonyme et son avatar. La cote s'y pose à côté de chaque
-joueur, avec son nombre de parties, et le tout est cliquable vers
-`/classement/<crc32>`.
+joueur, avec son nombre de parties.
+
+**Mais la cote elle-même n'est pas cliquable, et c'est une contrainte du DOM,
+pas un choix.** Chaque siège est un `<button>` — c'est ainsi qu'on choisit son
+port, et `slotAction()` annonce déjà ce qu'un clic ferait. Un lien à l'intérieur
+d'un bouton est du HTML invalide, que `svelte-check` signale et dont le
+comportement au clic est ambigu : choisir le siège, ou partir au classement ?
+
+Le lien vers `/classement/<crc32>` est donc **un seul lien, sous les deux
+sièges**, hors des boutons. Il reste à l'endroit où la question se pose — « il
+est à combien, lui ? » — sans rendre le choix de siège ambigu.
 
 **Un avertissement à respecter.** Ce composant affiche par **siège**
 (`p.port === 1`), ce qui est correct pour un lobby : le siège est ce que le
