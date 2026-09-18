@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { language } from '$lib/stores/language';
+  import { language, type Language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import TopBar from '$lib/components/TopBar.svelte';
   import { formatHandle } from '$lib/pseudo';
@@ -19,33 +19,70 @@
    */
   let players: RankedPlayer[] | null = null;
   let matches: PlayedRow[] | null = null;
-  let failure: RatingsFailure | null = null;
+
+  /*
+   * Deux échecs distincts, et pas une variable `failure` commune : les deux
+   * requêtes sont indépendantes, et fusionner leurs échecs affichait le
+   * message d'une section au-dessus de l'autre, correctement rendue - « le
+   * classement n'a pas pu être chargé » planté au-dessus d'un classement bien
+   * là. Chacun s'affiche dans sa propre section, avec son propre message.
+   */
+  let rankingFailure: RatingsFailure | null = null;
+  let matchesFailure: RatingsFailure | null = null;
 
   onMount(async () => {
     const [ranking, history] = await Promise.all([
       fetchRanking(data.crc32),
       fetchMatches(data.crc32)
     ]);
-    if (!ranking.ok) failure = ranking.reason;
+    if (!ranking.ok) rankingFailure = ranking.reason;
     else players = ranking.players;
-    if (!history.ok) failure ??= history.reason;
+    if (!history.ok) matchesFailure = history.reason;
     else matches = history.matches;
   });
 
+  /*
+   * `$language` en paramètre plutôt que lu dans le corps de ces fonctions :
+   * le crible Svelte 4 (voir RoomPlayers.svelte) ne marque une ligne du
+   * `{#each}` sale que pour les identifiants écrits littéralement dans le
+   * gabarit - jamais pour ce qu'une fonction appelée depuis ce gabarit lit
+   * elle-même. `$language` ne figurait dans le texte d'aucune instruction de
+   * l'historique, donc aucune garde compilée ne le portait : changer de
+   * langue rafraîchissait le titre et le classement (où `{t($language, …)}`
+   * est écrit en clair dans le gabarit) et laissait l'historique dans
+   * l'ancienne langue.
+   */
+
   /** Le vainqueur d'une ligne, dit avec son handle complet plutôt qu'un numéro de port. */
-  function winnerOf(row: PlayedRow): string {
-    if (row.winner === 0) return t($language, 'matchDrawn');
+  function winnerOf(row: PlayedRow, lang: Language): string {
+    if (row.winner === 0) return t(lang, 'matchDrawn');
     const side = row.winner === 1 ? row.p1 : row.p2;
-    return side ? formatHandle(side.pseudo, side.discriminator) : t($language, 'guestPlayer');
+    return side ? formatHandle(side.pseudo, side.discriminator) : t(lang, 'unknownHistoryPlayer');
   }
 
-  /** Un joueur d'une ligne, ou le mot qui remplace son absence. */
-  function nameOf(side: PlayedRow['p1']): string {
-    return side ? formatHandle(side.pseudo, side.discriminator) : t($language, 'guestPlayer');
+  /**
+   * Un joueur d'une ligne, ou le mot qui remplace son absence.
+   *
+   * `unknownHistoryPlayer` et non `guestPlayer` : un côté NULL de l'historique
+   * est soit un invité (présent, réellement anonyme), soit un compte supprimé
+   * (qui n'est plus personne) - les deux valent NULL et rien ne les distingue
+   * ici. Le paragraphe RGPD promet que la ligne d'un compte supprimé survit
+   * comme « la trace d'une partie que votre adversaire a jouée », pas comme un
+   * invité. `guestPlayer` reste réservé au salon, où le joueur est bien
+   * présent et bien anonyme.
+   */
+  function nameOf(side: PlayedRow['p1'], lang: Language): string {
+    return side ? formatHandle(side.pseudo, side.discriminator) : t(lang, 'unknownHistoryPlayer');
   }
 
-  function when(at: number): string {
-    return new Date(at).toLocaleString($language, { dateStyle: 'short', timeStyle: 'short' });
+  function when(at: number, lang: Language): string {
+    return new Date(at).toLocaleString(lang, { dateStyle: 'short', timeStyle: 'short' });
+  }
+
+  /** `ratingWithMatches` fait toujours le pluriel ; ce cas est le premier du
+   * classement à une seule partie, mis en avant par la conception. */
+  function matchesKey(matchCount: number): 'ratingWithOneMatch' | 'ratingWithMatches' {
+    return matchCount === 1 ? 'ratingWithOneMatch' : 'ratingWithMatches';
   }
 </script>
 
@@ -54,11 +91,11 @@
 <main class="classement">
   <h1>{t($language, 'ranking')}</h1>
 
-  {#if failure}
+  {#if rankingFailure}
     <!-- `ratingsSessionExpired` et non `sessionExpired` : celle-ci parle des
          sauvegardes, et afficherait un message faux sur cet écran. -->
     <p class="failure">
-      {t($language, failure === 'sessionExpired' ? 'ratingsSessionExpired' : 'failedToLoadRatings')}
+      {t($language, rankingFailure === 'sessionExpired' ? 'ratingsSessionExpired' : 'failedToLoadRatings')}
     </p>
   {/if}
 
@@ -76,7 +113,7 @@
                  d'entrée, un joueur à une victoire est en tête, et c'est ce
                  nombre qui permet de le lire comme tel. -->
             <span class="rating">
-              {t($language, 'ratingWithMatches', { rating: player.rating, matches: player.matches })}
+              {t($language, matchesKey(player.matches), { rating: player.rating, matches: player.matches })}
             </span>
           </li>
         {/each}
@@ -86,6 +123,12 @@
 
   <h2>{t($language, 'matchHistory')}</h2>
 
+  {#if matchesFailure}
+    <p class="failure">
+      {t($language, matchesFailure === 'sessionExpired' ? 'matchHistorySessionExpired' : 'failedToLoadMatchHistory')}
+    </p>
+  {/if}
+
   {#if matches}
     {#if matches.length === 0}
       <p class="muted">{t($language, 'noMatchesYet')}</p>
@@ -93,9 +136,9 @@
       <ul class="matches">
         {#each matches as row}
           <li>
-            <span class="when">{when(row.playedAt)}</span>
-            <span class="who">{nameOf(row.p1)} — {nameOf(row.p2)}</span>
-            <span class="winner">{winnerOf(row)}</span>
+            <span class="when">{when(row.playedAt, $language)}</span>
+            <span class="who">{nameOf(row.p1, $language)} — {nameOf(row.p2, $language)}</span>
+            <span class="winner">{winnerOf(row, $language)}</span>
           </li>
         {/each}
       </ul>

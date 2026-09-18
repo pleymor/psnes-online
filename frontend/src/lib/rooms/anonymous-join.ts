@@ -102,6 +102,8 @@ export interface AccountFeatures {
   saves: boolean;
   /** Choisir le jeu, la sauvegarde de départ, les modes : la configuration du salon. */
   roomSetup: boolean;
+  /** Le classement et l'historique d'un jeu : `/api/ratings`. */
+  ratings: boolean;
 }
 
 const NOTHING: AccountFeatures = {
@@ -109,7 +111,8 @@ const NOTHING: AccountFeatures = {
   friends: false,
   profile: false,
   saves: false,
-  roomSetup: false
+  roomSetup: false,
+  ratings: false
 };
 
 const EVERYTHING: AccountFeatures = {
@@ -117,7 +120,8 @@ const EVERYTHING: AccountFeatures = {
   friends: true,
   profile: true,
   saves: true,
-  roomSetup: true
+  roomSetup: true,
+  ratings: true
 };
 
 /**

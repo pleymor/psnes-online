@@ -6,6 +6,7 @@
   import { watcherFor } from '$lib/games/match-watch';
   import { ratingDisplay } from '$lib/ratings/presentation';
   import { fetchStandings, type PlayerStanding } from '$lib/api/ratings';
+  import { accountFeaturesAllowed } from '$lib/rooms/anonymous-join';
 
   export let room: any;
   export let roomId: string;
@@ -24,6 +25,18 @@
 
   /** Le jeu du salon est-il un de ceux dont on sait lire le résultat. */
   $: watched = Boolean(room?.gameCrc32 && watcherFor(room.gameCrc32));
+
+  /*
+   * `/api/ratings` est monté derrière `requirePseudo`
+   * (backend/src/bootstrap/app.ts), qui répond 403 à un compte anonyme - au
+   * même titre que `/api/games`, `/api/friends` et les autres routes que
+   * `accountFeaturesAllowed()` couvre déjà. Un invité assis dans ce salon
+   * n'a donc jamais de cote à lire : ni provoquer le 403 en arrière-plan, ni
+   * proposer un lien qui y mène n'a de sens pour lui. Ne pas simplifier cette
+   * condition à `watched && room?.gameCrc32` : c'est exactement ce qui
+   * affichait un lien mort et un écran muet à un invité.
+   */
+  $: ratingsAllowed = accountFeaturesAllowed($user).ratings;
 
   /*
    * Le crible Svelte 4 lit les identifiants écrits dans le texte de
@@ -45,10 +58,12 @@
    * seulement : les cotes ne bougent qu'entre deux parties, et `room:updated`
    * arrive à chaque clic de siège.
    */
-  $: void loadStandings(crc32, p1Id, p2Id);
+  $: void loadStandings(crc32, p1Id, p2Id, ratingsAllowed);
 
-  async function loadStandings(crc32?: string, a?: string, b?: string) {
-    if (!crc32 || !watched) { standings = []; return; }
+  async function loadStandings(crc32?: string, a?: string, b?: string, ratingsAllowed?: boolean) {
+    // `ratingsAllowed` évite d'appeler une route qu'on sait vouée à un 403 :
+    // voir le commentaire sur `ratingsAllowed` plus haut.
+    if (!crc32 || !watched || !ratingsAllowed) { standings = []; return; }
     const res = await fetchStandings(crc32, [a, b].filter(Boolean) as string[]);
     // Un échec laisse la liste précédente plutôt que de l'effacer : une cote
     // déjà affichée ne doit pas disparaître pour un hoquet réseau.
@@ -123,7 +138,7 @@
     <span class="player-name">{player1?.pseudo || '—'}</span>
     {#if display1.kind === 'rated'}
       <span class="player-rating">
-        {t($language, 'ratingWithMatches', { rating: display1.rating, matches: display1.matches })}
+        {t($language, display1.matches === 1 ? 'ratingWithOneMatch' : 'ratingWithMatches', { rating: display1.rating, matches: display1.matches })}
       </span>
     {:else if display1.kind === 'unranked'}
       <span class="player-rating muted">{t($language, 'unranked')}</span>
@@ -157,7 +172,7 @@
     <span class="player-name">{player2?.pseudo || '—'}</span>
     {#if display2.kind === 'rated'}
       <span class="player-rating">
-        {t($language, 'ratingWithMatches', { rating: display2.rating, matches: display2.matches })}
+        {t($language, display2.matches === 1 ? 'ratingWithOneMatch' : 'ratingWithMatches', { rating: display2.rating, matches: display2.matches })}
       </span>
     {:else if display2.kind === 'unranked'}
       <span class="player-rating muted">{t($language, 'unranked')}</span>
@@ -176,7 +191,7 @@
   </button>
 </div>
 
-{#if watched && room?.gameCrc32}
+{#if watched && room?.gameCrc32 && ratingsAllowed}
   <a class="ranking-link" href={`/classement/${room.gameCrc32}`}>
     {t($language, 'seeRanking')}
   </a>

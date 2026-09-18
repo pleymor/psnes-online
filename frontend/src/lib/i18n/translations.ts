@@ -378,12 +378,23 @@ export const translations = {
     unranked: 'Unranked',
     guestPlayer: 'Guest',
     ratingWithMatches: '{rating} · {matches} matches',
+    ratingWithOneMatch: '{rating} · {matches} match',
     seeRanking: 'See the ranking',
     ranking: 'Ranking',
     matchHistory: 'Recent matches',
     noMatchesYet: 'No match recorded yet.',
     failedToLoadRatings: 'Could not load the ranking.',
     ratingsSessionExpired: 'Your session has expired, so the ranking could not be loaded. Sign in again to see it.',
+    failedToLoadMatchHistory: 'Could not load the match history.',
+    matchHistorySessionExpired: 'Your session has expired, so the match history could not be loaded. Sign in again to see it.',
+    // A history row's player can be a guest, who was in the room and truly
+    // anonymous, or a deleted account, which is no longer anyone - both are a
+    // NULL side, and nothing here tells them apart. Calling a deleted account
+    // "Guest" would contradict the privacy paragraph above, which promises the
+    // row survives as "the trace of a match your opponent played", not as a
+    // person. `guestPlayer` stays for the room, where the player really is
+    // there and really is anonymous.
+    unknownHistoryPlayer: 'Former player',
 
     // Carrying saves off this server, and handing one back.
     //
@@ -1005,12 +1016,23 @@ export const translations = {
     unranked: 'Non classé',
     guestPlayer: 'Invité',
     ratingWithMatches: '{rating} · {matches} parties',
+    ratingWithOneMatch: '{rating} · {matches} partie',
     seeRanking: 'Voir le classement',
     ranking: 'Classement',
     matchHistory: 'Parties récentes',
     noMatchesYet: 'Aucune partie enregistrée pour l’instant.',
     failedToLoadRatings: 'Le classement n’a pas pu être chargé.',
     ratingsSessionExpired: 'Votre session a expiré, le classement n’a donc pas pu être chargé. Reconnectez-vous pour le voir.',
+    failedToLoadMatchHistory: 'L’historique des parties n’a pas pu être chargé.',
+    matchHistorySessionExpired: 'Votre session a expiré, l’historique des parties n’a donc pas pu être chargé. Reconnectez-vous pour le voir.',
+    // Le joueur nul d'une ligne d'historique peut être un invité, présent et
+    // réellement anonyme, ou un compte supprimé, qui n'est plus personne - les
+    // deux sont un côté NULL, et rien ne les distingue ici. Appeler un compte
+    // supprimé « Invité » contredirait le paragraphe RGPD ci-dessus, qui
+    // promet que la ligne survit comme « la trace d'une partie que votre
+    // adversaire a jouée », pas comme une personne. `guestPlayer` reste pour
+    // le salon, où le joueur est bien présent et bien anonyme.
+    unknownHistoryPlayer: 'Joueur disparu',
 
     savesPortability: 'Mes sauvegardes',
     savesPortabilityHint: 'Vos ROMs sont sur cette machine, mais votre progression n\'existe que sur le serveur. Un fichier que vous gardez, et que vous pouvez rendre.',

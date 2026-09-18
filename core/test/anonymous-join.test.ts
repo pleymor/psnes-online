@@ -90,7 +90,8 @@ test('un anonyme ne se voit offrir ni bibliothèque, ni amis, ni profil, ni sauv
     friends: false,
     profile: false,
     saves: false,
-    roomSetup: false
+    roomSetup: false,
+    ratings: false
   });
 });
 
@@ -100,7 +101,8 @@ test('un compte garde tout, et un visiteur sans session n a rien à offrir', () 
     friends: true,
     profile: true,
     saves: true,
-    roomSetup: true
+    roomSetup: true,
+    ratings: true
   });
   // Pas de session : les mêmes réponses que pour un anonyme. Rien de tout cela
   // n a de sens sans compte, et un `null` qui répondrait « oui » monterait des
@@ -110,6 +112,7 @@ test('un compte garde tout, et un visiteur sans session n a rien à offrir', () 
     friends: false,
     profile: false,
     saves: false,
-    roomSetup: false
+    roomSetup: false,
+    ratings: false
   });
 });

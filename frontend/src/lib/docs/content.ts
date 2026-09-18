@@ -197,7 +197,7 @@ const FR: DocPage = {
           'classements, mais la ligne subsiste : sans vous, elle n’est plus que la ' +
           'trace d’une partie que votre adversaire a jouée.',
         'Le classement d’un jeu est visible de tout joueur connecté : il montre le ' +
-          'pseudonyme, la cote et le nombre de parties de chacun. Rien de sensible ' +
+          'pseudonyme, l’avatar, la cote et le nombre de parties de chacun. Rien de sensible ' +
           'n’y figure — ni adresse e-mail ni nom réel n’existent dans cette base — ' +
           'mais c’est le premier endroit d’où la liste des joueurs peut être ' +
           'parcourue, et non seulement consultée joueur par joueur.',
@@ -352,7 +352,7 @@ const EN: DocPage = {
           'itself remains: without you, it is no more than the trace of a match ' +
           'your opponent played.',
         'A game’s ranking is visible to any signed-in player: it shows everyone’s ' +
-          'pseudonym, rating and number of matches. Nothing sensitive is in it — ' +
+          'pseudonym, avatar, rating and number of matches. Nothing sensitive is in it — ' +
           'neither an email address nor a real name exists in this database — but ' +
           'it is the first place from which the list of players can be browsed, ' +
           'rather than looked up one player at a time.',
