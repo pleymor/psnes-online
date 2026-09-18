@@ -3,6 +3,7 @@
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
   import TopBar from '$lib/components/TopBar.svelte';
+  import { formatHandle } from '$lib/pseudo';
   import {
     fetchRanking, fetchMatches,
     type RankedPlayer, type PlayedRow, type RatingsFailure
@@ -31,16 +32,16 @@
     else matches = history.matches;
   });
 
-  /** Le vainqueur d'une ligne, dit avec un nom plutôt qu'un numéro de port. */
+  /** Le vainqueur d'une ligne, dit avec son handle complet plutôt qu'un numéro de port. */
   function winnerOf(row: PlayedRow): string {
     if (row.winner === 0) return t($language, 'matchDrawn');
     const side = row.winner === 1 ? row.p1 : row.p2;
-    return side ? side.pseudo : t($language, 'guestPlayer');
+    return side ? formatHandle(side.pseudo, side.discriminator) : t($language, 'guestPlayer');
   }
 
   /** Un joueur d'une ligne, ou le mot qui remplace son absence. */
   function nameOf(side: PlayedRow['p1']): string {
-    return side ? `${side.pseudo}#${side.discriminator}` : t($language, 'guestPlayer');
+    return side ? formatHandle(side.pseudo, side.discriminator) : t($language, 'guestPlayer');
   }
 
   function when(at: number): string {
@@ -70,7 +71,7 @@
           <li>
             <span class="rank">{i + 1}</span>
             {#if player.avatar}<img src={player.avatar} alt="" class="avatar" />{/if}
-            <span class="name">{player.pseudo}#{player.discriminator}</span>
+            <span class="name">{formatHandle(player.pseudo, player.discriminator)}</span>
             <!-- `matches` à côté de la cote, et pas en petit : sans seuil
                  d'entrée, un joueur à une victoire est en tête, et c'est ce
                  nombre qui permet de le lire comme tel. -->
