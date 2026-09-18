@@ -39,6 +39,26 @@ test('le classement est trié par cote décroissante', () => {
   assert.equal(rows[0].matches, 2);
 });
 
+test('a cote egale, le departage est par nombre de parties puis pseudo', () => {
+  // Un nul ne deplace aucune cote : score attendu 0,5, score obtenu 0,5,
+  // delta arrondi 0. Seul `matches` avance. Construction volontaire d'une
+  // egalite reelle a quatre, pour que `ORDER BY r.rating DESC` seul ne
+  // suffise plus a les departager - c'est le troisieme critere qui est vise.
+  const db = migratedDb();
+  const anna = insertUser(db, { pseudo: 'Anna' });
+  const zoe = insertUser(db, { pseudo: 'Zoe' });
+  const bob = insertUser(db, { pseudo: 'Bob' });
+  const yann = insertUser(db, { pseudo: 'Yann' });
+
+  play(db, anna.id, zoe.id, 0, 1000, 10);
+  play(db, anna.id, zoe.id, 0, 2000, 20);
+  play(db, bob.id, yann.id, 0, 3000, 30);
+
+  const rows = rankingFor(db, GAME, 50, 0);
+  assert.deepEqual(rows.map(r => r.pseudo), ['Bob', 'Yann', 'Anna', 'Zoe']);
+  assert.ok(rows.every(r => r.rating === 1000), 'un nul ne deplace aucune cote');
+});
+
 test('un joueur qui n a jamais joué n est pas au classement', () => {
   const db = migratedDb();
   const a = insertUser(db);
