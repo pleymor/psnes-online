@@ -26,11 +26,26 @@
   $: watched = Boolean(room?.gameCrc32 && watcherFor(room.gameCrc32));
 
   /*
+   * Le crible Svelte 4 lit les identifiants écrits dans le texte de
+   * l'instruction, jamais les valeurs qu'ils finissent par contenir : `room`
+   * entier serait donc dans le masque `dirty` de `loadStandings` si on le lui
+   * passait par `room?.gameCrc32` inline, et `room:updated` (un par clic de
+   * siège) rappellerait l'API sans que le jeu ni les joueurs n'aient changé.
+   * Hissées ici, ce sont des chaînes : les réaffecter à une valeur identique
+   * ne les marque pas sales (`safe_not_equal` est faux), donc une diffusion
+   * qui ne change ni l'un ni l'autre ne redéclenche plus `loadStandings`.
+   * Ne pas réinliner ces expressions dans l'appel plus bas.
+   */
+  $: crc32 = room?.gameCrc32;
+  $: p1Id = player1?.userId;
+  $: p2Id = player2?.userId;
+
+  /*
    * Rechargé quand le jeu ou les occupants changent, et à ce moment-là
    * seulement : les cotes ne bougent qu'entre deux parties, et `room:updated`
    * arrive à chaque clic de siège.
    */
-  $: void loadStandings(room?.gameCrc32, player1?.userId, player2?.userId);
+  $: void loadStandings(crc32, p1Id, p2Id);
 
   async function loadStandings(crc32?: string, a?: string, b?: string) {
     if (!crc32 || !watched) { standings = []; return; }
@@ -40,14 +55,18 @@
     if (res.ok) standings = res.standings;
   }
 
-  /** La ligne de ce joueur, ou undefined tant qu'elle n'est pas arrivée. */
-  const standingOf = (userId?: string) => standings.find((s) => s.userId === userId);
-
+  // `standings` doit apparaître littéralement dans ces deux instructions : une
+  // closure comme `standingOf(id)` masque la dépendance à Svelte, qui
+  // n'analyse jamais ce qu'une fonction lit. Sans le mot `standings` ici, la
+  // résolution de `fetchStandings` ne marque `display1`/`display2` sales pour
+  // personne, et la cote ne s'affiche jamais dans un salon calme.
   $: display1 = ratingDisplay({
-    gameCrc32: room?.gameCrc32, watched, standing: standingOf(player1?.userId)
+    gameCrc32: room?.gameCrc32, watched,
+    standing: standings.find((s) => s.userId === player1?.userId)
   });
   $: display2 = ratingDisplay({
-    gameCrc32: room?.gameCrc32, watched, standing: standingOf(player2?.userId)
+    gameCrc32: room?.gameCrc32, watched,
+    standing: standings.find((s) => s.userId === player2?.userId)
   });
 
   /**
