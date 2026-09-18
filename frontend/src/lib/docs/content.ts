@@ -32,6 +32,9 @@
  *   `Match.p1UserId`/`p2UserId` en `ON DELETE SET NULL` et `Rating.userId` en
  *   `ON DELETE CASCADE` - asymétrie voulue, une partie jouée est un fait qui a
  *   eu lieu, une cote est une propriété du compte.
+ * - « le classement est visible de tout joueur connecté » :
+ *   `backend/src/api/ratings.ts` porte `requireAuth`, et son montage dans
+ *   `backend/src/bootstrap/app.ts` ajoute `requirePseudo`.
  *
  * Les deux citations de droit ont été relues sur Legifrance, mot pour mot, et
  * les liens vérifiés un par un : un lien inventé sur une page de ce genre
@@ -193,6 +196,11 @@ const FR: DocPage = {
           'compte retire votre identifiant de ces lignes et supprime vos ' +
           'classements, mais la ligne subsiste : sans vous, elle n’est plus que la ' +
           'trace d’une partie que votre adversaire a jouée.',
+        'Le classement d’un jeu est visible de tout joueur connecté : il montre le ' +
+          'pseudonyme, la cote et le nombre de parties de chacun. Rien de sensible ' +
+          'n’y figure — ni adresse e-mail ni nom réel n’existent dans cette base — ' +
+          'mais c’est le premier endroit d’où la liste des joueurs peut être ' +
+          'parcourue, et non seulement consultée joueur par joueur.',
         'Vous pouvez aussi jouer sans compte. Une session anonyme n’a aucune ' +
           'identité persistante : elle est effacée à la déconnexion, et balayée ' +
           'automatiquement au bout de vingt-quatre heures.',
@@ -343,6 +351,11 @@ const EN: DocPage = {
           'identifier from those rows and deletes your ratings, but the row ' +
           'itself remains: without you, it is no more than the trace of a match ' +
           'your opponent played.',
+        'A game’s ranking is visible to any signed-in player: it shows everyone’s ' +
+          'pseudonym, rating and number of matches. Nothing sensitive is in it — ' +
+          'neither an email address nor a real name exists in this database — but ' +
+          'it is the first place from which the list of players can be browsed, ' +
+          'rather than looked up one player at a time.',
         'You can also play without an account. An anonymous session has no ' +
           'persistent identity at all: it is erased when you sign out, and swept ' +
           'automatically after twenty-four hours.',
