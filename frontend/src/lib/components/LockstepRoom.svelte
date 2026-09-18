@@ -27,7 +27,7 @@
   import PauseMenu from './PauseMenu.svelte';
   import { language } from '$lib/stores/language';
   import { notifications } from '$lib/services/notification';
-  import { MatchObserver, watcherFor } from '$lib/games/match-watch';
+  import { createMatchRecorder, type MatchRecorder } from '$lib/games/match-recorder';
   import { verdictMessage } from '$lib/rooms/match-report';
   import { t } from '$lib/i18n/translations';
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
@@ -155,7 +155,7 @@
    * dropped packet therefore cannot make the two of them disagree about a match
    * they both watched.
    */
-  let matchWatch: MatchObserver | null = null;
+  let matchWatch: MatchRecorder | null = null;
   let governor: FrameGovernor | null = null;
   let transport: Transport | null = null;
   let collector: InputCollector | null = null;
@@ -641,12 +641,12 @@
         inputDelay: inputDelay || undefined,
         readLocalInput: () => collector!.read(),
         onEvent: handleEvent,
-        onFrame: (frame) => {
+        onFrame: (frame, pad1, pad2) => {
           renderer!.draw(core!);
           audio!.push(core!.audio());
           // Read-only, off the emulation path, and on a schedule of its own -
           // the same rule the renderer obeys, for the same reason.
-          matchWatch?.observe(frame);
+          matchWatch?.onFrame(frame, pad1, pad2);
         }
       });
 
@@ -655,7 +655,14 @@
       // leaves it null. Ours has one, so hand it over.
       session.coreReset = () => core!.reset();
 
-      matchWatch = createMatchWatch();
+      matchWatch = createMatchRecorder({
+        crc32: gameCrc32,
+        wram: () => core!.wram(),
+        announce: (verdict, score) =>
+          notifications.show(verdictMessage($language, verdict, score), 'info', 5000),
+        // Branché en Task 8.
+        report: () => {}
+      });
 
       pushRememberedLatencyMode();
       applyLatencyMode();
@@ -1262,26 +1269,6 @@
     // Re-read rather than clear: if resume failed the button has to stay, or
     // the player is left with silence and nothing to click.
     needsAudioGesture = audio?.needsGesture ?? false;
-  }
-
-  /** A watcher for this cartridge, or null for every unmeasured ROM. */
-  function createMatchWatch(): MatchObserver | null {
-    const watcher = gameCrc32 ? watcherFor(gameCrc32) : null;
-    if (!watcher || !core) return null;
-    logger.info('Watching for a match result', { rom: watcher.rom });
-    // Named rather than returned straight, so the toast reads the score off
-    // the observer that produced the verdict rather than off whatever the
-    // component's field happens to hold by the time it fires.
-    const observer: MatchObserver = new MatchObserver({
-      watcher,
-      // The core's own memory, not a copy. The view is only valid until the
-      // next core call, which is why it is taken per sample rather than kept.
-      readWram: () => core!.wram(),
-      onVerdict: (verdict) => {
-        notifications.show(verdictMessage($language, verdict, observer.score), 'info', 5000);
-      }
-    });
-    return observer;
   }
 
   function teardown() {

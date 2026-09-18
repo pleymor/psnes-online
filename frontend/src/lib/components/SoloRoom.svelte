@@ -31,9 +31,6 @@
   import { readAspectPreference, writeAspectPreference } from '$lib/stores/aspect-preference';
   import PauseMenu from './PauseMenu.svelte';
   import { language } from '$lib/stores/language';
-  import { notifications } from '$lib/services/notification';
-  import { MatchObserver, watcherFor } from '$lib/games/match-watch';
-  import { verdictMessage } from '$lib/rooms/match-report';
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
@@ -119,12 +116,6 @@
   let menuPressed = false;
   let assignments = loadAssignments(localStorage);
   let session: SoloSession | null = null;
-  /**
-   * Set only for a cartridge whose memory layout has been measured; null for
-   * every other game, which is the honest answer rather than a guess at
-   * addresses that would read as a plausible number in the wrong ROM.
-   */
-  let matchWatch: MatchObserver | null = null;
   let governor: FrameGovernor | null = null;
   /** Owns the boot sequence, the SRAM timer and the frame loop's teardown -
    * see `rooms/solo-engine.ts`. `session` and `governor` are pulled out of it
@@ -542,7 +533,11 @@
       window.addEventListener('gamepadconnected', applySources);
       window.addEventListener('gamepaddisconnected', applySources);
 
-      matchWatch = createMatchWatch();
+      // Pas de guetteur ici, et c'est une décision. Un versus à deux manettes
+      // sur un seul compte est légitime - `pad2` ci-dessous le distingue déjà -
+      // mais il n'y a personne à qui annoncer le vainqueur, et pour l'Elo c'est
+      // un seul compte pour deux ports, donc non classable. Si la notification
+      // revient un jour, c'est cette condition-là qui la garde.
 
       engine = await createSoloEngine({
         core,
@@ -562,9 +557,6 @@
           // rather than once per frame; the engine exposes no such hook, and
           // a GL context that died is at least as quickly noticed this way.
           checkRendererHealth();
-          // Read-only and on a schedule of its own: observe() costs a modulo on
-          // the frames it skips, which is what makes it safe here.
-          matchWatch?.observe(frame);
         },
         onError: (err) => logger.error('solo engine', err)
       });
@@ -776,35 +768,8 @@
     dispatch('quit');
   }
 
-  /**
-   * A watcher for this cartridge, or null.
-   *
-   * Solo counts because the second controller port is a second player on the
-   * same couch: a versus match here is as real as one over the network, and it
-   * is where a new row in the table gets tried out first.
-   */
-  function createMatchWatch(): MatchObserver | null {
-    const watcher = gameCrc32 ? watcherFor(gameCrc32) : null;
-    if (!watcher || !core) return null;
-    logger.info('Watching for a match result', { rom: watcher.rom });
-    // Named rather than returned straight, so the toast reads the score off
-    // the observer that produced the verdict rather than off whatever the
-    // component's field happens to hold by the time it fires.
-    const observer: MatchObserver = new MatchObserver({
-      watcher,
-      // The core's own memory, not a copy. The view is only valid until the
-      // next core call, which is why it is taken per sample rather than kept.
-      readWram: () => core!.wram(),
-      onVerdict: (verdict) => {
-        notifications.show(verdictMessage($language, verdict, observer.score), 'info', 5000);
-      }
-    });
-    return observer;
-  }
-
   async function teardown() {
     destroyed = true;
-    matchWatch = null;
     // Best-effort, and refused on the one path that matters: quitting a room
     // of one has already emitted `room:leave` by now, so the server no longer
     // counts us as a member. The saves that carry are the ones in

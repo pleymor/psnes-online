@@ -1,11 +1,11 @@
 /**
  * What a room says when a game decides someone lost.
  *
- * The verdict itself is a display detail, and deliberately so: nothing in the
- * schema records a match result, and inventing a table for the first game whose
- * memory layout has been read would be a migration paid for one row of
- * addresses. A toast and a running score for as long as the room is open is the
- * whole of it, and it costs a store nothing.
+ * This is the wording only. The schema does record match results now - see
+ * `db/matches.ts` and migration 0008 - and the toast is one of two things a
+ * verdict feeds, the other being the report that lands in that table. What
+ * stays true is that the score shown here lives and dies with the room: the
+ * standing a player carries between rooms is their rating, not this count.
  *
  * Separate from the components because the two rooms that can do this - solo
  * and lockstep - would otherwise say it twice, in two wordings that drift.

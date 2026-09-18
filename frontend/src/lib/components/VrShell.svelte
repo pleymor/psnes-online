@@ -114,6 +114,8 @@
   import { loadCore, AudioSink, SocketTransport, UpgradingTransport, type SessionEvent, type Transport } from '$lib/znet';
   import { createSoloEngine, type SoloEngine } from '$lib/rooms/solo-engine';
   import { createLockstepEngine, type LockstepEngine } from '$lib/rooms/lockstep-engine';
+  import { createMatchRecorder, type MatchRecorder } from '$lib/games/match-recorder';
+  import { verdictMessage } from '$lib/rooms/match-report';
   import { createRoom, leaveGroup, chooseGameForGroup, inviteToGroup, cancelGroupInvitation } from '$lib/rooms/actions';
   import { giveUpAction } from '$lib/rooms/give-up-room';
   /*
@@ -655,6 +657,13 @@
   let resolvable: string[] = [];
 
   let engine: SoloEngine | LockstepEngine | null = null;
+  /**
+   * Set only on the lockstep path, for a cartridge whose memory layout has
+   * been measured. The solo path never arms one - see its own `onFrame`
+   * below - so a game played alone in this headset stays unclassable, exactly
+   * as `SoloRoom.svelte` decided for the flat page.
+   */
+  let matchWatch: MatchRecorder | null = null;
 
   /*
    * What saving a game needs, gathered where a game is launched.
@@ -2900,6 +2909,15 @@
       const groupGameId = $myRoom?.gameId ?? null;
       saveContext = groupGameId ? { roomId, gameId: groupGameId, core } : null;
 
+      matchWatch = createMatchRecorder({
+        crc32,
+        wram: () => core.wram(),
+        announce: (verdict, score) =>
+          notifications.show(verdictMessage($language, verdict, score), 'info', 5000),
+        // Branché en Task 8.
+        report: () => {}
+      });
+
       engine = await createLockstepEngine({
         core,
         rom,
@@ -2916,9 +2934,12 @@
         // pad, exactly as the solo path does.
         readLocalInput: localPad,
         onEvent: onSessionEvent,
-        // The layer plane alongside the picture, as the solo path takes it.
-        onFrame: (c) =>
-            scene?.screen.upload(c.videoSurface(), c.depthSurface(), c.scrollSurface()),
+        // The layer plane alongside the picture, as the solo path takes it -
+        // and, read-only and off that same path, the match recorder.
+        onFrame: (c, frame, pad1, pad2) => {
+          scene?.screen.upload(c.videoSurface(), c.depthSurface(), c.scrollSurface());
+          matchWatch?.onFrame(frame, pad1, pad2);
+        },
         onError: (err) => logger.error('vr lockstep', err),
         schedule: scene.schedule
       });
@@ -3801,6 +3822,7 @@
       logger.error('vr teardown: the engine failed to stop', err);
     }
     engine = null;
+    matchWatch = null;
     saveContext = null;
     groupRoomId = null;
     groupIsHost = false;
