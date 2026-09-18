@@ -3,9 +3,14 @@
   import { user } from '$lib/stores/user';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
+  import { watcherFor } from '$lib/games/match-watch';
+  import { ratingDisplay } from '$lib/ratings/presentation';
+  import { fetchStandings, type PlayerStanding } from '$lib/api/ratings';
 
   export let room: any;
   export let roomId: string;
+
+  let standings: PlayerStanding[] = [];
 
   $: player1 = room?.players?.find((p: any) => p.port === 1);
   $: player2 = room?.players?.find((p: any) => p.port === 2);
@@ -16,6 +21,34 @@
 
   // Check if only 1 player in the room (single-player mode)
   $: isSinglePlayer = room?.players?.length === 1;
+
+  /** Le jeu du salon est-il un de ceux dont on sait lire le résultat. */
+  $: watched = Boolean(room?.gameCrc32 && watcherFor(room.gameCrc32));
+
+  /*
+   * Rechargé quand le jeu ou les occupants changent, et à ce moment-là
+   * seulement : les cotes ne bougent qu'entre deux parties, et `room:updated`
+   * arrive à chaque clic de siège.
+   */
+  $: void loadStandings(room?.gameCrc32, player1?.userId, player2?.userId);
+
+  async function loadStandings(crc32?: string, a?: string, b?: string) {
+    if (!crc32 || !watched) { standings = []; return; }
+    const res = await fetchStandings(crc32, [a, b].filter(Boolean) as string[]);
+    // Un échec laisse la liste précédente plutôt que de l'effacer : une cote
+    // déjà affichée ne doit pas disparaître pour un hoquet réseau.
+    if (res.ok) standings = res.standings;
+  }
+
+  /** La ligne de ce joueur, ou undefined tant qu'elle n'est pas arrivée. */
+  const standingOf = (userId?: string) => standings.find((s) => s.userId === userId);
+
+  $: display1 = ratingDisplay({
+    gameCrc32: room?.gameCrc32, watched, standing: standingOf(player1?.userId)
+  });
+  $: display2 = ratingDisplay({
+    gameCrc32: room?.gameCrc32, watched, standing: standingOf(player2?.userId)
+  });
 
   /**
    * What clicking a slot would actually do, as a sentence.
@@ -69,6 +102,15 @@
       <img src={player1.avatar} alt="" class="avatar" />
     {/if}
     <span class="player-name">{player1?.pseudo || '—'}</span>
+    {#if display1.kind === 'rated'}
+      <span class="player-rating">
+        {t($language, 'ratingWithMatches', { rating: display1.rating, matches: display1.matches })}
+      </span>
+    {:else if display1.kind === 'unranked'}
+      <span class="player-rating muted">{t($language, 'unranked')}</span>
+    {:else if display1.kind === 'guest'}
+      <span class="player-rating muted">{t($language, 'guestPlayer')}</span>
+    {/if}
     {#if player1 && player1.online !== true}
       <span class="player-away">{t($language, 'playerAway')}</span>
     {/if}
@@ -94,6 +136,15 @@
       <img src={player2.avatar} alt="" class="avatar" />
     {/if}
     <span class="player-name">{player2?.pseudo || '—'}</span>
+    {#if display2.kind === 'rated'}
+      <span class="player-rating">
+        {t($language, 'ratingWithMatches', { rating: display2.rating, matches: display2.matches })}
+      </span>
+    {:else if display2.kind === 'unranked'}
+      <span class="player-rating muted">{t($language, 'unranked')}</span>
+    {:else if display2.kind === 'guest'}
+      <span class="player-rating muted">{t($language, 'guestPlayer')}</span>
+    {/if}
     {#if player2 && player2.online !== true}
       <span class="player-away">{t($language, 'playerAway')}</span>
     {/if}
@@ -105,6 +156,12 @@
     {/if}
   </button>
 </div>
+
+{#if watched && room?.gameCrc32}
+  <a class="ranking-link" href={`/classement/${room.gameCrc32}`}>
+    {t($language, 'seeRanking')}
+  </a>
+{/if}
 
 <style>
   /* Information, not an alarm: the seat is still theirs and they are expected
@@ -233,6 +290,28 @@
     font-size: 0.7rem;
     color: #9aa0b4;
     text-align: center;
+  }
+
+  .player-rating {
+    font-size: 0.85rem;
+    color: var(--label);
+  }
+
+  /* Pas classé, ou invité : une information plutôt qu'un résultat. */
+  .muted {
+    color: #9aa0b4;
+  }
+
+  .ranking-link {
+    display: block;
+    margin: 0.5rem auto 0;
+    text-align: center;
+    font-size: 0.9rem;
+    color: var(--edge);
+  }
+
+  .ranking-link:hover {
+    color: #8fa2ff;
   }
 
   @media (max-width: 480px) {

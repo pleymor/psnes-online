@@ -374,6 +374,17 @@ export const translations = {
     quickSave: 'Quick Save',
     autoSave: 'Auto Save',
 
+    // The two ratings shown in the room, before the match starts.
+    unranked: 'Unranked',
+    guestPlayer: 'Guest',
+    ratingWithMatches: '{rating} · {matches} matches',
+    seeRanking: 'See the ranking',
+    ranking: 'Ranking',
+    matchHistory: 'Recent matches',
+    noMatchesYet: 'No match recorded yet.',
+    failedToLoadRatings: 'Could not load the ranking.',
+    ratingsSessionExpired: 'Your session has expired, so the ranking could not be loaded. Sign in again to see it.',
+
     // Carrying saves off this server, and handing one back.
     //
     // Portability, not backup: the server's own safety net runs whether
@@ -989,6 +1000,17 @@ export const translations = {
     failedToDelete: 'Échec de la suppression',
     quickSave: 'Sauvegarde rapide',
     autoSave: 'Sauvegarde auto',
+
+    // Les deux cotes affichées dans le salon, avant le début de la partie.
+    unranked: 'Non classé',
+    guestPlayer: 'Invité',
+    ratingWithMatches: '{rating} · {matches} parties',
+    seeRanking: 'Voir le classement',
+    ranking: 'Classement',
+    matchHistory: 'Parties récentes',
+    noMatchesYet: 'Aucune partie enregistrée pour l’instant.',
+    failedToLoadRatings: 'Le classement n’a pas pu être chargé.',
+    ratingsSessionExpired: 'Votre session a expiré, le classement n’a donc pas pu être chargé. Reconnectez-vous pour le voir.',
 
     savesPortability: 'Mes sauvegardes',
     savesPortabilityHint: 'Vos ROMs sont sur cette machine, mais votre progression n\'existe que sur le serveur. Un fichier que vous gardez, et que vous pouvez rendre.',
