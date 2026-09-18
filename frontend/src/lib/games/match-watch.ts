@@ -169,9 +169,20 @@ export class MatchObserver {
 		this.sampleEvery = options.sampleEvery ?? DEFAULT_SAMPLE_EVERY;
 	}
 
-	/** Matches won, by port. Both peers count the same ones. */
+	/**
+	 * Matches won, by port. Both peers count the same ones.
+	 *
+	 * A copy, not `this.wins` itself: this is read from `onVerdict`, by a
+	 * caller entitled to keep what it is handed - a toast, a log, a test. The
+	 * `readonly` on the return type only stops that caller from writing; it
+	 * says nothing about `this.wins` changing under it from the next verdict
+	 * onward. Handing back the live array would let a later match rewrite a
+	 * score already announced. One allocation per verdict, not per frame:
+	 * `score` is read at a verdict, never on the per-frame path `observe`
+	 * runs.
+	 */
 	get score(): readonly [number, number] {
-		return this.wins;
+		return [...this.wins];
 	}
 
 	/** Double knockouts, which belong to neither side. */

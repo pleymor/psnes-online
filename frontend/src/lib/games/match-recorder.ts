@@ -52,12 +52,7 @@ export function createMatchRecorder(ports: MatchRecorderPorts): MatchRecorder | 
 		watcher,
 		readWram: ports.wram,
 		onVerdict: (verdict) => {
-			// Une copie, pas la référence : `MatchObserver.score` rend son tableau
-			// interne tel quel, et ce même tableau continue de changer aux combats
-			// suivants. Un appelant qui garde le score reçu ici (un journal, un
-			// test) doit voir celui du combat annoncé, pas celui du moment où il
-			// regarde.
-			ports.announce(verdict, [observer.score[0], observer.score[1]]);
+			ports.announce(verdict, observer.score);
 			ports.report(verdict);
 		}
 	});

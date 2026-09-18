@@ -447,3 +447,38 @@ test('un combat refusé ne compte pas non plus au score courant', () => {
   assert.deepEqual([...observer.score], [0, 0]);
   assert.equal(observer.draws, 0);
 });
+
+test('un score lu à un verdict ne bouge pas quand le suivant arrive', () => {
+  // Épingle le contrat du getter : `score` rend une copie, pas `wins`
+  // lui-même. Sans elle, quelqu'un pourrait un jour « simplifier » le getter
+  // en rendant le tableau interne tel quel, et ce test serait le seul à s'en
+  // apercevoir - un appelant qui garde la valeur d'un premier verdict la
+  // verrait changer sous lui au second, sans qu'aucune ligne à cet endroit ne
+  // le touche.
+  let wram = ram(100, 100, 100, 100);
+  const observer = new MatchObserver({
+    watcher: watcherFor(DBZ2)!,
+    readWram: () => wram,
+    onVerdict: () => {},
+    sampleEvery: 1
+  });
+
+  observer.note(PAD.A, PAD.B);
+  observer.observe(0); // arme
+  wram = ram(100, 80, 100, 0);
+  observer.note(PAD.A, PAD.B);
+  observer.observe(1); // KO du port 2 : le port 1 gagne
+
+  const scoreAfterFirstVerdict = observer.score;
+  assert.deepEqual([...scoreAfterFirstVerdict], [1, 0]);
+
+  wram = ram(100, 100, 100, 100);
+  observer.note(PAD.A, PAD.B);
+  observer.observe(2); // arme un second combat
+  wram = ram(100, 0, 100, 60);
+  observer.note(PAD.A, PAD.B);
+  observer.observe(3); // KO du port 1 : le port 2 gagne
+
+  assert.deepEqual([...scoreAfterFirstVerdict], [1, 0]);
+  assert.deepEqual([...observer.score], [1, 1]);
+});
