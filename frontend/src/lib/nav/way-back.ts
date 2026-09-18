@@ -30,6 +30,17 @@ export type WayBack = { href: string; label: 'backToLibrary' };
  */
 const PLAIN_NAVIGATION = new Set(['/profile', '/docs']);
 
+/**
+ * Les écrans dont le chemin porte un paramètre.
+ *
+ * `PLAIN_NAVIGATION` compare des chemins exacts, ce qui suffisait tant que tous
+ * les écrans concernés étaient fixes. Le classement est `/classement/<crc32>` :
+ * il lui faut un préfixe, et un préfixe comparé sur les SEGMENTS - un
+ * `startsWith('/classement')` nu accepterait `/classements`, une route qui
+ * n'existe pas aujourd'hui et qui existera peut-être demain.
+ */
+const PLAIN_NAVIGATION_PREFIXES = ['/classement'];
+
 /** `/profile/` and `/profile` are the same screen; `/` stays `/`. */
 function normalise(pathname: string): string {
 	if (pathname.length > 1 && pathname.endsWith('/')) return pathname.slice(0, -1);
@@ -37,6 +48,10 @@ function normalise(pathname: string): string {
 }
 
 export function wayBack(pathname: string): WayBack | null {
-	if (!PLAIN_NAVIGATION.has(normalise(pathname ?? ''))) return null;
+	const path = normalise(pathname ?? '');
+	const plain =
+		PLAIN_NAVIGATION.has(path) ||
+		PLAIN_NAVIGATION_PREFIXES.some((prefix) => path.startsWith(`${prefix}/`));
+	if (!plain) return null;
 	return { href: '/', label: 'backToLibrary' };
 }

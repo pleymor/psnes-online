@@ -57,3 +57,20 @@ test('an unknown screen offers none rather than a guess', () => {
 	assert.equal(wayBack('/settings'), null);
 	assert.equal(wayBack('/profile/extra'), null);
 });
+
+test('le classement porte un lien de retour, ses sous-chemins compris', () => {
+	assert.deepEqual(wayBack('/classement/8F24F886'), { href: '/', label: 'backToLibrary' });
+	assert.deepEqual(wayBack('/classement/8F24F886/'), { href: '/', label: 'backToLibrary' });
+});
+
+test('le préfixe ne déborde pas sur une route qui lui ressemble', () => {
+	// `/classements` n existe pas, mais un `startsWith('/classement')` nu
+	// l accepterait - et c est le genre de règle qu on écrit une fois et qu on
+	// ne relit jamais.
+	assert.equal(wayBack('/classements'), null);
+	assert.equal(wayBack('/classementsuite'), null);
+});
+
+test('le salon n en a toujours pas', () => {
+	assert.equal(wayBack('/room/abc'), null);
+});
