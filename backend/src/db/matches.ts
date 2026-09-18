@@ -120,3 +120,159 @@ export function ratingFor(db: Database, userId: string, gameCrc32: string): numb
   ).get(userId, gameCrc32) as { rating: number } | undefined;
   return row?.rating ?? INITIAL_RATING;
 }
+
+/* ------------------------------------------------------------- les lectures */
+
+/**
+ * Ce qu'un écran a le droit de savoir d'un joueur classé.
+ *
+ * La forme publique d'un utilisateur - ce que rend `toPublicUser()` - plus la
+ * cote et le nombre de parties. Ni date de création, ni identifiant Google :
+ * une requête qui rendrait `SELECT *` exposerait les deux sans que personne le
+ * remarque, d'où les colonnes nommées une par une ci-dessous.
+ */
+export interface RankedPlayer {
+  userId: string;
+  pseudo: string;
+  discriminator: string;
+  avatar: string | null;
+  rating: number;
+  matches: number;
+}
+
+/** Un joueur du salon, classé ou non, invité ou non. */
+export interface PlayerStanding {
+  userId: string;
+  pseudo: string;
+  discriminator: string;
+  avatar: string | null;
+  isAnonymous: boolean;
+  /** null quand ce joueur n'a jamais joué de partie classée sur ce jeu. */
+  rating: number | null;
+  matches: number | null;
+}
+
+/**
+ * Le classement d'un jeu, du plus fort au plus faible.
+ *
+ * Servi par `Rating_gameCrc32_rating_idx`. Un joueur sans ligne `Rating` n'y
+ * figure pas, et c'est voulu : la table ne contient que ceux qui ont joué, et
+ * l'absence vaut `INITIAL_RATING` partout où la question se pose.
+ *
+ * Le départage à cote égale est `matches` croissant puis `pseudo` : sans lui
+ * l'ordre de deux joueurs à 1000 dépendrait du plan d'exécution, et la page
+ * changerait d'ordre entre deux chargements sans que rien n'ait bougé.
+ */
+export function rankingFor(
+  db: Database, gameCrc32: string, limit: number, offset: number
+): RankedPlayer[] {
+  return db.prepare(`
+    SELECT r.userId, u.pseudo, u.discriminator, u.avatar, r.rating, r.matches
+    FROM "Rating" r
+    JOIN "User" u ON u.id = r.userId
+    WHERE r.gameCrc32 = ?
+    ORDER BY r.rating DESC, r.matches ASC, u.pseudo ASC
+    LIMIT ? OFFSET ?
+  `).all(gameCrc32, limit, offset) as RankedPlayer[];
+}
+
+/**
+ * Ce que le salon a besoin de savoir de ses deux joueurs.
+ *
+ * Une ligne par joueur demandé, **même sans cote** - et c'est tout l'intérêt.
+ * Un siège sans cote peut vouloir dire deux choses opposées : un compte qui n'a
+ * pas encore joué, et qui sera classé au premier combat, ou un invité qui ne le
+ * sera jamais, sa colonne étant NULL dès l'insertion depuis #61. Rendre
+ * l'absence confondrait les deux, et l'écran dirait « non classé » à quelqu'un
+ * à qui il faut dire « invité ».
+ *
+ * Le fait vient de `User`, sa source, plutôt que d'un champ recopié dans
+ * `RoomPlayer` : un salon relu depuis un instantané porterait une valeur
+ * périmée, et élargir ce type ferait payer le lobby VR et la présence pour un
+ * affichage.
+ *
+ * `LEFT JOIN` sur `Rating`, donc, et la sélection part de `User`.
+ */
+export function standingsOf(
+  db: Database, gameCrc32: string, userIds: string[]
+): PlayerStanding[] {
+  // Une liste vide produirait `IN ()`, que SQLite refuse. Court-circuiter est
+  // plus honnête que de fabriquer un marqueur qui ne correspond à personne.
+  if (userIds.length === 0) return [];
+  const marks = userIds.map(() => '?').join(', ');
+  const rows = db.prepare(`
+    SELECT u.id AS userId, u.pseudo, u.discriminator, u.avatar, u.isAnonymous,
+           r.rating, r.matches
+    FROM "User" u
+    LEFT JOIN "Rating" r ON r.userId = u.id AND r.gameCrc32 = ?
+    WHERE u.id IN (${marks})
+  `).all(gameCrc32, ...userIds) as Record<string, unknown>[];
+
+  return rows.map(r => ({
+    userId: r.userId as string,
+    pseudo: r.pseudo as string,
+    discriminator: r.discriminator as string,
+    avatar: (r.avatar as string | null) ?? null,
+    // SQLite n'a pas de booléen, et ce champ décide de ce que l'écran dit :
+    // `=== 1` comme `db/users.ts`, jamais un test de véracité.
+    isAnonymous: r.isAnonymous === 1,
+    rating: (r.rating as number | null) ?? null,
+    matches: (r.matches as number | null) ?? null
+  }));
+}
+
+/** Un joueur tel qu'une ligne d'historique le nomme, ou null. */
+interface PlayedSide {
+  userId: string;
+  pseudo: string;
+  discriminator: string;
+}
+
+export interface PlayedRow {
+  id: string;
+  playedAt: number;
+  winner: 0 | 1 | 2;
+  p1: PlayedSide | null;
+  p2: PlayedSide | null;
+  p1Health: number;
+  p2Health: number;
+}
+
+/**
+ * L'historique d'un jeu, du plus récent au plus ancien.
+ *
+ * `LEFT JOIN` des deux côtés, et non `JOIN` : un invité n'a jamais eu
+ * d'identifiant, et un compte supprimé a laissé la sienne à NULL. Un `JOIN`
+ * ferait disparaître ces parties de l'historique - or elles ont bien eu lieu,
+ * et c'est exactement ce que l'écran existe pour montrer.
+ */
+export function recentMatches(
+  db: Database, gameCrc32: string, limit: number, offset: number
+): PlayedRow[] {
+  const rows = db.prepare(`
+    SELECT m.id, m.playedAt, m.winner, m.p1Health, m.p2Health,
+           m.p1UserId, u1.pseudo AS p1Pseudo, u1.discriminator AS p1Disc,
+           m.p2UserId, u2.pseudo AS p2Pseudo, u2.discriminator AS p2Disc
+    FROM "Match" m
+    LEFT JOIN "User" u1 ON u1.id = m.p1UserId
+    LEFT JOIN "User" u2 ON u2.id = m.p2UserId
+    WHERE m.gameCrc32 = ?
+    ORDER BY m.playedAt DESC, m.frame DESC
+    LIMIT ? OFFSET ?
+  `).all(gameCrc32, limit, offset) as Record<string, unknown>[];
+
+  const side = (id: unknown, pseudo: unknown, disc: unknown): PlayedSide | null =>
+    typeof id === 'string' && typeof pseudo === 'string' && typeof disc === 'string'
+      ? { userId: id, pseudo, discriminator: disc }
+      : null;
+
+  return rows.map(r => ({
+    id: r.id as string,
+    playedAt: r.playedAt as number,
+    winner: r.winner as 0 | 1 | 2,
+    p1: side(r.p1UserId, r.p1Pseudo, r.p1Disc),
+    p2: side(r.p2UserId, r.p2Pseudo, r.p2Disc),
+    p1Health: r.p1Health as number,
+    p2Health: r.p2Health as number
+  }));
+}
