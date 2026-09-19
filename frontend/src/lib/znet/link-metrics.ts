@@ -29,6 +29,16 @@ const LATE_FACTOR = 1.5;
  */
 const ARRIVAL_WINDOW = 64;
 
+/**
+ * Gaps shorter than this are not a presentation interval.
+ *
+ * The governor can run several emulated frames inside one tick when it is
+ * catching up, and those land microseconds apart. They say nothing about how
+ * often the machine can actually put a frame on screen, so they must not be
+ * mistaken for the display's period.
+ */
+const MIN_QUANTUM_MS = 4;
+
 export class LinkMetrics {
 	private fps: number;
 
@@ -77,6 +87,31 @@ export class LinkMetrics {
 	 */
 	private localLateRing = new Uint8Array(STRAIN_WINDOW);
 	private localLateCount = 0;
+
+	/**
+	 * How often this machine can actually present a frame, measured.
+	 *
+	 * A frame is not late because it missed the cadence the *cartridge* asks
+	 * for; it is late because the machine failed to keep up with the cadence it
+	 * can present at. The two differ whenever the display is not a multiple of
+	 * the game: a 50Hz PAL game on a 60Hz screen can only be shown every
+	 * 16.67ms, so four frames in five sit one slot apart and the fifth sits two,
+	 * at 33.3ms. That beat is the correct cadence for those two clocks.
+	 *
+	 * Derived from the emulated frame alone, the threshold was 20 x 1.5 = 30ms,
+	 * which the 33.3ms beat clears by 11%. Every PAL session on a 60Hz screen
+	 * therefore reported one frame in five late - 22 to 26 per 128 on a real
+	 * phone, against 25.6 predicted, falling to 0 on the same hardware with an
+	 * NTSC cartridge.
+	 *
+	 * So the quantum is measured rather than assumed: the shortest real gap of
+	 * the previous window. `pending` gathers the current one and they swap when
+	 * the ring wraps, which costs one comparison a frame and no allocation.
+	 * Zero means not yet known, and until it is the emulated frame is used -
+	 * the behaviour this had before, which is the safe way to be wrong.
+	 */
+	private presentQuantum = 0;
+	private quantumPending = Infinity;
 
 	/**
 	 * How the peer's pads actually turn up, as two peaks rather than an average.
@@ -222,7 +257,21 @@ export class LinkMetrics {
 		const previous = this.lastFrameAt;
 		this.lastFrameAt = at;
 		if (previous === null) return;
-		const over = at - previous > (1000 / this.fps) * LATE_FACTOR;
+		const gap = at - previous;
+		if (gap >= MIN_QUANTUM_MS && gap < this.quantumPending) this.quantumPending = gap;
+
+		/*
+		 * What this frame was entitled to take: the emulated frame rounded up to
+		 * whole presentation slots, when the machine presents faster than the
+		 * game asks. `LATE_FACTOR` then applies to that, which is what it always
+		 * meant - a gap this much wider than the machine's own cadence.
+		 */
+		const frameMs = 1000 / this.fps;
+		const quantum = this.presentQuantum;
+		const expected =
+			quantum > 0 && quantum < frameMs ? Math.ceil(frameMs / quantum) * quantum : frameMs;
+
+		const over = gap > expected * LATE_FACTOR;
 		const late = over && waitedOnPeer ? 1 : 0;
 		const localLate = over && !waitedOnPeer ? 1 : 0;
 		this.lateCount += late - this.lateRing[this.lateAt];
@@ -232,6 +281,10 @@ export class LinkMetrics {
 		// One cursor for both rings: every frame writes exactly one slot in
 		// each, so they age together and a single index cannot drift.
 		this.lateAt = (this.lateAt + 1) % STRAIN_WINDOW;
+		if (this.lateAt === 0) {
+			this.presentQuantum = Number.isFinite(this.quantumPending) ? this.quantumPending : 0;
+			this.quantumPending = Infinity;
+		}
 	}
 
 	notePeerStrain(strain: number): void {
@@ -254,5 +307,7 @@ export class LinkMetrics {
 		this.lateAt = 0;
 		this.localLateRing.fill(0);
 		this.localLateCount = 0;
+		this.presentQuantum = 0;
+		this.quantumPending = Infinity;
 	}
 }

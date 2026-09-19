@@ -180,3 +180,56 @@ test('lateness we caused ourselves is counted too, apart from the link it is not
 	assert.equal(m.localStrain, 60, 'sixty stutters of our own making are sixty');
 	assert.equal(m.strain, 0, 'and still none of them are the link');
 });
+
+const PAL = 50.007;
+
+test('a frame held an extra refresh by a slower display is not late', () => {
+	/*
+	 * A PAL game presented on a 60Hz screen cannot be shown every 20ms: the
+	 * screen only offers a slot every 16.67ms, so four frames in five are one
+	 * slot apart and the fifth is two, at 33.3ms. That is the correct cadence
+	 * for those two clocks, not a stutter, and the player sees nothing.
+	 *
+	 * The threshold was derived from the *emulated* cadence - 20ms x 1.5 = 30ms
+	 * - which the 33.3ms beat clears by 11%. Every PAL session on a 60Hz screen
+	 * therefore declared one frame in five late: measured at 22-26 per 128 on a
+	 * real phone, against the 25.6 this arithmetic predicts, and it fell to 0 on
+	 * the same hardware with an NTSC cartridge.
+	 *
+	 * What `LATE_FACTOR` was always meant to compare against is the cadence the
+	 * machine actually presents at. Quantised that way, the beat is expected and
+	 * only a genuine overrun is late.
+	 */
+	const m = new LinkMetrics(PAL);
+	const refresh = 1000 / 60;
+	let at = 0;
+	m.noteFrameRun(at, false);
+	// Two windows: the first is what the quantum is learned from, and the ring
+	// holds only the last 128, so what is asserted is a settled reading.
+	for (let i = 0; i < 300; i++) {
+		at += i % 5 === 4 ? refresh * 2 : refresh;
+		m.noteFrameRun(at, false);
+	}
+
+	assert.equal(m.localStrain, 0, 'the beat between two clocks is not the machine faltering');
+});
+
+test('a real overrun is still late on a display that beats', () => {
+	// The control for the test above: tolerating the beat must not tolerate a
+	// frame the machine genuinely missed.
+	const m = new LinkMetrics(PAL);
+	const refresh = 1000 / 60;
+	let at = 0;
+	m.noteFrameRun(at, false);
+	for (let i = 0; i < 300; i++) {
+		at += i % 5 === 4 ? refresh * 2 : refresh;
+		m.noteFrameRun(at, false);
+	}
+	assert.equal(m.localStrain, 0, 'settled first');
+
+	for (let i = 0; i < 5; i++) {
+		at += 120;
+		m.noteFrameRun(at, false);
+	}
+	assert.equal(m.localStrain, 5, 'five frames of 120ms are five stutters');
+});
