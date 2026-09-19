@@ -61,6 +61,17 @@ export const DEFAULT_FPS = 60.0988;
  */
 const STRAIN_AT = 6;
 
+/**
+ * Consecutive round trips at half the length or less before the delay is
+ * resized on the shorter link.
+ *
+ * Three, because that is where `suggestInputDelay` starts discarding the worst
+ * of a set - and it is read raw, so a single lucky ping cannot move anything.
+ * At the running ping interval this is about six seconds, against the thirty
+ * quiet seconds per frame the strain loop would otherwise take.
+ */
+const LINK_SHORTENED_SAMPLES = 3;
+
 /** Sliding window, in seconds, over which strained seconds are counted. */
 const STRAIN_WINDOW_SECONDS = 30;
 
@@ -180,6 +191,9 @@ export class DelayController {
 	private fps: number;
 	private hungerSeconds: number;
 	private _automatic: boolean;
+	/** The shortest this link has been measured at, and the run towards halving it. */
+	private linkFloor = 0;
+	private shortRun = 0;
 
 	/**
 	 * Which of the last thirty seconds the peer reported strain in, and how many.
@@ -209,6 +223,61 @@ export class DelayController {
 
 	get automatic(): boolean {
 		return this._automatic;
+	}
+
+	/**
+	 * Whether this round trip means the link has genuinely become shorter.
+	 *
+	 * `onPathShortened` only ever hears about the channel *this* peer holds, so
+	 * the peer that did not change network is told nothing at all. Measured on
+	 * 2026-09-19: a handover on one side left the other's round trip falling
+	 * from 68ms to 12ms with no transport event, and its delay stuck at 6-7
+	 * frames while the strain loop returned one frame per quiet thirty seconds.
+	 * The round trip is the signal that needs no event, and it reaches both
+	 * peers by construction.
+	 *
+	 * **What it is compared against is the shortest this link has ever been,
+	 * not its length when the delay was chosen.** The first attempt used the
+	 * latter and undid the strain loop's work: a frame bought during a rough
+	 * patch recorded the inflated round trip as the reference, so the patch
+	 * merely *ending* read as the link halving and gave the frame straight
+	 * back. Against the floor, a burst cannot move the reference at all - it
+	 * only ever falls - and only a path that is genuinely shorter than anything
+	 * seen before can qualify.
+	 *
+	 * Half or better, because that is the size of change a path swap makes;
+	 * anything less is the ordinary breathing of a link, which the strain loop
+	 * already owns. Consecutive, so a link that flickers short cannot collect
+	 * three over a minute and be resized on a length it does not hold.
+	 *
+	 * Raw samples, never the smoothed figure: that average has a gain of 0.3
+	 * over a sample every two seconds, so it needs some twenty seconds to admit
+	 * a change - the very trap that made the path-shortened resize a no-op.
+	 *
+	 * A pinned delay is never acted on, but the floor is still not forgotten:
+	 * the player may hand control back, and the link it is handed back on is
+	 * the one that was measured meanwhile.
+	 */
+	noteLinkSample(rttMs: number): boolean {
+		if (rttMs <= 0) return false;
+		if (this.linkFloor <= 0) {
+			this.linkFloor = rttMs;
+			return false;
+		}
+
+		if (rttMs * 2 > this.linkFloor) {
+			this.shortRun = 0;
+			if (rttMs < this.linkFloor) this.linkFloor = rttMs;
+			return false;
+		}
+
+		if (!this._automatic) return false;
+
+		this.shortRun++;
+		if (this.shortRun < LINK_SHORTENED_SAMPLES) return false;
+		this.shortRun = 0;
+		this.linkFloor = rttMs;
+		return true;
 	}
 
 	/** An escape hatch that moves by itself is not one. */
@@ -369,6 +438,10 @@ export class DelayController {
 	 */
 	pathChanged(): void {
 		this.resetWindow();
+		// A different path is a different link, so what the old one measured is
+		// no reference for the new one.
+		this.linkFloor = 0;
+		this.shortRun = 0;
 	}
 
 	noteSizingPing(): void {

@@ -1797,3 +1797,37 @@ test('the shorter path is sized on itself, not on the path just left', async () 
     `a 14ms channel is worth two frames, got ${h.host.session.inputDelay}`
   );
 });
+
+test('a link that halves is resized even when no transport event says so', async () => {
+  /*
+   * `onPathShortened` fires on the front edge of the channel this peer holds,
+   * so the peer that did not change network is never told anything. Measured
+   * 2026-09-19: a handover on the phone at 15:34:50 left the PC with no
+   * transport event of any kind for the whole session, while its round trip
+   * fell from 68ms to 12ms - a factor of 5.7 - and its delay moved by one
+   * frame, from the strain loop, at one per quiet thirty seconds.
+   *
+   * The round trip is the signal that needs no event, and it reaches both
+   * peers by construction.
+   */
+  const h = await NetplayHarness.create(
+    harnessOptions(8000, { link: { latency: 35, seed: 501 }, inputDelay: 7 }) // 70ms
+  );
+  h.handshake();
+  h.run(4000);
+
+  // Hand the pinned delay back to the loop: seven frames on a 70ms link, which
+  // is where a peer sits after the strain loop has answered a bad stretch.
+  h.host.session.resumeAutomaticDelay();
+  assert.equal(h.host.session.inputDelay, 7, 'seven frames, and the loop now owns them');
+
+  // The link becomes a fifth of itself. No channel opens, nothing is told.
+  h.link.setLatency(7);
+  h.run(12000);
+
+  assert.equal(
+    h.host.session.inputDelay,
+    3,
+    `a 14ms link earns three frames on a relay margin, got ${h.host.session.inputDelay}`
+  );
+});

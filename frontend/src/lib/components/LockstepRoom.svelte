@@ -1298,6 +1298,11 @@
    * timeline repaired, which is its job and not this one.
    */
   function notePath(direct: boolean): void {
+    // The margin a resize uses depends on this, and only here is it known: two
+    // frames absorb the clumps a TCP relay delivers pads in, and an unordered
+    // SCTP channel does not clump. It was assumed before, which was wrong for
+    // every resize that did not follow a channel opening.
+    session?.setDirectPath(direct);
     if (direct && !onDirect) session?.onPathShortened();
     onDirect = direct;
   }

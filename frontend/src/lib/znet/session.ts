@@ -398,6 +398,22 @@ export class NetplaySession implements TickSource {
 	 */
 	private pathSamples: number[] | null = null;
 
+	/**
+	 * The last few raw round trips, kept so a resize has something to size on
+	 * the moment the link is found to be shorter.
+	 */
+	private recentSamples: number[] = [];
+
+	/**
+	 * Whether the pads currently leave by a direct channel.
+	 *
+	 * Only the component watching the transport knows this, and the margin
+	 * depends on it: two frames absorb the clumps a TCP relay delivers pads in,
+	 * and an unordered SCTP channel does not clump. Assumed rather than known,
+	 * it was wrong on every resize that did not follow a channel opening.
+	 */
+	private directPath = false;
+
 	private stats: SessionStats = {
 		frame: 0,
 		framesRun: 0,
@@ -529,7 +545,16 @@ export class NetplaySession implements TickSource {
 	 * Does nothing to a delay the player pinned. An escape hatch that moves by
 	 * itself is not one.
 	 */
+	/** Told by the component, which is the only side that watches the transport. */
+	setDirectPath(direct: boolean): void {
+		this.directPath = direct;
+	}
+
 	onPathShortened(): void {
+		// This *is* the direct channel opening, so the margin follows without
+		// waiting to be told - a caller that reaches here has already changed
+		// path, whatever order it notifies things in.
+		this.directPath = true;
 		if (!this.delayControl.automatic) return;
 
 		this.delayControl.pathChanged();
@@ -571,20 +596,43 @@ export class NetplaySession implements TickSource {
 		// and a pin outranks anything measured.
 		if (!this.delayControl.automatic) return;
 
+		this.resizeFrom(samples, 'the direct channel');
+	}
+
+	/**
+	 * Sizes the delay on round trips measured over the link as it is now.
+	 *
+	 * The margin follows the transport rather than assuming one, and the result
+	 * is never allowed below what the deliveries actually seen justify: the
+	 * round trip badly under-reads the buffer a lockstep session needs. Measured
+	 * 2026-09-18 - a 13ms link, which the trip sizes at two frames or 40ms,
+	 * while the p90 of `arrivalGap` stood at 111-155ms.
+	 *
+	 * The strictly correct quantity is the *partner's* gap, since our delay
+	 * fills their buffer, and that does not cross the wire. Ours is used as a
+	 * floor only: if our deliveries arrive in bursts the partner's probably do
+	 * too, and a floor can only ever make this more cautious.
+	 *
+	 * Only ever downwards. Raising needs the pad timeline repaired, which is
+	 * `setDelay`'s business and the strain loop's decision.
+	 */
+	private resizeFrom(samples: number[], what: string): void {
+		if (samples.length === 0 || !this.delayControl.automatic) return;
+
 		const best = Math.min(...samples);
+		const frameMs = 1000 / this.opts.fps;
 		const sized = suggestInputDelay(samples, this.opts.fps, {
-			margin: 1,
+			margin: this.directPath ? 1 : 2,
 			floor: autoFloor(best, this.opts.fps)
 		});
-		// Only ever downwards - see `onPathShortened`. Raising needs the pad
-		// timeline repaired, which is `setDelay`'s business and the strain
-		// loop's decision.
-		if (sized >= this.opts.inputDelay) return;
+		const gapFloor = Math.max(1, Math.ceil(this.metrics.arrivalGap / frameMs));
+		const target = Math.max(sized, gapFloor);
+		if (target >= this.opts.inputDelay) return;
 
-		this.setDelay(sized);
+		this.setDelay(target);
 		this.onEvent({
 			type: 'state',
-			message: `input delay ${sized} frames: the direct channel is ${Math.round(best)}ms`
+			message: `input delay ${target} frames: ${what} is ${Math.round(best)}ms`
 		});
 	}
 
@@ -1199,6 +1247,14 @@ export class NetplaySession implements TickSource {
 				// average has already thrown away.
 				if (this.sizingSince > 0) this.delayControl.addSizingSample(sample);
 				this.notePathSample(sample);
+
+				this.recentSamples.push(sample);
+				if (this.recentSamples.length > 3) this.recentSamples.shift();
+				// A link that has halved is a different link, whoever changed
+				// network - and nothing else tells the peer that did not.
+				if (this.delayControl.noteLinkSample(sample)) {
+					this.resizeFrom([...this.recentSamples], 'the link');
+				}
 				// notePingReply just set it from this very sample, so it cannot be
 				// null here - the getter's type just cannot see that.
 				this.onEvent({ type: 'rtt', value: this.metrics.rtt! });

@@ -150,3 +150,79 @@ test('a path that has just changed is not judged on the old one', () => {
   for (let s = 3; s < 8 && !verdict; s++) verdict = c.observePeerStrain(0, 3, s * 1000);
   assert.equal(verdict, null, 'the old strain does not raise the delay');
 });
+
+test('a link that halves durably asks for a resize, and one that dips does not', () => {
+	/*
+	 * `onPathShortened` only ever hears about the channel *this* peer holds, so
+	 * the peer that did not change network is never told anything - measured on
+	 * 2026-09-19, where a handover on the phone left the PC's round trip falling
+	 * from 68ms to 12ms with no transport event of any kind, and its delay stuck
+	 * at 6-7 frames while the strain loop gave back one frame per quiet thirty
+	 * seconds.
+	 *
+	 * The round trip itself is the signal that needs no event, and it is read
+	 * raw: the smoothed figure has a gain of 0.3 over a sample every two
+	 * seconds, so it takes some twenty seconds to admit a change - the very trap
+	 * that made the path-shortened resize a no-op.
+	 */
+	const c = auto();
+	assert.equal(c.noteLinkSample(70), false, 'the first sample is only the floor');
+
+	assert.equal(c.noteLinkSample(14), false, 'one short sample is a dip');
+	assert.equal(c.noteLinkSample(14), false, 'two is still a dip');
+	assert.equal(c.noteLinkSample(14), true, 'three consecutive is a shorter link');
+});
+
+test('a sample back at the old length breaks the run', () => {
+	// Otherwise a link that flickers short every few seconds would eventually
+	// collect three and be resized on a length it does not hold.
+	const c = auto();
+	c.noteLinkSample(70);
+
+	assert.equal(c.noteLinkSample(14), false);
+	assert.equal(c.noteLinkSample(14), false);
+	assert.equal(c.noteLinkSample(68), false, 'the link is what it was');
+	assert.equal(c.noteLinkSample(14), false, 'so the count starts over');
+	assert.equal(c.noteLinkSample(14), false);
+	assert.equal(c.noteLinkSample(14), true);
+});
+
+test('a modest improvement is not a shorter link', () => {
+	// Half or better, because that is the size of change a path swap makes.
+	// Anything less is the ordinary breathing of a link, and the strain loop
+	// already owns that.
+	const c = auto();
+	c.noteLinkSample(70);
+	for (let i = 0; i < 10; i++) {
+		assert.equal(c.noteLinkSample(40), false, 'forty against seventy is just a good minute');
+	}
+});
+
+test('a pinned delay is never resized by the link getting shorter', () => {
+	// An escape hatch that moves by itself is not one.
+	const c = auto();
+	c.noteLinkSample(70);
+	c.pin();
+	for (let i = 0; i < 5; i++) assert.equal(c.noteLinkSample(14), false);
+});
+
+test('a rough patch ending is not a shorter link', () => {
+	/*
+	 * The regression that the first design walked into, caught by the burst
+	 * test in netcode. Comparing against the round trip at the moment the delay
+	 * was chosen, a frame bought during a bad stretch recorded the inflated
+	 * figure as the reference - so the stretch merely *ending* read as the link
+	 * halving, and the frame was handed straight back. Two regulators undoing
+	 * each other, which is precisely what this was designed not to do.
+	 *
+	 * Against the floor a burst cannot move the reference at all: it only ever
+	 * falls.
+	 */
+	const c = auto();
+	c.noteLinkSample(44);
+	for (let i = 0; i < 5; i++) c.noteLinkSample(280);
+
+	for (let i = 0; i < 5; i++) {
+		assert.equal(c.noteLinkSample(44), false, 'the link is back to what it always was');
+	}
+});
