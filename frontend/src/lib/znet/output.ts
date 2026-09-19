@@ -117,8 +117,13 @@ export class CanvasRenderer implements Renderer {
  * The worklet is a plain ring-buffer drain. All the policy lives on the main
  * thread, because the one thing this must never do is ask the emulator to
  * speed up or slow down.
+ *
+ * Exported so the tests can evaluate *this* source in a stubbed worklet scope
+ * rather than reason about a copy of it. A copy drifts, and the drift is
+ * silent - the bookkeeping below already went wrong once and no test could
+ * have seen it.
  */
-const WORKLET_SOURCE = `
+export const WORKLET_SOURCE = `
 class PsnesSink extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -135,7 +140,15 @@ class PsnesSink extends AudioWorkletProcessor {
       while (this.queued > sampleRate) {
         const dropped = this.queue.shift();
         if (!dropped) break;
-        this.queued -= dropped.length / 2;
+        // Only what is LEFT in the chunk. process() already decremented
+        // \`queued\` once per frame it played out of this one, so subtracting
+        // the whole length here would subtract the played part a second time -
+        // \`queued\` then reads under the real backlog, the condition above
+        // stops holding when it should, and the cap drifts open. Measured: the
+        // backlog settles half a second past the cap in the harness, and past
+        // two seconds in a real session.
+        // \`offset\` counts interleaved values, \`queued\` counts frames.
+        this.queued -= dropped.length / 2 - this.offset / 2;
         this.offset = 0;
       }
     };
