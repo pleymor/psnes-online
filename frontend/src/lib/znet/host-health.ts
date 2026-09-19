@@ -42,16 +42,54 @@ export class HostHealth {
 }
 
 /**
- * The radio the device thinks it is on - `4g`, `wifi`, and so on.
+ * The quality class the connection API reports - `slow-2g`, `2g`, `3g`, `4g`.
  *
- * Non-standard and mostly Android, which is exactly where it is worth having:
- * a phone that changes network mid-session is otherwise invisible in the logs,
- * and telling a handover from a congested cell is guesswork without it.
+ * It does NOT name the radio, and the name of this function is the correction
+ * of a mistake: `effectiveType` means "this link behaves like...", so a good
+ * WiFi connection reports `4g` for ever. Shipped as `netType` on 2026-09-19 it
+ * read `4g` throughout a session where both machines were on WiFi, and the
+ * name made that look like a measurement instead of a misreading.
+ *
+ * The physical bearer would be `connection.type`, which Chrome does not expose
+ * to the page. Telling WiFi from cellular is simply not available here, and a
+ * field that implies otherwise costs more than one that is absent.
  */
-export function readNetType(nav: unknown): string | null {
-	const connection = (nav as { connection?: { effectiveType?: unknown } } | null)?.connection;
-	const type = connection?.effectiveType;
+export function readLinkClass(nav: unknown): string | null {
+	const type = connectionOf(nav)?.effectiveType;
 	return typeof type === 'string' && type.length > 0 ? type : null;
+}
+
+/**
+ * The downlink the connection API estimates, in Mbit/s.
+ *
+ * This one does move between a WiFi and a cellular link, and between two
+ * qualities of cellular. Read with `readApiRtt` beside it, the pair can date a
+ * change of network - which is all that was ever wanted - without pretending
+ * to name it.
+ */
+export function readDownlink(nav: unknown): number | null {
+	const value = connectionOf(nav)?.downlink;
+	return typeof value === 'number' ? value : null;
+}
+
+/**
+ * The round trip the connection API estimates, in ms.
+ *
+ * Coarse, and rounded to 25ms by the browser, so it is no substitute for the
+ * session's own measurement - it describes the device's recent HTTP traffic,
+ * not the pads. It earns its place by moving when the network underneath
+ * changes, which the session's own figure takes some twenty seconds to admit.
+ */
+export function readApiRtt(nav: unknown): number | null {
+	const value = connectionOf(nav)?.rtt;
+	return typeof value === 'number' ? value : null;
+}
+
+function connectionOf(
+	nav: unknown
+): { effectiveType?: unknown; downlink?: unknown; rtt?: unknown } | undefined {
+	return (nav as { connection?: { effectiveType?: unknown; downlink?: unknown; rtt?: unknown } } | null)
+		?.connection;
 }
 
 /** Heap in use, in whole megabytes. Chrome only. */

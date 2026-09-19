@@ -8,7 +8,13 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
-import { HostHealth, readHeapMb, readNetType } from '../../frontend/src/lib/znet/host-health.js';
+import {
+	HostHealth,
+	readApiRtt,
+	readDownlink,
+	readHeapMb,
+	readLinkClass
+} from '../../frontend/src/lib/znet/host-health.js';
 
 test('blocked time is reported per interval, not cumulated for the session', () => {
 	// The telemetry line is one sample per second and each has to describe its
@@ -24,14 +30,35 @@ test('blocked time is reported per interval, not cumulated for the session', () 
 });
 
 test('a missing browser API reads null, which is not the same as zero', () => {
-	// `heapMb` is Chrome-only and `netType` is Android-mostly. Shipping the
-	// field as null where the API is absent keeps "we could not look" apart
-	// from "we looked and it was nothing" - two readings a diagnosis must never
-	// confuse.
-	assert.equal(readNetType({}), null, 'no connection API at all');
-	assert.equal(readNetType({ connection: {} }), null, 'the API is there but says nothing');
-	assert.equal(readNetType({ connection: { effectiveType: '4g' } }), '4g');
+	// `heapMb` is Chrome-only and the connection API is mostly Android.
+	// Shipping the field as null where the API is absent keeps "we could not
+	// look" apart from "we looked and it was nothing" - two readings a
+	// diagnosis must never confuse.
+	assert.equal(readLinkClass({}), null, 'no connection API at all');
+	assert.equal(readLinkClass({ connection: {} }), null, 'the API is there but says nothing');
 
 	assert.equal(readHeapMb({}), null, 'no memory API at all');
 	assert.equal(readHeapMb({ memory: { usedJSHeapSize: 48 * 1024 * 1024 } }), 48);
+});
+
+test('the connection API reports a quality class, never a radio', () => {
+	/*
+	 * `effectiveType` is one of slow-2g / 2g / 3g / 4g and means "this link
+	 * behaves like...". It never returns "wifi": a good WiFi connection reports
+	 * `4g` permanently, which is exactly what it did on 2026-09-19 while both
+	 * machines were on WiFi, and the field's name made that reading look like a
+	 * measurement rather than a mistake. The physical bearer would be
+	 * `connection.type`, which Chrome does not expose to the page at all.
+	 *
+	 * So the name says what it is, and the two numbers that do move between a
+	 * WiFi and a cellular link travel beside it. Together they can date a
+	 * change of network; none of them may claim to name it.
+	 */
+	const wifi = { connection: { effectiveType: '4g', downlink: 9.35, rtt: 50 } };
+	assert.equal(readLinkClass(wifi), '4g');
+	assert.equal(readDownlink(wifi), 9.35);
+	assert.equal(readApiRtt(wifi), 50);
+
+	assert.equal(readDownlink({ connection: {} }), null, 'absent stays null');
+	assert.equal(readApiRtt({ connection: {} }), null, 'absent stays null');
 });

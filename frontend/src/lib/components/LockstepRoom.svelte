@@ -32,7 +32,13 @@
   import { createMatchRecorder, type MatchRecorder } from '$lib/games/match-recorder';
   import { verdictMessage } from '$lib/rooms/match-report';
   import { t } from '$lib/i18n/translations';
-  import { HostHealth, readHeapMb, readNetType } from '$lib/znet/host-health';
+  import {
+    HostHealth,
+    readApiRtt,
+    readDownlink,
+    readHeapMb,
+    readLinkClass
+  } from '$lib/znet/host-health';
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import LocateRom from './LocateRom.svelte';
@@ -883,7 +889,13 @@
         // What the machine was doing when it was the machine. All three read
         // null where the browser has no such API, which is not the same
         // reading as zero and must not be confused with it.
-        netType: readNetType(typeof navigator !== 'undefined' ? navigator : null),
+        // A quality class, NOT the radio: `effectiveType` reads `4g` on a good
+        // WiFi link and never reads `wifi` at all. `downlink` and `apiRtt` do
+        // move between a WiFi and a cellular link, so the three together can
+        // date a change of network without claiming to name it.
+        linkClass: readLinkClass(typeof navigator !== 'undefined' ? navigator : null),
+        downlink: readDownlink(typeof navigator !== 'undefined' ? navigator : null),
+        apiRtt: readApiRtt(typeof navigator !== 'undefined' ? navigator : null),
         heapMb: readHeapMb(typeof performance !== 'undefined' ? performance : null),
         longTasks: hostHealth.takeLongTasks()
       });
