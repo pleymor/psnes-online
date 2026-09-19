@@ -1736,36 +1736,6 @@ test('giving up on an unacknowledged state is reported as recoverable, and its r
 	harness.dispose();
 });
 
-test('a session that moves onto a shorter path gives back the frames it no longer needs', async () => {
-  /*
-   * The handshake always runs over the relay, because that is where every
-   * session starts - the direct channel opens a moment later, if at all. So a
-   * match that spends its life on a 19ms channel was sized on a 55ms one, and
-   * nothing revisited the number except the strain loop, at one frame per quiet
-   * thirty seconds.
-   */
-  const h = await NetplayHarness.create(
-    harnessOptions(8000, { link: { latency: 28, seed: 401 } }) // 56ms round trip: a relay
-  );
-  h.handshake();
-  h.run(6000);
-  const onRelay = h.host.session.inputDelay;
-  assert.ok(onRelay >= 3, `a relay earns three frames or more, got ${onRelay}`);
-
-  // The direct channel opens: same session, a third of the round trip.
-  h.link.setLatency(7);
-  h.run(6000);
-
-  h.host.session.onPathShortened();
-  const onDirect = h.host.session.inputDelay;
-
-  assert.ok(
-    onDirect < onRelay,
-    `the shorter path costs fewer frames (${onDirect} < ${onRelay})`
-  );
-  assert.ok(onDirect >= 1, 'and never below one, where every frame waits a full trip');
-});
-
 test('a pinned delay is not touched when the path shortens', async () => {
   // An escape hatch that moves by itself is not one. The player asked for this
   // number; a faster link is not a reason to overrule them.
@@ -1779,4 +1749,51 @@ test('a pinned delay is not touched when the path shortens', async () => {
 
   h.host.session.onPathShortened();
   assert.equal(h.host.session.inputDelay, 5, 'still exactly what was asked for');
+});
+
+test('the shorter path is sized on itself, not on the path just left', async () => {
+  /*
+   * Production calls `onPathShortened()` on the *front edge* of
+   * `upgrading.direct` - LockstepRoom.svelte - the instant the channel opens,
+   * before anything on it has been measured. At that instant the smoothed rtt
+   * is still entirely the old path's: the EWMA has gain 0.3 and is fed one
+   * sample every two seconds, so it needs some twenty seconds to forget a
+   * relay. Sizing there reads roughly the relay's number, lands at or above
+   * the delay already in force, and the guard turns the whole method into a
+   * no-op.
+   *
+   * The test above this one hides that by running six seconds on the short
+   * link *before* it calls, which hands the method a converged average
+   * production never gives it.
+   */
+  const h = await NetplayHarness.create(
+    harnessOptions(8000, { link: { latency: 28, seed: 403 } }) // 56ms: a relay
+  );
+  h.handshake();
+  h.run(6000);
+  const onRelay = h.host.session.inputDelay;
+  assert.ok(onRelay >= 3, `a relay earns three frames or more, got ${onRelay}`);
+
+  // The channel opens and the session is told at once, as production does.
+  h.link.setLatency(7);
+  h.host.session.onPathShortened();
+
+  // Twelve seconds: six pings at the running interval, and well under the
+  // thirty quiet seconds the strain loop needs, so nothing but the re-sizing
+  // can be what lowered the delay.
+  h.run(12000);
+
+  /*
+   * Two, and nothing else. At 14ms the trip is `ceil(14 / 2 / 16.639) = 1`
+   * frame and the direct margin is one, over a floor of one because half the
+   * trip fits inside a frame. Asserting merely "fewer than the relay's" is not
+   * a test: sizing on the stale 56ms still lands at three, one below the relay
+   * simply because the margin dropped from two to one, and would pass while
+   * reading exactly the number this method exists to stop reading.
+   */
+  assert.equal(
+    h.host.session.inputDelay,
+    2,
+    `a 14ms channel is worth two frames, got ${h.host.session.inputDelay}`
+  );
 });

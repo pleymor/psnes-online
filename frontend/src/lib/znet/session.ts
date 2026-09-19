@@ -180,6 +180,15 @@ const MAX_SHIP_ATTEMPTS = 6;
 const SILENCE_MS = 15_000;
 
 /**
+ * Round trips gathered on a newly taken path before it is sized on.
+ *
+ * Three is the point at which `suggestInputDelay` begins discarding the worst
+ * sample, and on a path nothing has crossed yet the worst one is predictably
+ * the first.
+ */
+const PATH_RESIZE_SAMPLES = 3;
+
+/**
  * How long a stall may last, on a link that is still delivering, before the
  * session stops waiting and resynchronises.
  *
@@ -371,6 +380,13 @@ export class NetplaySession implements TickSource {
 	private stateShippedAt = 0;
 	private lastPingAt = 0;
 
+	/**
+	 * Raw round trips measured since the path last shortened, or null when no
+	 * re-sizing is pending. Raw, because the sizing wants the spread across
+	 * them, which an average has already thrown away.
+	 */
+	private pathSamples: number[] | null = null;
+
 	private stats: SessionStats = {
 		frame: 0,
 		framesRun: 0,
@@ -504,23 +520,59 @@ export class NetplaySession implements TickSource {
 	onPathShortened(): void {
 		if (!this.delayControl.automatic) return;
 
-		// `metrics`, not `stats`: the latter is a snapshot getStats() fills on
-		// demand and is null the rest of the time. Reading it here made this
-		// whole method a no-op, which only an end-to-end test could show.
-		const rtt = this.metrics.rtt;
 		this.delayControl.pathChanged();
-		if (!rtt) return;
 
-		const sized = suggestInputDelay(rtt, this.opts.fps, {
+		/*
+		 * Armed, not sized. Sizing here would read `metrics.rtt`, and at this
+		 * instant that average is still entirely the *old* path's: the caller
+		 * is the front edge of the channel opening, nothing has crossed the new
+		 * one yet, and the smoothing has gain 0.3 over a sample every two
+		 * seconds - some twenty seconds to forget a relay. A method whose whole
+		 * purpose is to stop trusting the path just left cannot begin by asking
+		 * it what the link is worth.
+		 *
+		 * So the round trips are gathered on the new path instead, and the
+		 * sizing happens once there are enough of them to be worth something.
+		 */
+		this.pathSamples = [];
+	}
+
+	/**
+	 * A round trip measured on a path just taken, and the re-sizing it may
+	 * complete.
+	 *
+	 * Three samples, because that is where `suggestInputDelay` starts
+	 * discarding the worst of them - and the first trip down a new channel is
+	 * exactly the one to discard, carrying as it does the route caches and the
+	 * congestion windows all waking up. At the running ping interval that is
+	 * about six seconds, against the thirty quiet seconds per frame the strain
+	 * loop would otherwise have taken.
+	 */
+	private notePathSample(sample: number): void {
+		const samples = this.pathSamples;
+		if (!samples) return;
+		samples.push(sample);
+		if (samples.length < PATH_RESIZE_SAMPLES) return;
+		this.pathSamples = null;
+
+		// The player may have pinned a delay while the samples were gathering,
+		// and a pin outranks anything measured.
+		if (!this.delayControl.automatic) return;
+
+		const best = Math.min(...samples);
+		const sized = suggestInputDelay(samples, this.opts.fps, {
 			margin: 1,
-			floor: autoFloor(rtt, this.opts.fps)
+			floor: autoFloor(best, this.opts.fps)
 		});
+		// Only ever downwards - see `onPathShortened`. Raising needs the pad
+		// timeline repaired, which is `setDelay`'s business and the strain
+		// loop's decision.
 		if (sized >= this.opts.inputDelay) return;
 
 		this.setDelay(sized);
 		this.onEvent({
 			type: 'state',
-			message: `input delay ${sized} frames: the direct channel is ${Math.round(rtt)}ms`
+			message: `input delay ${sized} frames: the direct channel is ${Math.round(best)}ms`
 		});
 	}
 
@@ -1133,6 +1185,7 @@ export class NetplaySession implements TickSource {
 				// the delay is sized from the spread across these samples, which an
 				// average has already thrown away.
 				if (this.sizingSince > 0) this.delayControl.addSizingSample(sample);
+				this.notePathSample(sample);
 				// notePingReply just set it from this very sample, so it cannot be
 				// null here - the getter's type just cannot see that.
 				this.onEvent({ type: 'rtt', value: this.metrics.rtt! });
