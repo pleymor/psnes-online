@@ -63,6 +63,22 @@ export class LinkMetrics {
 	private lastFrameAt: number | null = null;
 
 	/**
+	 * The same window, for the frames that were late while we were *not*
+	 * waiting on the peer.
+	 *
+	 * `strain` drops these on purpose - no delay the peer chooses can mend a
+	 * machine that paces badly, so sending them would walk the partner's delay
+	 * up for nothing. But dropping them also threw away the answer to the
+	 * question every bad evening opens with: the network, or this machine?
+	 * Kept in their own ring the two read side by side, and a session where one
+	 * peer stutters on a link the other finds calm stops being a mystery.
+	 *
+	 * Diagnostic only. Nothing decides anything from this.
+	 */
+	private localLateRing = new Uint8Array(STRAIN_WINDOW);
+	private localLateCount = 0;
+
+	/**
 	 * How the peer's pads actually turn up, as two peaks rather than an average.
 	 *
 	 * `jitter` above is an average, and averages are why this exists. Measured
@@ -105,6 +121,13 @@ export class LinkMetrics {
 	}
 	get peerStrain(): number {
 		return this._peerStrain;
+	}
+	/**
+	 * Late frames over the last 128 that were nothing to do with the peer.
+	 * Read against `strain`: the network is the other one.
+	 */
+	get localStrain(): number {
+		return this.localLateCount;
 	}
 
 	/** Longest silence between two deliveries in the window, in ms. */
@@ -199,9 +222,15 @@ export class LinkMetrics {
 		const previous = this.lastFrameAt;
 		this.lastFrameAt = at;
 		if (previous === null) return;
-		const late = waitedOnPeer && at - previous > (1000 / this.fps) * LATE_FACTOR ? 1 : 0;
+		const over = at - previous > (1000 / this.fps) * LATE_FACTOR;
+		const late = over && waitedOnPeer ? 1 : 0;
+		const localLate = over && !waitedOnPeer ? 1 : 0;
 		this.lateCount += late - this.lateRing[this.lateAt];
 		this.lateRing[this.lateAt] = late;
+		this.localLateCount += localLate - this.localLateRing[this.lateAt];
+		this.localLateRing[this.lateAt] = localLate;
+		// One cursor for both rings: every frame writes exactly one slot in
+		// each, so they age together and a single index cannot drift.
 		this.lateAt = (this.lateAt + 1) % STRAIN_WINDOW;
 	}
 
@@ -223,5 +252,7 @@ export class LinkMetrics {
 		this.lateRing.fill(0);
 		this.lateCount = 0;
 		this.lateAt = 0;
+		this.localLateRing.fill(0);
+		this.localLateCount = 0;
 	}
 }

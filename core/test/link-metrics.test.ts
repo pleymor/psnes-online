@@ -64,6 +64,7 @@ test('late frames are counted over a sliding window', () => {
 		m.noteFrameRun(at, true);
 	}
 	assert.equal(m.strain, 5, 'and five stutters read as five');
+	assert.equal(m.localStrain, 0, 'and none of them are charged to this machine');
 });
 
 test('an even pad stream reads as no gap and no clump', () => {
@@ -159,4 +160,23 @@ test('the peer strain is recorded even when nothing will act on it', () => {
 	const m = new LinkMetrics(NTSC);
 	m.notePeerStrain(27);
 	assert.equal(m.peerStrain, 27);
+});
+
+test('lateness we caused ourselves is counted too, apart from the link it is not', () => {
+	// `strain` deliberately drops these, because the peer is the only side that
+	// can act on it and no delay of its cures a machine that paces badly. But
+	// dropping them also threw away the answer to the question every bad
+	// evening opens with: is it the network or is it this machine? Counted in
+	// their own ring, the two read side by side and the question is a glance.
+	const m = new LinkMetrics(NTSC);
+	const frameMs = 1000 / NTSC;
+	let at = 0;
+	m.noteFrameRun(at, false);
+	for (let i = 0; i < 60; i++) {
+		at += frameMs * 3;
+		m.noteFrameRun(at, false);
+	}
+
+	assert.equal(m.localStrain, 60, 'sixty stutters of our own making are sixty');
+	assert.equal(m.strain, 0, 'and still none of them are the link');
 });

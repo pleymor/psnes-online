@@ -1,10 +1,37 @@
+import { execSync } from 'node:child_process';
+
 import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+
+/*
+ * Which build a page is running, shipped in the telemetry as `build`.
+ *
+ * It answers a question that cost several exchanges on 2026-09-19: after a
+ * deploy, a tab that was not reloaded keeps its old JavaScript and nothing in
+ * the logs says so, which is indistinguishable from a fix that does not work.
+ *
+ * `.git/` is in `.dockerignore`, so the commit is not reachable from the
+ * production image and the timestamp is what it falls back to - enough to
+ * compare a running page against the time of a deploy, which is the question.
+ * BUILD_REF is there for the infra repo to pass a real ref whenever it wants
+ * to; until it does, nothing needs changing on that side.
+ */
+function buildName() {
+  if (process.env.BUILD_REF) return process.env.BUILD_REF;
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim();
+  } catch {
+    return String(Date.now());
+  }
+}
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   preprocess: vitePreprocess(),
   kit: {
+    version: { name: buildName() },
     adapter: adapter({
       pages: 'build',
       assets: 'build',

@@ -13,6 +13,7 @@
    */
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { goto } from '$app/navigation';
+  import { version } from '$app/environment';
   import { socket } from '$lib/api/socket';
   import type { KeyConfig } from '$lib/types';
   import type { ControlsConfig } from '$lib/controls/binding';
@@ -31,6 +32,7 @@
   import { createMatchRecorder, type MatchRecorder } from '$lib/games/match-recorder';
   import { verdictMessage } from '$lib/rooms/match-report';
   import { t } from '$lib/i18n/translations';
+  import { HostHealth, readHeapMb, readNetType } from '$lib/znet/host-health';
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import LocateRom from './LocateRom.svelte';
@@ -359,6 +361,8 @@
 
   /** Periodic health line; see startDiagnostics. */
   let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
+  const hostHealth = new HostHealth();
+  let longTaskObserver: PerformanceObserver | null = null;
   let sramTimer: ReturnType<typeof setInterval> | null = null;
   let lastFramesRun = 0;
 
@@ -809,6 +813,23 @@
    *              can be told from "not running"
    */
   function startDiagnostics() {
+    /*
+     * Main-thread blocking, which is the machine's own contribution to a late
+     * frame. `longtask` is standard and cheap; where it is unsupported the
+     * observer throws and the field simply reads zero, which is why the whole
+     * thing sits in a try.
+     */
+    if (typeof PerformanceObserver !== 'undefined') {
+      try {
+        longTaskObserver = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) hostHealth.noteLongTask(entry.duration);
+        });
+        longTaskObserver.observe({ entryTypes: ['longtask'] });
+      } catch {
+        longTaskObserver = null;
+      }
+    }
+
     diagnosticsTimer = setInterval(() => {
       if (!session) return;
       const s = session.getStats();
@@ -837,6 +858,12 @@
         // precisely what a player reports as "it dropped frames".
         strain: s.strain,
         peerStrain: s.peerStrain,
+        // Late frames this machine caused itself, which `strain` deliberately
+        // drops because no delay of the peer's can mend them. Read the two
+        // together and "is it the network or this machine" stops being a
+        // guess: a peer stuttering on a link its partner finds calm shows up
+        // here and nowhere else.
+        localStrain: s.localStrain,
         // How the pads actually turn up, which `jitter` above averages away: the
         // longest silence between two deliveries, and the most frames one
         // delivery carried. One frame and 1 is even delivery. A long gap with a
@@ -848,7 +875,17 @@
         inputDelay: s.inputDelay,
         packets: [s.packetsSent, s.packetsReceived],
         video: frame ? `${frame.width}x${frame.height}` : null,
-        hidden: typeof document !== 'undefined' ? document.hidden : null
+        hidden: typeof document !== 'undefined' ? document.hidden : null,
+        // Which build this page is running. A tab that was not reloaded after a
+        // deploy keeps its old JavaScript and says nothing about it, which
+        // looks exactly like a fix that does not work.
+        build: version,
+        // What the machine was doing when it was the machine. All three read
+        // null where the browser has no such API, which is not the same
+        // reading as zero and must not be confused with it.
+        netType: readNetType(typeof navigator !== 'undefined' ? navigator : null),
+        heapMb: readHeapMb(typeof performance !== 'undefined' ? performance : null),
+        longTasks: hostHealth.takeLongTasks()
       });
     }, 1000);
   }
@@ -1299,6 +1336,8 @@
     $socket?.off('player:left', onPlayerLeft);
     if (diagnosticsTimer) clearInterval(diagnosticsTimer);
     diagnosticsTimer = null;
+    longTaskObserver?.disconnect();
+    longTaskObserver = null;
     window.removeEventListener('gamepadconnected', applySources);
     window.removeEventListener('gamepaddisconnected', applySources);
     governor?.stop();

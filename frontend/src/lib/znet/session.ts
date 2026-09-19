@@ -249,6 +249,17 @@ export interface SessionStats {
 	strain: number;
 	peerStrain: number;
 	/**
+	 * Late frames that were nothing to do with the peer - this machine pacing
+	 * badly rather than the link delivering badly.
+	 *
+	 * Diagnostic only; no loop reads it. It exists because `strain` alone
+	 * cannot answer the first question of any bad evening, which is whether to
+	 * look at the network or at the machine. Read the two together: a peer
+	 * stuttering on a link its partner finds calm shows up here and nowhere
+	 * else.
+	 */
+	localStrain: number;
+	/**
 	 * How the peer's pads arrive, as peaks rather than an average: the longest
 	 * silence between two deliveries in ms, and the most frames one delivery
 	 * carried.
@@ -397,6 +408,7 @@ export class NetplaySession implements TickSource {
 		jitter: null,
 		strain: 0,
 		peerStrain: 0,
+		localStrain: 0,
 		arrivalGap: 0,
 		arrivalClump: 0,
 		epoch: 0,
@@ -629,6 +641,7 @@ export class NetplaySession implements TickSource {
 			jitter: this.metrics.jitter,
 			strain: this.metrics.strain,
 			peerStrain: this.metrics.peerStrain,
+			localStrain: this.metrics.localStrain,
 			arrivalGap: this.metrics.arrivalGap,
 			arrivalClump: this.metrics.arrivalClump,
 			epoch: this.epoch,
