@@ -95,4 +95,79 @@ test.describe('la barre sur un écran étroit', () => {
 		// Et la barre rend leur place à Amis et à l'avatar.
 		await expect(page.locator('.friends')).toBeVisible();
 	});
+
+	/**
+	 * Le centre de notifications ouvert, en largeur de téléphone.
+	 *
+	 * Le panneau était accroché à la CLOCHE (`right: 0` mesuré depuis elle) et
+	 * large de `min(24rem, 100vw - 2rem)`. La cloche ouvre le groupe de droite,
+	 * donc son bord droit tombe vers 285 px sur un écran de 390 : le panneau
+	 * commençait à **-83 px**, une ligne sur cinq lisible et la colonne des tons
+	 * hors écran. Rien ne voyait ça - `document.scrollWidth` non plus, puisque
+	 * ce qui sort par la GAUCHE ne fait pas défiler la page.
+	 *
+	 * Deux mesures, donc, et pas une impression :
+	 *
+	 * - le panneau tient dans l'écran, bord à bord ;
+	 * - son haut tombe sur le bas de la barre, à un pixel près. Ce nombre-là
+	 *   est fragile par nature : le panneau est un DESCENDANT de la barre, donc
+	 *   il peint par-dessus son fond quoi qu'on fasse - contrairement au tiroir
+	 *   des amis, qui est un frère et passe dessous. Trop haut il rogne les
+	 *   boutons et mange le liseré d'or, trop bas il laisse passer la page en un
+	 *   cheveu. Si la barre change de hauteur, c'est ici que ça se dit.
+	 */
+	test('le centre de notifications tient dans un écran de téléphone', async ({ page, context }) => {
+		const cookie = await loginDev('1');
+		await context.addCookies(
+			cookie.split('; ').map(pair => {
+				const [name, ...rest] = pair.split('=');
+				return { name, value: rest.join('='), domain: 'localhost', path: '/' };
+			})
+		);
+
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto('/');
+		// Par le stockage, qui est le chemin réel d'une notification qui survit
+		// à un rechargement (`notices/persist.ts`). Les deux formes à boutons
+		// sont `live`, donc purgées au démarrage : elles ne se posent pas ici.
+		await page.evaluate(() => {
+			const born = Date.now() - 60_000;
+			localStorage.setItem(
+				'psnes-notices',
+				JSON.stringify([
+					{ id: 'n1', kind: 'raw', params: { message: 'Chrono Trigger a été ajouté à ta bibliothèque', tone: 'success' }, at: born },
+					{ id: 'n2', kind: 'raw', params: { message: 'Le serveur de jeu est injoignable, nouvelle tentative dans 10 s', tone: 'error' }, at: born + 1 },
+					{ id: 'n3', kind: 'raw', params: { message: 'Sauvegarde rapide enregistrée', tone: 'info' }, at: born + 2 }
+				])
+			);
+		});
+		await page.goto('/');
+		await page.waitForLoadState('networkidle');
+
+		const bell = page.locator('.bell');
+		await expect(page.locator('.badge')).toHaveText('3');
+		await bell.click();
+
+		const panel = page.locator('.panel');
+		await expect(panel).toBeVisible();
+
+		const box = (await panel.boundingBox())!;
+		expect(box.x, 'le bord gauche du panneau').toBeGreaterThanOrEqual(0);
+		expect(box.x + box.width, 'le bord droit du panneau').toBeLessThanOrEqual(390);
+
+		const bar = (await page.locator('.top-bar').boundingBox())!;
+		expect(box.y, 'le haut du panneau contre le bas de la barre').toBeGreaterThan(
+			bar.y + bar.height - 3
+		);
+		expect(box.y, 'le haut du panneau contre le bas de la barre').toBeLessThanOrEqual(
+			bar.y + bar.height
+		);
+
+		// La cloche reste atteignable au-dessus : c'est le seul geste qui referme
+		// le centre sur un téléphone - ni Échap, ni dehors où cliquer - et c'est
+		// la fermeture qui consomme la liste.
+		await bell.click();
+		await expect(panel).toBeHidden();
+		await expect(page.locator('.badge')).toHaveCount(0);
+	});
 });

@@ -221,6 +221,47 @@
     border: 1px solid #2c2c3c;
   }
 
+  /* Trop étroit pour une liste déroulante : le panneau prend l'écran, comme
+     le tiroir des amis au même point de rupture.
+
+     `right: 0` est mesuré depuis la CLOCHE, pas depuis l'écran, et la cloche
+     ouvre le groupe de droite - le casque, les amis et l'avatar sont après
+     elle. Sur 390 px son bord droit tombe vers 285 px, donc les 358 px que
+     `min(24rem, 100vw - 2rem)` accorde au panneau sortaient de l'écran par la
+     gauche d'une bonne soixantaine de pixels, et la colonne des tons avec.
+
+     `fixed` se résout bien contre l'écran : la barre est en `sticky`, ce qui
+     ne fabrique pas de bloc conteneur - un `transform` sur elle, lui, casserait
+     cette ligne. Le haut laisse la barre entière au-dessus, puisque la cloche
+     est le seul geste qui referme : le panneau n'a pas de croix, et sur un
+     téléphone il n'y a ni Échap ni dehors où cliquer.
+
+     3,5 rem et non les 3 du tiroir des amis, et c'est mesuré : la barre fait
+     57 px en largeur de téléphone. Le tiroir peut se permettre 48 parce qu'il
+     est un FRÈRE de la barre et passe dessous - z-index 100 contre 101 ; ce
+     panneau-ci est un descendant de la barre, donc il peint forcément
+     par-dessus son fond, et à 48 il rognait le bas des boutons et effaçait le
+     liseré d'or. Un pixel de recouvrement plutôt qu'un demi de jour : un
+     interstice y laisserait passer la page en un cheveu bleu. `narrow-bar`
+     tient ce nombre contre la barre réelle, pour qu'il ne dérive pas en
+     silence. */
+  @media (max-width: 700px) {
+    .panel {
+      position: fixed;
+      inset: 3.5rem 0 0;
+      width: auto;
+      max-height: none;
+      border-radius: 0;
+      border-left: none;
+      border-right: none;
+      /* Opaque sur toute la hauteur. Les 3 % de transparence ne se voyaient
+         pas sur une vignette de 24 rem ; sur un écran entier, la page qui
+         transparaît derrière le texte le salit. La teinte reste celle du
+         panneau - c'est le même bleu sombre, sans le canal alpha. */
+      background: #14141e;
+    }
+  }
+
   ul { list-style: none; margin: 0; padding: 0; }
 
   li {
