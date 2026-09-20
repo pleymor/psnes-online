@@ -64,31 +64,29 @@ const RATE = 48000;
 
 test('dropping a partly played chunk does not discount the part already played', () => {
 	/*
-	 * The cap exists so a producer that outruns the sink cannot push the sound
-	 * further behind the picture every second. It is expressed in samples, so
-	 * it is one second of audio - and one second is already a great deal for a
-	 * fighting game, which is why it must at least hold.
+	 * `process()` decrements `queued` once per frame it consumes. A trim that
+	 * then throws the head chunk away must subtract only what is LEFT of it,
+	 * or everything already played is subtracted a second time - `queued` falls
+	 * below the real backlog, the trim stops firing when it should, and the
+	 * bound it enforces drifts open. That is what a player heard: the lag
+	 * settled past two seconds against a bound of one.
 	 *
-	 * `process()` decrements `queued` once per frame it consumes. The purge
-	 * then throws the head chunk away and subtracts its *whole* length, so
-	 * everything already consumed from it is subtracted a second time. `queued`
-	 * falls below the real backlog, the cap stops triggering when it should,
-	 * and the delay drifts past the second it was meant to bound - which is
-	 * what a player hears: the lag settled past two seconds, not at one.
+	 * Asserted as an invariant rather than against a particular depth, so it
+	 * cannot rot the next time the bound is retuned - which has already
+	 * happened once, when the ceiling became a target.
 	 */
 	const sink = makeSink(RATE);
 	const push = (frames: number) => sink.port.onmessage!({ data: chunk(frames) });
+	const out = [[new Float32Array(128), new Float32Array(128)]];
 
-	// Exactly one second in ten equal chunks: at the cap, nothing dropped yet.
+	// Enough to put the backlog over the high mark and have it cut back.
 	for (let i = 0; i < 10; i++) push(4800);
-	assert.equal(sink.queued, RATE, 'one second queued, and the cap not yet exceeded');
 
 	// The sink plays a render quantum, so the head chunk is now partly spent.
-	const out = [[new Float32Array(128), new Float32Array(128)]];
 	sink.process([], out);
-	assert.equal(sink.offset, 256, 'a quantum of stereo frames is 256 interleaved values');
+	assert.ok(sink.offset > 0, 'the head chunk is partly played');
 
-	// One more chunk puts it over the cap and triggers the purge.
+	// More audio, which trims again - across a head that is mid-chunk.
 	push(4800);
 
 	assert.equal(
@@ -219,5 +217,38 @@ test('the sink reports how deep its queue is, so the delay can be attributed', (
 		last.frames,
 		trueQueued(sink),
 		`the report must be the queue, says ${last.frames}, holds ${trueQueued(sink)}`
+	);
+});
+
+test('a queue that never starves is still brought back down to its target', () => {
+	/*
+	 * The ratchet #81 left behind. Its debt is only paid when the sink starves,
+	 * and a deep queue never starves - so once the backlog is past the point of
+	 * starving, nothing pulls it down again and every burst adds to it for good.
+	 * Measured in production: 363ms held on one machine against 160 on the
+	 * other, with the platform's own path accounting for only 44 and 50.
+	 *
+	 * "Sound and picture agree at first, then drift apart the longer you play"
+	 * is exactly that shape.
+	 *
+	 * So the bound stops being a ceiling and becomes a target: past a high mark
+	 * the backlog is cut back to it, which bounds the delay at something a
+	 * fighting game can live with instead of at a second.
+	 */
+	const sink = makeSink(RATE);
+	const push = (frames: number) => sink.port.onmessage!({ data: chunk(frames) });
+	const out = [[new Float32Array(128), new Float32Array(128)]];
+
+	// A producer a little ahead of the sink, and never behind it - so it never
+	// starves, and the old debt mechanism never gets a chance to fire.
+	for (let i = 0; i < 400; i++) {
+		push(160);
+		sink.process([], out); // consumes 128
+	}
+
+	const heldMs = (trueQueued(sink) / RATE) * 1000;
+	assert.ok(
+		heldMs <= 130,
+		`the backlog must stay near its target, holds ${Math.round(heldMs)}ms`
 	);
 });

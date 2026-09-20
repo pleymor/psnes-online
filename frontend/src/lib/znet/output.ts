@@ -140,9 +140,39 @@ class PsnesSink extends AudioWorkletProcessor {
       if (e.data === 'flush') { this.queue = []; this.offset = 0; this.queued = 0; this.starved = 0; this.started = false; return; }
       this.queue.push(e.data);
       this.queued += e.data.length / 2;
-      // Hard cap: if the producer outruns the sink (fast-forward, a long
-      // catch-up burst) drop the oldest audio rather than growing without
-      // bound and drifting further behind the picture every second.
+      /*
+       * Past the high mark, cut the backlog back to the target.
+       *
+       * A ceiling is not enough, and a second of one was far too much. The
+       * debt paid on starvation only fires when the sink runs dry, and a deep
+       * queue never runs dry - so once the backlog is past the point of
+       * starving, nothing pulls it down and every burst adds to it for good.
+       * Measured in production: 363ms held on one machine against 160 on the
+       * other, while the platform's own path accounted for 44 and 50. Sound
+       * and picture agreed at first and drifted apart the longer the session
+       * ran.
+       *
+       * So it is a target, not a ceiling: 120ms of slack to absorb a burst,
+       * cut back to 50ms - two to three frames - when that is exceeded. The
+       * trade is deliberate, and it is the one a fighting game wants: cutting
+       * more often costs the occasional glitch, while a third of a second of
+       * standing delay costs every input.
+       */
+      const high = Math.round(sampleRate * 0.12);
+      const target = Math.round(sampleRate * 0.05);
+      let excess = this.queued > high ? this.queued - target : 0;
+      while (excess > 0 && this.queue.length > 0) {
+        const stale = this.queue[0];
+        const available = (stale.length - this.offset) / 2;
+        const drop = Math.min(available, excess);
+        this.offset += drop * 2;
+        this.queued -= drop;
+        excess -= drop;
+        if (this.offset >= stale.length) { this.queue.shift(); this.offset = 0; }
+      }
+
+      // The old hard cap, kept as the last line of defence against a producer
+      // that somehow outruns even the target.
       while (this.queued > sampleRate) {
         const dropped = this.queue.shift();
         if (!dropped) break;
