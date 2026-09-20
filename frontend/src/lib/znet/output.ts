@@ -243,7 +243,27 @@ class PsnesSink extends AudioWorkletProcessor {
         // pretend progress that is not happening.
         left[i] = 0;
         right[i] = 0;
-        if (this.started) this.starved++;
+        if (this.started) {
+          this.starved++;
+          /*
+           * Past half a second of continuous silence this is no longer a
+           * lockstep stall to make up for - it is a break in the stream. A
+           * pause, a backgrounded tab, an outage: the listener lost continuity
+           * long ago, and resuming cleanly costs nothing more than resuming
+           * late.
+           *
+           * Without this the debt grew for the whole length of a pause and was
+           * then paid in dropped audio, so play came back silent for as long
+           * as it had been paused and then lurched into the middle of a sound.
+           * The same trap as the silence before the first sound, sprung in the
+           * middle of a session instead of at its start - so it is answered
+           * the same way, by declaring the stream not started.
+           */
+          if (this.starved > sampleRate * 0.5) {
+            this.starved = 0;
+            this.started = false;
+          }
+        }
         continue;
       }
       this.started = true;

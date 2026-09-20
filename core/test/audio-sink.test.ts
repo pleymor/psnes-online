@@ -252,3 +252,41 @@ test('a queue that never starves is still brought back down to its target', () =
 		`the backlog must stay near its target, holds ${Math.round(heldMs)}ms`
 	);
 });
+
+test('a long silence is a break in the stream, not a debt to repay', () => {
+	/*
+	 * A pause stops the emulator, so the sink starves for as long as the player
+	 * leaves it paused - and the debt grows the whole time. On resume the debt
+	 * is paid in dropped audio, so the first N seconds of play come back silent
+	 * and then lurch into the middle of a sound. Reported from a real session:
+	 * "I paused, resumed, and then nothing, then the sound came back all wrong."
+	 *
+	 * The debt exists to keep the stream anchored to the wall clock across the
+	 * short starvations lockstep produces. Past a quarter second of continuous
+	 * silence the listener has lost continuity anyway: that is a break in the
+	 * stream, and resuming cleanly costs nothing more than resuming late.
+	 *
+	 * The same guard covers a backgrounded tab and any stall long enough that
+	 * the audio behind it is worthless.
+	 */
+	const sink = makeSink(RATE);
+	const push = (frames: number) => sink.port.onmessage!({ data: chunk(frames) });
+	const out = [[new Float32Array(128), new Float32Array(128)]];
+
+	// Playing normally, so the stream has started and debts are real.
+	push(128 * 10);
+	for (let i = 0; i < 10; i++) sink.process([], out);
+
+	// Two seconds paused: no audio produced at all while the sink runs on.
+	for (let i = 0; i < (RATE * 2) / 128; i++) sink.process([], out);
+
+	// Play resumes. This audio is the first of the new stream and must be heard.
+	push(4800);
+	sink.process([], out);
+
+	assert.equal(
+		trueQueued(sink),
+		4800 - 128,
+		`resumed audio must survive a pause, ${trueQueued(sink)} frames left of 4800`
+	);
+});
