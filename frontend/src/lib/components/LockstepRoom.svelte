@@ -897,7 +897,13 @@
         downlink: readDownlink(typeof navigator !== 'undefined' ? navigator : null),
         apiRtt: readApiRtt(typeof navigator !== 'undefined' ? navigator : null),
         heapMb: readHeapMb(typeof performance !== 'undefined' ? performance : null),
-        longTasks: hostHealth.takeLongTasks()
+        longTasks: hostHealth.takeLongTasks(),
+        // The sound's distance from the picture on THIS machine, split into the
+        // half we hold and the half the platform adds below the API. A constant
+        // offset is only actionable in the first, and nothing else tells them
+        // apart.
+        audioQueuedMs: audio?.latency.queued ?? null,
+        audioOutputMs: audio?.latency.output ?? null
       });
     }, 1000);
   }

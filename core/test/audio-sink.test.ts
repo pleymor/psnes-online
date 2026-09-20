@@ -16,7 +16,11 @@ interface Sink {
 	queue: Int16Array[];
 	queued: number;
 	offset: number;
-	port: { onmessage: ((e: { data: Int16Array | string }) => void) | null };
+	port: {
+		onmessage: ((e: { data: Int16Array | string }) => void) | null;
+		postMessage(message: unknown): void;
+		sent: { type?: string; frames?: number }[];
+	};
 	process(inputs: unknown, outputs: Float32Array[][]): boolean;
 }
 
@@ -27,7 +31,13 @@ function makeSink(rate: number): Sink {
 		Processor = cls;
 	};
 	class AudioWorkletProcessor {
-		port = { onmessage: null };
+		port = {
+			onmessage: null,
+			sent: [] as unknown[],
+			postMessage(message: unknown) {
+				this.sent.push(message);
+			}
+		};
 	}
 	new Function(
 		'AudioWorkletProcessor',
@@ -178,5 +188,36 @@ test('silence before the first sound is not a debt', () => {
 		trueQueued(sink),
 		4800 - 128,
 		`the first sound must survive, ${trueQueued(sink)} frames left of 4800`
+	);
+});
+
+test('the sink reports how deep its queue is, so the delay can be attributed', () => {
+	/*
+	 * A constant offset between a machine's sound and its own picture has two
+	 * possible halves, and they call for opposite answers: what the platform
+	 * adds below the API - `outputLatency`, commonly 100-200ms on Android and
+	 * beyond reach from a page - and what our own queue is holding, which is
+	 * entirely ours to shorten.
+	 *
+	 * Only the worklet knows the second, so it has to say. Reported on a
+	 * counter rather than every render quantum: at 128 frames a quantum that
+	 * would be some 375 messages a second across the thread for a figure the
+	 * telemetry reads once.
+	 */
+	const sink = makeSink(RATE);
+	const push = (frames: number) => sink.port.onmessage!({ data: chunk(frames) });
+	const out = [[new Float32Array(128), new Float32Array(128)]];
+
+	push(RATE / 4); // a quarter second in hand
+	for (let i = 0; i < 200; i++) sink.process([], out);
+
+	const reports = sink.port.sent.filter((m) => m && m.type === 'depth');
+	assert.ok(reports.length > 0, 'the queue depth must reach the main thread at all');
+
+	const last = reports[reports.length - 1];
+	assert.equal(
+		last.frames,
+		trueQueued(sink),
+		`the report must be the queue, says ${last.frames}, holds ${trueQueued(sink)}`
 	);
 });

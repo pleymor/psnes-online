@@ -131,6 +131,7 @@ class PsnesSink extends AudioWorkletProcessor {
     this.offset = 0;
     this.queued = 0;
     this.starved = 0;
+    this.reportAt = 0;
     // Silence before the first sound is not owed audio: the context starts
     // with the room and the emulator's first frame comes later. Nothing was
     // stalled, the game had simply not begun.
@@ -187,6 +188,23 @@ class PsnesSink extends AudioWorkletProcessor {
       if (this.offset >= stale.length) { this.queue.shift(); this.offset = 0; }
     }
 
+    /*
+     * Say how deep the queue is, for the main thread to ship.
+     *
+     * A constant offset between a machine's sound and its own picture has two
+     * halves that call for opposite answers: what the platform adds below the
+     * API - outputLatency, commonly 100-200ms on Android and beyond reach from
+     * a page - and what this queue is holding, which is entirely ours to
+     * shorten. Only here is the second one known.
+     *
+     * On a counter, not every quantum: 128 frames a quantum would be some 375
+     * messages a second across the thread for a figure read once a second.
+     */
+    if (++this.reportAt >= 64) {
+      this.reportAt = 0;
+      this.port.postMessage({ type: 'depth', frames: this.queued });
+    }
+
     for (let i = 0; i < left.length; i++) {
       const chunk = this.queue[0];
       if (!chunk) {
@@ -219,6 +237,9 @@ export class AudioSink {
 	private node: AudioWorkletNode | null = null;
 	private ready = false;
 	private muted = false;
+	/** Frames the worklet last said it was holding, and the rate to read it in ms. */
+	private queuedFrames = 0;
+	private rate = 0;
 
 	async start(sampleRate: number): Promise<void> {
 		if (this.ready) return;
@@ -232,8 +253,36 @@ export class AudioSink {
 		}
 
 		this.node = new AudioWorkletNode(this.context, 'psnes-sink', { outputChannelCount: [2] });
+		this.node.port.onmessage = (e) => {
+			const data = e.data as { type?: string; frames?: number } | null;
+			if (data?.type === 'depth' && typeof data.frames === 'number') {
+				this.queuedFrames = data.frames;
+			}
+		};
 		this.node.connect(this.context.destination);
+		this.rate = sampleRate;
 		this.ready = true;
+	}
+
+	/**
+	 * How long the sound is behind the picture on this machine, split in two.
+	 *
+	 * `queued` is what our own buffer is holding and is ours to shorten;
+	 * `output` is what the platform adds below the API between handing the
+	 * samples over and the speaker, which a page cannot touch at all - commonly
+	 * 100-200ms on Android against 10-30ms on a desktop. A constant offset is
+	 * only actionable in the first half, and nothing else distinguishes them.
+	 *
+	 * Both null before the context exists.
+	 */
+	get latency(): { queued: number | null; output: number | null } {
+		const context = this.context;
+		if (!context || this.rate <= 0) return { queued: null, output: null };
+		const output = (context.outputLatency ?? 0) + (context.baseLatency ?? 0);
+		return {
+			queued: Math.round((this.queuedFrames / this.rate) * 1000),
+			output: Math.round(output * 1000)
+		};
 	}
 
 	/**
