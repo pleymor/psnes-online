@@ -107,3 +107,76 @@ test('the cap still bounds the backlog to a second once the count is honest', ()
 		`the backlog must stay within a second, holds ${trueQueued(sink)} frames`
 	);
 });
+
+test('time spent playing silence is not paid back later as delay', () => {
+	/*
+	 * The root cause the cap was only ever bounding.
+	 *
+	 * Starved, `process()` writes silence and does NOT advance the queue. In
+	 * lockstep the queue starves constantly - every wait on the peer's pad is a
+	 * stretch where the emulator produces nothing while the wall clock runs on.
+	 *
+	 * When the peer catches up the emulator does not skip those frames: it runs
+	 * them, and their audio is queued and played *later*. So the silence cost
+	 * real time that consumed nothing, and everything after it is pushed back by
+	 * exactly that much - permanently, and again at every stall. That is why the
+	 * delay grows to the cap in about a minute and then sits there.
+	 *
+	 * The stream has to stay anchored to the wall clock: audio for a moment that
+	 * has already been played as silence is stale, and dropping it trades a brief
+	 * glitch for a delay that never comes back.
+	 */
+	const sink = makeSink(RATE);
+	const push = (frames: number) => sink.port.onmessage!({ data: chunk(frames) });
+	const out = [[new Float32Array(128), new Float32Array(128)]];
+
+	// The session is playing normally first, so what follows is a stall and not
+	// the silence before the first sound, which is owed nothing.
+	push(128 * 10);
+	for (let i = 0; i < 10; i++) sink.process([], out);
+	assert.equal(trueQueued(sink), 0, 'drained exactly, nothing owed yet');
+
+	// A quarter second of stall: the emulator is waiting on a pad and produces
+	// nothing at all, while the sink plays on and has nothing to play.
+	const quanta = Math.round(RATE / 4 / 128);
+	for (let i = 0; i < quanta; i++) sink.process([], out);
+
+	// The pad arrives. The emulator runs the frames it owed, audio and all - a
+	// quarter second of it, belonging to a quarter second that is already spent.
+	push(RATE / 4);
+	sink.process([], out);
+
+	assert.equal(
+		trueQueued(sink),
+		0,
+		`audio for a moment already played as silence is stale, ${trueQueued(sink)} frames kept`
+	);
+});
+
+test('silence before the first sound is not a debt', () => {
+	/*
+	 * The sink is connected and running before the emulator has produced
+	 * anything: the context starts with the room, the first frame comes later.
+	 * That silence is not owed audio - nothing was stalled, the game had simply
+	 * not begun - so the first sound must play in full rather than be dropped
+	 * as stale.
+	 *
+	 * The same holds after a flush, which is a deliberate restart of the
+	 * stream: whatever was owed before it is not owed after.
+	 */
+	const sink = makeSink(RATE);
+	const push = (frames: number) => sink.port.onmessage!({ data: chunk(frames) });
+	const out = [[new Float32Array(128), new Float32Array(128)]];
+
+	// Half a second of a running sink with nothing to play yet.
+	for (let i = 0; i < RATE / 2 / 128; i++) sink.process([], out);
+
+	push(4800);
+	sink.process([], out);
+
+	assert.equal(
+		trueQueued(sink),
+		4800 - 128,
+		`the first sound must survive, ${trueQueued(sink)} frames left of 4800`
+	);
+});

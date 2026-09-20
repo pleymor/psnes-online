@@ -130,8 +130,13 @@ class PsnesSink extends AudioWorkletProcessor {
     this.queue = [];
     this.offset = 0;
     this.queued = 0;
+    this.starved = 0;
+    // Silence before the first sound is not owed audio: the context starts
+    // with the room and the emulator's first frame comes later. Nothing was
+    // stalled, the game had simply not begun.
+    this.started = false;
     this.port.onmessage = (e) => {
-      if (e.data === 'flush') { this.queue = []; this.offset = 0; this.queued = 0; return; }
+      if (e.data === 'flush') { this.queue = []; this.offset = 0; this.queued = 0; this.starved = 0; this.started = false; return; }
       this.queue.push(e.data);
       this.queued += e.data.length / 2;
       // Hard cap: if the producer outruns the sink (fast-forward, a long
@@ -157,6 +162,31 @@ class PsnesSink extends AudioWorkletProcessor {
   process(_inputs, outputs) {
     const left = outputs[0][0];
     const right = outputs[0][1] || outputs[0][0];
+
+    /*
+     * Audio for a moment already played as silence is stale.
+     *
+     * Starving costs real time and consumes nothing, but the emulator does not
+     * skip the frames it owed - when the peer catches up it runs them, and
+     * their audio arrives for a moment that is already spent. Playing it
+     * anyway pushes everything after it back by the length of the stall, for
+     * good, and again at every stall. In lockstep the queue starves on every
+     * wait for a pad, which is how the delay reached the cap in about a minute
+     * and then sat there.
+     *
+     * So the debt is paid in dropped audio rather than in latency: a brief
+     * glitch instead of a delay that never comes back.
+     */
+    while (this.starved > 0 && this.queue.length > 0) {
+      const stale = this.queue[0];
+      const available = (stale.length - this.offset) / 2;
+      const drop = Math.min(available, this.starved);
+      this.offset += drop * 2;
+      this.queued -= drop;
+      this.starved -= drop;
+      if (this.offset >= stale.length) { this.queue.shift(); this.offset = 0; }
+    }
+
     for (let i = 0; i < left.length; i++) {
       const chunk = this.queue[0];
       if (!chunk) {
@@ -165,8 +195,10 @@ class PsnesSink extends AudioWorkletProcessor {
         // pretend progress that is not happening.
         left[i] = 0;
         right[i] = 0;
+        if (this.started) this.starved++;
         continue;
       }
+      this.started = true;
       left[i] = chunk[this.offset] / 32768;
       right[i] = chunk[this.offset + 1] / 32768;
       this.offset += 2;
