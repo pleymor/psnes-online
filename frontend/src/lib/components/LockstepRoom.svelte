@@ -1264,6 +1264,20 @@
           statusText = 'Synchronising with the host…';
         } else if (event.message === 'resyncing') {
           statusText = 'Resynchronising…';
+        } else if (event.message) {
+          /*
+           * Everything else the session says about its own state, which until
+           * now was dropped on the floor.
+           *
+           * That silence cost two diagnoses. The delay resizes announce
+           * themselves here - "input delay N frames: the link is Nms" from a
+           * re-sizing, "input delay down to N frames" from the strain loop -
+           * and their absence from the logs was read, twice and with
+           * confidence, as proof that the resize had not happened. It could
+           * never have appeared. A message a component discards is not
+           * evidence of anything.
+           */
+          logger.info(event.message);
         }
         break;
       case 'resync-start':
