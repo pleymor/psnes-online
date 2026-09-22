@@ -236,17 +236,39 @@
     return targets;
   }
 
+  /**
+   * Where the face buttons are, measured once per gesture.
+   *
+   * `faceTargets()` asks the DOM for a box per button, and each one forces a
+   * synchronous layout. Calling it from `facesMove` meant doing that four
+   * times at the pointer's event rate - sixty to a hundred and twenty times a
+   * second for as long as a thumb rests here - and `press()` writes to `held`
+   * just before, which invalidates the layout the next read then has to
+   * rebuild. Write then read is the worst case a mobile browser has.
+   *
+   * It cost both players, not just this one: the pad left late, so the peer
+   * waited for it, and lockstep froze the pair for a few milliseconds while
+   * the audio queue ran dry and crackled. It went away at five frames of
+   * delay, where the buffer could absorb it, and bit hardest at one.
+   *
+   * The buttons do not move during a gesture. The cases that would move them -
+   * a rotation, the toolbar appearing, entering fullscreen - all happen
+   * between gestures, so measuring at the start of one is enough.
+   */
+  let gestureTargets: FaceTarget[] = [];
+
   function facesDown(event: PointerEvent) {
     capture(event);
     event.preventDefault();
-    faceHolds.set(event.pointerId, facesAt(event.clientX, event.clientY, faceTargets()));
+    if (faceHolds.size === 0) gestureTargets = faceTargets();
+    faceHolds.set(event.pointerId, facesAt(event.clientX, event.clientY, gestureTargets));
     applyFaces();
   }
 
   function facesMove(event: PointerEvent) {
     if (!faceHolds.has(event.pointerId)) return;
     event.preventDefault();
-    faceHolds.set(event.pointerId, facesAt(event.clientX, event.clientY, faceTargets()));
+    faceHolds.set(event.pointerId, facesAt(event.clientX, event.clientY, gestureTargets));
     applyFaces();
   }
 
