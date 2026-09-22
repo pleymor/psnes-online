@@ -74,6 +74,82 @@ async function put(store: string, key: string, value: unknown): Promise<void> {
 	db.close();
 }
 
+/* ------------------------------------------------------------ l'instrument */
+
+/** Ce qu'a coûté une résolution : par quel chemin, et pour combien de lectures. */
+export interface FolderCost {
+	/** `remembered` : le nom retenu a suffi. `scan` : il a fallu parcourir. */
+	path: 'remembered' | 'scan';
+	/** Fichiers réellement ouverts et hachés. Un hachage, c'est tout le fichier. */
+	filesRead: number;
+	ms: number;
+}
+
+/**
+ * Où va le coût d'une résolution, quand quelqu'un veut l'entendre.
+ *
+ * Un rapporteur branché une fois par l'application plutôt qu'un `createLogger`
+ * ici : ce module tourne sous node dans `core/test`, sans les alias SvelteKit,
+ * et `provider.ts` dit la même chose de lui-même en toutes lettres. Les tests
+ * le laissent à null, et alors rien n'est mesuré ni rapporté.
+ *
+ * Il existe parce que le défaut qu'il mesure - un dossier entier relu pour
+ * trouver une cartouche - était invisible : le joueur voyait un lancement lent,
+ * et rien nulle part ne disait combien de fichiers avaient été lus pour ça.
+ */
+let costReporter: ((cost: FolderCost) => void) | null = null;
+
+export function reportFolderCost(fn: ((cost: FolderCost) => void) | null): void {
+	costReporter = fn;
+}
+
+/* ---------------------------------------------------- l'index du dossier */
+
+/**
+ * Ce que l'appareil se rappelle du dossier : un checksum, un nom de fichier.
+ *
+ * Derrière une interface pour les deux raisons de `kept-files.ts` : la règle
+ * devient testable sans IndexedDB - et le COÛT avec elle, ce qui est le point
+ * ici - et l'écriture groupée devient dicible. `remember` prend une liste et
+ * non une entrée parce qu'un balayage en produit quarante d'un coup, et que
+ * les écrire une par une ouvrait et refermait la base quarante fois.
+ */
+export interface FolderIndex {
+	/** Le nom de fichier retenu pour ce checksum, ou null. */
+	filenameFor(checksum: string): Promise<string | null>;
+	/** Tout ce qu'un balayage vient de trouver, en UNE transaction. */
+	remember(entries: ReadonlyArray<{ checksum: string; filename: string }>): Promise<void>;
+	checksums(): Promise<string[]>;
+	forget(checksum: string): Promise<void>;
+}
+
+/** L'implémentation de production, sur le store `index`. */
+export function indexedDbFolderIndex(): FolderIndex {
+	return {
+		async filenameFor(checksum) {
+			return (await get<string>(INDEX, checksum)) ?? null;
+		},
+
+		async remember(entries) {
+			// Rien à écrire n'ouvre rien : un dossier sans ROM ne doit pas coûter
+			// une connexion.
+			if (entries.length === 0) return;
+			const db = await openDb();
+			await new Promise<void>((resolve, reject) => {
+				const tx = db.transaction(INDEX, 'readwrite');
+				const store = tx.objectStore(INDEX);
+				for (const entry of entries) store.put(entry.filename, entry.checksum);
+				tx.oncomplete = () => resolve();
+				tx.onerror = () => reject(tx.error);
+			});
+			db.close();
+		},
+
+		checksums: indexedChecksums,
+		forget: forgetIndexed
+	};
+}
+
 async function get<T>(store: string, key: string): Promise<T | undefined> {
 	const db = await openDb();
 	const value = await new Promise<T | undefined>((resolve, reject) => {
@@ -95,64 +171,6 @@ async function del(store: string, key: string): Promise<void> {
 		tx.onerror = () => reject(tx.error);
 	});
 	db.close();
-}
-
-/* ------------------------------------------------------------ l'instrument */
-
-/** Ce qu'a coûté une résolution : par quel chemin, et pour combien de lectures. */
-export interface FolderCost {
-	/** `remembered` : le nom retenu a suffi. `scan` : il a fallu parcourir. */
-	path: 'remembered' | 'scan';
-	/** Fichiers réellement ouverts et hachés. Un hachage, c'est tout le fichier. */
-	filesRead: number;
-	ms: number;
-}
-
-/**
- * Où va le coût d'une résolution, quand quelqu'un veut l'entendre.
- *
- * Un rapporteur branché une fois par l'application plutôt qu'un `createLogger`
- * ici : ce module tourne sous node dans `core/test`, sans les alias SvelteKit,
- * et `provider.ts` dit la même chose de lui-même en toutes lettres. Les tests
- * le laissent à null, et alors rien n'est mesuré ni rapporté.
- *
- * Il existe parce qu'on ne sait pas ce qu'un lancement coûte chez quelqu'un
- * d'autre que soi : le joueur voit un lancement lent, et rien nulle part ne dit
- * combien de fichiers ont été lus pour ça.
- */
-let costReporter: ((cost: FolderCost) => void) | null = null;
-
-export function reportFolderCost(fn: ((cost: FolderCost) => void) | null): void {
-	costReporter = fn;
-}
-
-/* ---------------------------------------------------- l'index du dossier */
-
-/**
- * Ce que l'appareil se rappelle du dossier : un checksum, un nom de fichier.
- *
- * Derrière une interface pour la raison que `kept-files.ts` donne de la sienne :
- * sans elle, rien de ce qui touche à l'index n'est testable hors d'un
- * navigateur - et le COÛT avec, ce qui est le point ici.
- */
-export interface FolderIndex {
-	/** Le nom de fichier retenu pour ce checksum, ou null. */
-	filenameFor(checksum: string): Promise<string | null>;
-	remember(checksum: string, filename: string): Promise<void>;
-	checksums(): Promise<string[]>;
-	forget(checksum: string): Promise<void>;
-}
-
-/** L'implémentation de production, sur le store `index`. */
-export function indexedDbFolderIndex(): FolderIndex {
-	return {
-		async filenameFor(checksum) {
-			return (await get<string>(INDEX, checksum)) ?? null;
-		},
-		remember: (checksum, filename) => put(INDEX, checksum, filename),
-		checksums: indexedChecksums,
-		forget: forgetIndexed
-	};
 }
 
 /* ------------------------------------------------------------- the folder */
@@ -321,22 +339,57 @@ function looksLikeRom(name: string): boolean {
 	return ROM_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
+/**
+ * Les ROMs du dossier, une par une, à mesure qu'elles sont hachées.
+ *
+ * Un générateur et non un tableau, parce que les deux appelants ne veulent pas
+ * la même chose : la resynchronisation veut tout le dossier, une recherche veut
+ * s'arrêter à la cartouche qu'elle cherche. Rendre un tableau forçait la
+ * seconde à payer la première.
+ *
+ * N'écrit rien : c'est l'appelant qui décide quoi retenir, et il le retient en
+ * une seule fois.
+ */
+async function* walkDirectory(
+	handle: FileSystemDirectoryHandle
+): AsyncGenerator<{ entry: LibraryEntry; bytes: Uint8Array }> {
+	const iterable = handle as unknown as AsyncIterable<[string, FileSystemHandle]>;
+
+	for await (const [name, child] of iterable) {
+		if (child.kind !== 'file' || !looksLikeRom(name)) continue;
+		const file = await (child as FileSystemFileHandle).getFile();
+		/*
+		 * Les octets sortent avec l'entrée, plutôt que d'être rejetés puis relus.
+		 *
+		 * Hacher un fichier veut dire le lire en entier et le dézipper ; un
+		 * appelant qui reconnaît la cartouche a déjà tout ce qu'il lui faut sous
+		 * la main, et rouvrir le fichier pour les mêmes octets était une seconde
+		 * lecture et une seconde décompression. Le générateur est paresseux, donc
+		 * une seule ROM est en mémoire à la fois : c'est l'appelant qui garde ce
+		 * qu'il veut garder.
+		 */
+		const bytes = await romBytes(file);
+		// Le checksum se calcule sur la forme normalisée, les octets RENDUS sont
+		// bruts : c'est ce que `tryRead` fait depuis toujours, et un en-tête de
+		// copieur retiré ici partirait vers le cœur sans que rien ne le dise.
+		yield {
+			entry: { checksum: crc32(normaliseRom(bytes)), filename: name, size: file.size },
+			bytes
+		};
+	}
+}
+
 /** Every ROM in the folder, with its checksum. */
 export async function scanDirectory(
 	handle: FileSystemDirectoryHandle,
 	index: FolderIndex = indexedDbFolderIndex()
 ): Promise<LibraryEntry[]> {
 	const entries: LibraryEntry[] = [];
-	const iterable = handle as unknown as AsyncIterable<[string, FileSystemHandle]>;
-
-	for await (const [name, child] of iterable) {
-		if (child.kind !== 'file' || !looksLikeRom(name)) continue;
-		const file = await (child as FileSystemFileHandle).getFile();
-		const checksum = await checksumOf(file);
-		entries.push({ checksum, filename: name, size: file.size });
-		// Remembered so the next launch opens one file instead of reading them all.
-		await index.remember(checksum, name);
-	}
+	for await (const { entry } of walkDirectory(handle)) entries.push(entry);
+	// Remembered so the next launch opens one file instead of reading them all.
+	// En une transaction : une par cartouche, c'était une connexion IndexedDB
+	// ouverte et refermée par cartouche. Et rien à retenir n'en ouvre aucune.
+	if (entries.length > 0) await index.remember(entries);
 	return entries;
 }
 
@@ -361,16 +414,36 @@ export async function readRomByChecksum(
 		}
 	}
 
-	const scanned = await scanDirectory(handle, index);
-	// Le nombre de fichiers lus, qui est ici la taille du dossier quelle que soit
-	// la cartouche cherchée : `scanDirectory` a tout lu et tout haché avant que
-	// la boucle ci-dessous ne regarde ce qu'elle cherchait.
-	costReporter?.({ path: 'scan', filesRead: scanned.length, ms: Date.now() - startedAt });
-
-	for (const entry of scanned) {
-		if (entry.checksum !== checksum) continue;
-		return tryRead(handle, entry.filename, checksum);
+	/*
+	 * Le repli s'arrête sur ce qu'il cherche.
+	 *
+	 * Il attendait auparavant le balayage COMPLET - `await scanDirectory(handle)`
+	 * - avant de seulement regarder ce qu'il avait trouvé, si bien que sa sortie
+	 * anticipée ne faisait rien gagner : tout le dossier était lu et haché même
+	 * quand la cartouche était la première. Sur un dossier de quarante ROMs,
+	 * c'est des dizaines de mégaoctets, sur le chemin du lancement d'un jeu.
+	 */
+	const walked: LibraryEntry[] = [];
+	let found: Uint8Array | null = null;
+	for await (const { entry, bytes } of walkDirectory(handle)) {
+		walked.push(entry);
+		if (entry.checksum === checksum) {
+			// Les octets que le hachage vient de lire, plutôt qu'une relecture :
+			// le checksum a été calculé sur EUX, donc la vérification que
+			// `tryRead` referait est déjà faite.
+			found = bytes;
+			break;
+		}
 	}
+	// Ce qui a été traversé a déjà été lu et haché : le retenir ne coûte que
+	// l'écriture, et c'est une seule pour tout le parcours.
+	if (walked.length > 0) await index.remember(walked);
+	// Le nombre de fichiers PARCOURUS est le chiffre qui dit si le repli
+	// s'arrête bien où il trouve : avant, il valait toujours la taille du
+	// dossier, quelle que soit la cartouche cherchée.
+	costReporter?.({ path: 'scan', filesRead: walked.length, ms: Date.now() - startedAt });
+
+	if (found) return found;
 
 	// Ni le nom mémorisé ni un scan complet n'ont trouvé ce jeu : l'entrée
 	// d'index est périmée. La retirer ici corrige la bibliothèque au seul moment

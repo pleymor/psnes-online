@@ -34,7 +34,7 @@ function toLink(row: LinkRow): MetadataLink {
 }
 
 export function findLinkByChecksum(db: Database, crc32: string): MetadataLink | null {
-  const row = db.prepare(`SELECT * FROM "GameMetadataChecksum" WHERE crc32 = ?`)
+  const row = db.query(`SELECT * FROM "GameMetadataChecksum" WHERE crc32 = ?`)
     .get(crc32) as LinkRow | undefined;
   return row ? toLink(row) : null;
 }
@@ -60,7 +60,7 @@ export function claimChecksum(
 	input: { crc32: string; metadataId: string; contributedBy: string | null }
 ): MetadataLink {
 	const now = Date.now();
-	db.prepare(`
+	db.query(`
 		INSERT INTO "GameMetadataChecksum" (crc32, metadataId, contributedBy, createdAt)
 		VALUES (@crc32, @metadataId, @contributedBy, @now)
 		ON CONFLICT(crc32) DO UPDATE SET

@@ -43,12 +43,12 @@ function toUser(row: UserRow): User {
 const SELECT = `SELECT * FROM "User"`;
 
 export function findUserById(db: Database, id: string): User | null {
-  const row = db.prepare(`${SELECT} WHERE id = ?`).get(id) as UserRow | undefined;
+  const row = db.query(`${SELECT} WHERE id = ?`).get(id) as UserRow | undefined;
   return row ? toUser(row) : null;
 }
 
 export function findUserByGoogleId(db: Database, googleId: string): User | null {
-  const row = db.prepare(`${SELECT} WHERE googleId = ?`).get(googleId) as UserRow | undefined;
+  const row = db.query(`${SELECT} WHERE googleId = ?`).get(googleId) as UserRow | undefined;
   return row ? toUser(row) : null;
 }
 
@@ -65,7 +65,7 @@ export function findUserByHandle(
   pseudo: string,
   discriminator: string
 ): User | null {
-  const row = db.prepare(
+  const row = db.query(
     `${SELECT} WHERE pseudo = ? COLLATE NOCASE AND discriminator = ?`
   ).get(pseudo, discriminator) as UserRow | undefined;
   return row ? toUser(row) : null;
@@ -93,7 +93,7 @@ export function allocateDiscriminator(
   random: () => number = Math.random
 ): string {
   const taken = new Set(
-    (db.prepare(`SELECT discriminator FROM "User" WHERE pseudo = ? COLLATE NOCASE`)
+    (db.query(`SELECT discriminator FROM "User" WHERE pseudo = ? COLLATE NOCASE`)
       .all(pseudo) as { discriminator: string }[]).map(r => r.discriminator)
   );
 
@@ -130,7 +130,7 @@ export function claimPseudo(
   for (let attempt = 0; attempt < 3; attempt++) {
     const discriminator = allocateDiscriminator(db, pseudo, random);
     try {
-      db.prepare(`
+      db.query(`
         UPDATE "User"
            SET pseudo = ?, discriminator = ?, pseudoChosenAt = ?, updatedAt = ?
          WHERE id = ?
@@ -227,7 +227,7 @@ function insertWithFreeHandle(
     const pseudo = input.pseudo ?? AUTO_PSEUDO_WORDS[Math.floor(random() * AUTO_PSEUDO_WORDS.length)];
     const discriminator = allocateDiscriminator(db, pseudo, random);
     try {
-      db.prepare(`
+      db.query(`
         INSERT INTO "User" (id, googleId, isAnonymous, pseudo, discriminator, pseudoChosenAt, avatar, controlsConfig, createdAt, updatedAt)
         VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)
       `).run(id, input.googleId, input.isAnonymous ? 1 : 0, pseudo, discriminator, input.avatar, now, now);
@@ -252,7 +252,7 @@ function insertWithFreeHandle(
  * Renvoie s'il y avait bien une session anonyme à effacer.
  */
 export function deleteAnonymousUser(db: Database, id: string): boolean {
-  const info = db.prepare(`DELETE FROM "User" WHERE id = ? AND isAnonymous = 1`).run(id);
+  const info = db.query(`DELETE FROM "User" WHERE id = ? AND isAnonymous = 1`).run(id);
   return info.changes > 0;
 }
 
@@ -270,7 +270,7 @@ export function deleteAnonymousUser(db: Database, id: string): boolean {
  * pas une session.
  */
 export function sweepAnonymousUsers(db: Database, olderThan: Date): number {
-  return db.prepare(`DELETE FROM "User" WHERE isAnonymous = 1 AND createdAt < ?`)
+  return db.query(`DELETE FROM "User" WHERE isAnonymous = 1 AND createdAt < ?`)
     .run(olderThan.getTime()).changes;
 }
 
@@ -282,7 +282,7 @@ export function sweepAnonymousUsers(db: Database, olderThan: Date): number {
  * the pseudonym belongs to the player, and a login must never overwrite it.
  */
 export function updateUserAvatar(db: Database, id: string, avatar: string | null): User {
-  db.prepare(`UPDATE "User" SET avatar = ?, updatedAt = ? WHERE id = ?`)
+  db.query(`UPDATE "User" SET avatar = ?, updatedAt = ? WHERE id = ?`)
     .run(avatar, Date.now(), id);
   return findUserById(db, id)!;
 }
@@ -319,7 +319,7 @@ export function upsertDevUser(
   }
 ): User {
   const now = Date.now();
-  db.prepare(`
+  db.query(`
     INSERT INTO "User" (id, googleId, pseudo, discriminator, pseudoChosenAt, avatar, controlsConfig, createdAt, updatedAt)
     VALUES (@id, @googleId, @pseudo, @discriminator, @pseudoChosenAt, @avatar, NULL, @now, @now)
     ON CONFLICT(id) DO UPDATE SET
@@ -333,7 +333,7 @@ export function upsertDevUser(
 }
 
 export function findControlsConfig(db: Database, userId: string): string | null {
-  const row = db.prepare(`SELECT controlsConfig FROM "User" WHERE id = ?`)
+  const row = db.query(`SELECT controlsConfig FROM "User" WHERE id = ?`)
     .get(userId) as { controlsConfig: string | null } | undefined;
   return row?.controlsConfig ?? null;
 }
@@ -349,7 +349,7 @@ export function findControlsConfig(db: Database, userId: string): string | null 
  * is gone.
  */
 export function updateControlsConfig(db: Database, userId: string, json: string): void {
-  db.prepare(`UPDATE "User" SET controlsConfig = ?, updatedAt = ? WHERE id = ?`)
+  db.query(`UPDATE "User" SET controlsConfig = ?, updatedAt = ? WHERE id = ?`)
     .run(json, Date.now(), userId);
 }
 

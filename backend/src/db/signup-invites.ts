@@ -68,7 +68,7 @@ export function mintInvite(
   db: Database, inviterId: string, opts: { grantedByCli?: boolean } = {}
 ): SignupInvite {
   const id = randomUUID();
-  db.prepare(
+  db.query(
     `INSERT INTO "SignupInvite" (id, code, inviterId, inviteeId, grantedByCli, createdAt, usedAt, revokedAt)
      VALUES (@id, @code, @inviterId, NULL, @grantedByCli, @createdAt, NULL, NULL)`
   ).run({
@@ -82,17 +82,17 @@ export function mintInvite(
 }
 
 export function findInviteById(db: Database, id: string): SignupInvite | null {
-  const row = db.prepare(`${SELECT} WHERE id = ?`).get(id) as SignupInviteRow | undefined;
+  const row = db.query(`${SELECT} WHERE id = ?`).get(id) as SignupInviteRow | undefined;
   return row ? toInvite(row) : null;
 }
 
 export function findInviteByCode(db: Database, code: string): SignupInvite | null {
-  const row = db.prepare(`${SELECT} WHERE code = ?`).get(code) as SignupInviteRow | undefined;
+  const row = db.query(`${SELECT} WHERE code = ?`).get(code) as SignupInviteRow | undefined;
   return row ? toInvite(row) : null;
 }
 
 export function listInvitesOf(db: Database, inviterId: string): SignupInvite[] {
-  const rows = db.prepare(
+  const rows = db.query(
     `${SELECT} WHERE inviterId = ? AND revokedAt IS NULL ORDER BY createdAt`
   ).all(inviterId) as SignupInviteRow[];
   return rows.map(toInvite);
@@ -105,7 +105,7 @@ export function listInvitesOf(db: Database, inviterId: string): SignupInvite[] {
  * premier chemin qui oublie de la décrémenter, et rien ne le dirait.
  */
 export function countChargedInvites(db: Database, inviterId: string): number {
-  const row = db.prepare(
+  const row = db.query(
     `SELECT COUNT(*) AS n FROM "SignupInvite"
       WHERE inviterId = ? AND grantedByCli = 0 AND revokedAt IS NULL`
   ).get(inviterId) as { n: number };
@@ -114,13 +114,13 @@ export function countChargedInvites(db: Database, inviterId: string): number {
 
 /** Ne révoque qu'un lien non consommé : une place occupée ne se rend pas. */
 export function revokeInvite(db: Database, id: string): void {
-  db.prepare(
+  db.query(
     `UPDATE "SignupInvite" SET revokedAt = @now WHERE id = @id AND usedAt IS NULL`
   ).run({ id, now: Date.now() });
 }
 
 export function consumeInvite(db: Database, id: string, inviteeId: string): void {
-  db.prepare(
+  db.query(
     `UPDATE "SignupInvite" SET usedAt = @now, inviteeId = @inviteeId
       WHERE id = @id AND usedAt IS NULL AND revokedAt IS NULL`
   ).run({ id, inviteeId, now: Date.now() });
@@ -136,7 +136,7 @@ export function consumeInvite(db: Database, id: string, inviteeId: string): void
  * fermer la porte à quatre vrais joueurs.
  */
 export function countAccounts(db: Database): number {
-  const row = db.prepare(
+  const row = db.query(
     `SELECT COUNT(*) AS n FROM "User" WHERE isAnonymous = 0`
   ).get() as { n: number };
   return row.n;

@@ -49,16 +49,16 @@ export function exportableLibrary(
   gameId?: string
 ): ExportableGame[] {
   const rows = (gameId
-    ? db.prepare(
+    ? db.query(
         `SELECT id, crc32, title, filename, sram, sramUpdatedAt
          FROM "Game" WHERE userId = ? AND id = ? AND crc32 IS NOT NULL`
       ).all(userId, gameId)
-    : db.prepare(
+    : db.query(
         `SELECT id, crc32, title, filename, sram, sramUpdatedAt
          FROM "Game" WHERE userId = ? AND crc32 IS NOT NULL ORDER BY title`
       ).all(userId)) as ExportRow[];
 
-  const saves = db.prepare(
+  const saves = db.query(
     `SELECT name, slotNumber, data, screenshot, createdAt, updatedAt
      FROM "Save" WHERE gameId = ? ORDER BY slotNumber`
   );
@@ -114,10 +114,10 @@ export interface ImportReport {
 }
 
 function existingStateOf(db: Database, gameId: string): ExistingGameState {
-  const saves = db.prepare(
+  const saves = db.query(
     `SELECT name, slotNumber, createdAt FROM "Save" WHERE gameId = ?`
   ).all(gameId) as { name: string; slotNumber: number; createdAt: number }[];
-  const row = db.prepare(`SELECT sram IS NOT NULL AS hasSram FROM "Game" WHERE id = ?`)
+  const row = db.query(`SELECT sram IS NOT NULL AS hasSram FROM "Game" WHERE id = ?`)
     .get(gameId) as { hasSram: number } | undefined;
 
   return {
@@ -150,19 +150,19 @@ export function applyImport(
 ): ImportReport {
   const ceiling = options.maxGames ?? MAX_GAMES_PER_USER;
 
-  const findByChecksum = db.prepare(`SELECT id FROM "Game" WHERE userId = ? AND crc32 = ?`);
-  const countGames = db.prepare(`SELECT COUNT(*) AS n FROM "Game" WHERE userId = ?`);
-  const insertGame = db.prepare(`
+  const findByChecksum = db.query(`SELECT id FROM "Game" WHERE userId = ? AND crc32 = ?`);
+  const countGames = db.query(`SELECT COUNT(*) AS n FROM "Game" WHERE userId = ?`);
+  const insertGame = db.query(`
     INSERT INTO "Game" (id, title, filename, coverUrl, uploadedAt, genre, publisher,
                         developer, releaseDate, players, region, description, crc32,
                         sram, sramUpdatedAt, userId)
     VALUES (?, ?, ?, NULL, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, NULL, NULL, ?)
   `);
-  const insertSave = db.prepare(`
+  const insertSave = db.query(`
     INSERT INTO "Save" (id, name, slotNumber, data, screenshot, createdAt, updatedAt, gameId)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const writeSram = db.prepare(`UPDATE "Game" SET sram = ?, sramUpdatedAt = ? WHERE id = ? AND userId = ?`);
+  const writeSram = db.query(`UPDATE "Game" SET sram = ?, sramUpdatedAt = ? WHERE id = ? AND userId = ?`);
 
   const run = db.transaction((): ImportReport => {
     const report: ImportReport = {

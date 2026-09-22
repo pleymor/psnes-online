@@ -92,7 +92,7 @@ function toWithProfiles(row: Record<string, unknown>): FriendshipWithProfiles {
 }
 
 export function listAcceptedFriendshipsFor(db: Database, userId: string): Friendship[] {
-  const rows = db.prepare(`
+  const rows = db.query(`
     SELECT * FROM "Friendship"
     WHERE (initiatorId = ? OR receiverId = ?) AND status = 'accepted'
   `).all(userId, userId) as FriendshipRow[];
@@ -103,7 +103,7 @@ export function listAcceptedFriendshipsWithProfiles(
   db: Database,
   userId: string
 ): FriendshipWithProfiles[] {
-  const rows = db.prepare(`
+  const rows = db.query(`
     ${BOTH_PROFILES}
     WHERE (f.initiatorId = ? OR f.receiverId = ?) AND f.status = 'accepted'
   `).all(userId, userId) as Record<string, unknown>[];
@@ -111,7 +111,7 @@ export function listAcceptedFriendshipsWithProfiles(
 }
 
 export function listPendingRequestsFor(db: Database, userId: string): FriendshipWithInitiator[] {
-  const rows = db.prepare(`
+  const rows = db.query(`
     SELECT f.*, ${USER_COLUMNS('i', 'i')}
     FROM "Friendship" f
     JOIN "User" i ON i.id = f.initiatorId
@@ -124,19 +124,19 @@ export function listFriendshipPairsFor(
   db: Database,
   userId: string
 ): { initiatorId: string; receiverId: string; status: string }[] {
-  return db.prepare(`
+  return db.query(`
     SELECT initiatorId, receiverId, status FROM "Friendship"
     WHERE initiatorId = ? OR receiverId = ?
   `).all(userId, userId) as { initiatorId: string; receiverId: string; status: string }[];
 }
 
 export function findFriendshipById(db: Database, id: string): Friendship | null {
-  const row = db.prepare(`SELECT * FROM "Friendship" WHERE id = ?`).get(id) as FriendshipRow | undefined;
+  const row = db.query(`SELECT * FROM "Friendship" WHERE id = ?`).get(id) as FriendshipRow | undefined;
   return row ? toFriendship(row) : null;
 }
 
 export function findFriendshipBetween(db: Database, a: string, b: string): Friendship | null {
-  const row = db.prepare(`
+  const row = db.query(`
     SELECT * FROM "Friendship"
     WHERE (initiatorId = ? AND receiverId = ?) OR (initiatorId = ? AND receiverId = ?)
   `).get(a, b, b, a) as FriendshipRow | undefined;
@@ -144,7 +144,7 @@ export function findFriendshipBetween(db: Database, a: string, b: string): Frien
 }
 
 function findWithProfiles(db: Database, id: string): FriendshipWithProfiles {
-  const row = db.prepare(`${BOTH_PROFILES} WHERE f.id = ?`).get(id) as Record<string, unknown>;
+  const row = db.query(`${BOTH_PROFILES} WHERE f.id = ?`).get(id) as Record<string, unknown>;
   return toWithProfiles(row);
 }
 
@@ -155,7 +155,7 @@ export function createFriendshipRequest(
 ): FriendshipWithProfiles {
   const id = randomUUID();
   const now = Date.now();
-  db.prepare(`
+  db.query(`
     INSERT INTO "Friendship" (id, status, createdAt, updatedAt, initiatorId, receiverId)
     VALUES (?, 'pending', ?, ?, ?, ?)
   `).run(id, now, now, initiatorId, receiverId);
@@ -163,11 +163,11 @@ export function createFriendshipRequest(
 }
 
 export function acceptFriendship(db: Database, id: string): FriendshipWithProfiles {
-  db.prepare(`UPDATE "Friendship" SET status = 'accepted', updatedAt = ? WHERE id = ?`)
+  db.query(`UPDATE "Friendship" SET status = 'accepted', updatedAt = ? WHERE id = ?`)
     .run(Date.now(), id);
   return findWithProfiles(db, id);
 }
 
 export function deleteFriendship(db: Database, id: string): void {
-  db.prepare(`DELETE FROM "Friendship" WHERE id = ?`).run(id);
+  db.query(`DELETE FROM "Friendship" WHERE id = ?`).run(id);
 }

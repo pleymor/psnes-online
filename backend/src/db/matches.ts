@@ -56,7 +56,7 @@ export function recordMatch(db: Database, match: MatchInsert): RecordOutcome {
     // Lecture avant écriture plutôt qu'un INSERT OR IGNORE : celui-ci
     // avalerait aussi une violation de clé étrangère, donc un vrai défaut.
     // L'index unique reste la garantie ; ceci est le chemin.
-    const existing = db.prepare(
+    const existing = db.query(
       `SELECT winner FROM "Match" WHERE sessionId = ? AND frame = ?`
     ).get(match.sessionId, match.frame) as { winner: number } | undefined;
 
@@ -66,7 +66,7 @@ export function recordMatch(db: Database, match: MatchInsert): RecordOutcome {
         : { kind: 'disagreement', stored: existing.winner as 0 | 1 | 2 };
     }
 
-    db.prepare(`
+    db.query(`
       INSERT INTO "Match" (id, playedAt, gameCrc32, roomId, sessionId, frame,
                            p1UserId, p2UserId, winner, p1Health, p2Health)
       VALUES (@id, @playedAt, @gameCrc32, @roomId, @sessionId, @frame,
@@ -90,15 +90,15 @@ export function recordMatch(db: Database, match: MatchInsert): RecordOutcome {
  * rend le résultat indépendant de la route qu'ont prise les rapports.
  */
 function recomputeRatings(db: Database, gameCrc32: string): void {
-  const played = db.prepare(`
+  const played = db.query(`
     SELECT p1UserId, p2UserId, winner FROM "Match"
     WHERE gameCrc32 = ? AND p1UserId IS NOT NULL AND p2UserId IS NOT NULL
     ORDER BY playedAt, frame
   `).all(gameCrc32) as PlayedMatch[];
 
-  db.prepare(`DELETE FROM "Rating" WHERE gameCrc32 = ?`).run(gameCrc32);
+  db.query(`DELETE FROM "Rating" WHERE gameCrc32 = ?`).run(gameCrc32);
 
-  const insert = db.prepare(`
+  const insert = db.query(`
     INSERT INTO "Rating" (userId, gameCrc32, rating, matches) VALUES (?, ?, ?, ?)
   `);
   for (const [userId, standing] of fold(played)) {
@@ -115,7 +115,7 @@ function recomputeRatings(db: Database, gameCrc32: string): void {
  * partagée avec la formule, pas une ligne fantôme à pré-créer.
  */
 export function ratingFor(db: Database, userId: string, gameCrc32: string): number {
-  const row = db.prepare(
+  const row = db.query(
     `SELECT rating FROM "Rating" WHERE userId = ? AND gameCrc32 = ?`
   ).get(userId, gameCrc32) as { rating: number } | undefined;
   return row?.rating ?? INITIAL_RATING;
@@ -166,7 +166,7 @@ export interface PlayerStanding {
 export function rankingFor(
   db: Database, gameCrc32: string, limit: number, offset: number
 ): RankedPlayer[] {
-  return db.prepare(`
+  return db.query(`
     SELECT r.userId, u.pseudo, u.discriminator, u.avatar, r.rating, r.matches
     FROM "Rating" r
     JOIN "User" u ON u.id = r.userId
@@ -200,6 +200,9 @@ export function standingsOf(
   // plus honnête que de fabriquer un marqueur qui ne correspond à personne.
   if (userIds.length === 0) return [];
   const marks = userIds.map(() => '?').join(', ');
+  // `prepare` et non `query` : le nombre de marqueurs varie, donc le cache de
+  // `query` retiendrait une variante par nombre de joueurs demandés. Voir la
+  // même note dans `games.ts`.
   const rows = db.prepare(`
     SELECT u.id AS userId, u.pseudo, u.discriminator, u.avatar, u.isAnonymous,
            r.rating, r.matches
@@ -249,7 +252,7 @@ export interface PlayedRow {
 export function recentMatches(
   db: Database, gameCrc32: string, limit: number, offset: number
 ): PlayedRow[] {
-  const rows = db.prepare(`
+  const rows = db.query(`
     SELECT m.id, m.playedAt, m.winner, m.p1Health, m.p2Health,
            m.p1UserId, u1.pseudo AS p1Pseudo, u1.discriminator AS p1Disc,
            m.p2UserId, u2.pseudo AS p2Pseudo, u2.discriminator AS p2Disc

@@ -53,7 +53,7 @@ export function createInvitation(
   // le reste du dépôt met des millisecondes epoch, et SQLite étant typé
   // dynamiquement personne ne s'en plaindrait avant que la comparaison de
   // dates soit fausse.
-  db.prepare(
+  db.query(
     `INSERT INTO "RoomInvitation" (id, roomId, fromUserId, toUserId, status, createdAt, expiresAt)
      VALUES (?, ?, ?, ?, 'pending', ?, ?)`
   ).run(id, roomId, fromUserId, toUserId, Date.now(), expiresAt.getTime());
@@ -63,14 +63,14 @@ export function createInvitation(
 }
 
 export function findInvitationById(db: Database, id: string): Invitation | null {
-  const row = db.prepare(`SELECT * FROM "RoomInvitation" WHERE id = ?`)
+  const row = db.query(`SELECT * FROM "RoomInvitation" WHERE id = ?`)
     .get(id) as InvitationRow | undefined;
   return row ? toInvitation(row) : null;
 }
 
 /** Les invitations encore en attente pour ce joueur, les plus récentes d'abord. */
 export function listPendingInvitationsFor(db: Database, userId: string): Invitation[] {
-  const rows = db.prepare(
+  const rows = db.query(
     `SELECT * FROM "RoomInvitation" WHERE toUserId = ? AND status = 'pending' ORDER BY createdAt DESC`
   ).all(userId) as InvitationRow[];
   return rows.map(toInvitation);
@@ -87,7 +87,7 @@ export function listPendingInvitationsFor(db: Database, userId: string): Invitat
  * bloquer la suivante.
  */
 export function listPendingInvitationsForRoom(db: Database, roomId: string): Invitation[] {
-  const rows = db.prepare(
+  const rows = db.query(
     `SELECT * FROM "RoomInvitation" WHERE roomId = ? AND status = 'pending' ORDER BY createdAt DESC`
   ).all(roomId) as InvitationRow[];
   return rows.map(toInvitation);
@@ -101,7 +101,7 @@ export function listPendingInvitationsForRoom(db: Database, roomId: string): Inv
  * délai n'est pas une invitation.
  */
 export function refreshInvitationDeadline(db: Database, id: string, expiresAt: Date): Invitation {
-  db.prepare(`UPDATE "RoomInvitation" SET expiresAt = ? WHERE id = ?`)
+  db.query(`UPDATE "RoomInvitation" SET expiresAt = ? WHERE id = ?`)
     .run(expiresAt.getTime(), id);
   const refreshed = findInvitationById(db, id);
   if (!refreshed) throw new Error('the invitation vanished while its deadline moved');
@@ -109,12 +109,12 @@ export function refreshInvitationDeadline(db: Database, id: string, expiresAt: D
 }
 
 export function markInvitation(db: Database, id: string, status: InvitationStatus): void {
-  db.prepare(`UPDATE "RoomInvitation" SET status = ? WHERE id = ?`).run(status, id);
+  db.query(`UPDATE "RoomInvitation" SET status = ? WHERE id = ?`).run(status, id);
 }
 
 /** Appelée quand un salon meurt : ses invitations n'ont plus de cible. */
 export function deleteInvitationsForRoom(db: Database, roomId: string): void {
-  db.prepare(`DELETE FROM "RoomInvitation" WHERE roomId = ?`).run(roomId);
+  db.query(`DELETE FROM "RoomInvitation" WHERE roomId = ?`).run(roomId);
 }
 
 /**
@@ -132,6 +132,6 @@ export function deleteInvitationsForRoom(db: Database, roomId: string): void {
  * deux se contrediraient. Et `now` est un paramètre pour la même raison.
  */
 export function deleteExpiredInvitations(db: Database, now: Date): number {
-  return db.prepare(`DELETE FROM "RoomInvitation" WHERE expiresAt <= ?`)
+  return db.query(`DELETE FROM "RoomInvitation" WHERE expiresAt <= ?`)
     .run(now.getTime()).changes;
 }

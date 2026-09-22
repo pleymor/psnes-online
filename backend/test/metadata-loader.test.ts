@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { openDatabase, getDb, forgetDbForTest } from '../src/db/sqlite.js';
 import { migrate } from '../src/db/migrate.js';
 import { countGameMetadata, listGameMetadata } from '../src/db/game-metadata.js';
-import { refreshGameMetadata } from '../src/services/metadata-loader.js';
+import { refreshGameMetadata, findGameMetadata } from '../src/services/metadata-loader.js';
 
 /**
  * `refreshGameMetadata` reads `DATABASE_URL` through the same `getDb()`
@@ -91,4 +91,78 @@ test('a refresh whose batch insert fails partway through leaves the previous cat
   assert.equal(countGameMetadata(db), 1,
     'a mid-batch failure must roll back to the previous catalogue, not an empty table');
   assert.equal(listGameMetadata(db)[0].title, 'Super Metroid');
+});
+
+/*
+ * Ce que `findGameMetadata` répond, épinglé avant de changer comment il le
+ * trouve.
+ *
+ * Il balayait le catalogue deux fois en renormalisant chaque fiche à chaque
+ * passage ; il lit maintenant l'index de `catalogue-index.ts`. Ces tests ne
+ * décrivent donc aucune nouveauté - ils décrivent la réponse d'AVANT, pour
+ * qu'un changement silencieux soit impossible. Ce qui se joue derrière est la
+ * fiche qu'un dump se voit attribuer : une autre, et le joueur hérite du
+ * mauvais titre, de la mauvaise jaquette et du mauvais classement.
+ */
+
+test('un nom de fichier retrouve la fiche par son titre normalisé', async () => {
+  await refreshGameMetadata(writeCatalogue([{ title: 'Super Metroid' }]));
+
+  const found = await findGameMetadata('Super Metroid (USA).sfc');
+
+  assert.equal(found?.title, 'Super Metroid');
+});
+
+test("l'alt-titre retrouve la fiche aussi", async () => {
+  await refreshGameMetadata(writeCatalogue([
+    { title: 'ActRaiser', altTitle: 'アクトレイザー' }
+  ]));
+
+  assert.equal((await findGameMetadata('アクトレイザー'))?.title, 'ActRaiser');
+});
+
+test('la correspondance exacte passe devant une simple mention, où qu\'elle soit', async () => {
+  // L'ancienne forme faisait la passe exacte sur TOUT le catalogue avant
+  // d'essayer la passe partielle. La mention vient en premier dans le
+  // catalogue et doit quand même perdre.
+  await refreshGameMetadata(writeCatalogue([
+    { title: 'The Legend of Super Metroid' },
+    { title: 'Super Metroid' }
+  ]));
+
+  assert.equal((await findGameMetadata('Super Metroid'))?.title, 'Super Metroid');
+});
+
+test("à défaut d'exact, une correspondance partielle fait l'affaire", async () => {
+  await refreshGameMetadata(writeCatalogue([{ title: 'Super Metroid Redux' }]));
+
+  assert.equal((await findGameMetadata('Super Metroid'))?.title, 'Super Metroid Redux');
+});
+
+test('un titre que le catalogue ne connaît pas rend null', async () => {
+  await refreshGameMetadata(writeCatalogue([{ title: 'Super Metroid' }]));
+
+  assert.equal(await findGameMetadata('Pilotwings'), null);
+});
+
+test('à titre normalisé identique, la première fiche du catalogue gagne', async () => {
+  await refreshGameMetadata(writeCatalogue([
+    { title: 'Super Metroid', crc32: 'AAAAAAAA' },
+    { title: 'Super Metroid (USA)', crc32: 'BBBBBBBB' }
+  ]));
+
+  assert.equal((await findGameMetadata('Super Metroid'))?.crc32, 'AAAAAAAA');
+});
+
+test('un catalogue rafraîchi est vu tout de suite', async () => {
+  // Le garde du cache d'index : il est claveté sur le TABLEAU rendu par
+  // `cachedCatalogue`, et un rafraîchissement en fabrique un neuf. Si jamais
+  // l'index se mettait à survivre à son catalogue, c'est ici que ça se verrait.
+  await refreshGameMetadata(writeCatalogue([{ title: 'Super Metroid' }]));
+  assert.equal((await findGameMetadata('Super Metroid'))?.title, 'Super Metroid');
+
+  await refreshGameMetadata(writeCatalogue([{ title: 'Pilotwings' }]));
+
+  assert.equal(await findGameMetadata('Super Metroid'), null);
+  assert.equal((await findGameMetadata('Pilotwings'))?.title, 'Pilotwings');
 });

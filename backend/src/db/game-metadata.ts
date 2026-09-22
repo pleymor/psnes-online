@@ -99,8 +99,8 @@ function normalise(entry: GameMetadataInput): GameMetadataInput {
 
 export function countGameMetadata(db: Database, source?: MetadataSource): number {
   const row = source
-    ? db.prepare(`SELECT COUNT(*) AS n FROM "GameMetadata" WHERE source = ?`).get(source)
-    : db.prepare(`SELECT COUNT(*) AS n FROM "GameMetadata"`).get();
+    ? db.query(`SELECT COUNT(*) AS n FROM "GameMetadata" WHERE source = ?`).get(source)
+    : db.query(`SELECT COUNT(*) AS n FROM "GameMetadata"`).get();
   return (row as { n: number }).n;
 }
 
@@ -112,7 +112,7 @@ export function countGameMetadata(db: Database, source?: MetadataSource): number
  * turns that from 94 fsyncs into one.
  */
 export function insertGameMetadataBatch(db: Database, entries: GameMetadataInput[]): number {
-  const statement = db.prepare(INSERT);
+  const statement = db.query(INSERT);
   const now = Date.now();
   const run = db.transaction((rows: GameMetadataInput[]) => {
     for (const entry of rows) {
@@ -147,12 +147,12 @@ export function insertGameMetadataBatch(db: Database, entries: GameMetadataInput
  * regenerated from anything.
  */
 export function syncCatalogue(db: Database, entries: GameMetadataInput[]): void {
-  const existing = db.prepare(`
+  const existing = db.query(`
     SELECT id, title, cover IS NOT NULL AS hasCover FROM "GameMetadata" WHERE source = 'catalogue'
   `).all() as { id: string; title: string; hasCover: number }[];
   const byTitle = new Map(existing.map(row => [row.title, row]));
 
-  const update = db.prepare(`
+  const update = db.query(`
     UPDATE "GameMetadata"
        SET altTitle = @altTitle, genre = @genre, publisher = @publisher,
            developer = @developer, releaseDate = @releaseDate, players = @players,
@@ -163,7 +163,7 @@ export function syncCatalogue(db: Database, entries: GameMetadataInput[]): void 
   // Two statements rather than one with a CASE: the cover columns are the
   // whole difference, and a row the player has illustrated must not have its
   // `coverUrl` rewritten to the file's.
-  const updateWithCover = db.prepare(`
+  const updateWithCover = db.query(`
     UPDATE "GameMetadata"
        SET altTitle = @altTitle, genre = @genre, publisher = @publisher,
            developer = @developer, releaseDate = @releaseDate, players = @players,
@@ -171,8 +171,8 @@ export function syncCatalogue(db: Database, entries: GameMetadataInput[]): void 
            coverUrl = @coverUrl, updatedAt = @now
      WHERE id = @id
   `);
-  const insert = db.prepare(INSERT);
-  const remove = db.prepare(`DELETE FROM "GameMetadata" WHERE id = ?`);
+  const insert = db.query(INSERT);
+  const remove = db.query(`DELETE FROM "GameMetadata" WHERE id = ?`);
 
   const now = Date.now();
   const seen = new Set<string>();
@@ -200,12 +200,12 @@ export function syncCatalogue(db: Database, entries: GameMetadataInput[]): void 
 }
 
 export function listGameMetadata(db: Database): GameMetadata[] {
-  const rows = db.prepare(`SELECT ${COLUMNS} FROM "GameMetadata"`).all() as MetadataRow[];
+  const rows = db.query(`SELECT ${COLUMNS} FROM "GameMetadata"`).all() as MetadataRow[];
   return rows.map(toMetadata);
 }
 
 export function findGameMetadataByChecksum(db: Database, checksum: string): GameMetadata | null {
-  const row = db.prepare(`SELECT ${COLUMNS} FROM "GameMetadata" WHERE crc32 = ? OR md5 = ?`)
+  const row = db.query(`SELECT ${COLUMNS} FROM "GameMetadata" WHERE crc32 = ? OR md5 = ?`)
     .get(checksum, checksum) as MetadataRow | undefined;
   return row ? toMetadata(row) : null;
 }
@@ -233,7 +233,7 @@ export interface CommunityEntryInput {
 }
 
 export function findGameMetadataById(db: Database, id: string): GameMetadata | null {
-  const row = db.prepare(`SELECT ${COLUMNS} FROM "GameMetadata" WHERE id = ?`)
+  const row = db.query(`SELECT ${COLUMNS} FROM "GameMetadata" WHERE id = ?`)
     .get(id) as MetadataRow | undefined;
   return row ? toMetadata(row) : null;
 }
@@ -252,7 +252,7 @@ export function insertCommunityMetadata(
 ): GameMetadata {
   const id = randomUUID();
   const now = Date.now();
-  db.prepare(`
+  db.query(`
     INSERT INTO "GameMetadata" (id, title, altTitle, genre, publisher, developer,
                                 releaseDate, players, region, description, coverUrl,
                                 crc32, md5, source, contributedBy, createdAt, updatedAt)
@@ -286,7 +286,7 @@ export function updateCommunityMetadata(
   id: string,
   entry: CommunityEntryInput
 ): GameMetadata | null {
-  const changed = db.prepare(`
+  const changed = db.query(`
     UPDATE "GameMetadata"
        SET title = @title, altTitle = @altTitle, genre = @genre,
            publisher = @publisher, developer = @developer,
@@ -310,7 +310,7 @@ export function updateCommunityMetadata(
 export function setCover(db: Database, metadataId: string, bytes: Buffer, mime: string): string {
   const now = Date.now();
   const coverUrl = `/api/covers/${metadataId}?v=${now}`;
-  db.prepare(`UPDATE "GameMetadata" SET cover = ?, coverMime = ?, coverUrl = ?, updatedAt = ? WHERE id = ?`)
+  db.query(`UPDATE "GameMetadata" SET cover = ?, coverMime = ?, coverUrl = ?, updatedAt = ? WHERE id = ?`)
     .run(bytes, mime, coverUrl, now, metadataId);
   return coverUrl;
 }
@@ -322,13 +322,13 @@ export function setCover(db: Database, metadataId: string, bytes: Buffer, mime: 
  * file, and `syncCatalogue` rewrites it on every refresh.
  */
 export function setServedCover(db: Database, metadataId: string, url: string): void {
-  db.prepare(`UPDATE "GameMetadata" SET servedCoverUrl = ?, updatedAt = ? WHERE id = ?`)
+  db.query(`UPDATE "GameMetadata" SET servedCoverUrl = ?, updatedAt = ? WHERE id = ?`)
     .run(url, Date.now(), metadataId);
 }
 
 /** What a warming pass needs to decide, per row, without pulling any cover bytes into memory. */
 export function listCoverWork(db: Database): CoverWorkRow[] {
-  return db.prepare(`
+  return db.query(`
     SELECT id, title, coverUrl, servedCoverUrl, cover IS NOT NULL AS hasCover
       FROM "GameMetadata"
   `).all().map((row: any) => ({
@@ -369,6 +369,8 @@ export function servedCoversFor(db: Database, urls: readonly string[]): Map<stri
   const wanted = [...new Set(urls)];
   if (wanted.length === 0) return new Map();
 
+  // `prepare` et non `query` : le nombre de marqueurs varie avec le nombre de
+  // jaquettes demandées. Voir la même note dans `games.ts`.
   const rows = db.prepare(`
     SELECT coverUrl, servedCoverUrl FROM "GameMetadata"
      WHERE servedCoverUrl IS NOT NULL
@@ -380,7 +382,7 @@ export function servedCoversFor(db: Database, urls: readonly string[]): Map<stri
 
 /** The only path the cover bytes take out of the database. */
 export function findCover(db: Database, metadataId: string): { bytes: Buffer; mime: string } | null {
-  const row = db.prepare(`SELECT cover, coverMime FROM "GameMetadata" WHERE id = ?`)
+  const row = db.query(`SELECT cover, coverMime FROM "GameMetadata" WHERE id = ?`)
     .get(metadataId) as { cover: Uint8Array | null; coverMime: string | null } | undefined;
   if (!row || !row.cover || !row.coverMime) return null;
   return { bytes: asBuffer(row.cover), mime: row.coverMime };

@@ -33,7 +33,7 @@ function toSave(row: SaveRow): Save {
 }
 
 export function findSaveWithGame(db: Database, id: string): SaveWithGame | null {
-  const row = db.prepare(`
+  const row = db.query(`
     SELECT s.*,
       g.id AS g_id, g.title AS g_title, g.filename AS g_filename, g.coverUrl AS g_coverUrl,
       g.uploadedAt AS g_uploadedAt, g.genre AS g_genre, g.publisher AS g_publisher,
@@ -94,12 +94,12 @@ export function createSave(
 ): Save {
   const id = randomUUID();
   const now = Date.now();
-  db.prepare(`
+  db.query(`
     INSERT INTO "Save" (id, name, slotNumber, data, screenshot, createdAt, updatedAt, gameId)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, input.name, input.slotNumber, input.data, input.screenshot, now, now, input.gameId);
 
-  const row = db.prepare(`SELECT * FROM "Save" WHERE id = ?`).get(id) as SaveRow;
+  const row = db.query(`SELECT * FROM "Save" WHERE id = ?`).get(id) as SaveRow;
   return toSave(row);
 }
 
@@ -117,7 +117,7 @@ export function updateSaveData(
   data: Buffer,
   screenshot: string | null
 ): void {
-  db.prepare(`UPDATE "Save" SET name = ?, data = ?, screenshot = ?, updatedAt = ? WHERE id = ?`)
+  db.query(`UPDATE "Save" SET name = ?, data = ?, screenshot = ?, updatedAt = ? WHERE id = ?`)
     .run(name, data, screenshot, Date.now(), id);
 }
 
@@ -133,7 +133,7 @@ export function updateSaveData(
  * not the schema, and the only constraint here is uniqueness per game.
  */
 export function nextFreeSlot(db: Database, gameId: string): number {
-  const row = db.prepare(`SELECT MAX(slotNumber) AS highest FROM "Save" WHERE gameId = ?`)
+  const row = db.query(`SELECT MAX(slotNumber) AS highest FROM "Save" WHERE gameId = ?`)
     .get(gameId) as { highest: number | null };
   return (row.highest ?? 0) + 1;
 }
@@ -155,7 +155,7 @@ export interface SaveOwnership {
  * the savestate along, which is over 800KB.
  */
 export function findSaveOwnership(db: Database, saveId: string): SaveOwnership | null {
-  const row = db.prepare(`
+  const row = db.query(`
     SELECT g.userId AS ownerId, s.gameId AS gameId
     FROM "Save" s
     JOIN "Game" g ON g.id = s.gameId
@@ -178,5 +178,5 @@ export function findSaveOwnerId(db: Database, saveId: string): string | null {
  * did something it did not.
  */
 export function deleteSave(db: Database, id: string): boolean {
-  return db.prepare(`DELETE FROM "Save" WHERE id = ?`).run(id).changes > 0;
+  return db.query(`DELETE FROM "Save" WHERE id = ?`).run(id).changes > 0;
 }

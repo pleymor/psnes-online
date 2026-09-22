@@ -86,12 +86,12 @@ function toGame(row: GameRow): Game {
 }
 
 export function findGameById(db: Database, id: string): Game | null {
-  const row = db.prepare(`SELECT * FROM "Game" WHERE id = ?`).get(id) as GameRow | undefined;
+  const row = db.query(`SELECT * FROM "Game" WHERE id = ?`).get(id) as GameRow | undefined;
   return row ? toGame(row) : null;
 }
 
 export function listGamesFor(db: Database, userId: string): Game[] {
-  const rows = db.prepare(`SELECT * FROM "Game" WHERE userId = ?`).all(userId) as GameRow[];
+  const rows = db.query(`SELECT * FROM "Game" WHERE userId = ?`).all(userId) as GameRow[];
   return rows.map(toGame);
 }
 
@@ -104,7 +104,7 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
   // resolved on the way out rather than copied into the row at creation, so a
   // link posted today reaches a game added a month ago. A NULL g.crc32 matches
   // nothing, which is the right answer for a row that predates local ROMs.
-  const games = db.prepare(`
+  const games = db.query(`
     SELECT g.*,
            k.metadataId AS linkedMetadataId,
            m.altTitle AS metaAltTitle, m.source AS metaSource,
@@ -132,6 +132,11 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
   })[];
   if (games.length === 0) return [];
 
+  // `prepare` et non `query` : le nombre de marqueurs change avec la taille de
+  // la bibliothèque, donc chaque taille est un SQL différent. Le cache de
+  // `query` est claveté sur la chaîne, et il grossirait d'une entrée par taille
+  // rencontrée - jusqu'à cent, ici. Recompiler est moins cher que retenir cent
+  // variantes dont on ne réutilisera presque jamais la même.
   const summaries = db.prepare(`
     SELECT id, name, slotNumber, screenshot, createdAt, updatedAt, gameId
     FROM "Save" WHERE gameId IN (${games.map(() => '?').join(',')})
@@ -206,7 +211,7 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
 export function findGameWithSaves(db: Database, id: string): GameWithSaves | null {
   const game = findGameById(db, id);
   if (!game) return null;
-  const rows = db.prepare(`SELECT * FROM "Save" WHERE gameId = ?`).all(id) as {
+  const rows = db.query(`SELECT * FROM "Save" WHERE gameId = ?`).all(id) as {
     id: string; name: string; slotNumber: number; data: Uint8Array; screenshot: string | null;
     createdAt: number; updatedAt: number; gameId: string;
   }[];
@@ -226,7 +231,7 @@ export function findGameWithSaves(db: Database, id: string): GameWithSaves | nul
 }
 
 export function findGameByChecksum(db: Database, userId: string, crc32: string): Game | null {
-  const row = db.prepare(`SELECT * FROM "Game" WHERE userId = ? AND crc32 = ?`)
+  const row = db.query(`SELECT * FROM "Game" WHERE userId = ? AND crc32 = ?`)
     .get(userId, crc32) as GameRow | undefined;
   return row ? toGame(row) : null;
 }
@@ -248,7 +253,7 @@ export function findGameByChecksum(db: Database, userId: string, crc32: string):
 export function ownsDumpLinkedTo(db: Database, userId: string, metadataId: string): boolean {
   // Truthiness, not `!== undefined`: bun:sqlite answers a miss with null, and
   // `null !== undefined` is true - which made this return "yes" for everyone.
-  const row = db.prepare(`
+  const row = db.query(`
     SELECT 1 AS ok
       FROM "Game" g
       JOIN "GameMetadataChecksum" k ON k.crc32 = g.crc32
@@ -261,13 +266,13 @@ export function ownsDumpLinkedTo(db: Database, userId: string, metadataId: strin
 export function findOtherGameWithChecksum(
   db: Database, userId: string, crc32: string, excludeGameId: string
 ): Game | null {
-  const row = db.prepare(`SELECT * FROM "Game" WHERE userId = ? AND crc32 = ? AND id != ?`)
+  const row = db.query(`SELECT * FROM "Game" WHERE userId = ? AND crc32 = ? AND id != ?`)
     .get(userId, crc32, excludeGameId) as GameRow | undefined;
   return row ? toGame(row) : null;
 }
 
 export function countGamesFor(db: Database, userId: string): number {
-  const row = db.prepare(`SELECT COUNT(*) AS n FROM "Game" WHERE userId = ?`)
+  const row = db.query(`SELECT COUNT(*) AS n FROM "Game" WHERE userId = ?`)
     .get(userId) as { n: number };
   return row.n;
 }
@@ -277,7 +282,7 @@ export function createGame(
   input: { title: string; filename: string; crc32: string | null; userId: string } & GameDescriptiveFields
 ): Game {
   const id = randomUUID();
-  db.prepare(`
+  db.query(`
     INSERT INTO "Game" (id, title, filename, coverUrl, uploadedAt, genre, publisher,
                         developer, releaseDate, players, region, description, crc32,
                         sram, sramUpdatedAt, userId)
@@ -304,12 +309,12 @@ export function createGame(
 }
 
 export function updateGameChecksum(db: Database, id: string, crc32: string): Game {
-  db.prepare(`UPDATE "Game" SET crc32 = ? WHERE id = ?`).run(crc32, id);
+  db.query(`UPDATE "Game" SET crc32 = ? WHERE id = ?`).run(crc32, id);
   return findGameById(db, id)!;
 }
 
 export function updateGameMetadata(db: Database, id: string, fields: GameMetadataFields): void {
-  db.prepare(`
+  db.query(`
     UPDATE "Game" SET
       title = @title, genre = @genre, publisher = @publisher,
       developer = @developer, releaseDate = @releaseDate, players = @players,
@@ -330,7 +335,7 @@ export function updateGameMetadata(db: Database, id: string, fields: GameMetadat
 }
 
 export function deleteGame(db: Database, id: string): void {
-  db.prepare(`DELETE FROM "Game" WHERE id = ?`).run(id);
+  db.query(`DELETE FROM "Game" WHERE id = ?`).run(id);
 }
 
 /**
@@ -343,7 +348,7 @@ export function deleteGame(db: Database, id: string): void {
  * `rooms/own-game.ts`, which resolves by the room's checksum instead.
  */
 export function findOwnedGameId(db: Database, gameId: string, userId: string): string | null {
-  const row = db.prepare(`SELECT id FROM "Game" WHERE id = ? AND userId = ?`)
+  const row = db.query(`SELECT id FROM "Game" WHERE id = ? AND userId = ?`)
     .get(gameId, userId) as { id: string } | undefined;
   return row?.id ?? null;
 }
@@ -359,7 +364,7 @@ export function findOwnedGameId(db: Database, gameId: string, userId: string): s
 export function findOwnedGameForRoom(
   db: Database, gameId: string, userId: string
 ): { crc32: string | null; coverUrl: string | null } | null {
-  const row = db.prepare(`SELECT crc32, coverUrl FROM "Game" WHERE id = ? AND userId = ?`)
+  const row = db.query(`SELECT crc32, coverUrl FROM "Game" WHERE id = ? AND userId = ?`)
     .get(gameId, userId) as { crc32: string | null; coverUrl: string | null } | undefined;
   if (!row) return null;
 
@@ -383,7 +388,7 @@ export function findOwnedGameForRoom(
  * que le gestionnaire doit vérifier avant d'accuser réception.
  */
 export function saveSram(db: Database, gameId: string, userId: string, sram: Buffer): number {
-  const info = db.prepare(`UPDATE "Game" SET sram = ?, sramUpdatedAt = ? WHERE id = ? AND userId = ?`)
+  const info = db.query(`UPDATE "Game" SET sram = ?, sramUpdatedAt = ? WHERE id = ? AND userId = ?`)
     .run(sram, Date.now(), gameId, userId);
   return info.changes;
 }
@@ -391,7 +396,7 @@ export function saveSram(db: Database, gameId: string, userId: string, sram: Buf
 export function findSram(
   db: Database, gameId: string, userId: string
 ): { sram: Buffer; sramUpdatedAt: Date | null } | null {
-  const row = db.prepare(`SELECT sram, sramUpdatedAt FROM "Game" WHERE id = ? AND userId = ?`)
+  const row = db.query(`SELECT sram, sramUpdatedAt FROM "Game" WHERE id = ? AND userId = ?`)
     .get(gameId, userId) as { sram: Uint8Array | null; sramUpdatedAt: number | null } | undefined;
   if (!row?.sram) return null;
   return {

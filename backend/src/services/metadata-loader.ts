@@ -7,7 +7,19 @@ import {
   findGameMetadataByChecksum as findMetadataRowByChecksum, syncCatalogue
 } from '../db/game-metadata.js';
 import { createLogger } from '../utils/logger.js';
+import { catalogueIndex } from './catalogue-index.js';
 import type { GameMetadata } from '../db/types.js';
+
+/**
+ * Réexporté depuis son nouveau module.
+ *
+ * `catalogue-index.ts` a besoin de cette fonction et ce fichier-ci a besoin de
+ * l'index, donc la définition a dû sortir d'ici pour ne pas fermer le cycle.
+ * Les appelants - `catalogue-search.ts`, les tests - la trouvent toujours là
+ * où ils la cherchaient.
+ */
+export { normalizeTitle } from './normalise-title.js';
+import { normalizeTitle } from './normalise-title.js';
 
 const logger = createLogger('Metadata');
 
@@ -123,82 +135,32 @@ export async function loadGameMetadata(metadataPath: string = DEFAULT_METADATA_P
 }
 
 /**
- * Normalizes a game title for better matching
- * Removes region tags, version numbers, and other common suffixes
- */
-export function normalizeTitle(title: string): string {
-  let normalized = title.toLowerCase().trim();
-
-  // Remove file extensions
-  normalized = normalized.replace(/\.(smc|sfc|fig|swc|mgd|zip)$/i, '');
-
-  // Remove common suffixes like "# SNES", "# NES", etc.
-  normalized = normalized.replace(/\s*#\s*(snes|nes|n64|sfc|gb|gba|gbc|genesis|sega|md)$/gi, '');
-
-  // Remove region tags including language tags
-  normalized = normalized.replace(/\s*\((usa|europe|japan|france|germany|spain|italy|uk|world|ntsc|pal|ntsc-j|eur|jpn|usa, europe|eng|fr|de|es|it|pt|beta|proto|unl)\)/gi, '');
-
-  // Remove version/revision tags
-  normalized = normalized.replace(/\s*\((rev\s*\d+|v\d+\.\d+|version\s*\d+)\)/gi, '');
-
-  // Remove bracket numbers [!], [b1], etc.
-  normalized = normalized.replace(/\s*\[!?\d*\]/g, '');
-
-  // Remove "The" prefix for better matching
-  normalized = normalized.replace(/^the\s+/i, '');
-
-  // Normalize punctuation - replace colons, dashes, apostrophes with spaces
-  normalized = normalized.replace(/[:'\-–—]/g, ' ');
-
-  // Remove other punctuation
-  normalized = normalized.replace(/[.,!?;()]/g, '');
-
-  // Fix common spelling variations
-  normalized = normalized.replace(/butouden/g, 'butoden');
-  normalized = normalized.replace(/street fighter ii'/g, 'street fighter ii');
-
-  // Remove extra spaces and trim
-  normalized = normalized.replace(/\s+/g, ' ').trim();
-
-  return normalized;
-}
-
-/**
  * Searches for game metadata by title (fuzzy matching)
  * Uses in-memory cache for fast lookups instead of querying database every time
+ *
+ * La requête est normalisée ici - c'est le titre d'un dump, il n'est dans aucun
+ * index - et les fiches le sont une fois pour toutes par `catalogue-index.ts`.
+ * Les deux passes sont les mêmes qu'avant, dans le même ordre : l'exacte, qui
+ * n'est plus un balayage mais une lecture de carte, puis la partielle, qui
+ * balaie encore mais ne renormalise plus rien.
  */
 export async function findGameMetadata(title: string): Promise<any | null> {
   const normalizedTitle = normalizeTitle(title);
+  const { rows, byTitle } = catalogueIndex(cachedCatalogue());
 
-  const allMetadata = cachedCatalogue();
+  const exact = byTitle.get(normalizedTitle);
+  if (exact) return exact;
 
-  // First try exact match on normalized titles
-  let metadata = allMetadata.find(m => {
-    const normalizedMetaTitle = normalizeTitle(m.title);
-    const normalizedAltTitle = m.altTitle ? normalizeTitle(m.altTitle) : null;
+  const partial = rows.find(row =>
+    row.title.includes(normalizedTitle) ||
+    normalizedTitle.includes(row.title) ||
+    (row.altTitle && (
+      row.altTitle.includes(normalizedTitle) ||
+      normalizedTitle.includes(row.altTitle)
+    ))
+  );
 
-    return normalizedMetaTitle === normalizedTitle ||
-           (normalizedAltTitle && normalizedAltTitle === normalizedTitle);
-  });
-
-  if (metadata) {
-    return metadata;
-  }
-
-  // Try partial match (contains, case-insensitive)
-  metadata = allMetadata.find(m => {
-    const normalizedMetaTitle = normalizeTitle(m.title);
-    const normalizedAltTitle = m.altTitle ? normalizeTitle(m.altTitle) : null;
-
-    return normalizedMetaTitle.includes(normalizedTitle) ||
-           normalizedTitle.includes(normalizedMetaTitle) ||
-           (normalizedAltTitle && (
-             normalizedAltTitle.includes(normalizedTitle) ||
-             normalizedTitle.includes(normalizedAltTitle)
-           ));
-  });
-
-  return metadata || null;
+  return partial?.entry ?? null;
 }
 
 /**
