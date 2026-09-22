@@ -147,6 +147,35 @@ class PsnesSink extends AudioWorkletProcessor {
       this.queue.push(e.data);
       this.queued += e.data.length / 2;
       /*
+       * An excursion is cut back at once; drift is not cut at all.
+       *
+       * Reading one percent faster answers the slow drift a session shows, and
+       * would need a hundred seconds to answer a second of backlog. Minimising
+       * the window and restoring it, or releasing fast-forward, puts the
+       * producer hundreds of milliseconds ahead in one go - draining is the
+       * wrong tool for that, and the player hears the sound stay late.
+       *
+       * So the cut returns, at a threshold ordinary play never reaches. The
+       * 120ms it briefly sat at was inside the normal range, which is exactly
+       * why it clicked constantly. Past 400ms nothing is ordinary, and someone
+       * who just let go of fast-forward will take one glitch over a sound that
+       * stays half a second behind.
+       */
+      const excursion = Math.round(sampleRate * 0.4);
+      const back = Math.round(sampleRate * 0.05);
+      let excess = this.queued > excursion ? this.queued - back : 0;
+      while (excess > 0 && this.queue.length > 0) {
+        const stale = this.queue[0];
+        const available = (stale.length - this.offset) / 2;
+        const cut = Math.min(available, excess);
+        this.offset += cut * 2;
+        this.queued -= cut;
+        this.dropped += cut;
+        excess -= cut;
+        if (this.offset >= stale.length) { this.queue.shift(); this.offset = 0; }
+      }
+
+      /*
        * The backlog is no longer cut back here.
        *
        * It used to be: past a high mark, 70ms were thrown away at once. Every

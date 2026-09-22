@@ -358,3 +358,37 @@ test('a queue already at its target is left alone', () => {
 	assert.ok(heldMs > 30, `a queue in step must be kept, holds ${Math.round(heldMs)}ms`);
 	assert.ok(heldMs < 80, `and not allowed to grow either, holds ${Math.round(heldMs)}ms`);
 });
+
+test('a sudden excursion is cut back at once, not drained for a minute', () => {
+	/*
+	 * Reported in play: the sound is perfect, then misbehaves the moment the
+	 * window is minimised and restored, or fast-forward is used and released.
+	 *
+	 * Both put the producer far ahead in one go - fast-forward makes four times
+	 * the audio the sink consumes, and a restored window resumes in a burst.
+	 * The backlog lands at hundreds of milliseconds, and one percent of drain
+	 * would need a hundred seconds to answer a second of it. Draining is right
+	 * for drift and useless for an excursion.
+	 *
+	 * So both, with the cut placed where ordinary play never reaches it: the
+	 * 120ms it used to sit at was inside the normal range, which is why it
+	 * clicked constantly. Past 400ms nothing is ordinary any more, and a player
+	 * who just released fast-forward will take one glitch over a sound that
+	 * stays half a second late.
+	 */
+	const sink = makeSink(RATE);
+	const push = (frames: number) => sink.port.onmessage!({ data: chunk(frames) });
+	const out = [[new Float32Array(QUANTUM), new Float32Array(QUANTUM)]];
+
+	// What a spell of fast-forward leaves behind.
+	push(Math.round(RATE * 0.8));
+
+	// A quarter second of ordinary playback afterwards.
+	for (let i = 0; i < RATE / 4 / QUANTUM; i++) sink.process([], out);
+
+	const heldMs = (trueQueued(sink) / RATE) * 1000;
+	assert.ok(
+		heldMs < 120,
+		`an excursion must be answered at once, still holds ${Math.round(heldMs)}ms`
+	);
+});
