@@ -154,10 +154,16 @@ test('time spent playing silence is not paid back later as delay', () => {
 	push(RATE / 4);
 	sink.process([], out);
 
-	assert.equal(
-		trueQueued(sink),
-		0,
-		`audio for a moment already played as silence is stale, ${trueQueued(sink)} frames kept`
+	/*
+	 * Down to the working target, not to nothing. Emptying it was the first
+	 * version of this, and emptying it is what let the starvation feed itself -
+	 * a queue with no buffer starves again immediately. What must not survive is
+	 * the quarter second of stale audio; the target's worth is kept on purpose.
+	 */
+	const heldMs = (trueQueued(sink) / RATE) * 1000;
+	assert.ok(
+		heldMs < 60,
+		`stale audio must not be kept, holds ${Math.round(heldMs)}ms of the 250 pushed`
 	);
 });
 
@@ -390,5 +396,51 @@ test('a sudden excursion is cut back at once, not drained for a minute', () => {
 	assert.ok(
 		heldMs < 120,
 		`an excursion must be answered at once, still holds ${Math.round(heldMs)}ms`
+	);
+});
+
+test('a starving queue is never cut further to pay a debt', () => {
+	/*
+	 * The feedback loop, measured in production on 2026-09-22 after a window was
+	 * minimised and restored: the emulator back at 60fps and drawing normally,
+	 * the queue held at 6-23ms instead of a healthy 26-47, and `dropped`
+	 * climbing 150 to 250ms every second without ever stopping.
+	 *
+	 * The queue never went near the excursion threshold, so only the starvation
+	 * debt could be doing the cutting - and it sustains itself: the queue
+	 * starves, the debt grows, the audio that arrives is thrown away to settle
+	 * it, so the queue starves again. Nothing breaks the cycle.
+	 *
+	 * A debt is only payable out of surplus. Below the target there is none, and
+	 * cutting there makes the starvation it is answering strictly worse.
+	 */
+	const sink = makeSink(RATE);
+	const push = (frames: number) => sink.port.onmessage!({ data: chunk(frames) });
+	const out = [[new Float32Array(QUANTUM), new Float32Array(QUANTUM)]];
+
+	// Playing, so the stream has started and debts are real.
+	push(QUANTUM * 10);
+	for (let i = 0; i < 10; i++) sink.process([], out);
+
+	/*
+	 * A producer exactly in step, but arriving just after the sink asks - the
+	 * order a restored window leaves behind. Every quantum starves, then is fed.
+	 */
+	const droppedAt = (n: number) => {
+		for (let i = 0; i < n; i++) {
+			sink.process([], out);
+			push(QUANTUM);
+		}
+		const reports = sink.port.sent.filter((m) => m && m.type === 'depth');
+		return reports[reports.length - 1].dropped ?? 0;
+	};
+
+	const early = droppedAt(1000);
+	const late = droppedAt(1000);
+
+	assert.equal(
+		late,
+		early,
+		`cutting must stop once there is no surplus: ${early} then ${late} frames`
 	);
 });

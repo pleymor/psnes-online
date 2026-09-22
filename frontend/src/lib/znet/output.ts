@@ -224,10 +224,31 @@ class PsnesSink extends AudioWorkletProcessor {
      * So the debt is paid in dropped audio rather than in latency: a brief
      * glitch instead of a delay that never comes back.
      */
+    const target = Math.round(sampleRate * 0.05);
+
     while (this.starved > 0 && this.queue.length > 0) {
+      /*
+       * Only ever out of surplus. A debt paid from a queue that is already at
+       * or below the target makes the starvation it answers strictly worse,
+       * and the result sustains itself: the queue starves, the debt grows, the
+       * audio that arrives is thrown away to settle it, so the queue starves
+       * again.
+       *
+       * Measured in production on 2026-09-22, after a window was minimised and
+       * restored: the emulator back at 60fps and drawing normally, the queue
+       * held at 6-23ms against a healthy 26-47, and 150 to 250ms of audio
+       * discarded every second for as long as the session lasted. At the bench
+       * it settles at a hundred percent of everything produced.
+       *
+       * The debt keeps what it cannot collect: a later surplus settles it, and
+       * the break guard below bounds how large it can grow meanwhile.
+       */
+      const spare = this.queued - target;
+      if (spare <= 0) break;
+
       const stale = this.queue[0];
       const available = (stale.length - this.offset) / 2;
-      const drop = Math.min(available, this.starved);
+      const drop = Math.min(available, this.starved, spare);
       this.offset += drop * 2;
       this.queued -= drop;
       this.starved -= drop;
@@ -265,7 +286,6 @@ class PsnesSink extends AudioWorkletProcessor {
      * drift a session actually shows, so the queue converges rather than
      * merely stops growing.
      */
-    const target = Math.round(sampleRate * 0.05);
     const over = this.queued - target;
     const step = over <= 0 ? 1 : 1 + 0.01 * Math.min(1, over / (sampleRate * 0.1));
 
