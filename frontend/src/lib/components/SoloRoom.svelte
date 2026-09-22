@@ -100,6 +100,16 @@
    * and it carries what solo can actually answer.
    */
   let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
+  /*
+   * Frames actually drawn, counted here and reported as a rate.
+   *
+   * The first version of this line shipped the cartridge's nominal rate, which
+   * cannot say whether the emulator is running at all - and that is exactly
+   * the question an empty audio queue raises: a stopped emulator and a broken
+   * audio path look identical from the sink's side.
+   */
+  let framesDrawn = 0;
+  let lastFramesDrawn = 0;
   let longTaskObserver: PerformanceObserver | null = null;
   const hostHealth = new HostHealth();
   let renderer: Renderer | null = null;
@@ -564,6 +574,7 @@
           pad2: allowLocalPlayer2 && isPlayerActive(assignments.p2) ? collector2!.read() : 0
         }),
         onFrame: (c, frame) => {
+          framesDrawn++;
           renderer!.draw(c);
           // FrameGovernor used to call this through `onSlice`, once per slice
           // rather than once per frame; the engine exposes no such hook, and
@@ -839,10 +850,9 @@
       const latency = audio.latency;
       logger.info('solo', {
         build: version,
-        // Nominal, from the cartridge - there is no governor callback here to
-        // count executed frames, and what this figure is for is telling a 50Hz
-        // cartridge from a 60Hz one when reading the audio numbers.
-        fps: Math.round((core.fps || 0) * 100) / 100,
+        // Measured, not nominal: frames drawn since the last line.
+        fps: framesDrawn - lastFramesDrawn,
+        fpsNominal: Math.round((core.fps || 0) * 100) / 100,
         // The whole reason this line exists. `queued` is ours to shorten,
         // `output` is the platform's below the API, and `dropped` says whether
         // the drain is doing the work or the axe is doing it for it.
@@ -854,6 +864,7 @@
         linkClass: readLinkClass(typeof navigator !== 'undefined' ? navigator : null),
         hidden: typeof document !== 'undefined' ? document.hidden : null
       });
+      lastFramesDrawn = framesDrawn;
     }, 1000);
   }
 
