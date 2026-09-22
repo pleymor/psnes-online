@@ -226,3 +226,45 @@ test('a rough patch ending is not a shorter link', () => {
 		assert.equal(c.noteLinkSample(44), false, 'the link is back to what it always was');
 	}
 });
+
+test('a resize the caller did not make does not spend the trigger', () => {
+	/*
+	 * Measured on 2026-09-22: a handover took one peer's round trip from 111ms
+	 * to 11ms - a factor of ten - and its delay sat at 4-5 for the rest of the
+	 * session. The detector had fired exactly once, been refused by the caller,
+	 * and never armed again, because firing set the floor to the new length as
+	 * though the resize had happened.
+	 *
+	 * A trigger must not be spent on an attempt. The caller says when a resize
+	 * actually took effect; until then the link is still the shorter one it was
+	 * measured to be, and saying so again costs nothing.
+	 */
+	const c = auto();
+	c.noteLinkSample(70);
+
+	c.noteLinkSample(14);
+	c.noteLinkSample(14);
+	assert.equal(c.noteLinkSample(14), true, 'the link is shorter');
+
+	// The caller refused - a floor, a pin, anything. Three more samples and it
+	// must say so again.
+	c.noteLinkSample(14);
+	c.noteLinkSample(14);
+	assert.equal(c.noteLinkSample(14), true, 'and it is still shorter, so it says so again');
+});
+
+test('once a resize is confirmed the shorter link becomes the new normal', () => {
+	// The other half: a link that has been acted on is no longer news, or the
+	// delay would be walked down again every six seconds for ever.
+	const c = auto();
+	c.noteLinkSample(70);
+	c.noteLinkSample(14);
+	c.noteLinkSample(14);
+	assert.equal(c.noteLinkSample(14), true);
+
+	c.noteResized(14);
+
+	for (let i = 0; i < 10; i++) {
+		assert.equal(c.noteLinkSample(14), false, 'fourteen is what this link is now');
+	}
+});

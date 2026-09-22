@@ -276,8 +276,25 @@ export class DelayController {
 		this.shortRun++;
 		if (this.shortRun < LINK_SHORTENED_SAMPLES) return false;
 		this.shortRun = 0;
-		this.linkFloor = rttMs;
+		/*
+		 * The floor is NOT moved here. Saying the link is shorter is not the
+		 * same as the caller having acted on it, and a caller can refuse - a
+		 * pin, a target that came out no lower than the delay in force. Moving
+		 * the floor on an attempt spends the trigger on nothing and the link
+		 * never looks short again.
+		 *
+		 * Measured on 2026-09-22: a handover took a peer's round trip from
+		 * 111ms to 11ms and its delay sat at 4-5 for the rest of the session,
+		 * because the one firing had been refused. `noteResized` is what closes
+		 * it, and until then this says so again every three samples.
+		 */
 		return true;
+	}
+
+	/** Called once a resize has actually taken effect, and only then. */
+	noteResized(rttMs: number): void {
+		if (rttMs > 0) this.linkFloor = rttMs;
+		this.shortRun = 0;
 	}
 
 	/** An escape hatch that moves by itself is not one. */

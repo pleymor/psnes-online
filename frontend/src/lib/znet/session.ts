@@ -620,16 +620,30 @@ export class NetplaySession implements TickSource {
 		if (samples.length === 0 || !this.delayControl.automatic) return;
 
 		const best = Math.min(...samples);
-		const frameMs = 1000 / this.opts.fps;
-		const sized = suggestInputDelay(samples, this.opts.fps, {
+		/*
+		 * No floor drawn from `arrivalGap` any more.
+		 *
+		 * It was added as prudence and it was the thing that made this inert.
+		 * `arrivalGap` is a *maximum* over 64 arrivals, not a typical value:
+		 * measured after a handover on 2026-09-22 its median was 36ms - a floor
+		 * of two frames, harmless - while it spiked to 172, 120 and 115, which
+		 * demands six to nine. One spike at the wrong second refuses the resize
+		 * outright.
+		 *
+		 * Prudence about going too low is the strain loop's job, and it already
+		 * does it: it raises the delay when the peer reports it is starving.
+		 * Duplicating that with a peak-based floor bought nothing and cost the
+		 * whole feature.
+		 */
+		const target = suggestInputDelay(samples, this.opts.fps, {
 			margin: this.directPath ? 1 : 2,
 			floor: autoFloor(best, this.opts.fps)
 		});
-		const gapFloor = Math.max(1, Math.ceil(this.metrics.arrivalGap / frameMs));
-		const target = Math.max(sized, gapFloor);
 		if (target >= this.opts.inputDelay) return;
 
 		this.setDelay(target);
+		// Only now is the shorter link the new normal - see `noteLinkSample`.
+		this.delayControl.noteResized(best);
 		this.onEvent({
 			type: 'state',
 			message: `input delay ${target} frames: ${what} is ${Math.round(best)}ms`
