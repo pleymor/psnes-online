@@ -903,7 +903,8 @@
         // offset is only actionable in the first, and nothing else tells them
         // apart.
         audioQueuedMs: audio?.latency.queued ?? null,
-        audioOutputMs: audio?.latency.output ?? null
+        audioOutputMs: audio?.latency.output ?? null,
+        audioDroppedMs: audio?.latency.dropped ?? null
       });
     }, 1000);
   }

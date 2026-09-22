@@ -132,45 +132,31 @@ class PsnesSink extends AudioWorkletProcessor {
     this.queued = 0;
     this.starved = 0;
     this.reportAt = 0;
+    // Frames thrown away since the stream began, and the fractional part of the
+    // read position. The first is a diagnostic - discarding audio is a click,
+    // so how often it happens belongs in the logs. The second is what lets the
+    // backlog be drained by reading faster instead.
+    this.dropped = 0;
+    this.frac = 0;
     // Silence before the first sound is not owed audio: the context starts
     // with the room and the emulator's first frame comes later. Nothing was
     // stalled, the game had simply not begun.
     this.started = false;
     this.port.onmessage = (e) => {
-      if (e.data === 'flush') { this.queue = []; this.offset = 0; this.queued = 0; this.starved = 0; this.started = false; return; }
+      if (e.data === 'flush') { this.queue = []; this.offset = 0; this.queued = 0; this.starved = 0; this.started = false; this.frac = 0; return; }
       this.queue.push(e.data);
       this.queued += e.data.length / 2;
       /*
-       * Past the high mark, cut the backlog back to the target.
+       * The backlog is no longer cut back here.
        *
-       * A ceiling is not enough, and a second of one was far too much. The
-       * debt paid on starvation only fires when the sink runs dry, and a deep
-       * queue never runs dry - so once the backlog is past the point of
-       * starving, nothing pulls it down and every burst adds to it for good.
-       * Measured in production: 363ms held on one machine against 160 on the
-       * other, while the platform's own path accounted for 44 and 50. Sound
-       * and picture agreed at first and drifted apart the longer the session
-       * ran.
+       * It used to be: past a high mark, 70ms were thrown away at once. Every
+       * such throw is a discontinuity in the signal - a click - and the player
+       * heard them as crackling. The render loop drains the same backlog by
+       * reading very slightly faster, with nothing discarded at all.
        *
-       * So it is a target, not a ceiling: 120ms of slack to absorb a burst,
-       * cut back to 50ms - two to three frames - when that is exceeded. The
-       * trade is deliberate, and it is the one a fighting game wants: cutting
-       * more often costs the occasional glitch, while a third of a second of
-       * standing delay costs every input.
+       * What remains below is the last line of defence, at a second, for a
+       * producer no playback speed could ever catch up with.
        */
-      const high = Math.round(sampleRate * 0.12);
-      const target = Math.round(sampleRate * 0.05);
-      let excess = this.queued > high ? this.queued - target : 0;
-      while (excess > 0 && this.queue.length > 0) {
-        const stale = this.queue[0];
-        const available = (stale.length - this.offset) / 2;
-        const drop = Math.min(available, excess);
-        this.offset += drop * 2;
-        this.queued -= drop;
-        excess -= drop;
-        if (this.offset >= stale.length) { this.queue.shift(); this.offset = 0; }
-      }
-
       // The old hard cap, kept as the last line of defence against a producer
       // that somehow outruns even the target.
       while (this.queued > sampleRate) {
@@ -184,6 +170,7 @@ class PsnesSink extends AudioWorkletProcessor {
         // backlog settles half a second past the cap in the harness, and past
         // two seconds in a real session.
         // \`offset\` counts interleaved values, \`queued\` counts frames.
+        this.dropped += dropped.length / 2 - this.offset / 2;
         this.queued -= dropped.length / 2 - this.offset / 2;
         this.offset = 0;
       }
@@ -215,6 +202,7 @@ class PsnesSink extends AudioWorkletProcessor {
       this.offset += drop * 2;
       this.queued -= drop;
       this.starved -= drop;
+      this.dropped += drop;
       if (this.offset >= stale.length) { this.queue.shift(); this.offset = 0; }
     }
 
@@ -232,8 +220,25 @@ class PsnesSink extends AudioWorkletProcessor {
      */
     if (++this.reportAt >= 64) {
       this.reportAt = 0;
-      this.port.postMessage({ type: 'depth', frames: this.queued });
+      this.port.postMessage({ type: 'depth', frames: this.queued, dropped: this.dropped });
     }
+
+    /*
+     * How fast to read, which is how the backlog is drained.
+     *
+     * At or below the target, nominal. Above it, up to one percent faster -
+     * about seventeen cents of pitch, which no one hears - and the excess
+     * empties itself instead of being cut out. The ramp reaches full speed at
+     * a tenth of a second of excess, so ordinary jitter is barely touched
+     * while a real backlog comes down steadily.
+     *
+     * A percent buys some 480 frames a second at 48kHz, far more than the
+     * drift a session actually shows, so the queue converges rather than
+     * merely stops growing.
+     */
+    const target = Math.round(sampleRate * 0.05);
+    const over = this.queued - target;
+    const step = over <= 0 ? 1 : 1 + 0.01 * Math.min(1, over / (sampleRate * 0.1));
 
     for (let i = 0; i < left.length; i++) {
       const chunk = this.queue[0];
@@ -267,13 +272,44 @@ class PsnesSink extends AudioWorkletProcessor {
         continue;
       }
       this.started = true;
-      left[i] = chunk[this.offset] / 32768;
-      right[i] = chunk[this.offset + 1] / 32768;
-      this.offset += 2;
-      this.queued--;
-      if (this.offset >= chunk.length) {
-        this.queue.shift();
-        this.offset = 0;
+
+      /*
+       * Linear interpolation between this frame and the next, so the read
+       * position can sit between two samples. Written out in scalars rather
+       * than through a helper returning a pair: this runs 48000 times a second
+       * on the audio thread, and an allocation per sample is a way to make a
+       * glitch out of the very thing that removes them.
+       */
+      const a0 = chunk[this.offset];
+      const a1 = chunk[this.offset + 1];
+      let b0 = a0;
+      let b1 = a1;
+      if (this.offset + 3 < chunk.length) {
+        b0 = chunk[this.offset + 2];
+        b1 = chunk[this.offset + 3];
+      } else {
+        const next = this.queue[1];
+        if (next) {
+          b0 = next[0];
+          b1 = next[1];
+        }
+      }
+
+      const f = this.frac;
+      left[i] = (a0 + (b0 - a0) * f) / 32768;
+      right[i] = (a1 + (b1 - a1) * f) / 32768;
+
+      this.frac += step;
+      while (this.frac >= 1) {
+        this.frac -= 1;
+        const head = this.queue[0];
+        if (!head) break;
+        this.offset += 2;
+        this.queued--;
+        if (this.offset >= head.length) {
+          this.queue.shift();
+          this.offset = 0;
+        }
       }
     }
     return true;
@@ -289,6 +325,7 @@ export class AudioSink {
 	private muted = false;
 	/** Frames the worklet last said it was holding, and the rate to read it in ms. */
 	private queuedFrames = 0;
+	private droppedFrames = 0;
 	private rate = 0;
 
 	async start(sampleRate: number): Promise<void> {
@@ -304,9 +341,10 @@ export class AudioSink {
 
 		this.node = new AudioWorkletNode(this.context, 'psnes-sink', { outputChannelCount: [2] });
 		this.node.port.onmessage = (e) => {
-			const data = e.data as { type?: string; frames?: number } | null;
+			const data = e.data as { type?: string; frames?: number; dropped?: number } | null;
 			if (data?.type === 'depth' && typeof data.frames === 'number') {
 				this.queuedFrames = data.frames;
+				if (typeof data.dropped === 'number') this.droppedFrames = data.dropped;
 			}
 		};
 		this.node.connect(this.context.destination);
@@ -325,13 +363,17 @@ export class AudioSink {
 	 *
 	 * Both null before the context exists.
 	 */
-	get latency(): { queued: number | null; output: number | null } {
+	get latency(): { queued: number | null; output: number | null; dropped: number | null } {
 		const context = this.context;
-		if (!context || this.rate <= 0) return { queued: null, output: null };
+		if (!context || this.rate <= 0) return { queued: null, output: null, dropped: null };
 		const output = (context.outputLatency ?? 0) + (context.baseLatency ?? 0);
 		return {
 			queued: Math.round((this.queuedFrames / this.rate) * 1000),
-			output: Math.round(output * 1000)
+			output: Math.round(output * 1000),
+			// Cumulative, like `stalls`: audio thrown away is a click, so how
+			// much of it there has been is the figure that says whether the
+			// drain is doing its job or the axe is doing it for him.
+			dropped: Math.round((this.droppedFrames / this.rate) * 1000)
 		};
 	}
 

@@ -15,6 +15,8 @@
   import { goto } from '$app/navigation';
   import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
+  import { version } from '$app/environment';
+  import { HostHealth, readHeapMb, readLinkClass } from '$lib/znet/host-health';
   import { fromBase64, toBase64 } from '$lib/saves/base64';
   import { setLogLabels } from '$lib/utils/log-shipper';
   import { decodeSram } from '$lib/rooms/sram';
@@ -90,6 +92,16 @@
   let usingGl = false;
 
   let core: PsnesCore | null = null;
+  /*
+   * Solo shipped no diagnostics at all, which on 2026-09-20 made it the one
+   * mode whose audio could not be measured: a player reported crackling and
+   * there was nothing to read but his ear. The line is smaller than the
+   * lockstep one - there is no peer, so no round trip, no strain, no pads -
+   * and it carries what solo can actually answer.
+   */
+  let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
+  let longTaskObserver: PerformanceObserver | null = null;
+  const hostHealth = new HostHealth();
   let renderer: Renderer | null = null;
   let surface: ReturnType<typeof createRendererSurface> | null = null;
   let audio: AudioSink | null = null;
@@ -777,6 +789,10 @@
     // This one covers leaving by any other route - closing the tab, navigating
     // away - where membership is untouched and it lands. `engine.stop()` is
     // also where the SRAM timer it owns gets cleared.
+    if (diagnosticsTimer) clearInterval(diagnosticsTimer);
+    diagnosticsTimer = null;
+    longTaskObserver?.disconnect();
+    longTaskObserver = null;
     await engine?.stop();
     engine = null;
     $socket?.off('game:loaded', onGameLoaded);
@@ -803,7 +819,43 @@
     fullscreen.attach();
     window.addEventListener('keydown', onKeyDown);
     void boot();
+    startDiagnostics();
   });
+
+  function startDiagnostics() {
+    if (typeof PerformanceObserver !== 'undefined') {
+      try {
+        longTaskObserver = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) hostHealth.noteLongTask(entry.duration);
+        });
+        longTaskObserver.observe({ entryTypes: ['longtask'] });
+      } catch {
+        longTaskObserver = null;
+      }
+    }
+
+    diagnosticsTimer = setInterval(() => {
+      if (!core || !audio) return;
+      const latency = audio.latency;
+      logger.info('solo', {
+        build: version,
+        // Nominal, from the cartridge - there is no governor callback here to
+        // count executed frames, and what this figure is for is telling a 50Hz
+        // cartridge from a 60Hz one when reading the audio numbers.
+        fps: Math.round((core.fps || 0) * 100) / 100,
+        // The whole reason this line exists. `queued` is ours to shorten,
+        // `output` is the platform's below the API, and `dropped` says whether
+        // the drain is doing the work or the axe is doing it for it.
+        audioQueuedMs: latency.queued,
+        audioOutputMs: latency.output,
+        audioDroppedMs: latency.dropped,
+        longTasks: hostHealth.takeLongTasks(),
+        heapMb: readHeapMb(typeof performance !== 'undefined' ? performance : null),
+        linkClass: readLinkClass(typeof navigator !== 'undefined' ? navigator : null),
+        hidden: typeof document !== 'undefined' ? document.hidden : null
+      });
+    }, 1000);
+  }
 
   onDestroy(() => {
     void teardown();

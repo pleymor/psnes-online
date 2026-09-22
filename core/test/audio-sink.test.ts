@@ -19,7 +19,7 @@ interface Sink {
 	port: {
 		onmessage: ((e: { data: Int16Array | string }) => void) | null;
 		postMessage(message: unknown): void;
-		sent: { type?: string; frames?: number }[];
+		sent: { type?: string; frames?: number; dropped?: number }[];
 	};
 	process(inputs: unknown, outputs: Float32Array[][]): boolean;
 }
@@ -220,36 +220,34 @@ test('the sink reports how deep its queue is, so the delay can be attributed', (
 	);
 });
 
-test('a queue that never starves is still brought back down to its target', () => {
+test('a producer no playback speed could catch is still bounded, by cutting', () => {
 	/*
-	 * The ratchet #81 left behind. Its debt is only paid when the sink starves,
-	 * and a deep queue never starves - so once the backlog is past the point of
-	 * starving, nothing pulls it down again and every burst adds to it for good.
-	 * Measured in production: 363ms held on one machine against 160 on the
-	 * other, with the platform's own path accounting for only 44 and 50.
+	 * The safety net, and the one case where throwing audio away is still the
+	 * right answer. Reading one percent faster drains the drift a real session
+	 * shows; it cannot answer a producer running a quarter faster than the
+	 * sink for ever - a fast-forward, a runaway catch-up - and no playback
+	 * speed that stayed inaudible could.
 	 *
-	 * "Sound and picture agree at first, then drift apart the longer you play"
-	 * is exactly that shape.
-	 *
-	 * So the bound stops being a ceiling and becomes a target: past a high mark
-	 * the backlog is cut back to it, which bounds the delay at something a
-	 * fighting game can live with instead of at a second.
+	 * So the axe remains at a second, and here it is expected to fire. What
+	 * this pins is that the backlog is bounded at all, which is what the cap
+	 * has always been for.
 	 */
 	const sink = makeSink(RATE);
 	const push = (frames: number) => sink.port.onmessage!({ data: chunk(frames) });
-	const out = [[new Float32Array(128), new Float32Array(128)]];
+	const out = [[new Float32Array(QUANTUM), new Float32Array(QUANTUM)]];
 
-	// A producer a little ahead of the sink, and never behind it - so it never
-	// starves, and the old debt mechanism never gets a chance to fire.
-	for (let i = 0; i < 400; i++) {
-		push(160);
-		sink.process([], out); // consumes 128
+	for (let i = 0; i < 4000; i++) {
+		push(160); // against 128 consumed
+		sink.process([], out);
 	}
 
 	const heldMs = (trueQueued(sink) / RATE) * 1000;
+	assert.ok(heldMs <= 1050, `the backlog must stay bounded, holds ${Math.round(heldMs)}ms`);
+
+	const reports = sink.port.sent.filter((m) => m && m.type === 'depth');
 	assert.ok(
-		heldMs <= 130,
-		`the backlog must stay near its target, holds ${Math.round(heldMs)}ms`
+		(reports[reports.length - 1].dropped ?? 0) > 0,
+		'and here, unlike the drainable case, cutting is what held it'
 	);
 });
 
@@ -289,4 +287,74 @@ test('a long silence is a break in the stream, not a debt to repay', () => {
 		4800 - 128,
 		`resumed audio must survive a pause, ${trueQueued(sink)} frames left of 4800`
 	);
+});
+
+/** Frames the sink consumes at nominal speed for one render quantum. */
+const QUANTUM = 128;
+
+test('a backlog is drained by playing faster, without dropping a sample', () => {
+	/*
+	 * The three mechanisms that could shorten this queue all did it by throwing
+	 * audio away, and every throw is a discontinuity - a click. The player heard
+	 * them as light crackling, and three successive fixes only moved the noise
+	 * around.
+	 *
+	 * Reading very slightly faster drains the same backlog with nothing
+	 * discarded: half a percent of pitch is inaudible, and the latency
+	 * converges towards the target instead of jumping to it. It is what
+	 * emulator frontends have called dynamic rate control for twenty years.
+	 *
+	 * The axe stays, but only at a second - so a queue that comes down from
+	 * 300ms to near the target here cannot have been cut. Nothing else could
+	 * have done it.
+	 */
+	const sink = makeSink(RATE);
+	const push = (frames: number) => sink.port.onmessage!({ data: chunk(frames) });
+	const out = [[new Float32Array(QUANTUM), new Float32Array(QUANTUM)]];
+
+	push(Math.round(RATE * 0.3)); // 300ms in hand, as measured in production
+
+	// A producer four parts in a thousand ahead of the sink - the order of
+	// drift a real session showed, and far too little to notice as pitch.
+	let pushed = 0;
+	for (let i = 1; i <= 20000; i++) {
+		const want = Math.round(QUANTUM * 1.004 * i);
+		if (want > pushed) {
+			push(want - pushed);
+			pushed = want;
+		}
+		sink.process([], out);
+	}
+
+	const heldMs = (trueQueued(sink) / RATE) * 1000;
+	assert.ok(
+		heldMs < 100,
+		`the backlog must come down on its own, holds ${Math.round(heldMs)}ms`
+	);
+
+	// And the whole point: it came down without a sample being thrown away.
+	// Asserting only the depth would pass on the axe, which is what this
+	// replaces.
+	const reports = sink.port.sent.filter((m) => m && m.type === 'depth');
+	const dropped = reports[reports.length - 1].dropped;
+	assert.equal(dropped, 0, `nothing may be discarded, ${dropped} frames were`);
+});
+
+test('a queue already at its target is left alone', () => {
+	// Draining must not become its own drift. A producer exactly in step with
+	// the sink should see the depth held, not walked down to nothing - an empty
+	// queue is an underrun waiting to happen.
+	const sink = makeSink(RATE);
+	const push = (frames: number) => sink.port.onmessage!({ data: chunk(frames) });
+	const out = [[new Float32Array(QUANTUM), new Float32Array(QUANTUM)]];
+
+	push(Math.round(RATE * 0.05)); // start at the target
+	for (let i = 0; i < 5000; i++) {
+		push(QUANTUM);
+		sink.process([], out);
+	}
+
+	const heldMs = (trueQueued(sink) / RATE) * 1000;
+	assert.ok(heldMs > 30, `a queue in step must be kept, holds ${Math.round(heldMs)}ms`);
+	assert.ok(heldMs < 80, `and not allowed to grow either, holds ${Math.round(heldMs)}ms`);
 });
