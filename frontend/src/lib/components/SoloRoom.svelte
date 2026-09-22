@@ -117,6 +117,7 @@
   const frameTimes = new FrameTimes();
   let lastFrameAt: number | null = null;
   let longTaskObserver: PerformanceObserver | null = null;
+  let eventObserver: PerformanceObserver | null = null;
   const hostHealth = new HostHealth();
   let renderer: Renderer | null = null;
   let surface: ReturnType<typeof createRendererSurface> | null = null;
@@ -813,6 +814,8 @@
     diagnosticsTimer = null;
     longTaskObserver?.disconnect();
     longTaskObserver = null;
+    eventObserver?.disconnect();
+    eventObserver = null;
     await engine?.stop();
     engine = null;
     $socket?.off('game:loaded', onGameLoaded);
@@ -854,6 +857,34 @@
       }
     }
 
+    /*
+     * Slow input handlers, which `longtask` cannot see.
+     *
+     * Its threshold is 50ms by specification, and a handful of 15 or 30ms
+     * handlers adds up to a late pad without ever appearing there. Event
+     * Timing takes the threshold as a parameter, so it can be asked about the
+     * range that matters here.
+     *
+     * `duration` is what the user waited, rounded to 8ms by the browser;
+     * `processingEnd - processingStart` is what the handler itself cost. The
+     * larger of the two is what gets reported, so neither a slow handler nor a
+     * handler that merely delayed a paint can hide behind the other.
+     */
+    if (typeof PerformanceObserver !== 'undefined') {
+      try {
+        eventObserver = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            const e = entry as PerformanceEntry & { processingStart?: number; processingEnd?: number };
+            const handler = (e.processingEnd ?? 0) - (e.processingStart ?? 0);
+            hostHealth.noteSlowEvent(entry.name, Math.max(entry.duration, handler));
+          }
+        });
+        eventObserver.observe({ type: 'event', durationThreshold: 16 } as PerformanceObserverInit);
+      } catch {
+        eventObserver = null;
+      }
+    }
+
     diagnosticsTimer = setInterval(() => {
       if (!core || !audio) return;
       const latency = audio.latency;
@@ -870,6 +901,12 @@
         audioDroppedMs: latency.dropped,
         frameMs: [frameTimes.ms50, frameTimes.ms95, frameTimes.msMax],
         longTasks: hostHealth.takeLongTasks(),
+        // Handlers slow enough to matter, and the worst of them by name -
+        // `longtask` cannot see anything under 50ms.
+        slowEvents: (() => {
+          const e = hostHealth.takeSlowEvents();
+          return [e.count, e.worstMs, e.worst];
+        })(),
         heapMb: readHeapMb(typeof performance !== 'undefined' ? performance : null),
         linkClass: readLinkClass(typeof navigator !== 'undefined' ? navigator : null),
         hidden: typeof document !== 'undefined' ? document.hidden : null

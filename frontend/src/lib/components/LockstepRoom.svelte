@@ -369,6 +369,7 @@
   let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
   const hostHealth = new HostHealth();
   let longTaskObserver: PerformanceObserver | null = null;
+  let eventObserver: PerformanceObserver | null = null;
   let sramTimer: ReturnType<typeof setInterval> | null = null;
   let lastFramesRun = 0;
 
@@ -836,6 +837,34 @@
       }
     }
 
+    /*
+     * Slow input handlers, which `longtask` cannot see.
+     *
+     * Its threshold is 50ms by specification, and a handful of 15 or 30ms
+     * handlers adds up to a late pad without ever appearing there. Event
+     * Timing takes the threshold as a parameter, so it can be asked about the
+     * range that matters here.
+     *
+     * `duration` is what the user waited, rounded to 8ms by the browser;
+     * `processingEnd - processingStart` is what the handler itself cost. The
+     * larger of the two is what gets reported, so neither a slow handler nor a
+     * handler that merely delayed a paint can hide behind the other.
+     */
+    if (typeof PerformanceObserver !== 'undefined') {
+      try {
+        eventObserver = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            const e = entry as PerformanceEntry & { processingStart?: number; processingEnd?: number };
+            const handler = (e.processingEnd ?? 0) - (e.processingStart ?? 0);
+            hostHealth.noteSlowEvent(entry.name, Math.max(entry.duration, handler));
+          }
+        });
+        eventObserver.observe({ type: 'event', durationThreshold: 16 } as PerformanceObserverInit);
+      } catch {
+        eventObserver = null;
+      }
+    }
+
     diagnosticsTimer = setInterval(() => {
       if (!session) return;
       const s = session.getStats();
@@ -901,6 +930,12 @@
         apiRtt: readApiRtt(typeof navigator !== 'undefined' ? navigator : null),
         heapMb: readHeapMb(typeof performance !== 'undefined' ? performance : null),
         longTasks: hostHealth.takeLongTasks(),
+        // Handlers slow enough to matter, and the worst of them by name -
+        // `longtask` cannot see anything under 50ms.
+        slowEvents: (() => {
+          const e = hostHealth.takeSlowEvents();
+          return [e.count, e.worstMs, e.worst];
+        })(),
         // The sound's distance from the picture on THIS machine, split into the
         // half we hold and the half the platform adds below the API. A constant
         // offset is only actionable in the first, and nothing else tells them
@@ -1379,6 +1414,8 @@
     diagnosticsTimer = null;
     longTaskObserver?.disconnect();
     longTaskObserver = null;
+    eventObserver?.disconnect();
+    eventObserver = null;
     window.removeEventListener('gamepadconnected', applySources);
     window.removeEventListener('gamepaddisconnected', applySources);
     governor?.stop();

@@ -84,3 +84,33 @@ test('frame times are read as a shape, and the quantum ignores catch-up slices',
 	assert.ok(Math.abs(f.ms50 - 20) < 1, `the median is the ordinary frame, got ${f.ms50}`);
 	assert.equal(f.msMax, 60, 'and the worst is kept');
 });
+
+test('slow input handlers are reported per interval, worst one named', () => {
+	/*
+	 * `longtask` only reports blocks past 50ms, by specification. A handful of
+	 * 15 or 30ms handlers adds up to a hundred milliseconds of late pad without
+	 * ever appearing there - which is exactly what was measured on 2026-09-22:
+	 * both peers stalling together for 100 to 125ms while `longTasks` read zero
+	 * on both.
+	 *
+	 * So the zero never meant "nothing blocks". It meant "nothing blocks for
+	 * long", and the difference is the whole question.
+	 *
+	 * Naming the worst one matters as much as counting them: `pointerdown` and
+	 * `keydown` call for opposite investigations, and only the phone's inputs
+	 * produce the symptom.
+	 */
+	const h = new HostHealth();
+	h.noteSlowEvent('pointerdown', 34);
+	h.noteSlowEvent('pointermove', 18);
+	h.noteSlowEvent('pointerup', 22);
+
+	const first = h.takeSlowEvents();
+	assert.equal(first.count, 3);
+	assert.equal(first.worstMs, 34);
+	assert.equal(first.worst, 'pointerdown', 'the worst is named, not just measured');
+
+	const second = h.takeSlowEvents();
+	assert.equal(second.count, 0, 'and a quiet interval that follows reads quiet');
+	assert.equal(second.worst, null, 'with nothing to name');
+});

@@ -18,10 +18,49 @@
 /** Blocked time on the main thread, accumulated between reads. */
 export class HostHealth {
 	private blockedMs = 0;
+	private slowEvents = 0;
+	private worstEventMs = 0;
+	private worstEventName = '';
 
 	/** One `longtask` entry, as the PerformanceObserver reports its duration. */
 	noteLongTask(durationMs: number): void {
 		this.blockedMs += durationMs;
+	}
+
+	/**
+	 * One input handler slow enough to be worth naming.
+	 *
+	 * `longtask` only sees blocks past 50ms, by specification, so a handful of
+	 * 15 or 30ms handlers adds up to a late pad without ever showing there.
+	 * Measured on 2026-09-22: both peers stalling together for 100 to 125ms
+	 * while `longTasks` read zero on both. The zero never meant "nothing
+	 * blocks" - it meant "nothing blocks for long".
+	 */
+	noteSlowEvent(name: string, durationMs: number): void {
+		this.slowEvents++;
+		if (durationMs > this.worstEventMs) {
+			this.worstEventMs = durationMs;
+			this.worstEventName = name;
+		}
+	}
+
+	/**
+	 * The slow handlers of the interval, and the worst of them by name.
+	 *
+	 * Named rather than merely counted: `pointerdown` and `keydown` call for
+	 * opposite investigations, and the symptom being chased appears only for
+	 * one peer's inputs.
+	 */
+	takeSlowEvents(): { count: number; worstMs: number; worst: string | null } {
+		const out = {
+			count: this.slowEvents,
+			worstMs: Math.round(this.worstEventMs),
+			worst: this.worstEventName || null
+		};
+		this.slowEvents = 0;
+		this.worstEventMs = 0;
+		this.worstEventName = '';
+		return out;
 	}
 
 	/**
