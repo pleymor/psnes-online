@@ -97,6 +97,64 @@ async function del(store: string, key: string): Promise<void> {
 	db.close();
 }
 
+/* ------------------------------------------------------------ l'instrument */
+
+/** Ce qu'a coûté une résolution : par quel chemin, et pour combien de lectures. */
+export interface FolderCost {
+	/** `remembered` : le nom retenu a suffi. `scan` : il a fallu parcourir. */
+	path: 'remembered' | 'scan';
+	/** Fichiers réellement ouverts et hachés. Un hachage, c'est tout le fichier. */
+	filesRead: number;
+	ms: number;
+}
+
+/**
+ * Où va le coût d'une résolution, quand quelqu'un veut l'entendre.
+ *
+ * Un rapporteur branché une fois par l'application plutôt qu'un `createLogger`
+ * ici : ce module tourne sous node dans `core/test`, sans les alias SvelteKit,
+ * et `provider.ts` dit la même chose de lui-même en toutes lettres. Les tests
+ * le laissent à null, et alors rien n'est mesuré ni rapporté.
+ *
+ * Il existe parce qu'on ne sait pas ce qu'un lancement coûte chez quelqu'un
+ * d'autre que soi : le joueur voit un lancement lent, et rien nulle part ne dit
+ * combien de fichiers ont été lus pour ça.
+ */
+let costReporter: ((cost: FolderCost) => void) | null = null;
+
+export function reportFolderCost(fn: ((cost: FolderCost) => void) | null): void {
+	costReporter = fn;
+}
+
+/* ---------------------------------------------------- l'index du dossier */
+
+/**
+ * Ce que l'appareil se rappelle du dossier : un checksum, un nom de fichier.
+ *
+ * Derrière une interface pour la raison que `kept-files.ts` donne de la sienne :
+ * sans elle, rien de ce qui touche à l'index n'est testable hors d'un
+ * navigateur - et le COÛT avec, ce qui est le point ici.
+ */
+export interface FolderIndex {
+	/** Le nom de fichier retenu pour ce checksum, ou null. */
+	filenameFor(checksum: string): Promise<string | null>;
+	remember(checksum: string, filename: string): Promise<void>;
+	checksums(): Promise<string[]>;
+	forget(checksum: string): Promise<void>;
+}
+
+/** L'implémentation de production, sur le store `index`. */
+export function indexedDbFolderIndex(): FolderIndex {
+	return {
+		async filenameFor(checksum) {
+			return (await get<string>(INDEX, checksum)) ?? null;
+		},
+		remember: (checksum, filename) => put(INDEX, checksum, filename),
+		checksums: indexedChecksums,
+		forget: forgetIndexed
+	};
+}
+
 /* ------------------------------------------------------------- the folder */
 
 /**
@@ -264,7 +322,10 @@ function looksLikeRom(name: string): boolean {
 }
 
 /** Every ROM in the folder, with its checksum. */
-export async function scanDirectory(handle: FileSystemDirectoryHandle): Promise<LibraryEntry[]> {
+export async function scanDirectory(
+	handle: FileSystemDirectoryHandle,
+	index: FolderIndex = indexedDbFolderIndex()
+): Promise<LibraryEntry[]> {
 	const entries: LibraryEntry[] = [];
 	const iterable = handle as unknown as AsyncIterable<[string, FileSystemHandle]>;
 
@@ -274,7 +335,7 @@ export async function scanDirectory(handle: FileSystemDirectoryHandle): Promise<
 		const checksum = await checksumOf(file);
 		entries.push({ checksum, filename: name, size: file.size });
 		// Remembered so the next launch opens one file instead of reading them all.
-		await put(INDEX, checksum, name);
+		await index.remember(checksum, name);
 	}
 	return entries;
 }
@@ -287,15 +348,26 @@ export async function scanDirectory(handle: FileSystemDirectoryHandle): Promise<
  */
 export async function readRomByChecksum(
 	handle: FileSystemDirectoryHandle,
-	checksum: string
+	checksum: string,
+	index: FolderIndex = indexedDbFolderIndex()
 ): Promise<Uint8Array | null> {
-	const remembered = await get<string>(INDEX, checksum);
+	const startedAt = Date.now();
+	const remembered = await index.filenameFor(checksum);
 	if (remembered) {
 		const bytes = await tryRead(handle, remembered, checksum);
-		if (bytes) return bytes;
+		if (bytes) {
+			costReporter?.({ path: 'remembered', filesRead: 1, ms: Date.now() - startedAt });
+			return bytes;
+		}
 	}
 
-	for (const entry of await scanDirectory(handle)) {
+	const scanned = await scanDirectory(handle, index);
+	// Le nombre de fichiers lus, qui est ici la taille du dossier quelle que soit
+	// la cartouche cherchée : `scanDirectory` a tout lu et tout haché avant que
+	// la boucle ci-dessous ne regarde ce qu'elle cherchait.
+	costReporter?.({ path: 'scan', filesRead: scanned.length, ms: Date.now() - startedAt });
+
+	for (const entry of scanned) {
 		if (entry.checksum !== checksum) continue;
 		return tryRead(handle, entry.filename, checksum);
 	}
@@ -303,7 +375,7 @@ export async function readRomByChecksum(
 	// Ni le nom mémorisé ni un scan complet n'ont trouvé ce jeu : l'entrée
 	// d'index est périmée. La retirer ici corrige la bibliothèque au seul moment
 	// où son erreur a coûté quelque chose au joueur.
-	await del(INDEX, checksum);
+	await index.forget(checksum);
 	return null;
 }
 

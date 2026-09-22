@@ -212,6 +212,17 @@
         return;
       }
 
+      /*
+       * Ce que coûte une resynchronisation complète, de bout en bout.
+       *
+       * C'est le seul chemin qui lise et hache tout le dossier exprès, donc le
+       * seul endroit où l'écriture groupée de l'index se voit : elle valait une
+       * connexion IndexedDB ouverte et refermée par cartouche. La durée est
+       * dominée par la lecture des fichiers, alors le nombre de ROMs va avec -
+       * sans lui, deux mesures ne sont pas comparables.
+       */
+      const startedAt = performance.now();
+
       const result = await syncFolder({
         scan: () => scanDirectory(handle),
         register: registerGame,
@@ -223,6 +234,13 @@
         onProgress: (done, total, filename) => {
           syncProgress = `${done}/${total} · ${filename}`;
         }
+      });
+
+      logger.info('Folder resynchronised', {
+        roms: result.total,
+        added: result.added,
+        removed: result.removed,
+        ms: Math.round(performance.now() - startedAt)
       });
 
       if (result.empty) {

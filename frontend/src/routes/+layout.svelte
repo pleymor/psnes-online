@@ -7,6 +7,7 @@
   import { socket, initializeSocket, waitForSocket } from '$lib/api/socket';
   import { startLogShipping } from '$lib/utils/log-shipper';
   import { createLogger } from '$lib/utils/logger';
+  import { reportFolderCost } from '$lib/roms/local-library';
   import { linkState } from '$lib/stores/connection';
   import { inGame } from '$lib/stores/in-game';
   import { sharing } from '$lib/stores/sharing';
@@ -18,8 +19,24 @@
   import VrShell from '$lib/components/VrShell.svelte';
 
   const logger = createLogger('AppLayout');
+  const romFolderLogger = createLogger('RomFolder');
 
   let socketInitialized = false;
+
+  /*
+   * Le coût d'une résolution de ROM, branché une fois pour toute l'application.
+   *
+   * `local-library.ts` ne peut pas journaliser lui-même : il tourne sous node
+   * dans `core/test`, sans les alias SvelteKit. Il rapporte donc, et c'est ici
+   * qu'on écoute - une seule fois, plutôt que dans les huit écrans qui lancent
+   * un jeu. La ligne remonte jusqu'aux journaux du serveur par `log-shipper`,
+   * ce qui est le seul moyen de voir en production ce qu'un lancement coûte
+   * chez quelqu'un d'autre que soi.
+   */
+  onMount(() => {
+    reportFolderCost(cost => romFolderLogger.info('ROM resolved from the folder', cost));
+    return () => reportFolderCost(null);
+  });
 
   onMount(async () => {
     // Check authentication

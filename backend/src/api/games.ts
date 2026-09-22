@@ -271,6 +271,15 @@ gamesRouter.post('/refresh-metadata', asyncHandler(async (req, res) => {
 
     let updatedCount = 0;
     let skippedCount = 0;
+    /*
+     * Le seul endroit où le coût d'une identification par titre se voit.
+     *
+     * `requestLogger` rapporte bien la durée de cette requête - elle dépasse
+     * les 100 ms et sort donc en « Slow request » - mais sans le nombre de
+     * jeux elle n'est pas comparable d'un compte à l'autre. Ce sont les deux
+     * ensemble qui disent si l'index du catalogue a servi à quelque chose.
+     */
+    const startedAt = performance.now();
 
     for (const game of games) {
       const metadata = await findGameMetadata(game.title);
@@ -293,6 +302,16 @@ gamesRouter.post('/refresh-metadata', asyncHandler(async (req, res) => {
         skippedCount++;
       }
     }
+
+    logger.info(
+      {
+        games: games.length,
+        updated: updatedCount,
+        skipped: skippedCount,
+        ms: Math.round(performance.now() - startedAt)
+      },
+      'Refreshed metadata for a library'
+    );
 
     res.json({
       success: true,

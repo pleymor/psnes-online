@@ -10,6 +10,9 @@ import { sanitiseEntry } from './entry-input.js';
 import { cachedCatalogue, invalidateMetadataCache } from '../services/metadata-loader.js';
 import { rankCatalogue } from '../services/catalogue-search.js';
 import { imageKindOf } from '../utils/image-kind.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('Metadata');
 
 /**
  * The shared catalogue, as players search and extend it.
@@ -23,7 +26,26 @@ metadataRouter.use(requireAuth);
 
 metadataRouter.get('/search', asyncHandler(async (req, res) => {
   const q = typeof req.query.q === 'string' ? req.query.q : '';
-  res.json(rankCatalogue(cachedCatalogue(), q));
+  /*
+   * Le coût d'une recherche, dit à chaque recherche.
+   *
+   * `requestLogger` ne rapporte une durée qu'au-delà de 100 ms, et celle-ci se
+   * compte en millisecondes : elle était donc invisible en production, ce qui
+   * est précisément la raison pour laquelle personne n'avait vu que le
+   * catalogue se renormalisait à chaque frappe. La ligne est bon marché - la
+   * recherche est débouncée à 200 ms côté page - et c'est elle qui permet de
+   * comparer un avant et un après ailleurs que sur un banc.
+   *
+   * La requête elle-même n'est PAS journalisée : c'est ce qu'un joueur cherche.
+   * Sa longueur suffit à distinguer une frappe en cours d'une requête entière.
+   */
+  const startedAt = performance.now();
+  const matches = rankCatalogue(cachedCatalogue(), q);
+  logger.info(
+    { queryLength: q.length, matches: matches.length, ms: +(performance.now() - startedAt).toFixed(2) },
+    'Catalogue searched'
+  );
+  res.json(matches);
 }));
 
 /**
