@@ -106,3 +106,39 @@ test('presentation drives nothing: ten XR frames in one millisecond run at most 
     if (savedRaf === undefined) delete g.requestAnimationFrame; else g.requestAnimationFrame = savedRaf;
   }
 });
+
+test('a governor told to prefer the worker stops asking its scheduler', () => {
+	/*
+	 * The experiment #88 asks for. `longTasks` reads zero while frames go 203ms
+	 * apart, so nothing is blocking the main thread - the slice simply is not
+	 * being run. The suspicion is that a mobile browser defers
+	 * requestAnimationFrame while it handles a touch, by a few tens of
+	 * milliseconds: too little to be a long task, enough to send a pad late and,
+	 * through the lockstep round trip, to freeze both players.
+	 *
+	 * The worker-driven timer already exists for hidden tabs and does not go
+	 * through rAF at all. Making it switchable in flight is what lets the two be
+	 * compared inside one session rather than across two deploys.
+	 *
+	 * The scheduler hook stands in for rAF here: what is asserted is that it
+	 * stops being consulted, which is the whole behavioural difference.
+	 */
+	let asked = 0;
+	const governor = new FrameGovernor(new Counting(), {
+		fps: 60,
+		schedule: () => {
+			asked++;
+		}
+	});
+
+	governor.start();
+	const before = asked;
+	assert.ok(before > 0, 'the scheduler drives the slices to begin with');
+
+	governor.setPreferWorker(true);
+	const after = asked;
+	governor.setPreferWorker(false);
+
+	assert.equal(after, before, 'and is left alone once the worker has the job');
+	governor.stop();
+});

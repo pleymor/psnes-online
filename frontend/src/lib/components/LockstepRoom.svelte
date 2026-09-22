@@ -791,6 +791,21 @@
       return session.inputDelay;
     };
 
+    /*
+     * Schedules the slices off a worker timer instead of the display clock.
+     *
+     * The experiment #88 asks for, and switchable here rather than behind a
+     * deploy so the two can be compared inside one session - the symptom is a
+     * felt one, and comparing a felt thing across two sessions on two builds is
+     * how three days were spent on the audio.
+     *
+     * `__znetWorker(true)` to leave requestAnimationFrame, `false` to return.
+     */
+    w.__znetWorker = (on?: boolean) => {
+      governor?.setPreferWorker(on !== false);
+      return on !== false;
+    };
+
     if (!import.meta.env.DEV) return;
 
     w.__znetEvents = [];
