@@ -260,6 +260,17 @@ export interface SessionStats {
 	 */
 	localStrain: number;
 	/**
+	 * How long frames took, as a shape rather than an average.
+	 *
+	 * `fps` is a per-second figure and reads flat straight through a burst of
+	 * heavy frames - which is what a player feels as a slowdown, and what every
+	 * indicator missed on 2026-09-22. Read the median against the tail: an
+	 * ordinary median with a heavy p95 is a machine that stutters in bursts.
+	 */
+	frameMs50: number;
+	frameMs95: number;
+	frameMsMax: number;
+	/**
 	 * How the peer's pads arrive, as peaks rather than an average: the longest
 	 * silence between two deliveries in ms, and the most frames one delivery
 	 * carried.
@@ -425,6 +436,9 @@ export class NetplaySession implements TickSource {
 		strain: 0,
 		peerStrain: 0,
 		localStrain: 0,
+		frameMs50: 0,
+		frameMs95: 0,
+		frameMsMax: 0,
 		arrivalGap: 0,
 		arrivalClump: 0,
 		epoch: 0,
@@ -704,6 +718,9 @@ export class NetplaySession implements TickSource {
 			strain: this.metrics.strain,
 			peerStrain: this.metrics.peerStrain,
 			localStrain: this.metrics.localStrain,
+			frameMs50: this.metrics.frameMs50,
+			frameMs95: this.metrics.frameMs95,
+			frameMsMax: this.metrics.frameMsMax,
 			arrivalGap: this.metrics.arrivalGap,
 			arrivalClump: this.metrics.arrivalClump,
 			epoch: this.epoch,

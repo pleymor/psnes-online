@@ -16,7 +16,7 @@
   import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
   import { version } from '$app/environment';
-  import { HostHealth, readHeapMb, readLinkClass } from '$lib/znet/host-health';
+  import { FrameTimes, HostHealth, readHeapMb, readLinkClass } from '$lib/znet/host-health';
   import { fromBase64, toBase64 } from '$lib/saves/base64';
   import { setLogLabels } from '$lib/utils/log-shipper';
   import { decodeSram } from '$lib/rooms/sram';
@@ -110,6 +110,12 @@
    */
   let framesDrawn = 0;
   let lastFramesDrawn = 0;
+  /*
+   * The same reading as lockstep's, and the reason solo needed it: with no peer
+   * and no link in the way, a slowdown here is the machine and nothing else.
+   */
+  const frameTimes = new FrameTimes();
+  let lastFrameAt: number | null = null;
   let longTaskObserver: PerformanceObserver | null = null;
   const hostHealth = new HostHealth();
   let renderer: Renderer | null = null;
@@ -575,6 +581,9 @@
         }),
         onFrame: (c, frame) => {
           framesDrawn++;
+          const now = performance.now();
+          if (lastFrameAt !== null) frameTimes.note(now - lastFrameAt);
+          lastFrameAt = now;
           renderer!.draw(c);
           // FrameGovernor used to call this through `onSlice`, once per slice
           // rather than once per frame; the engine exposes no such hook, and
@@ -859,6 +868,7 @@
         audioQueuedMs: latency.queued,
         audioOutputMs: latency.output,
         audioDroppedMs: latency.dropped,
+        frameMs: [frameTimes.ms50, frameTimes.ms95, frameTimes.msMax],
         longTasks: hostHealth.takeLongTasks(),
         heapMb: readHeapMb(typeof performance !== 'undefined' ? performance : null),
         linkClass: readLinkClass(typeof navigator !== 'undefined' ? navigator : null),

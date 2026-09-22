@@ -97,3 +97,96 @@ export function readHeapMb(perf: unknown): number | null {
 	const used = (perf as { memory?: { usedJSHeapSize?: unknown } } | null)?.memory?.usedJSHeapSize;
 	return typeof used === 'number' ? Math.round(used / (1024 * 1024)) : null;
 }
+
+/**
+ * How long frames took, as a shape rather than an average, and how often the
+ * machine can actually present one.
+ *
+ * Both readings come from the same intervals, which is why they are taken
+ * together rather than measured twice - and why this is not inside
+ * `LinkMetrics`: solo has no peer, no link and no metrics, yet it is the mode
+ * where a slowdown can be isolated without a network in the way.
+ *
+ * `fps` is a per-second average and reads a flat 50 straight through a burst of
+ * heavy frames, which is what a player feels as a slowdown. On 2026-09-22 every
+ * indicator said the machine was fine while the slowdown was plainly visible.
+ * The intervals were being measured all along; saying something about their
+ * shape was what was missing.
+ */
+export class FrameTimes {
+	private gaps: number[] = [];
+	private readonly window: number;
+	private _quantum = 0;
+	private _ms50 = 0;
+	private _ms95 = 0;
+	private _msMax = 0;
+
+	constructor(window = 128) {
+		this.window = window;
+	}
+
+	/** One interval between consecutive frames, in ms. */
+	note(gapMs: number): void {
+		this.gaps.push(gapMs);
+		if (this.gaps.length >= this.window) this.close();
+	}
+
+	/**
+	 * The interval at which this machine presents, measured rather than assumed.
+	 *
+	 * A median, never a minimum. The governor runs frames closer together
+	 * whenever it catches up, and one such interval used to drag the estimate
+	 * down for a whole window - the margin is a few milliseconds wide, so the
+	 * 50/60 beat it exists to excuse got counted again. Four intervals in five
+	 * are the refresh period; a median names it whatever the exceptions do.
+	 *
+	 * Zero until a window has closed, which callers read as "not yet known".
+	 */
+	get quantum(): number {
+		return this._quantum;
+	}
+
+	get ms50(): number {
+		return Math.round(this._ms50 * 10) / 10;
+	}
+	get ms95(): number {
+		return Math.round(this._ms95 * 10) / 10;
+	}
+	get msMax(): number {
+		return Math.round(this._msMax * 10) / 10;
+	}
+
+	/** Forgets a timeline that no longer means anything - a resync, a restart. */
+	reset(): void {
+		this.gaps = [];
+		this._quantum = 0;
+		this._ms50 = 0;
+		this._ms95 = 0;
+		this._msMax = 0;
+	}
+
+	private close(): void {
+		const all = [...this.gaps].sort((a, b) => a - b);
+		this.gaps = [];
+		if (all.length === 0) return;
+
+		const at = (q: number) => all[Math.min(all.length - 1, Math.floor(all.length * q))];
+		this._ms50 = at(0.5);
+		this._ms95 = at(0.95);
+		this._msMax = all[all.length - 1];
+
+		// A catch-up slice puts frames microseconds apart; those are not a
+		// presentation period and must not be allowed to define one.
+		const presentable = all.filter((g) => g >= MIN_PRESENT_MS);
+		this._quantum = presentable.length ? presentable[Math.floor(presentable.length / 2)] : 0;
+	}
+}
+
+/**
+ * Below this an interval is not a presentation.
+ *
+ * The governor can run several emulated frames inside one tick when it is
+ * catching up, and those land microseconds apart. They say nothing about how
+ * often the machine can actually put a frame on screen.
+ */
+const MIN_PRESENT_MS = 4;

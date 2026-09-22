@@ -9,6 +9,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
 import {
+	FrameTimes,
 	HostHealth,
 	readApiRtt,
 	readDownlink,
@@ -61,4 +62,25 @@ test('the connection API reports a quality class, never a radio', () => {
 
 	assert.equal(readDownlink({ connection: {} }), null, 'absent stays null');
 	assert.equal(readApiRtt({ connection: {} }), null, 'absent stays null');
+});
+
+test('frame times are read as a shape, and the quantum ignores catch-up slices', () => {
+	/*
+	 * Both readings come from the same intervals, which is why they live
+	 * together rather than being measured twice.
+	 *
+	 * The quantum only considers intervals long enough to be a real
+	 * presentation: a catch-up slice puts several frames microseconds apart and
+	 * those say nothing about how often a frame reaches the screen. The spread
+	 * wants all of them - a frame that took no time is as much part of the shape
+	 * as one that took sixty milliseconds.
+	 */
+	const f = new FrameTimes(8);
+
+	// Six ordinary frames, one catch-up pair, one heavy frame.
+	for (const gap of [20, 20, 20, 0.2, 20, 20, 60, 20]) f.note(gap);
+
+	assert.equal(f.quantum, 20, 'the catch-up interval is not a presentation period');
+	assert.ok(Math.abs(f.ms50 - 20) < 1, `the median is the ordinary frame, got ${f.ms50}`);
+	assert.equal(f.msMax, 60, 'and the worst is kept');
 });

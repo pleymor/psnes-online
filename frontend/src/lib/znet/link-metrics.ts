@@ -11,6 +11,8 @@
  * through a virtual clock at full CPU speed.
  */
 
+import { FrameTimes } from './host-health.js';
+
 /** Window over which late frames are counted, and reported to the peer. */
 const STRAIN_WINDOW = 128;
 
@@ -29,15 +31,7 @@ const LATE_FACTOR = 1.5;
  */
 const ARRIVAL_WINDOW = 64;
 
-/**
- * Gaps shorter than this are not a presentation interval.
- *
- * The governor can run several emulated frames inside one tick when it is
- * catching up, and those land microseconds apart. They say nothing about how
- * often the machine can actually put a frame on screen, so they must not be
- * mistaken for the display's period.
- */
-const MIN_QUANTUM_MS = 4;
+
 
 export class LinkMetrics {
 	private fps: number;
@@ -110,8 +104,15 @@ export class LinkMetrics {
 	 * Zero means not yet known, and until it is the emulated frame is used -
 	 * the behaviour this had before, which is the safe way to be wrong.
 	 */
-	private presentQuantum = 0;
-	private quantumPending = Infinity;
+	/**
+	 * The shape of this machine's frame intervals, and the period it presents at.
+	 *
+	 * Delegated rather than kept here: solo has no peer, no link and no metrics,
+	 * yet it is the mode where a slowdown can be isolated without a network in
+	 * the way. Writing the same arithmetic in both places is how two copies
+	 * drift apart in silence.
+	 */
+	private frameTimes = new FrameTimes(STRAIN_WINDOW);
 
 	/**
 	 * How the peer's pads actually turn up, as two peaks rather than an average.
@@ -163,6 +164,22 @@ export class LinkMetrics {
 	 */
 	get localStrain(): number {
 		return this.localLateCount;
+	}
+	/**
+	 * How long frames actually took, as a shape rather than an average.
+	 *
+	 * Read against each other: a median at the cartridge's frame time with a
+	 * heavy tail is a machine that stutters in bursts, which is what a player
+	 * notices and what `fps` hides.
+	 */
+	get frameMs50(): number {
+		return this.frameTimes.ms50;
+	}
+	get frameMs95(): number {
+		return this.frameTimes.ms95;
+	}
+	get frameMsMax(): number {
+		return this.frameTimes.msMax;
 	}
 
 	/** Longest silence between two deliveries in the window, in ms. */
@@ -258,7 +275,7 @@ export class LinkMetrics {
 		this.lastFrameAt = at;
 		if (previous === null) return;
 		const gap = at - previous;
-		if (gap >= MIN_QUANTUM_MS && gap < this.quantumPending) this.quantumPending = gap;
+		this.frameTimes.note(gap);
 
 		/*
 		 * What this frame was entitled to take: the emulated frame rounded up to
@@ -267,7 +284,7 @@ export class LinkMetrics {
 		 * meant - a gap this much wider than the machine's own cadence.
 		 */
 		const frameMs = 1000 / this.fps;
-		const quantum = this.presentQuantum;
+		const quantum = this.frameTimes.quantum;
 		const expected =
 			quantum > 0 && quantum < frameMs ? Math.ceil(frameMs / quantum) * quantum : frameMs;
 
@@ -281,10 +298,6 @@ export class LinkMetrics {
 		// One cursor for both rings: every frame writes exactly one slot in
 		// each, so they age together and a single index cannot drift.
 		this.lateAt = (this.lateAt + 1) % STRAIN_WINDOW;
-		if (this.lateAt === 0) {
-			this.presentQuantum = Number.isFinite(this.quantumPending) ? this.quantumPending : 0;
-			this.quantumPending = Infinity;
-		}
 	}
 
 	notePeerStrain(strain: number): void {
@@ -307,7 +320,6 @@ export class LinkMetrics {
 		this.lateAt = 0;
 		this.localLateRing.fill(0);
 		this.localLateCount = 0;
-		this.presentQuantum = 0;
-		this.quantumPending = Infinity;
+		this.frameTimes.reset();
 	}
 }

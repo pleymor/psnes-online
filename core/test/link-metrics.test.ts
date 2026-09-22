@@ -233,3 +233,60 @@ test('a real overrun is still late on a display that beats', () => {
 	}
 	assert.equal(m.localStrain, 5, 'five frames of 120ms are five stutters');
 });
+
+test('one irregular slice does not drag the presentation quantum down with it', () => {
+	/*
+	 * #76 estimated the quantum as the SHORTEST interval of the previous window,
+	 * and a minimum is the most fragile statistic there is. The governor runs
+	 * frames closer together whenever it catches up, and a single such interval
+	 * lowers the estimate for the whole next window.
+	 *
+	 * The margin is a few milliseconds wide: at 16.67 the threshold works out at
+	 * 50ms and the 33.3ms beat passes under it; at 11 it works out at 33ms and
+	 * the beat is counted again. Measured in play on 2026-09-22 - `localStrain`
+	 * at 0 on a calm session and 10 to 23 on the same machine under repeated
+	 * input.
+	 *
+	 * A central statistic does not care: four intervals in five are the refresh
+	 * period, so the median names it whatever the exceptions do.
+	 */
+	const m = new LinkMetrics(PAL);
+	const refresh = 1000 / 60;
+	let at = 0;
+	m.noteFrameRun(at, false);
+	for (let i = 0; i < 400; i++) {
+		// The 50-on-60 cadence, with a catch-up slice every seventeen frames.
+		if (i % 17 === 16) at += 11;
+		else at += i % 5 === 4 ? refresh * 2 : refresh;
+		m.noteFrameRun(at, false);
+	}
+
+	assert.equal(m.localStrain, 0, 'the beat must stay uncounted despite the irregular slices');
+});
+
+test('the spread of frame times is reported, not just their average', () => {
+	/*
+	 * `fps` is a per-second average and reads a flat 50 straight through a burst
+	 * of heavy frames - which is exactly what a player feels as a slowdown, and
+	 * exactly what was reported on 2026-09-22 while every indicator said the
+	 * machine was fine.
+	 *
+	 * The intervals are already measured here for the quantum; what was missing
+	 * was saying anything about their shape.
+	 */
+	const m = new LinkMetrics(PAL);
+	let at = 0;
+	m.noteFrameRun(at, false);
+	// A steady machine with a handful of frames three times over budget.
+	for (let i = 0; i < 400; i++) {
+		at += i % 40 === 39 ? 60 : 20;
+		m.noteFrameRun(at, false);
+	}
+
+	assert.ok(Math.abs(m.frameMs50 - 20) < 2, `the median is the ordinary frame, got ${m.frameMs50}`);
+	assert.ok(m.frameMsMax >= 59, `and the worst is not averaged away, got ${m.frameMsMax}`);
+	assert.ok(
+		m.frameMs95 >= m.frameMs50,
+		`p95 sits above the median, got ${m.frameMs95} against ${m.frameMs50}`
+	);
+});

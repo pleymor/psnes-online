@@ -870,6 +870,9 @@
         // guess: a peer stuttering on a link its partner finds calm shows up
         // here and nowhere else.
         localStrain: s.localStrain,
+        // The shape of the frame times, because `fps` above is an average and
+        // reads flat through exactly the bursts a player notices.
+        frameMs: [s.frameMs50, s.frameMs95, s.frameMsMax],
         // How the pads actually turn up, which `jitter` above averages away: the
         // longest silence between two deliveries, and the most frames one
         // delivery carried. One frame and 1 is even delivery. A long gap with a
