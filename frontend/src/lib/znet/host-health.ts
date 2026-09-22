@@ -21,6 +21,14 @@ export class HostHealth {
 	private slowEvents = 0;
 	private worstEventMs = 0;
 	private worstEventName = '';
+	/*
+	 * Kept apart from `worstEventMs` on purpose. Event Timing's `duration` runs
+	 * to the next paint, so at fifty frames a second every event clears a 16ms
+	 * threshold by construction and the figure says nothing about cost. What
+	 * the handler itself took is `processingEnd - processingStart`, and that is
+	 * the one that accuses.
+	 */
+	private worstHandlerMs = 0;
 
 	/** One `longtask` entry, as the PerformanceObserver reports its duration. */
 	noteLongTask(durationMs: number): void {
@@ -36,8 +44,9 @@ export class HostHealth {
 	 * while `longTasks` read zero on both. The zero never meant "nothing
 	 * blocks" - it meant "nothing blocks for long".
 	 */
-	noteSlowEvent(name: string, durationMs: number): void {
+	noteSlowEvent(name: string, durationMs: number, handlerMs = 0): void {
 		this.slowEvents++;
+		if (handlerMs > this.worstHandlerMs) this.worstHandlerMs = handlerMs;
 		if (durationMs > this.worstEventMs) {
 			this.worstEventMs = durationMs;
 			this.worstEventName = name;
@@ -51,14 +60,16 @@ export class HostHealth {
 	 * opposite investigations, and the symptom being chased appears only for
 	 * one peer's inputs.
 	 */
-	takeSlowEvents(): { count: number; worstMs: number; worst: string | null } {
+	takeSlowEvents(): { count: number; worstMs: number; handlerMs: number; worst: string | null } {
 		const out = {
 			count: this.slowEvents,
 			worstMs: Math.round(this.worstEventMs),
+			handlerMs: Math.round(this.worstHandlerMs),
 			worst: this.worstEventName || null
 		};
 		this.slowEvents = 0;
 		this.worstEventMs = 0;
+		this.worstHandlerMs = 0;
 		this.worstEventName = '';
 		return out;
 	}

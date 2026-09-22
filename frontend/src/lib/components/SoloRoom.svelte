@@ -876,7 +876,7 @@
           for (const entry of list.getEntries()) {
             const e = entry as PerformanceEntry & { processingStart?: number; processingEnd?: number };
             const handler = (e.processingEnd ?? 0) - (e.processingStart ?? 0);
-            hostHealth.noteSlowEvent(entry.name, Math.max(entry.duration, handler));
+            hostHealth.noteSlowEvent(entry.name, entry.duration, handler);
           }
         });
         eventObserver.observe({ type: 'event', durationThreshold: 16 } as PerformanceObserverInit);
@@ -905,7 +905,7 @@
         // `longtask` cannot see anything under 50ms.
         slowEvents: (() => {
           const e = hostHealth.takeSlowEvents();
-          return [e.count, e.worstMs, e.worst];
+          return [e.count, e.worstMs, e.handlerMs, e.worst];
         })(),
         heapMb: readHeapMb(typeof performance !== 'undefined' ? performance : null),
         linkClass: readLinkClass(typeof navigator !== 'undefined' ? navigator : null),

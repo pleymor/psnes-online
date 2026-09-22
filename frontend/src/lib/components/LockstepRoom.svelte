@@ -856,7 +856,7 @@
           for (const entry of list.getEntries()) {
             const e = entry as PerformanceEntry & { processingStart?: number; processingEnd?: number };
             const handler = (e.processingEnd ?? 0) - (e.processingStart ?? 0);
-            hostHealth.noteSlowEvent(entry.name, Math.max(entry.duration, handler));
+            hostHealth.noteSlowEvent(entry.name, entry.duration, handler);
           }
         });
         eventObserver.observe({ type: 'event', durationThreshold: 16 } as PerformanceObserverInit);
@@ -934,7 +934,7 @@
         // `longtask` cannot see anything under 50ms.
         slowEvents: (() => {
           const e = hostHealth.takeSlowEvents();
-          return [e.count, e.worstMs, e.worst];
+          return [e.count, e.worstMs, e.handlerMs, e.worst];
         })(),
         // The sound's distance from the picture on THIS machine, split into the
         // half we hold and the half the platform adds below the API. A constant

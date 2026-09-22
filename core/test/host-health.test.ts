@@ -101,13 +101,17 @@ test('slow input handlers are reported per interval, worst one named', () => {
 	 * produce the symptom.
 	 */
 	const h = new HostHealth();
-	h.noteSlowEvent('pointerdown', 34);
-	h.noteSlowEvent('pointermove', 18);
-	h.noteSlowEvent('pointerup', 22);
+	// `duration` runs to the next paint, so at fifty frames a second every event
+	// clears a 16ms threshold by construction and says nothing about cost. What
+	// the handler took is kept apart, and it is the one that accuses.
+	h.noteSlowEvent('pointerdown', 34, 3);
+	h.noteSlowEvent('pointermove', 18, 12);
+	h.noteSlowEvent('pointerup', 22, 1);
 
 	const first = h.takeSlowEvents();
 	assert.equal(first.count, 3);
 	assert.equal(first.worstMs, 34);
+	assert.equal(first.handlerMs, 12, 'the costliest handler, not the longest wait');
 	assert.equal(first.worst, 'pointerdown', 'the worst is named, not just measured');
 
 	const second = h.takeSlowEvents();
