@@ -444,3 +444,41 @@ test('a starving queue is never cut further to pay a debt', () => {
 		`cutting must stop once there is no surplus: ${early} then ${late} frames`
 	);
 });
+
+test('small starvations are drained, not cut - only a real outage is paid for', () => {
+	/*
+	 * Measured in lockstep on 2026-09-22, both peers pinned: the phone stalled
+	 * 754 times in 135 seconds and threw away 3152ms of audio - some 23ms a
+	 * second - while the PC, which stalls 8 times, threw away none. Every one
+	 * of those cuts is a click, and that is what the player hears.
+	 *
+	 * A lockstep follower waits on its peer's pad by construction; it is not
+	 * falling behind, and paying for each of those waits in discarded audio
+	 * turns a normal rhythm into a continuous crackle. Pinning the delay to
+	 * five frames changed nothing, which is the proof that this has nothing to
+	 * do with the pad buffer: the debt looks at the audio queue, not at it.
+	 *
+	 * So only an outage is paid for. Anything a drain can absorb is left to the
+	 * drain, which discards nothing.
+	 */
+	const sink = makeSink(RATE);
+	const push = (frames: number) => sink.port.onmessage!({ data: chunk(frames) });
+	const out = [[new Float32Array(QUANTUM), new Float32Array(QUANTUM)]];
+
+	// Playing, with a comfortable buffer, so debts are real and payable.
+	push(Math.round(RATE * 0.1));
+	for (let i = 0; i < 20; i++) sink.process([], out);
+
+	// Forty short starvations - one render quantum each, under 3ms - which is
+	// what waiting on a peer's pad looks like from in here.
+	for (let i = 0; i < 40; i++) {
+		sink.queue.length = 0; // the producer has nothing for this quantum
+		sink.process([], out);
+		push(QUANTUM * 3);
+		sink.process([], out);
+	}
+
+	const reports = sink.port.sent.filter((m) => m && m.type === 'depth');
+	const dropped = reports.length ? (reports[reports.length - 1].dropped ?? 0) : 0;
+	assert.equal(dropped, 0, `short waits must cost no audio, ${dropped} frames were cut`);
+});

@@ -226,7 +226,24 @@ class PsnesSink extends AudioWorkletProcessor {
      */
     const target = Math.round(sampleRate * 0.05);
 
-    while (this.starved > 0 && this.queue.length > 0) {
+    /*
+     * Only an outage is paid for.
+     *
+     * A lockstep follower waits on its peer's pad by construction - it is not
+     * falling behind, it is keeping step - and paying for each of those waits
+     * in discarded audio turns a normal rhythm into a continuous crackle.
+     * Measured on 2026-09-22: the phone stalled 754 times in 135 seconds and
+     * threw away 3152ms of audio, some 23ms a second, while the peer that
+     * stalls 8 times threw away none. Pinning the delay to five frames changed
+     * nothing, which is the proof this has nothing to do with the pad buffer:
+     * the debt looks at the audio queue, not at that one.
+     *
+     * Anything a drain can absorb is left to the drain, which discards nothing.
+     * Two frames of debt is the line: below it the queue is merely breathing.
+     */
+    const payable = this.starved > sampleRate * 0.04;
+
+    while (payable && this.starved > 0 && this.queue.length > 0) {
       /*
        * Only ever out of surplus. A debt paid from a queue that is already at
        * or below the target makes the starvation it answers strictly worse,
@@ -255,6 +272,18 @@ class PsnesSink extends AudioWorkletProcessor {
       this.dropped += drop;
       if (this.offset >= stale.length) { this.queue.shift(); this.offset = 0; }
     }
+
+    /*
+     * Forgiven only once the starvation is over, never during it.
+     *
+     * Clearing a small debt while the queue is still empty means a long outage
+     * never accumulates enough to be worth paying: each quantum forgives what
+     * the one before it added, and the debt never crosses the line. So the
+     * condition is that audio has come back - then a debt too small for a cut
+     * is dropped rather than banked, where it would pile up over a minute of
+     * ordinary waiting and be paid in one audible lump.
+     */
+    if (!payable && this.queue.length > 0) this.starved = 0;
 
     /*
      * Say how deep the queue is, for the main thread to ship.
