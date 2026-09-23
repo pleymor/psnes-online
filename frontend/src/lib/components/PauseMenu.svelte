@@ -63,6 +63,16 @@
    */
   export let latencyMode: LatencyMode | null = null;
   /**
+   * Whether the slices are scheduled off a worker timer instead of the display
+   * clock. Null where the room has no governor to ask.
+   *
+   * An experiment (#88), and it lives here rather than behind a console hook
+   * because the machine that shows the symptom is a phone, where there is no
+   * console to open. Comparing a felt symptom needs the switch to be within
+   * reach of the thumb that feels it.
+   */
+  export let workerTimer: boolean | null = null;
+  /**
    * Whether this player may change it. Only the room's creator can, so for
    * everyone else the entry explains what they are playing under rather than
    * being something to press.
@@ -554,6 +564,24 @@
           </div>
         {/if}
 
+        {#if workerTimer !== null}
+          <!--
+            An experiment, and labelled as one. It swaps the display clock for a
+            worker timer to find out whether a deferred requestAnimationFrame is
+            what makes a touch press stutter - see #88. It may well make the
+            cadence worse, which is the point of being able to turn it off again
+            without leaving the match.
+          -->
+          <label class="worker-row">
+            <input
+              type="checkbox"
+              checked={workerTimer}
+              on:change={(e) => dispatch('workerTimer', { on: e.currentTarget.checked })}
+            />
+            <span>Timer worker <em>(essai)</em></span>
+          </label>
+        {/if}
+
         <button on:click={handleBackFromSubmenu} class="back-button">
           {t($language, 'close')}
         </button>
@@ -721,6 +749,20 @@
 
   /* One row: the label, then minus / field / plus, so a thumb and a keyboard
      both have something to aim at. */
+  .worker-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.75rem 0 0;
+    font-size: 0.9rem;
+  }
+
+  .worker-row em {
+    opacity: 0.7;
+    font-style: normal;
+    font-size: 0.8rem;
+  }
+
   .frames-row {
     display: flex;
     align-items: center;

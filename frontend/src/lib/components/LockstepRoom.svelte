@@ -369,6 +369,14 @@
   let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
   const hostHealth = new HostHealth();
   let longTaskObserver: PerformanceObserver | null = null;
+  /*
+   * Whether the slices run off a worker timer rather than the display clock -
+   * the experiment of #88, surfaced in the pause menu because the machine that
+   * shows the symptom is a phone, with no console to open. Shipped in the
+   * telemetry too, so a session can be read without having to ask which way it
+   * was set.
+   */
+  let workerTimer = false;
   let eventObserver: PerformanceObserver | null = null;
   let sramTimer: ReturnType<typeof setInterval> | null = null;
   let lastFramesRun = 0;
@@ -944,6 +952,7 @@
         downlink: readDownlink(typeof navigator !== 'undefined' ? navigator : null),
         apiRtt: readApiRtt(typeof navigator !== 'undefined' ? navigator : null),
         heapMb: readHeapMb(typeof performance !== 'undefined' ? performance : null),
+        workerTimer,
         longTasks: hostHealth.takeLongTasks(),
         // Handlers slow enough to matter, and the worst of them by name -
         // `longtask` cannot see anything under 50ms.
@@ -1596,6 +1605,7 @@
       {display}
       {showStats}
       {latencyMode}
+      {workerTimer}
       {canSetLatency}
       canReset={isHost}
       emulator={saveAdapter}
@@ -1605,6 +1615,10 @@
       on:display={(e) => void onDisplayChange(e.detail)}
       on:stats={() => (showStats = !showStats)}
       on:latency={(e) => setLatencyMode(e.detail.mode)}
+      on:workerTimer={(e) => {
+        workerTimer = e.detail.on;
+        governor?.setPreferWorker(workerTimer);
+      }}
       on:controlsSaved={handleControlsSaved}
     />
   {/if}
