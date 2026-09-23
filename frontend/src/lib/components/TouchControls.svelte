@@ -49,9 +49,30 @@
    * storage simply gets the default rather than an error at first touch.
    */
   let mode: DirectionMode = 'stick';
+  let geometryObserver: ResizeObserver | null = null;
+
   onMount(() => {
     mode = readDirectionMode();
     pad.setMode(mode);
+
+    /*
+     * Keeps the control geometry current without ever measuring during a
+     * pointer event - see `remeasure`.
+     *
+     * A ResizeObserver on the pad covers everything that actually moves these
+     * boxes: a rotation, the browser toolbar appearing, entering or leaving
+     * fullscreen, the room changing the band's shape. All of them resize this
+     * element, and all of them happen between gestures rather than during one.
+     *
+     * It fires once on observe, which is also how the first measurement is
+     * taken - before any thumb has touched anything.
+     */
+    if (typeof ResizeObserver !== 'undefined' && padEl) {
+      geometryObserver = new ResizeObserver(() => remeasure());
+      geometryObserver.observe(padEl);
+    } else {
+      remeasure();
+    }
   });
 
   /**
@@ -76,6 +97,7 @@
   }
 
   let stickEl: HTMLElement | null = null;
+  let padEl: HTMLElement | null = null;
   /** The pointer that owns the stick, so a second thumb cannot steal it. */
   let stickPointer: number | null = null;
   let centreX = 0;
@@ -149,12 +171,11 @@
     stickPointer = event.pointerId;
     capture(event);
     event.preventDefault();
-    // Measured on every press rather than once: an orientation change, the
-    // toolbar appearing, or entering fullscreen all move this box.
-    const box = stickEl.getBoundingClientRect();
-    centreX = box.left + box.width / 2;
-    centreY = box.top + box.height / 2;
-    radius = Math.max(box.width, box.height) / 2;
+    // Nothing is measured here. The geometry is kept current by `remeasure`,
+    // which a ResizeObserver calls whenever the layout actually moves - a
+    // rotation, the toolbar appearing, entering fullscreen. Those happen
+    // between gestures; paying for them during one is what made a press skip a
+    // frame.
     aim(event);
   }
 
@@ -200,6 +221,8 @@
     // leave the game running at four times speed with nothing holding it. The
     // room clears its own copy too; this is the half that belongs here.
     turboUp();
+    geometryObserver?.disconnect();
+    geometryObserver = null;
   });
 
   /**
@@ -257,10 +280,34 @@
    */
   let gestureTargets: FaceTarget[] = [];
 
+  /**
+   * Re-measures every control, outside any pointer event.
+   *
+   * `getBoundingClientRect` forces a synchronous layout. At rest that is free;
+   * in the middle of a game repainting fifty times a second it makes the
+   * browser finish the layout in flight before it can answer, and the pad this
+   * frame owed leaves late. In lockstep a late pad stalls the peer, whose own
+   * pad is then late in turn, and both players see a frame skip.
+   *
+   * Reported precisely: only the moment of contact does it. Holding a button
+   * is perfectly smooth - and holding measures nothing. That is what named
+   * this, after five other hypotheses had been measured out.
+   *
+   * #85 cached the face targets per gesture, which left the first contact
+   * paying the whole cost. Nothing is measured on contact any more.
+   */
+  function remeasure(): void {
+    gestureTargets = faceTargets();
+    if (!stickEl) return;
+    const box = stickEl.getBoundingClientRect();
+    centreX = box.left + box.width / 2;
+    centreY = box.top + box.height / 2;
+    radius = Math.max(box.width, box.height) / 2;
+  }
+
   function facesDown(event: PointerEvent) {
     capture(event);
     event.preventDefault();
-    if (faceHolds.size === 0) gestureTargets = faceTargets();
     faceHolds.set(event.pointerId, facesAt(event.clientX, event.clientY, gestureTargets));
     applyFaces();
   }
@@ -301,7 +348,13 @@
 
 <!-- No context menu, no text selection, no magnifier: a long press on a
      control is a held button, not a gesture. -->
-<div class="pad" on:contextmenu|preventDefault role="group" aria-label="Touch controller">
+<div
+  class="pad"
+  bind:this={padEl}
+  on:contextmenu|preventDefault
+  role="group"
+  aria-label="Touch controller"
+>
   <button
     type="button"
     class="shoulder left"
