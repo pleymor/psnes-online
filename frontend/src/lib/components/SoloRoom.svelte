@@ -1080,6 +1080,32 @@
 
 <style>
   .solo {
+
+    /*
+     * Cette surface est un jeu, pas un document.
+     *
+     * Sans ces déclarations, le navigateur doit NÉGOCIER chaque contact : ce
+     * geste va-t-il faire défiler, zoomer, sélectionner du texte, ouvrir un
+     * menu contextuel ? Il retient son pipeline d'entrée le temps de décider,
+     * et cette attente se paie au contact, sans qu'aucun script ne s'exécute -
+     * donc invisible à `longtask`, à Event Timing et à Long Animation Frames,
+     * qui mesurent tous du travail et jamais une décision.
+     *
+     * C'est la forme exacte du symptôme poursuivi dans #88 : au contact et pas
+     * au maintien, sur une zone VIDE aussi bien que sur un bouton, et avec
+     * zéro frame longue sur les deux machines. `touch-action: none` n'était
+     * déclaré que dans `TouchControls` - le canvas du jeu et tout ce qui
+     * l'entoure négociaient encore.
+     *
+     * En solo le coût est absorbé sans que rien ne se voie ; en lockstep il
+     * met un pad en retard, ce qui fait caler le pair, dont le pad part en
+     * retard à son tour.
+     */
+    touch-action: none;
+    overscroll-behavior: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
     display: flex;
     flex-direction: column;
     /* What the touch pad is positioned against in portrait. */
