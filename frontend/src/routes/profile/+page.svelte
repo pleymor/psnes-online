@@ -39,6 +39,9 @@
   import { createLogger } from '$lib/utils/logger';
   import { formatHandle, isValidPseudo, PSEUDO_MIN, PSEUDO_MAX } from '$lib/pseudo';
   import { games, loadGames } from '$lib/stores/games';
+  import { forgetAccount } from '$lib/stores/offline-account';
+  import { forgetLibrarySnapshot } from '$lib/games/library-snapshot';
+  import { forgetRecordsOf } from '$lib/saves/outbox-browser';
   import { deviceLibrary } from '$lib/roms/device-library';
   import { designateFile, resolvableHere } from '$lib/roms/provider';
 
@@ -355,6 +358,15 @@
       // pretending the user is signed out would be the actual harm here - on a
       // shared machine, worse than the inconvenience of showing an error.
       if (res.ok) {
+        // Ce que ce compte a laissé sur l'appareil pour jouer hors-ligne (#71),
+        // sauf ses sauvegardes en attente : elles ne partiront que sous sa
+        // propre session, et une déconnexion n'est pas une raison de les perdre.
+        const leaving = $user?.id;
+        forgetAccount(localStorage);
+        if (leaving) {
+          void forgetLibrarySnapshot(leaving).catch(() => {});
+          void forgetRecordsOf(leaving).catch(() => {});
+        }
         user.set(null);
         void goto('/');
       } else {

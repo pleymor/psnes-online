@@ -33,6 +33,7 @@
   } from '$lib/roms/local-library';
   import { syncFolder } from '$lib/roms/folder-sync';
   import LocalSavesNote from './LocalSavesNote.svelte';
+  import SyncStatus from './SyncStatus.svelte';
 
   const logger = createLogger('RomSourcePanel');
 
@@ -219,9 +220,15 @@
     <button on:click={pickFolder} disabled={busy}>{t($language, 'chooseRomFolder')}</button>
   {/if}
 
-  <!-- Solo sans compte seulement : avec un compte, les sauvegardes passent
-       encore par le serveur jusqu'à #71. -->
-  <LocalSavesNote refresh={checked} />
+  <!-- Depuis #71, vrai pour tout le monde : chaque sauvegarde est d'abord
+       écrite sur cet appareil, et part ensuite vers le compte. C'est ici, là
+       où le dépôt met ce qui concerne la machine du joueur plutôt que son
+       compte, que l'état de cette file se lit. -->
+  <LocalSavesNote refresh={checked} account />
+  <div class="sync-block">
+    <h3>{t($language, 'syncTitle')}</h3>
+    <SyncStatus />
+  </div>
 
   {#if progress}
     <p class="explain">{progress}</p>
@@ -266,6 +273,24 @@
 
   h2 {
     margin: 0;
+  }
+
+  .sync-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    width: 100%;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .sync-block h3 {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #9aa0b4;
   }
 
   .explain,

@@ -183,7 +183,7 @@ const CRC32 = /^[0-9A-F]{8}$/;
  */
 const BASE64_BODY = /^[A-Za-z0-9+/]*={0,2}$/;
 
-function isBase64(value: string): boolean {
+export function isBase64(value: string): boolean {
   return value.length % 4 === 0 && BASE64_BODY.test(value);
 }
 
@@ -196,7 +196,7 @@ function isBase64(value: string): boolean {
  */
 const IMAGE_DATA_URL_PREFIX = /^data:image\/(png|jpeg|webp);base64,/;
 
-function isImageDataUrl(value: string): boolean {
+export function isImageDataUrl(value: string): boolean {
   const prefix = IMAGE_DATA_URL_PREFIX.exec(value);
   if (!prefix) return false;
   return isBase64(value.slice(prefix[0].length));
@@ -211,7 +211,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** The decoded byte length of a base64 string, without decoding it. */
-function decodedLength(text: string): number {
+export function decodedLength(text: string): number {
   const padding = text.endsWith('==') ? 2 : text.endsWith('=') ? 1 : 0;
   return (text.length / 4) * 3 - padding;
 }

@@ -11,15 +11,14 @@
    * showed a "LATENCE" panel built for comparing streaming against dual, and
    * why it had none of the toolbar the lockstep room grew.
    */
-  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher, setContext } from 'svelte';
   import { goto } from '$app/navigation';
   import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
   import { version } from '$app/environment';
   import { FrameTimes, HostHealth, readHeapMb, readLinkClass } from '$lib/znet/host-health';
-  import { fromBase64, toBase64 } from '$lib/saves/base64';
+  import { fromBase64 } from '$lib/saves/base64';
   import { setLogLabels } from '$lib/utils/log-shipper';
-  import { decodeSram } from '$lib/rooms/sram';
   import { applyInputSources } from '$lib/rooms/input-sources';
   import { createRendererSurface, type SurfaceState } from '$lib/rooms/renderer-surface';
   import { createFullscreen } from '$lib/rooms/fullscreen';
@@ -33,9 +32,16 @@
   import { readAspectPreference, writeAspectPreference } from '$lib/stores/aspect-preference';
   import PauseMenu from './PauseMenu.svelte';
   import { language } from '$lib/stores/language';
-  import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
+  import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, QUICK_SAVE_NAME, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
   import { localSaveStore, type SaveListing } from '$lib/saves/local-store';
+  import { openSram, persistSram } from '$lib/saves/sram-sync';
+  import { queueState, sramContext, sramDeps } from '$lib/saves/sync';
+  import { restoreKept, RESTORE_SRAM, type RestoreSram } from '$lib/saves/restore';
+  import { autoSaveName } from '$lib/saves/api';
+  import { captureShot } from '$lib/saves/capture';
+  import { user } from '$lib/stores/user';
+  import SyncStatus from './SyncStatus.svelte';
   import { notifications } from '$lib/services/notification';
   import { t } from '$lib/i18n/translations';
   import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
@@ -58,14 +64,15 @@
   export let roomId = '';
   export let gameId = '';
   /**
-   * Solo without an account, and possibly without a network (#70).
+   * Solo through `/local`, possibly without a network (#70).
    *
-   * Set, it replaces the room and the socket as the place saves come from and
-   * go to: the battery save and the savestate slots go through
-   * `saves/local-store.ts`, next to the ROM or in this browser. Null - every
-   * room - keeps the server path exactly as it was.
+   * Set, it replaces the room and the socket: the savestate slots go through
+   * `saves/local-store.ts`, next to the ROM or in this browser. `userId` is
+   * the account those saves also queue for (#71), null without one. The
+   * battery save takes the same local-first path in every room now, so this
+   * no longer changes where it goes - only who it syncs to.
    */
-  export let localGame: { checksum: string } | null = null;
+  export let localGame: { checksum: string; userId?: string | null } | null = null;
   export let gameCrc32: string | null = null;
   export let gameTitle: string = '';
   export let controls: ControlsConfig;
@@ -221,27 +228,34 @@
   }
 
   /**
-   * Whether the battery save was actually read back from the server.
+   * Whether the battery save was actually read back - from THIS DEVICE (#71).
    *
    * sendSram() refuses to write until this is true. Writing before it
    * would overwrite the player's in-game save with the blank SRAM a
    * freshly-loaded ROM starts with - which is what closing the room during
-   * readStoredSram()'s round trip used to do. A timeout does NOT set this: if
-   * we could not read, we must not write, for the whole session.
+   * readStoredSram()'s round trip used to do.
+   *
+   * What it guards has moved, and that is the ticket's central change. The
+   * local copy is now the one that holds authority, for every player, so it
+   * is the local read that must succeed. The server became a second
+   * destination: not reaching it is normal - offline, a slow link - and no
+   * longer stops anything from being written, because it can no longer be
+   * overwritten either. It keeps both sides when two devices diverged
+   * (`backend/src/saves/sync-plan.ts`).
    */
   let sramLoaded = false;
   let sramNotice: string | null = null;
 
-  /** Shown whenever the battery save could not be read at all - no socket,
-   * no core, or no answer from the server in time. Persistence is off for
-   * the rest of the session in every one of these cases. */
-  const SRAM_UNAVAILABLE_NOTICE =
-    'Could not read your battery save from the server; progress will not be saved this session.';
-  /** Distinct from SRAM_UNAVAILABLE_NOTICE: here the server did answer, and
-   * only decoding its payload failed. "Could not read from the server" would
-   * be inaccurate. */
-  const SRAM_DECODE_ERROR_NOTICE =
-    'Your battery save could not be read; progress will not be saved this session.';
+  /**
+   * Who the battery save syncs to, and which cartridge it is.
+   *
+   * The account of the session in a room; the one `/local` was given
+   * otherwise, which is null for #70's player without an account.
+   */
+  $: sramCtx = sramContext(
+    localGame?.checksum ?? gameCrc32 ?? '',
+    localGame ? (localGame.userId ?? null) : $user && !$user.isAnonymous ? $user.id : null
+  );
 
   $: activeCanvas = usingGl ? canvasGl : canvas2d;
   $: displayRatio = aspectRatioOf(display.aspect);
@@ -364,107 +378,48 @@
   }
 
   /**
-   * Reads the battery save from the server, before the first frame runs.
+   * Reads the battery save before the first frame runs - local first (#71).
    *
    * This is the in-game save - what the player writes from the cartridge's own
    * menu - so it is part of the emulated machine and has to be in place before
    * emulation starts. It is `createSoloEngine` that applies the bytes to the
-   * core now, in the one order that does not discard the save; this only does
-   * the round trip and hands back what it got.
+   * core now, in the one order that does not discard the save; this only reads
+   * and hands back what it got.
    *
-   * Invariant `sramLoaded` depends on: it means the server's copy was read
-   * and applied - or, for a new game, that the server confirmed there was
-   * none to apply. Every path that sets it true must be a path where that is
-   * actually true; a caught decode error and an unanswered request are both
-   * "did not read" and must leave it false. `sendSram()` trusts this flag
-   * completely to decide whether writing back is safe, so setting it on a
-   * failure path is a silent, permanent way to overwrite a real save with a
-   * blank one - it has happened twice already.
-   */
-  function readStoredSram(): Promise<Uint8Array | null> {
-    if (localGame) return readLocalSram(localGame.checksum);
-    return new Promise((resolve) => {
-      const sock = $socket;
-      if (!sock || !core) {
-        // Neither piece exists to read from or into, so this is exactly as
-        // much a "did not read" as a server timeout - the player deserves the
-        // same warning, not silence.
-        sramNotice = SRAM_UNAVAILABLE_NOTICE;
-        return resolve(null);
-      }
-
-      const done = (data: { sramData: string | null }) => {
-        sock.off('game:sramLoaded', done);
-        clearTimeout(timeoutHandle);
-        let bytes: Uint8Array | null = null;
-        try {
-          if (data.sramData) {
-            bytes = decodeSram(data.sramData);
-            logger.info('Battery save restored', { bytes: bytes.length });
-            sramLoaded = true;
-          } else {
-            // The server has nothing for us - a new game - which is still a
-            // successful read: a first save still has to be able to persist.
-            sramLoaded = true;
-          }
-        } catch (err) {
-          // A payload we could not decode is a read that did not succeed.
-          // sramLoaded stays false, so sendSram() will not overwrite
-          // whatever real save the server holds with the blank SRAM the ROM
-          // just started with.
-          logger.error('Could not restore the battery save', err);
-          sramNotice = SRAM_DECODE_ERROR_NOTICE;
-        }
-        resolve(bytes);
-      };
-
-      sock.on('game:sramLoaded', done);
-      sock.emit('game:loadSram', { roomId });
-      // Never block the boot on a server that does not answer. Deliberately
-      // does not set sramLoaded: if we could not read, we must not write, for
-      // the rest of the session - and the player is told why. Cleared inside
-      // done() when the handler wins the race, so this does not fire late
-      // and touch a possibly-destroyed component.
-      const timeoutHandle = setTimeout(() => {
-        sock.off('game:sramLoaded', done);
-        if (!sramLoaded) {
-          sramNotice = SRAM_UNAVAILABLE_NOTICE;
-        }
-        resolve(null);
-      }, 5000);
-    });
-  }
-
-  /**
-   * The same read, from the local store instead of the server.
+   * `openSram` reads this device's copy, and with an account catches up with
+   * the server - sending what waits here first, so the server, which alone
+   * sees both devices, decides before the game starts. Bounded: a silent
+   * server costs at most a few seconds, and the game then starts on the local
+   * copy, which is the one that holds authority.
    *
-   * The invariant is the one above, unchanged: `sramLoaded` goes true only on
-   * a read that succeeded - a save found, or confirmed absent. The store
-   * throws when it could not read, and that leaves persistence off for the
-   * session, because a blank SRAM written over a save we failed to read is
-   * the one loss that cannot be undone.
+   * Invariant `sramLoaded` depends on: it means the LOCAL copy was read - a
+   * save found, or confirmed absent. Only the local store failing leaves it
+   * false, and then persistence is off for the session, because a blank SRAM
+   * written over a save we failed to read is the one loss that cannot be
+   * undone. `sendSram()` trusts this flag completely; setting it on a failure
+   * path is a silent, permanent way to overwrite a real save with a blank
+   * one - it has happened twice already.
    */
-  async function readLocalSram(checksum: string): Promise<Uint8Array | null> {
-    try {
-      const record = await localSaveStore().read(checksum, 'sram');
-      sramLoaded = true;
-      if (record) logger.info('Battery save restored', { bytes: record.bytes.length, from: record.from });
-      return record?.bytes ?? null;
-    } catch (err) {
-      logger.error('Could not read the local battery save', err);
+  async function readStoredSram(): Promise<Uint8Array | null> {
+    if (!sramCtx.checksum) {
+      // No cartridge identity, no place to read from: a "did not read".
       sramNotice = t($language, 'localSramUnreadable');
       return null;
     }
-  }
-
-  /** Writes to the local store. Best effort: the next write retries. */
-  function writeLocalSram(checksum: string, bytes: Uint8Array): void {
-    localSaveStore()
-      .write(checksum, 'sram', bytes)
-      .then((written) => {
-        if (written.where === 'device') logger.debug('Battery save kept in this browser', written);
-      })
-      .catch((err) => logger.error('Could not write the local battery save', err));
+    const opened = await openSram(sramDeps(sramCtx.userId), sramCtx);
+    if (!opened.ok) {
+      sramNotice = t($language, 'localSramUnreadable');
+      return null;
+    }
+    sramLoaded = true;
+    if (opened.bytes) {
+      logger.info('Battery save restored', {
+        bytes: opened.bytes.length,
+        from: opened.source,
+        synced: opened.synced
+      });
+    }
+    return opened.bytes;
   }
 
   /**
@@ -483,13 +438,28 @@
 
   async function saveLocalState(slot: number): Promise<boolean> {
     if (!core || !localGame) return false;
+    const state = core.saveState();
     try {
-      await localSaveStore().write(localGame.checksum, slot, core.saveState());
-      return true;
+      await localSaveStore().write(localGame.checksum, slot, state);
     } catch (err) {
       logger.error('Could not write the savestate', err);
       return false;
     }
+    // With an account (#71), the slot is also a save for the server, queued
+    // until the network is back. Slot 1 is the quick slot here, so it goes as
+    // the account's quick save - one per game, and the sync keeps both when
+    // it meets one taken on another device. The others are new saves: the
+    // server never overwrites one it did not see being chosen.
+    if (localGame.userId) {
+      void queueState({
+        userId: localGame.userId,
+        checksum: localGame.checksum,
+        name: slot === 1 ? QUICK_SAVE_NAME : autoSaveName($language),
+        bytes: state,
+        screenshot: captureShot(saveAdapter) ?? null
+      }).catch((err) => logger.error('Could not queue the savestate for the server', err));
+    }
+    return true;
   }
 
   async function loadLocalState(slot: number): Promise<boolean> {
@@ -567,15 +537,41 @@
 
   /** The `sram.save` half of the engine's port - see `rooms/solo-engine.ts`.
    * The engine has already read `core.sram()` and refused an empty one, so
-   * this only guards the two things it cannot know: whether the initial read
-   * actually succeeded, and whether there is still a socket to write through. */
+   * this only guards what it cannot know: whether the initial read actually
+   * succeeded. One path for everyone (#71): this device, then the queue. */
   function sendSram(bytes: Uint8Array): void {
-    if (!sramLoaded) return;
-    if (localGame) return writeLocalSram(localGame.checksum, bytes);
-    if (!$socket) return;
-    const sramData = toBase64(bytes);
-    $socket.emit('game:saveSram', { roomId, sramData });
+    if (!sramLoaded || !sramCtx.checksum) return;
+    void persistSram(sramDeps(sramCtx.userId), sramCtx, bytes);
   }
+
+  /**
+   * A cartridge save the sync kept, put back in the machine (#71).
+   *
+   * The server swaps it with the current one, this device follows, and the
+   * machine is power-cycled onto it: a battery save is read by the game at
+   * boot, so loading it under a running game would change nothing the player
+   * could see until the next reset anyway.
+   */
+  async function restoreKeptSram(saveId: string): Promise<boolean> {
+    if (!core || !sramCtx.userId || !sramCtx.checksum) return false;
+    try {
+      const deps = sramDeps(sramCtx.userId);
+      const bytes = await restoreKept(
+        { store: deps.store, outbox: deps.outbox! },
+        { checksum: sramCtx.checksum, userId: sramCtx.userId, saveId }
+      );
+      if (!bytes) return false;
+      core.loadSram(bytes);
+      core.reset();
+      audio?.flush();
+      logger.info('Kept battery save restored', { bytes: bytes.length });
+      return true;
+    } catch (err) {
+      logger.error('Could not restore the kept battery save', err);
+      return false;
+    }
+  }
+  setContext<RestoreSram>(RESTORE_SRAM, restoreKeptSram);
 
   /**
    * Writes the battery save right now, ahead of the engine's own 30-second
@@ -1088,6 +1084,16 @@
     <canvas bind:this={canvas2d} class:inactive={usingGl} width="256" height="224"></canvas>
     <canvas bind:this={canvasGl} class:inactive={!usingGl} width="256" height="224"></canvas>
 
+    {#if sramCtx.userId}
+      <!-- Where the player plays, the save queue in a word (#71 §7.3): nothing
+           when everything has been sent, a discreet pill otherwise - and a
+           failure is never silent. The whole story is on the profile's ROM
+           panel. -->
+      <div class="sync-pill">
+        <SyncStatus compact />
+      </div>
+    {/if}
+
     {#if shaderNotice || sramNotice}
       <!-- A column, not two independently-positioned notices: both used to
            sit at bottom: 0 and render on top of each other when both fired
@@ -1339,6 +1345,16 @@
     bottom: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  /* Top left, away from the menu button and the touch pad, and out of the
+     way of the picture's action: a status, not a control. */
+  .sync-pill {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    pointer-events: none;
+    z-index: 2;
   }
 
   .notice {

@@ -4,7 +4,15 @@
 /// <reference lib="webworker" />
 
 import { build, files, prerendered, version } from '$service-worker';
-import { cacheableResponse, networkOnly, SHELL, shellFallback } from '$lib/pwa/cache-policy';
+import {
+  cacheableResponse,
+  coverRequest,
+  COVERS_CACHE,
+  networkOnly,
+  SHELL,
+  shellFallback
+} from '$lib/pwa/cache-policy';
+import { browserOutbox } from '$lib/saves/outbox-browser';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
@@ -58,7 +66,9 @@ sw.addEventListener('activate', (event) => {
   // loaded with, and the fresh cache would not be used until a reload.
   async function takeOver() {
     for (const key of await caches.keys()) {
-      if (key !== CACHE) await caches.delete(key);
+      // Les jaquettes survivent au déploiement (#71) : elles ne dépendent pas
+      // du build, et c'est ce qui garde la bibliothèque hors-ligne illustrée.
+      if (key !== CACHE && key !== COVERS_CACHE) await caches.delete(key);
     }
     await sw.clients.claim();
   }
@@ -77,6 +87,18 @@ sw.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
+
+  /*
+   * Les jaquettes, avant la règle de l'API : `/api/covers` est la seule route
+   * publique sous `/api`, et `coverRequest` la nomme elle seule. Servies
+   * depuis le cache si elles y sont, et revalidées derrière (#71 §7.4) : la
+   * bibliothèque hors-ligne a les images que le joueur a déjà vues, et la
+   * suivante visite en ligne rattrape une jaquette corrigée.
+   */
+  if (coverRequest(url, sw.location.origin)) {
+    event.respondWith(staleWhileRevalidate(event));
+    return;
+  }
 
   /*
    * The API, the session and the socket never touch the cache, in either
@@ -138,6 +160,60 @@ sw.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(respond());
+});
+
+async function staleWhileRevalidate(event: FetchEvent): Promise<Response> {
+  const cache = await caches.open(COVERS_CACHE);
+  const cached = await cache.match(event.request);
+  const refresh = fetch(event.request)
+    .then((response) => {
+      // La règle de tout le reste : un 200 lisible, ni privé ni `no-store`.
+      if (response instanceof Response && cacheableResponse(response)) {
+        void cache.put(event.request, response.clone());
+      }
+      return response;
+    });
+  if (cached) {
+    event.waitUntil(refresh.then(() => undefined, () => undefined));
+    return cached;
+  }
+  return refresh;
+}
+
+/*
+ * Background Sync (#71) : vider la file des sauvegardes au retour du réseau,
+ * même sans onglet ouvert.
+ *
+ * Seulement pour le compte de la session que le serveur reconnaît : la file
+ * d'un navigateur partagé peut porter les écritures d'un autre compte, et les
+ * envoyer sous cette session les ferait refuser - ou pire, sans la garde du
+ * serveur, les verserait dans la mauvaise bibliothèque. Sans session, rien ne
+ * part ; la prochaine connexion s'en chargera.
+ *
+ * La promesse rejette quand il reste des écritures non accusées : c'est ce qui
+ * dit au navigateur de réessayer plus tard.
+ */
+const SAVES_SYNC_TAG = 'psnes-saves';
+
+async function drainSaves(): Promise<void> {
+  const me = await fetch('/auth/me', { credentials: 'include' });
+  if (!me.ok) throw new Error(`/auth/me answered ${me.status}`);
+  const who = (await me.json()) as { id?: string; isAnonymous?: boolean } | null;
+  if (!who?.id || who.isAnonymous) return;
+
+  const outbox = browserOutbox();
+  const report = await outbox.drain(who.id, { force: true });
+  for (const client of await sw.clients.matchAll({ type: 'window' })) {
+    client.postMessage({ type: 'saves-synced' });
+  }
+  if ((await outbox.pending(who.id)).some((op) => op.lastError?.reason === 'unreachable')) {
+    throw new Error(`${report.failed.length} saves still waiting for the server`);
+  }
+}
+
+sw.addEventListener('sync', (event) => {
+  const sync = event as Event & { tag: string; waitUntil(p: Promise<unknown>): void };
+  if (sync.tag === SAVES_SYNC_TAG) sync.waitUntil(drainSaves());
 });
 
 // Handle messages from the client

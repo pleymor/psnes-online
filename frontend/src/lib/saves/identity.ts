@@ -1,6 +1,9 @@
 import { autoSaveName, type SaveSummary } from './api';
 import { QUICK_SAVE_NAME } from './quick';
 
+/** Le nom qu'un savestate perdant prend à la synchronisation - `backend/src/saves/sync-plan.ts`. */
+export const KEPT_STATE_NAME = '__kept__';
+
 /** The one or two lines a tile shows for a save. */
 export interface SaveIdentity {
 	primary: string;
@@ -43,8 +46,23 @@ function isAutoNamed(save: SaveSummary, locale: string): boolean {
 export function saveIdentity(
 	save: SaveSummary,
 	locale: string,
-	quickSaveLabel?: string
+	quickSaveLabel?: string,
+	keptLabels?: { state: string; sram: string }
 ): SaveIdentity {
+	/*
+	 * Ce que la synchronisation a gardé au lieu d'écraser (#71) : une sauvegarde
+	 * de cartouche perdante, ou une sauvegarde rapide qui en a croisé une autre.
+	 * Deux sentinelles que le serveur pose sans connaître la langue ; c'est la
+	 * date qui distingue deux sauvegardes gardées, et c'est pourquoi elle est
+	 * toujours là.
+	 */
+	if (keptLabels && save.kind === 'sram') {
+		return { primary: keptLabels.sram, secondary: formatSaveDate(save.updatedAt, locale) };
+	}
+	if (keptLabels && save.name === KEPT_STATE_NAME) {
+		return { primary: keptLabels.state, secondary: formatSaveDate(save.updatedAt, locale) };
+	}
+
 	/*
 	 * The quick save is stored under a sentinel nobody would type, so that
 	 * changing language cannot orphan it and start a second one. The label is

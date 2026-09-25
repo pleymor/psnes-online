@@ -10,6 +10,12 @@
   export let roomDisabled = false;
   /** « Jouer », or « Jouer avec Bob »: the button says which of the two it is. */
   export let playLabel = '';
+  /**
+   * La fiche, que la bibliothèque hors-ligne (#71) ne peut pas ouvrir : tout
+   * ce qu'elle propose - salon, correction, suppression - demande le serveur,
+   * et un bouton qui n'ouvre rien ressemble à une panne.
+   */
+  export let details = true;
 
   const dispatch = createEventDispatcher();
 
@@ -171,18 +177,20 @@
 
     <!-- Visible en permanence et non au survol : un téléphone ne survole
          rien, et c'est le seul chemin vers le salon et la suppression. -->
-    <button
-      class="details"
-      on:click={openDetails}
-      aria-label={t($language, 'clickForDetails')}
-      title={t($language, 'clickForDetails')}
-    >
-      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
-           stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
-        <circle cx="8" cy="8" r="6.2" />
-        <path d="M8 7.2v4M8 4.9v.1" />
-      </svg>
-    </button>
+    {#if details}
+      <button
+        class="details"
+        on:click={openDetails}
+        aria-label={t($language, 'clickForDetails')}
+        title={t($language, 'clickForDetails')}
+      >
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.2" />
+          <path d="M8 7.2v4M8 4.9v.1" />
+        </svg>
+      </button>
+    {/if}
 
     <div class="play-hint"><span>{playLabel || t($language, 'play')}</span></div>
   </div>

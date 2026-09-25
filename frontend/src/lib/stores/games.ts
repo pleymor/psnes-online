@@ -1,4 +1,12 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
+import { user } from './user';
+import {
+  coversToForget,
+  readLibrarySnapshot,
+  snapshotOf,
+  writeLibrarySnapshot
+} from '../games/library-snapshot';
+import { COVERS_CACHE } from '../pwa/cache-policy';
 
 export interface Game {
   id: string;
@@ -80,7 +88,33 @@ export async function loadGames(): Promise<void> {
     const loaded: Game[] = await res.json();
     loaded.sort((a, b) => a.title.localeCompare(b.title));
     games.set(loaded);
+    void keepForOffline(loaded);
   } catch {
     // Voir ci-dessus : l'écran garde ce qu'il affichait.
+  }
+}
+
+/**
+ * La copie hors-ligne de la bibliothèque, pour ce compte (#71 §7.4).
+ *
+ * Chaque réponse de `/api/games` la remplace - c'est le rafraîchissement au
+ * retour du réseau - et une jaquette que la nouvelle réponse ne cite plus sort
+ * du cache du service worker : la fiche a changé, l'ancienne image mentirait.
+ * Rien ici n'est bloquant : l'écran en ligne n'attend pas sa copie.
+ */
+async function keepForOffline(loaded: Game[]): Promise<void> {
+  const account = get(user);
+  if (!account || account.isAnonymous) return;
+  try {
+    const next = snapshotOf(account.id, loaded as never, Date.now());
+    const previous = await readLibrarySnapshot(account.id);
+    await writeLibrarySnapshot(next);
+    const stale = coversToForget(previous, next);
+    if (stale.length && typeof caches !== 'undefined') {
+      const cache = await caches.open(COVERS_CACHE);
+      await Promise.all(stale.map((url) => cache.delete(url)));
+    }
+  } catch {
+    // Stockage refusé : la bibliothèque hors-ligne sera celle d'avant, ou vide.
   }
 }

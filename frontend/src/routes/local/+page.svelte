@@ -9,7 +9,8 @@
    *
    * `SoloRoom` does the playing, as in a room; what changes is `localGame`,
    * which sends its saves to `saves/local-store.ts` instead of the socket.
-   * There is no room, no game row and no server here at all.
+   * There is no room and no socket here. Since #71 there may be an account,
+   * whose saves then also queue for the server (`saves/sync.ts`).
    */
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
@@ -22,6 +23,9 @@
   import { setPageTitle } from '$lib/utils/page-title';
   import { readLocalControls } from '$lib/stores/local-controls';
   import { listLocalGames } from '$lib/roms/local-games';
+  import { localPlayer } from '$lib/rooms/local-play';
+  import { offlineAccount } from '$lib/stores/offline-account';
+  import { readLibrarySnapshot } from '$lib/games/library-snapshot';
   import type { ControlsConfig } from '$lib/controls/binding';
 
   $: checksum = $page.url.searchParams.get('rom') ?? '';
@@ -29,16 +33,31 @@
   let controls: ControlsConfig = readLocalControls(localStorage);
   let title = '';
 
-  // A player with an account plays through rooms, whose saves are on the
-  // server; two save stores for one account is #71's to reconcile, not this
-  // page's to start.
-  $: if (!$userLoading && $user) void goto('/');
+  /*
+   * Who the saves go to (#71). A player with an account lands here when the
+   * server is silent - offline from the start, or dropped mid-evening - and
+   * plays exactly as without one: saves on this device. The difference is
+   * that they also go into the queue for that account, and leave when the
+   * connection is back.
+   */
+  $: player = $userLoading ? null : localPlayer($user, $offlineAccount);
 
   $: setPageTitle($language, title || t($language, 'localTitle'));
 
+  // With an account, the title the library showed online - not the file name.
+  $: if (player) {
+    void readLibrarySnapshot(player)
+      .then((seen) => {
+        const named = seen?.games.find((g) => g.crc32 === checksum)?.title;
+        if (named) title = named;
+      })
+      .catch(() => {});
+  }
+
   onMount(async () => {
     const games = await listLocalGames().catch(() => []);
-    title = games.find((g) => g.checksum === checksum)?.title ?? '';
+    // The file name only where the account's library had nothing better.
+    if (!title) title = games.find((g) => g.checksum === checksum)?.title ?? '';
     inGame.set(true);
     document.body.style.overflow = 'hidden';
   });
@@ -53,11 +72,12 @@
   {#if !checksum}
     <p class="missing">{t($language, 'localRomMissing')}</p>
     <a class="back" href="/">{t($language, 'backToLibrary')}</a>
-  {:else}
-    <!-- Keyed on the checksum: a different game is a different machine. -->
-    {#key checksum}
+  {:else if !$userLoading}
+    <!-- Keyed on the checksum, and on who plays: a different game is a
+         different machine, and the account decides where its saves go. -->
+    {#key `${checksum}:${player ?? ''}`}
       <SoloRoom
-        localGame={{ checksum }}
+        localGame={{ checksum, userId: player }}
         gameCrc32={checksum}
         gameTitle={title}
         {controls}

@@ -58,9 +58,14 @@ export function exportableLibrary(
          FROM "Game" WHERE userId = ? AND crc32 IS NOT NULL ORDER BY title`
       ).all(userId)) as ExportRow[];
 
+  // Les savestates seulement. Une SRAM gardée par la synchronisation (#71)
+  // n'en est pas un : le fichier la déclarerait savestate, et l'import la
+  // donnerait à `loadState`, qui la chargerait en n'importe quoi. Elle reste
+  // sur le serveur, restaurable ; le format d'archive ne sait pas encore la
+  // porter.
   const saves = db.query(
     `SELECT name, slotNumber, data, screenshot, createdAt, updatedAt
-     FROM "Save" WHERE gameId = ? ORDER BY slotNumber`
+     FROM "Save" WHERE gameId = ? AND kind = 'state' ORDER BY slotNumber`
   );
 
   return rows.map(row => ({

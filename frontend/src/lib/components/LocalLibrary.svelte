@@ -29,7 +29,12 @@
     ensureWriteAccess,
     scanDirectory
   } from '$lib/roms/local-library';
-  import { designateFile } from '$lib/roms/provider';
+  import { designateFile, resolvableHere } from '$lib/roms/provider';
+  import { offlineLibrary, readLibrarySnapshot, type OfflineGame } from '$lib/games/library-snapshot';
+  import { formatHandle } from '$lib/pseudo';
+  import type { Game } from '$lib/stores/games';
+  import GameCard from './GameCard.svelte';
+  import SyncStatus from './SyncStatus.svelte';
   import { listLocalGames, rememberTitle, type LocalGame } from '$lib/roms/local-games';
   import { localPlayHref } from '$lib/rooms/local-play';
   import LanguageSelector from './LanguageSelector.svelte';
@@ -38,11 +43,22 @@
 
   /** Why this screen is up: the player asked, or the server never answered. */
   export let why: 'chosen' | 'unreachable';
+  /**
+   * The account that played on this device, when the server is silent (#71).
+   *
+   * Set, the screen is that account's library as it was last seen online:
+   * titles and covers from the snapshot `stores/games.ts` keeps, filtered by
+   * what this device can open - the same filter as the online library - and
+   * the state of the save queue that will go to the account when the network
+   * is back. Null is #70's screen, unchanged.
+   */
+  export let account: { id: string; pseudo: string; discriminator: string } | null = null;
 
   const dispatch = createEventDispatcher<{ signIn: void }>();
   const logger = createLogger('LocalLibrary');
 
   let games: LocalGame[] | null = null;
+  let seen: OfflineGame[] | null = null;
   let state: RomSourceState = { kind: 'no-folder' };
   let busy = false;
   let error = '';
@@ -68,6 +84,26 @@
       if (message) error = message;
     }
     games = await listLocalGames().catch(() => []);
+    if (account) {
+      const [snapshot, resolvable] = await Promise.all([
+        readLibrarySnapshot(account.id).catch(() => null),
+        resolvableHere().catch(() => [] as string[])
+      ]);
+      seen = offlineLibrary({ snapshot, resolvable, local: games });
+    }
+  }
+
+  /** A snapshot entry, in the shape `GameCard` draws. */
+  function asCard(game: OfflineGame): Game {
+    return {
+      id: game.id,
+      title: game.title,
+      filename: game.filename,
+      coverUrl: game.coverUrl ?? undefined,
+      uploadedAt: '',
+      saves: [],
+      crc32: game.crc32
+    };
   }
 
   async function gesture(run: () => Promise<void>): Promise<void> {
@@ -124,13 +160,20 @@
 <main class="local">
   <header class="head">
     <h1>🎮 PSNES</h1>
-    <p class="mode">{t($language, 'localTitle')}</p>
-    <p class="intro" role={why === 'unreachable' ? 'status' : undefined}>
-      {t($language, why === 'unreachable' ? 'localIntroUnreachable' : 'localIntroChosen')}
-    </p>
+    {#if account}
+      <p class="mode">{t($language, 'offlineAccountTitle')}</p>
+      <p class="intro" role="status">
+        {t($language, 'offlineAccountIntro', { name: formatHandle(account.pseudo, account.discriminator) })}
+      </p>
+    {:else}
+      <p class="mode">{t($language, 'localTitle')}</p>
+      <p class="intro" role={why === 'unreachable' ? 'status' : undefined}>
+        {t($language, why === 'unreachable' ? 'localIntroUnreachable' : 'localIntroChosen')}
+      </p>
+    {/if}
     <div class="head-actions">
       <LanguageSelector />
-      {#if why === 'chosen'}
+      {#if why === 'chosen' && !account}
         <button class="quiet" on:click={() => dispatch('signIn')}>{t($language, 'localSignIn')}</button>
       {/if}
     </div>
@@ -172,7 +215,10 @@
       aria-label={t($language, 'localAddFile')}
     />
 
-    <LocalSavesNote refresh={checked} />
+    <LocalSavesNote refresh={checked} account={!!account} />
+    {#if account}
+      <SyncStatus />
+    {/if}
 
     {#if error}
       <p class="error" role="alert">{error}</p>
@@ -180,7 +226,23 @@
   </section>
 
   <section class="games" aria-label={t($language, 'library')}>
-    {#if games && games.length === 0}
+    {#if account}
+      <!-- The online library's cartridges, with the covers the service worker
+           kept: offline, a game already seen looks the way it did online. -->
+      {#if seen && seen.length === 0}
+        <p class="empty">{t($language, 'offlineAccountNoGames')}</p>
+      {:else if seen}
+        <div class="covers">
+          {#each seen as game (game.crc32)}
+            <GameCard
+              game={asCard(game)}
+              details={false}
+              on:play={() => goto(localPlayHref(game.crc32))}
+            />
+          {/each}
+        </div>
+      {/if}
+    {:else if games && games.length === 0}
       <p class="empty">{t($language, 'localNoGames')}</p>
     {:else if games}
       <ul class="grid">
@@ -303,6 +365,12 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
     gap: 0.75rem;
+  }
+
+  .covers {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+    gap: 1rem;
   }
 
   /* The cream of the library's cartridges, without a cover to put on it. */

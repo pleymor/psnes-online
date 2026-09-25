@@ -28,6 +28,33 @@ export function networkOnly(url: URL, origin: string): boolean {
 }
 
 /**
+ * Les jaquettes : le seul contenu de run-time que le worker garde d'un
+ * déploiement à l'autre (#71 §7.4).
+ *
+ * Un cache à part, qui n'est pas nommé d'après le build : le cache versionné
+ * est effacé à chaque déploiement, et une bibliothèque hors-ligne qui perd ses
+ * images chaque fois qu'on livre serait la régression que le ticket décrit.
+ * `v1` ne change que si la forme de ce qui y est rangé change.
+ */
+export const COVERS_CACHE = 'psnes-covers-v1';
+
+/**
+ * Les chemins de jaquettes, tous publics.
+ *
+ * `/covers/<empreinte>.webp` est servi par nginx depuis un volume, sans
+ * session. `/api/covers/<id>` est la seule exception sous `/api`, et une
+ * exception écrite : la route est publique exprès (`backend/src/api/covers.ts`)
+ * et répond `public, immutable`. Rien d'autre sous `/api` n'y entre - ni la
+ * bibliothèque, ni les sauvegardes, ni le profil.
+ */
+const COVER_PATHS = ['/covers', '/api/covers'];
+
+/** Whether a request is for a cover the worker may keep and serve stale-while-revalidate. */
+export function coverRequest(url: URL, origin: string): boolean {
+	return url.origin === origin && underAny(url.pathname, COVER_PATHS);
+}
+
+/**
  * Whether a response fetched at run time may be stored.
  *
  * A 200 only: an error page cached under an asset's URL would be served in

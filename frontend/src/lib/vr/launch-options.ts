@@ -234,7 +234,9 @@ export function launchOptions(input: LaunchInput): LaunchOptions | null {
 			coverUrl: entry.coverUrl,
 			crc32: input.crc32
 		},
-		saves: byNewest([...entry.saves]).map((save) => {
+		// Pas les sauvegardes de cartouche gardées par la synchro (#71) : elles se
+		// restaurent depuis le menu pause du navigateur, elles ne se chargent pas.
+		saves: byNewest(entry.saves.filter((save) => save.kind !== 'sram')).map((save) => {
 			const identity = saveIdentity(save, input.locale, input.quickSaveLabel);
 			return {
 				id: save.id,
