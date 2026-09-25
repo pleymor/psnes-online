@@ -266,6 +266,7 @@
     const firstStateForThisMount = !seenRoomState;
     seenRoomState = true;
     room = updatedRoom;
+    startOnceSaveStaged(updatedRoom);
 
     // Said once, on arrival, and only to someone who came in through an
     // invitation: they were asked to join a room and landed in a match that was
@@ -386,6 +387,10 @@
   function handleSocketError(payload: { message?: string; code?: string; roomId?: string }) {
     if (!payload?.message) return;
 
+    // Un refus pendant un lancement est la réponse à ce lancement : l'écran
+    // se rallume, et le toast plus bas dit pourquoi.
+    if (startInFlight) releaseStart();
+
     /*
      * Our own room, refused on the way back in, with a game still running in
      * front of the player. Rebuilt rather than reported; see `rebuildRoom`.
@@ -467,7 +472,64 @@
     $socket?.emit('room:choose-save', { roomId, saveId: null });
   }
 
+  /**
+   * Un clic sur une sauvegarde lance la partie depuis elle, sans second bouton.
+   *
+   * Mêmes gardes que « Démarrer le jeu », et pas une de plus : si le bouton est
+   * éteint, le clic ne fait que ce qu'il faisait avant - poser la sauvegarde -
+   * et dit sous le bouton pourquoi la partie n'est pas partie.
+   *
+   * Poser d'abord, lancer ensuite, et lancer seulement quand le salon revient
+   * avec cette sauvegarde posée. Émettre les deux d'un coup aurait marché tant
+   * que le serveur accepte la sauvegarde ; qu'il la refuse, et la partie partait
+   * quand même, du début, sur un clic qui promettait l'inverse.
+   */
+  function playFromSave(save: SaveSummary) {
+    if (startInFlight) return;
+    if (!canStartGame || !room?.gameId) {
+      chooseSave(save);
+      startBlocked = true;
+      return;
+    }
+    startBlocked = false;
+    saveToStartFrom = save.id;
+    holdStart();
+    $socket?.emit('room:choose-save', { roomId, saveId: save.id });
+  }
+
+  /**
+   * Un lancement est parti et n'a pas encore de réponse.
+   *
+   * Ce qui ferme la porte au double lancement : un double tap, ou deux clics
+   * rapides, envoyaient deux `game:start`, et le serveur ne refuse pas le second
+   * - il relance la session sur la partie qui démarre. La liste des sauvegardes
+   * et le bouton restent éteints jusqu'à `game:started`, qui démonte cet écran,
+   * ou jusqu'à un refus.
+   */
+  let startInFlight = false;
+  /** La sauvegarde posée à la demande d'un clic, en attente de son écho. */
+  let saveToStartFrom: string | null = null;
+  /** Un clic sur une sauvegarde est tombé sur un bouton éteint. */
+  let startBlocked = false;
+  $: if (canStartGame) startBlocked = false;
+  let startSettle: ReturnType<typeof setTimeout> | undefined;
+
+  function holdStart() {
+    startInFlight = true;
+    clearTimeout(startSettle);
+    // Filet, pas chemin : un lancement sans réponse ne doit pas laisser l'écran
+    // éteint pour toujours. Le bouton revient, la sauvegarde reste posée.
+    startSettle = setTimeout(releaseStart, 10_000);
+  }
+
+  function releaseStart() {
+    clearTimeout(startSettle);
+    startInFlight = false;
+    saveToStartFrom = null;
+  }
+
   function enterGame(mode: EmulationMode) {
+    releaseStart();
     activeEmulationMode = mode;
     gameStarted = true;
     // The invitation card steps aside while this is true: a panel over an
@@ -663,6 +725,7 @@
 
   onDestroy(() => {
     alive = false;
+    clearTimeout(startSettle);
 
     /*
      * No `room:leave` here, deliberately, and this line is the whole point of
@@ -684,6 +747,20 @@
   });
 
   function startGame() {
+    if (startInFlight) return;
+    holdStart();
+    $socket?.emit('game:start', { roomId });
+  }
+
+  /*
+   * L'écho de la sauvegarde posée par un clic : c'est lui, et lui seul, qui
+   * lance. Un salon qui revient sans elle - refusée, ou remplacée entre-temps -
+   * ne lance rien ; le refus, lui, arrive par `handleSocketError`.
+   */
+  function startOnceSaveStaged(updatedRoom: Room) {
+    if (!saveToStartFrom || updatedRoom.resumeSaveId !== saveToStartFrom) return;
+    saveToStartFrom = null;
+    if (updatedRoom.status !== 'waiting') return;
     $socket?.emit('game:start', { roomId });
   }
 
@@ -879,7 +956,8 @@
                       gameId={myGameForRoom.id}
                       preloaded={myRoomSaves}
                       actionLabel={t($language, 'startHere')}
-                      on:select={(e) => chooseSave(e.detail)}
+                      busy={startInFlight}
+                      on:select={(e) => playFromSave(e.detail)}
                     />
                   </div>
                 {/if}
@@ -912,13 +990,21 @@
         <div class="actions">
           <!-- No game, no launch: the server would refuse it, and there is
                nothing to run. -->
-          <button on:click={startGame} class="btn-start" disabled={!canStartGame || !room.gameId}>
+          <button on:click={startGame} class="btn-start" disabled={!canStartGame || !room.gameId || startInFlight}>
             {t($language, 'startGame')}
           </button>
           <button on:click={releaseGame} class="btn-leave">
             {t($language, 'releaseGame')}
           </button>
         </div>
+
+        {#if startBlocked && !canStartGame}
+          <!-- Pourquoi le clic sur la sauvegarde n'a pas lancé : dit une fois,
+               sous le bouton éteint qu'il aurait fallu, et effacé dès que ce
+               bouton se rallume. Le seul cas côté client - une manette prise
+               et prête ; les refus du serveur passent par le toast. -->
+          <p class="start-hint">{t($language, 'startNeedsSeat')}</p>
+        {/if}
 
         {#if !room.gameId}
           <!-- Not a state of the ordinary flow any more - the game is chosen

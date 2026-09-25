@@ -46,6 +46,7 @@ Browser: the config reuses whichever chromium build is already in
 | `room-authz.spec.ts` | A non-member cannot act on a room; members (host *and* guest) still can; `/api/rooms` and `rooms:list` are scoped and never carry `keyConfig` |
 | `resilience.spec.ts` | A throwing socket handler does not terminate the backend; endpoints stay up and still require auth |
 | `room-lobby-fit.spec.ts` | Le salon en attente, deux joueurs assis, tient dans un écran de 390x844 sans défiler, bouton de lancement à l'écran |
+| `room-save-starts.spec.ts` | Dans le salon en attente, un clic sur une sauvegarde lance la partie sans « Démarrer le jeu » (390x844 et 1440x900) ; un double clic n'envoie qu'un `game:start` ; bouton éteint, le clic pose la sauvegarde et dit pourquoi |
 | `znet-relay.spec.ts` | Lockstep netplay relay: the room host gets player slot 1, packets cross byte for byte, a stranger cannot join or inject, oversized packets are dropped |
 
 The suite runs serially (`workers: 1`): rooms live in the backend's memory, and
