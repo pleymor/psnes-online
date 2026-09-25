@@ -138,10 +138,10 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
   // rencontrée - jusqu'à cent, ici. Recompiler est moins cher que retenir cent
   // variantes dont on ne réutilisera presque jamais la même.
   const summaries = db.prepare(`
-    SELECT id, name, slotNumber, screenshot, createdAt, updatedAt, gameId
+    SELECT id, name, slotNumber, screenshot, createdAt, updatedAt, gameId, kind
     FROM "Save" WHERE gameId IN (${games.map(() => '?').join(',')})
-  `).all(...games.map(g => g.id)) as (Omit<SaveSummary, 'createdAt' | 'updatedAt'> & {
-    createdAt: number; updatedAt: number; gameId: string;
+  `).all(...games.map(g => g.id)) as (Omit<SaveSummary, 'createdAt' | 'updatedAt' | 'kind'> & {
+    createdAt: number; updatedAt: number; gameId: string; kind: string;
   })[];
 
   const byGame = new Map<string, SaveSummary[]>();
@@ -153,7 +153,8 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
       slotNumber: s.slotNumber,
       screenshot: s.screenshot,
       createdAt: new Date(s.createdAt),
-      updatedAt: new Date(s.updatedAt)
+      updatedAt: new Date(s.updatedAt),
+      kind: s.kind === 'sram' ? 'sram' : 'state'
     });
     byGame.set(s.gameId, list);
   }
@@ -213,7 +214,7 @@ export function findGameWithSaves(db: Database, id: string): GameWithSaves | nul
   if (!game) return null;
   const rows = db.query(`SELECT * FROM "Save" WHERE gameId = ?`).all(id) as {
     id: string; name: string; slotNumber: number; data: Uint8Array; screenshot: string | null;
-    createdAt: number; updatedAt: number; gameId: string;
+    createdAt: number; updatedAt: number; gameId: string; kind: string;
   }[];
   return {
     ...game,
@@ -225,7 +226,8 @@ export function findGameWithSaves(db: Database, id: string): GameWithSaves | nul
       screenshot: r.screenshot,
       createdAt: new Date(r.createdAt),
       updatedAt: new Date(r.updatedAt),
-      gameId: r.gameId
+      gameId: r.gameId,
+      kind: r.kind === 'sram' ? 'sram' : 'state'
     }))
   };
 }

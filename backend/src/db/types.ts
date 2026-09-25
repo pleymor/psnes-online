@@ -97,7 +97,15 @@ export interface Save {
   createdAt: Date;
   updatedAt: Date;
   gameId: string;
+  /**
+   * `sram` pour une SRAM gardée par la synchronisation (#71, migration 0010) :
+   * les octets de la pile, pas un savestate. Absent vaut `state`.
+   */
+  kind?: SaveKind;
 }
+
+/** Un savestate, ou une SRAM gardée par la synchronisation. */
+export type SaveKind = 'state' | 'sram';
 
 /** The subset of a Save that the library listing sends: never the blob. */
 export interface SaveSummary {
@@ -107,6 +115,7 @@ export interface SaveSummary {
   screenshot: string | null;
   createdAt: Date;
   updatedAt: Date;
+  kind?: SaveKind;
 }
 
 /** Who owns a catalogue row: the shipped JSON file, or a player. */

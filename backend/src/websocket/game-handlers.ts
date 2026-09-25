@@ -190,7 +190,10 @@ export function registerGameHandlers(
           socket.emit('error', { message: 'Not authorized to overwrite this save' });
           return;
         }
-        updateSaveData(db, data.saveId, data.name, saveDataBuffer, screenshot);
+        if (!updateSaveData(db, data.saveId, data.name, saveDataBuffer, screenshot)) {
+          socket.emit('error', { message: 'That save cannot be overwritten' });
+          return;
+        }
         socket.emit('game:saved', { saveId: data.saveId });
         logger.info({ saveName: data.name, saveId: data.saveId, gameId: game.gameId }, 'Save overwritten');
         return;
@@ -234,6 +237,14 @@ export function registerGameHandlers(
 
       if (save.game.userId !== userId) {
         socket.emit('error', { message: 'Not authorized to load this save' });
+        return;
+      }
+
+      // Une SRAM gardée par la synchronisation (#71) : les octets de la pile,
+      // qu'un `loadState` chargerait en n'importe quoi. Elle se restaure, par
+      // `POST /api/sync/:crc32/sram/restore`, elle ne se charge pas.
+      if (save.kind === 'sram') {
+        socket.emit('error', { message: 'That save is a battery save; restore it instead of loading it' });
         return;
       }
 

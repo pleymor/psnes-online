@@ -11,6 +11,7 @@ import { initializeAuth } from '../auth/passport.js';
 import { authRouter } from '../api/auth.js';
 import { gamesRouter } from '../api/games.js';
 import { savesRouter } from '../api/saves.js';
+import { syncRouter } from '../api/sync.js';
 import { friendsRouter } from '../api/friends.js';
 import { ratingsRouter } from '../api/ratings.js';
 import { roomsRouter } from '../api/rooms.js';
@@ -116,6 +117,10 @@ export function buildApp(redisClient: RedisClientType): { app: Express; sessionM
    * for it rather than a second, smaller limit.
    */
   app.use('/api/saves/import', express.json({ limit: MAX_ARCHIVE_BYTES }));
+  // La file des sauvegardes (#71) porte un savestate par requête : 800KB, soit
+  // plus d'un mégaoctet en base64, et la vignette avec. Même montage, même
+  // raison ; `api/sync.ts` borne chaque champ décodé.
+  app.use('/api/sync', express.json({ limit: '8mb' }));
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
@@ -194,6 +199,7 @@ export function buildApp(redisClient: RedisClientType): { app: Express; sessionM
   app.use('/api/avatars', avatarsRouter);
   app.use('/api/games', requirePseudo, gamesRouter);
   app.use('/api/saves', requirePseudo, savesRouter);
+  app.use('/api/sync', requirePseudo, syncRouter);
   app.use('/api/friends', requirePseudo, friendsRouter);
   app.use('/api/ratings', requirePseudo, ratingsRouter);
   app.use('/api/rooms', requirePseudo, roomsRouter);

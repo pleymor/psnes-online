@@ -17,6 +17,7 @@ interface SaveRow {
   createdAt: number;
   updatedAt: number;
   gameId: string;
+  kind?: string;
 }
 
 function toSave(row: SaveRow): Save {
@@ -28,7 +29,8 @@ function toSave(row: SaveRow): Save {
     screenshot: row.screenshot,
     createdAt: new Date(row.createdAt),
     updatedAt: new Date(row.updatedAt),
-    gameId: row.gameId
+    gameId: row.gameId,
+    kind: row.kind === 'sram' ? 'sram' : 'state'
   };
 }
 
@@ -82,7 +84,8 @@ export function findSaveWithGame(db: Database, id: string): SaveWithGame | null 
       screenshot: (row.screenshot as string | null) ?? null,
       createdAt: row.createdAt as number,
       updatedAt: row.updatedAt as number,
-      gameId: row.gameId as string
+      gameId: row.gameId as string,
+      kind: row.kind as string
     }),
     game
   };
@@ -116,9 +119,12 @@ export function updateSaveData(
   name: string,
   data: Buffer,
   screenshot: string | null
-): void {
-  db.query(`UPDATE "Save" SET name = ?, data = ?, screenshot = ?, updatedAt = ? WHERE id = ?`)
-    .run(name, data, screenshot, Date.now(), id);
+): boolean {
+  // Jamais par-dessus une SRAM gardée par la synchronisation (#71) : un
+  // savestate écrit à sa place effacerait la seule copie de la partie perdante.
+  return db.query(
+    `UPDATE "Save" SET name = ?, data = ?, screenshot = ?, updatedAt = ? WHERE id = ? AND kind = 'state'`
+  ).run(name, data, screenshot, Date.now(), id).changes > 0;
 }
 
 /**
