@@ -59,7 +59,8 @@
     LAUNCH_PANEL_SIZE, layoutLaunchPanel, drawLaunchPanel, type LaunchLabels
   } from '$lib/vr/panels/launch';
   import { launchOptions } from '$lib/vr/launch-options';
-  import { activeRooms, myRoom } from '$lib/rooms/my-room';
+  import { myRoom } from '$lib/rooms/my-room';
+  import { friendRooms } from '$lib/rooms/friend-rooms';
   import { menuPressed, readVrPad, activeXrInputs, fastForwardHeld, walkStick, turnStick, runHeld, jumpHeld } from '$lib/vr/pad';
   import { walk, walkSpeed, snapTurn, smoothTurn, SNAP_READY } from '$lib/vr/walk';
   import { slide, supportAt, type Obstacle } from '$lib/vr/collide';
@@ -955,12 +956,15 @@
    */
   const captureGate = new CaptureGate();
 
-  /** Who is in a running game, from the rooms the socket already publishes -
-   *  the same source `TopBar` hands `FriendsList`. */
+  /** Who is in a running game: the room each friend is a MEMBER of, as the
+   *  server says it - the same source `FriendsList` reads. The rooms this
+   *  client happens to have seen go stale for a friend who left one: after
+   *  they go, the room's updates stop reaching the friends of the one who
+   *  left, and the last copy still listed them. */
   $: playingByUserId = new Map(
-    $activeRooms
-      .filter((room) => room.status === 'playing')
-      .flatMap((room) => room.players.map((p) => [p.userId, room.gameTitle ?? ''] as const))
+    [...$friendRooms]
+      .filter(([, room]) => room.status === 'playing')
+      .map(([userId, room]) => [userId, room.gameTitle ?? ''] as const)
   );
 
   // `playingByUserId` is read inside `repaintFriends()`, but Svelte 4 derives a

@@ -49,6 +49,7 @@ Browser: the config reuses whichever chromium build is already in
 |---|---|
 | `app.spec.ts` | Dev login renders the library and fetches `/api/rooms` without a reload; a friend's room badge appears |
 | `room-authz.spec.ts` | A non-member cannot act on a room; members (host *and* guest) still can; `/api/rooms` and `rooms:list` are scoped and never carry `keyConfig` |
+| `friend-room-presence.spec.ts` | « Dans un salon » suit l'appartenance, trois navigateurs : A crée, B rejoint, A quitte ; C, ami des deux, voit A sortir et B rester, sans rechargement puis après ; quand B part à son tour le salon meurt et B en sort. Le compte dev 4 (`DevFour`) sert de troisième joueur |
 | `resilience.spec.ts` | A throwing socket handler does not terminate the backend; endpoints stay up and still require auth |
 | `room-lobby-fit.spec.ts` | Le salon en attente, deux joueurs assis, tient dans un écran de 390x844 sans défiler, bouton de lancement à l'écran |
 | `offline.spec.ts` | Hors-ligne sans compte (#70), sur un build de production : après une première visite le réseau est coupé, l'accueil bascule seul en solo, une ROM fabriquée par le test se lance depuis un dossier (OPFS), sa SRAM est écrite en `.srm` à côté et retrouvée au rechargement ; même chose par IndexedDB sans sélecteur de dossier ; installabilité Chrome. Config à part : `npm run test:e2e:offline` |

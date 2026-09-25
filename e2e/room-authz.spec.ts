@@ -312,8 +312,12 @@ test.describe('room authorization', () => {
     // this catches the next column added to User as well. The repository now
     // projects to PublicUser at the source, so a field could only get here by
     // being put there on purpose - and this says so out loud.
+    //
+    // `room` is the room the friend is a member of, reduced to its id, game
+    // title and status (`websocket/friend-presence.ts`); `inVr` is whether
+    // they are in the VR lobby. Both are about the friend, and nothing else.
     expect(Object.keys(friend).sort()).toEqual(
-      ['avatar', 'discriminator', 'id', 'online', 'pseudo']
+      ['avatar', 'discriminator', 'id', 'inVr', 'online', 'pseudo', 'room']
     );
     // The email is gone with the column it came from.
     expect(friend).not.toHaveProperty('email');
