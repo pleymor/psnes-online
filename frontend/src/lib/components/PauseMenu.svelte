@@ -80,6 +80,22 @@
    */
   export let diagnostics: boolean | null = null;
   /**
+   * Les pans de code qu'on peut couper pour chercher par dichotomie - #88.
+   *
+   * Vide là où le salon n'en propose pas. Chacun est sûr à couper : le jeu
+   * continue, on perd la fonction.
+   */
+  export let switches: Record<string, boolean> | null = null;
+
+  const SWITCH_LABELS: Record<string, string> = {
+    visualFeedback: 'Retour visuel des boutons',
+    pointerCapture: 'Capture de pointeur',
+    matchWatch: 'Suivi de match',
+    desyncCheck: 'Détection de désync',
+    rendererHealth: 'Santé du renderer',
+    sound: 'Son'
+  };
+  /**
    * Whether this player may change it. Only the room's creator can, so for
    * everyone else the entry explains what they are playing under rather than
    * being something to press.
@@ -569,6 +585,26 @@
               on:click={() => askForFrames(frames + 1)}>+</button
             >
           </div>
+        {/if}
+
+        {#if switches}
+          <!--
+            Dichotomie pour #88 : huit hypothèses ont été éliminées par la
+            mesure sans que la cause apparaisse, donc on coupe des pans plutôt
+            que d'en supposer un. Les deux premiers ne s'exécutent qu'au
+            contact, les deux suivants seulement en lockstep - ce sont les deux
+            contraintes du symptôme.
+          -->
+          {#each Object.entries(switches) as [key, on] (key)}
+            <label class="worker-row">
+              <input
+                type="checkbox"
+                checked={on}
+                on:change={(e) => dispatch('switch', { key, on: e.currentTarget.checked })}
+              />
+              <span>{SWITCH_LABELS[key] ?? key}</span>
+            </label>
+          {/each}
         {/if}
 
         {#if diagnostics !== null}

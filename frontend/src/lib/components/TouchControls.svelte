@@ -24,6 +24,10 @@
   import { crossMask, facesAt, readDirectionMode, writeDirectionMode } from '$lib/controls/touch';
   import { PAD } from '$lib/znet/protocol';
 
+  /** Bisection switches for #88 - see LockstepRoom. Both are contact-only. */
+  export let visualFeedback = true;
+  export let pointerCapture = true;
+
   export let pad: TouchPad;
 
   /**
@@ -113,7 +117,7 @@
     capture(event);
     event.preventDefault();
     pad.press(button);
-    held = { ...held, [button]: true };
+    if (visualFeedback) held = { ...held, [button]: true };
   }
 
   /**
@@ -126,6 +130,7 @@
    * is better than a lost one.
    */
   function capture(event: PointerEvent) {
+    if (!pointerCapture) return;
     try {
       (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     } catch {
@@ -163,7 +168,7 @@
 
   function release(button: Button) {
     pad.release(button);
-    held = { ...held, [button]: false };
+    if (visualFeedback) held = { ...held, [button]: false };
   }
 
   function stickDown(event: PointerEvent) {

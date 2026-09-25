@@ -345,6 +345,7 @@
    * refuses. One boolean read per slice, and no new timer.
    */
   function checkRendererHealth(): void {
+    if (!switches.rendererHealth) return;
     surface?.checkHealth(display);
   }
 
@@ -392,6 +393,37 @@
    * answering the question at all.
    */
   let diagnostics = true;
+
+  /*
+   * Les pans de code qu'on peut couper en cours de partie, pour chercher par
+   * dichotomie plutôt que par hypothèse - voir #88, où huit hypothèses ont été
+   * éliminées par la mesure sans que la cause apparaisse.
+   *
+   * Chacun est sûr à couper : le jeu continue, on perd la fonction. Les deux
+   * premiers ne s'exécutent qu'au CONTACT et pas pendant un maintien, ce qui
+   * est la contrainte la plus forte du symptôme ; les deux suivants sont les
+   * seuls composants qui tournent en lockstep et pas en solo, ce qui est la
+   * seconde.
+   *
+   * Et un angle mort qui justifie la méthode : Long Animation Frames mesure le
+   * THREAD PRINCIPAL. Un repaint ou une recomposition se passent ailleurs et
+   * n'y apparaissent pas, donc « zéro frame longue » ne dit rien du
+   * compositeur.
+   */
+  let switches: Record<string, boolean> = {
+    visualFeedback: true,
+    pointerCapture: true,
+    matchWatch: true,
+    desyncCheck: true,
+    rendererHealth: true,
+    sound: true
+  };
+
+  function setSwitch(key: string, on: boolean): void {
+    switches = { ...switches, [key]: on };
+    if (key === 'sound') audio?.setMuted(!on);
+    if (key === 'desyncCheck') session?.setCrcInterval(on ? 60 : 0);
+  }
 
   function setDiagnostics(on: boolean): void {
     diagnostics = on;
@@ -701,7 +733,7 @@
           audio!.push(core!.audio());
           // Read-only, off the emulation path, and on a schedule of its own -
           // the same rule the renderer obeys, for the same reason.
-          matchWatch?.onFrame(frame, pad1, pad2);
+          if (switches.matchWatch) matchWatch?.onFrame(frame, pad1, pad2);
         }
       });
 
@@ -1674,7 +1706,11 @@
       component knows neither: it fills the box it is given.
     -->
     <div class="touch-zone">
-      <TouchControls pad={touchPad} />
+      <TouchControls
+        pad={touchPad}
+        visualFeedback={switches.visualFeedback}
+        pointerCapture={switches.pointerCapture}
+      />
     </div>
   {/if}
 
@@ -1691,6 +1727,7 @@
       {latencyMode}
       {workerTimer}
       {diagnostics}
+      {switches}
       {canSetLatency}
       canReset={isHost}
       emulator={saveAdapter}
@@ -1701,6 +1738,7 @@
       on:stats={() => (showStats = !showStats)}
       on:latency={(e) => setLatencyMode(e.detail.mode)}
       on:diagnostics={(e) => setDiagnostics(e.detail.on)}
+      on:switch={(e) => setSwitch(e.detail.key, e.detail.on)}
       on:workerTimer={(e) => {
         workerTimer = e.detail.on;
         governor?.setPreferWorker(workerTimer);

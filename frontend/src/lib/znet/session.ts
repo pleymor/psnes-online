@@ -535,6 +535,17 @@ export class NetplaySession implements TickSource {
 	 * real session sat at two frames, below the automatic floor, while its peer
 	 * lost frames in a third of its seconds and nothing was coming to help.
 	 */
+	/**
+	 * Turns desync detection on or off mid-session.
+	 *
+	 * For the bisection of #88: the checksum is one of the few things lockstep
+	 * does that solo does not, and the symptom exists only in lockstep. Zero
+	 * disables it, which costs the detection and nothing else.
+	 */
+	setCrcInterval(frames: number): void {
+		this.opts.crcInterval = Math.max(0, Math.round(frames));
+	}
+
 	resumeAutomaticDelay(): void {
 		this.delayControl.resumeAutomatic();
 	}
