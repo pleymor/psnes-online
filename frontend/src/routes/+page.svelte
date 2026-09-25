@@ -43,6 +43,10 @@
   import { setPageTitle } from '$lib/utils/page-title';
   import { notifications } from '$lib/services/notification';
   import { signupRefusalKey } from '$lib/auth/signup-refusal';
+  import LocalLibrary from '$lib/components/LocalLibrary.svelte';
+  import { homeMode } from '$lib/rooms/local-play';
+  import { linkState } from '$lib/stores/connection';
+  import { playLocally } from '$lib/stores/local-play';
 
   const logger = createLogger('HomePage');
 
@@ -107,8 +111,16 @@
     `--cast:${CAST}px`
   ].join(';');
 
-  // Two screens live at this address, and only one of them is the library.
-  $: setPageTitle($language, $user ? t($language, 'library') : null);
+  /*
+   * Three screens live at this address now: the library, the sign-in page, and
+   * solo play without an account (#70). `homeMode` decides, and switches to
+   * the third by itself only when the server never answered at all.
+   */
+  $: mode = homeMode({ user: $user, loading: $userLoading, link: $linkState, chosen: $playLocally });
+  $: setPageTitle(
+    $language,
+    mode.kind === 'local' ? t($language, 'localTitle') : $user ? t($language, 'library') : null
+  );
 
   let selectedGame: Game | null = null;
   let gameToIdentify: Game | null = null;
@@ -600,7 +612,9 @@
   });
 </script>
 
-{#if !$user}
+{#if mode.kind === 'local'}
+  <LocalLibrary why={mode.why} on:signIn={() => playLocally.set(false)} />
+{:else if !$user}
   <!-- Landing page for non-authenticated users.
 
        <main> rather than a <div>: this branch carries no TopBar, so nothing
@@ -667,6 +681,13 @@
             </button>
           </div>
         {/if}
+
+        <!-- Un lien, pas un second gros bouton à côté de Google : l'accueil
+             reste une porte d'entrée et non un carrefour (#70 §5). Hors-ligne,
+             il n'est même pas nécessaire - l'accueil bascule tout seul. -->
+        <button class="play-local" on:click={() => playLocally.set(true)}>
+          {t($language, 'playWithoutAccount')}
+        </button>
       </div>
     </div>
   </main>
@@ -1034,6 +1055,24 @@
     padding: 0.7rem 1.8rem;
     font-size: 1.2rem;
     transition: transform 0.2s;
+  }
+
+  /* Discret par décision : un lien, sans le cadre doré ni le relief du
+     plancher des boutons, qu'il faut donc défaire ici. */
+  .play-local {
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 0.25rem;
+    font-family: inherit;
+    font-size: 0.9rem;
+    color: var(--brand-lift);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .play-local:hover {
+    color: var(--label);
   }
 
   .login-btn:hover {

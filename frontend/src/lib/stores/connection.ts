@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 
 /**
  * Whether the app has a live socket.
@@ -65,4 +65,33 @@ export function attachLinkState(socket: LinkSocket): void {
 		// never been reachable.
 		if (!everConnected) linkState.set('unreachable');
 	});
+}
+
+/**
+ * The server did not answer the very first request, before any socket existed.
+ *
+ * Called by the layout when `/auth/me` fails at the network level. Without it
+ * a visitor with no network never reaches 'unreachable' at all: the socket is
+ * only opened once somebody is signed in, and nobody can sign in without the
+ * server - so the one state that means "the server never answered" was the one
+ * an offline visitor could not get into. It is what switches the home page to
+ * solo play without an account (`rooms/local-play.ts`).
+ *
+ * Only from the untouched default. A socket that already connected or dropped
+ * has said something about the server that this must not overwrite.
+ */
+export function noteServerSilent(): void {
+	if (get(linkState) === 'connected') linkState.set('unreachable');
+}
+
+/**
+ * Whether an HTTP answer means the server itself never answered.
+ *
+ * A thrown fetch is the plain case: no network, or a service worker with no
+ * network behind it. 502, 503 and 504 are the proxy in front saying the same
+ * thing about the backend behind it. Anything else is the server speaking.
+ */
+export function serverSilent(outcome: { threw: true } | { status: number }): boolean {
+	if ('threw' in outcome) return true;
+	return outcome.status === 502 || outcome.status === 503 || outcome.status === 504;
 }

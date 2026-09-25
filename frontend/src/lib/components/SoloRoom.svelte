@@ -35,6 +35,9 @@
   import { language } from '$lib/stores/language';
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
+  import { localSaveStore, type SaveListing } from '$lib/saves/local-store';
+  import { notifications } from '$lib/services/notification';
+  import { t } from '$lib/i18n/translations';
   import { DEFAULT_DISPLAY, type DisplayOptions, type Renderer } from '$lib/znet';
   import {
     AudioSink,
@@ -52,8 +55,17 @@
     isPlayerActive
   } from '$lib/znet';
 
-  export let roomId: string;
-  export let gameId: string;
+  export let roomId = '';
+  export let gameId = '';
+  /**
+   * Solo without an account, and possibly without a network (#70).
+   *
+   * Set, it replaces the room and the socket as the place saves come from and
+   * go to: the battery save and the savestate slots go through
+   * `saves/local-store.ts`, next to the ROM or in this browser. Null - every
+   * room - keeps the server path exactly as it was.
+   */
+  export let localGame: { checksum: string } | null = null;
   export let gameCrc32: string | null = null;
   export let gameTitle: string = '';
   export let controls: ControlsConfig;
@@ -370,6 +382,7 @@
    * blank one - it has happened twice already.
    */
   function readStoredSram(): Promise<Uint8Array | null> {
+    if (localGame) return readLocalSram(localGame.checksum);
     return new Promise((resolve) => {
       const sock = $socket;
       if (!sock || !core) {
@@ -420,6 +433,79 @@
         resolve(null);
       }, 5000);
     });
+  }
+
+  /**
+   * The same read, from the local store instead of the server.
+   *
+   * The invariant is the one above, unchanged: `sramLoaded` goes true only on
+   * a read that succeeded - a save found, or confirmed absent. The store
+   * throws when it could not read, and that leaves persistence off for the
+   * session, because a blank SRAM written over a save we failed to read is
+   * the one loss that cannot be undone.
+   */
+  async function readLocalSram(checksum: string): Promise<Uint8Array | null> {
+    try {
+      const record = await localSaveStore().read(checksum, 'sram');
+      sramLoaded = true;
+      if (record) logger.info('Battery save restored', { bytes: record.bytes.length, from: record.from });
+      return record?.bytes ?? null;
+    } catch (err) {
+      logger.error('Could not read the local battery save', err);
+      sramNotice = t($language, 'localSramUnreadable');
+      return null;
+    }
+  }
+
+  /** Writes to the local store. Best effort: the next write retries. */
+  function writeLocalSram(checksum: string, bytes: Uint8Array): void {
+    localSaveStore()
+      .write(checksum, 'sram', bytes)
+      .then((written) => {
+        if (written.where === 'device') logger.debug('Battery save kept in this browser', written);
+      })
+      .catch((err) => logger.error('Could not write the local battery save', err));
+  }
+
+  /**
+   * The pause menu's slots, for solo play without an account.
+   *
+   * A savestate is applied straight to the core, like `onGameLoaded` does:
+   * there is nobody to synchronise.
+   */
+  $: localSlots = localGame
+    ? {
+        list: (): Promise<SaveListing[]> => localSaveStore().list(localGame!.checksum),
+        save: (slot: number) => saveLocalState(slot),
+        load: (slot: number) => loadLocalState(slot)
+      }
+    : null;
+
+  async function saveLocalState(slot: number): Promise<boolean> {
+    if (!core || !localGame) return false;
+    try {
+      await localSaveStore().write(localGame.checksum, slot, core.saveState());
+      return true;
+    } catch (err) {
+      logger.error('Could not write the savestate', err);
+      return false;
+    }
+  }
+
+  async function loadLocalState(slot: number): Promise<boolean> {
+    if (!core || !localGame) return false;
+    try {
+      const record = await localSaveStore().read(localGame.checksum, slot);
+      if (!record) return false;
+      core.loadState(record.bytes);
+      audio?.flush();
+      // The menu stays open over a stopped game; draw the loaded picture.
+      renderer?.draw(core);
+      return true;
+    } catch (err) {
+      logger.error('Could not load the savestate', err);
+      return false;
+    }
   }
 
   /**
@@ -485,6 +571,7 @@
    * actually succeeded, and whether there is still a socket to write through. */
   function sendSram(bytes: Uint8Array): void {
     if (!sramLoaded) return;
+    if (localGame) return writeLocalSram(localGame.checksum, bytes);
     if (!$socket) return;
     const sramData = toBase64(bytes);
     $socket.emit('game:saveSram', { roomId, sramData });
@@ -764,6 +851,18 @@
     if (!showPauseMenu && (event.code === QUICK_SAVE_KEY || event.code === QUICK_LOAD_KEY)) {
       if (padUsesKey(controls.p1.keys, event.code) || padUsesKey(controls.p2.keys, event.code)) return;
       event.preventDefault();
+      if (localSlots) {
+        // Slot 1 is the quick slot without an account: the server's quick
+        // save is a named save this player has nowhere to keep.
+        const quick = event.code === QUICK_SAVE_KEY ? localSlots.save(1) : localSlots.load(1);
+        void quick.then((ok) =>
+          notifications.show(
+            t($language, ok ? (event.code === QUICK_SAVE_KEY ? 'localSaved' : 'localLoaded') : 'localSaveFailed', { n: 1 }),
+            ok ? 'success' : 'error'
+          )
+        );
+        return;
+      }
       const ctx = { socket: $socket, roomId, gameId, locale: $language };
       if (event.code === QUICK_SAVE_KEY) void quickSave({ ...ctx, emulator: saveAdapter });
       else void quickLoad(ctx);
@@ -1066,6 +1165,7 @@
       {turbo}
       {turboSpeed}
       canReset={true}
+      localSaves={localSlots}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}

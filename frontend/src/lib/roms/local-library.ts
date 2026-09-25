@@ -466,6 +466,32 @@ export async function indexedChecksums(): Promise<string[]> {
 }
 
 /**
+ * L'index entier, checksum et nom de fichier.
+ *
+ * Pour le joueur sans compte, qui n'a pas de serveur pour titrer ses jeux :
+ * le nom de fichier est alors tout ce qu'il y a (#70 §4.3).
+ */
+export async function indexedEntries(): Promise<Array<{ checksum: string; filename: string }>> {
+	const db = await openDb();
+	const entries = await new Promise<Array<{ checksum: string; filename: string }>>((resolve, reject) => {
+		const store = db.transaction(INDEX, 'readonly').objectStore(INDEX);
+		const keys = store.getAllKeys();
+		const values = store.getAll();
+		values.onsuccess = () =>
+			resolve(
+				(keys.result as string[]).map((checksum, i) => ({
+					checksum,
+					filename: String((values.result as unknown[])[i])
+				}))
+			);
+		values.onerror = () => reject(values.error);
+		keys.onerror = () => reject(keys.error);
+	});
+	db.close();
+	return entries;
+}
+
+/**
  * Retire un checksum de l'index du dossier.
  *
  * Ne touche que le store `index`. Les fichiers que le joueur a désignés un par

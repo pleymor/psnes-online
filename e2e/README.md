@@ -28,6 +28,11 @@ backend is not in dev auth mode.
 
 ## Running
 
+The offline suite (`offline.spec.ts`) is the exception to everything above:
+it needs no backend and no dev server, only a production build, since only a
+build registers the service worker. `npm run test:e2e:offline` builds the
+frontend and serves it with `vite preview` on port 4173 by itself.
+
 ```bash
 npm run test:e2e        # headless
 npm run test:e2e:ui     # Playwright UI mode
@@ -46,6 +51,7 @@ Browser: the config reuses whichever chromium build is already in
 | `room-authz.spec.ts` | A non-member cannot act on a room; members (host *and* guest) still can; `/api/rooms` and `rooms:list` are scoped and never carry `keyConfig` |
 | `resilience.spec.ts` | A throwing socket handler does not terminate the backend; endpoints stay up and still require auth |
 | `room-lobby-fit.spec.ts` | Le salon en attente, deux joueurs assis, tient dans un écran de 390x844 sans défiler, bouton de lancement à l'écran |
+| `offline.spec.ts` | Hors-ligne sans compte (#70), sur un build de production : après une première visite le réseau est coupé, l'accueil bascule seul en solo, une ROM fabriquée par le test se lance depuis un dossier (OPFS), sa SRAM est écrite en `.srm` à côté et retrouvée au rechargement ; même chose par IndexedDB sans sélecteur de dossier ; installabilité Chrome. Config à part : `npm run test:e2e:offline` |
 | `room-save-starts.spec.ts` | Dans le salon en attente, un clic sur une sauvegarde lance la partie sans « Démarrer le jeu » (390x844 et 1440x900) ; un double clic n'envoie qu'un `game:start` ; bouton éteint, le clic pose la sauvegarde et dit pourquoi |
 | `znet-relay.spec.ts` | Lockstep netplay relay: the room host gets player slot 1, packets cross byte for byte, a stranger cannot join or inject, oversized packets are dropped |
 

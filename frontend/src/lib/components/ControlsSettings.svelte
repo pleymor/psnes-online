@@ -19,6 +19,7 @@
   import PlayerControls from './PlayerControls.svelte';
   import { createLogger } from '$lib/utils/logger';
   import {
+    defaultControlsConfig,
     findConflicts,
     normaliseControlsConfig,
     type ControlsConfig,
@@ -33,6 +34,7 @@
     type Assignments
   } from '$lib/znet/devices';
   import { pads, watchPads } from '$lib/controls/pad-watch';
+  import { writeLocalControls } from '$lib/stores/local-controls';
 
   export let roomId: string = '';
   export let currentConfig: ControlsConfig;
@@ -51,6 +53,13 @@
    * outline. See `headingLevel` in PlayerControls.
    */
   export let headingLevel: 3 | 4 = 4;
+  /**
+   * Keep the bindings on this device instead of the account.
+   *
+   * For solo play without an account (#70): there is no account to write to,
+   * and often no network either, so the server round trip could only fail.
+   */
+  export let deviceOnly = false;
 
   const dispatch = createEventDispatcher<{ saved: { config: ControlsConfig } }>();
   const logger = createLogger('ControlsSettings');
@@ -178,6 +187,12 @@
     isSaving = true;
     errorMessage = '';
     try {
+      if (deviceOnly) {
+        writeLocalControls(localStorage, workingConfig);
+        currentConfig = workingConfig;
+        dispatch('saved', { config: workingConfig });
+        return;
+      }
       const response = await fetch('/api/user/controls', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -208,6 +223,13 @@
     isLoading = true;
     errorMessage = '';
     try {
+      if (deviceOnly) {
+        workingConfig = defaultControlsConfig();
+        writeLocalControls(localStorage, workingConfig);
+        currentConfig = workingConfig;
+        dispatch('saved', { config: workingConfig });
+        return;
+      }
       const response = await fetch('/api/user/controls/reset', {
         method: 'POST',
         credentials: 'include'
