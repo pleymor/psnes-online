@@ -49,7 +49,53 @@
    * étiquette de cartouche, et ne ressemble pas à une panne.
    */
   let coverBroken = false;
-  $: if (game.coverUrl) coverBroken = false;
+
+  /**
+   * Le format de la cellule, celui de `.cover` ci-dessous.
+   *
+   * Mesuré le 25/09/2026 sur les 1 363 jaquettes du catalogue que la source
+   * sert : les boîtes américaines et européennes, tranche comprise, font 1,41
+   * à 1,43 - la moitié du catalogue à elles seules - et les japonaises 0,55,
+   * debout. Le format qui laisse le moins de vide en moyenne est 1,41 ; 10/7
+   * (1,43) en laisse 0,7 % de plus, et garder ce format garde le pas des
+   * étagères, que `+page.svelte` calcule dessus.
+   */
+  const CELL_RATIO = 10 / 7;
+
+  /**
+   * Le côté qui touche le bord de la cellule, connu seulement au chargement.
+   *
+   * Une boîte plus large que la cellule la remplit en largeur, une plus
+   * haute la remplit en hauteur, et l'image garde alors son propre format :
+   * sa boîte EST l'image, comme dans la fiche depuis #90, au lieu d'un cadre
+   * paysage dans lequel `contain` laissait des bandes. `null` avant, et
+   * l'image occupe la cellule en `contain` : rien ne saute, rien n'est rogné.
+   */
+  let fit: 'width' | 'height' | null = null;
+  /** Assez loin du format de la cellule pour laisser un vide à habiller. */
+  let leavesRoom = false;
+
+  function fitted(img: HTMLImageElement) {
+    const read = () => {
+      if (!img.naturalWidth || !img.naturalHeight) return;
+      const ratio = img.naturalWidth / img.naturalHeight;
+      fit = ratio >= CELL_RATIO ? 'width' : 'height';
+      leavesRoom = Math.abs(ratio / CELL_RATIO - 1) > 0.03;
+    };
+    if (img.complete) read();
+    img.addEventListener('load', read);
+    return { destroy: () => img.removeEventListener('load', read) };
+  }
+
+  // Seulement quand l'adresse change : la bibliothèque se recharge souvent
+  // avec les mêmes jeux, et l'image, déjà là, ne redonnerait pas de `load`.
+  let shownUrl: string | undefined;
+  $: if (game.coverUrl !== shownUrl) {
+    shownUrl = game.coverUrl;
+    coverBroken = false;
+    fit = null;
+    leavesRoom = false;
+  }
 </script>
 
 <!--
@@ -72,21 +118,33 @@
 >
   <div class="cover">
     {#if game.coverUrl && !coverBroken}
+      {#if leavesRoom}
+        <!--
+          Le vide qu'une boîte debout laisse dans la cellule, habillé de la
+          même jaquette, floue et sombre : la même adresse, donc aucun octet
+          de plus, et une couleur qui est celle du jeu plutôt qu'un aplat.
+        -->
+        <img class="backdrop" src={game.coverUrl} alt="" aria-hidden="true" decoding="async" />
+      {/if}
       <!--
         `lazy` parce qu'une bibliothèque défile : mesuré le 13/09/2026, une
         jaquette du catalogue pesait 266 Ko médians et la grille les chargeait
-        toutes, visibles ou non. Les dimensions sont celles de la rendition
-        servie (512 de large, dans un cadre 10/7) : sans elles le navigateur ne
-        sait pas quelle place réserver et la grille sursaute au fur et à mesure
-        que les images arrivent.
+        toutes, visibles ou non.
+
+        Sans `width` ni `height`, comme dans la fiche : ils valaient 512x358,
+        un format parmi d'autres. La place est réservée par la cellule, dont
+        le format est fixe, donc la grille ne sursaute pas quand les images
+        arrivent ; seule l'image, dedans, prend le sien.
       -->
       <img
+        class="art"
+        class:fit-width={fit === 'width'}
+        class:fit-height={fit === 'height'}
         src={game.coverUrl}
         alt=""
         loading="lazy"
         decoding="async"
-        width="512"
-        height="358"
+        use:fitted
         on:error={() => (coverBroken = true)}
       />
     {:else}
@@ -226,14 +284,54 @@
     overflow: hidden;
   }
 
-  /* `contain` et non `cover` : ne jamais rogner une jaquette est tout
-     l'objet de cette reprise. Une boîte qui n'est pas exactement au format
-     laisse deux bandes, ce qui est le moindre mal. */
-  .cover img {
+  /* Chaque boîte à son format, posée au pied de la cellule comme sur la
+     tablette : une boîte japonaise debout à côté d'une américaine couchée,
+     et toutes deux sur la même ligne. Avant le chargement le format n'est
+     pas connu, et l'image occupe la cellule en `contain` - jamais `cover`,
+     qui rognerait. */
+  .cover .art {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: contain;
+    object-position: center bottom;
     display: block;
+  }
+
+  /* Le format connu, la boîte devient l'image : un seul côté est tenu, le
+     navigateur tire l'autre du format de l'image. `left` et `right` à zéro
+     avec des marges `auto` la centrent, `bottom: 0` la pose. */
+  .cover .art.fit-width,
+  .cover .art.fit-height {
+    inset: auto 0 0 0;
+    margin: 0 auto;
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  .cover .art.fit-width {
+    width: 100%;
+    height: auto;
+  }
+
+  .cover .art.fit-height {
+    width: auto;
+    height: 100%;
+  }
+
+  /* Débordée d'un rien et floue : le flou éclaircit les bords, et la
+     cellule, qui coupe ce qui dépasse, ne montre que le milieu. Sombre
+     pour que la vraie boîte reste ce qu'on regarde. */
+  .cover .backdrop {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: blur(14px) brightness(0.4) saturate(1.2);
+    transform: scale(1.15);
+    pointer-events: none;
   }
 
   .label-only {
