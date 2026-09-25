@@ -5,6 +5,8 @@
   import ControlsSettings from './ControlsSettings.svelte';
   import LoadSavesMenu from './LoadSavesMenu.svelte';
   import SaveGameMenu from './SaveGameMenu.svelte';
+  import LocalSavesMenu from './LocalSavesMenu.svelte';
+  import type { SaveListing } from '$lib/saves/local-store';
   import { user } from '$lib/stores/user';
   import { accountFeaturesAllowed } from '$lib/rooms/anonymous-join';
   import ConfirmModal from './ConfirmModal.svelte';
@@ -82,6 +84,20 @@
    */
   export let canReset = false;
 
+  /**
+   * Savestate slots on this machine, for solo play without an account (#70).
+   *
+   * Null everywhere else, which keeps every room exactly as it was: the
+   * account's named saves go through the server, and those are what the two
+   * entries above offer. When set, they replace them - there is no account to
+   * save to - and the controls are kept on this device for the same reason.
+   */
+  export let localSaves: {
+    list(): Promise<SaveListing[]>;
+    save(slot: number): Promise<boolean>;
+    load(slot: number): Promise<boolean>;
+  } | null = null;
+
   const dispatch = createEventDispatcher();
 
   interface MenuItem {
@@ -106,6 +122,7 @@
   let showKeyConfig = false;
   let showLoadSaves = false;
   let showSaveGame = false;
+  let showLocalSaves = false;
 
   /** Lu ici plutôt que passé en propriété à travers trois composants de salon. */
   $: saveFeatures = accountFeaturesAllowed($user);
@@ -123,7 +140,13 @@
    * one, so the list is written once.
    */
   $: inSubmenu =
-    showKeyConfig || showLoadSaves || showSaveGame || showVideo || showLatency || showSpeed;
+    showKeyConfig ||
+    showLoadSaves ||
+    showSaveGame ||
+    showLocalSaves ||
+    showVideo ||
+    showLatency ||
+    showSpeed;
 
   /** The fastest the governor can actually run: past it, frames are discarded. */
   const MAX_SPEED = 8;
@@ -286,7 +309,10 @@
      * d'une partie - #12 avait déjà tranché que recevoir une ROM n'est pas la
      * posséder, et c'est la même règle vue depuis le menu pause.
      */
-    ...(saveFeatures.saves
+    ...(localSaves
+      ? [{ label: t($language, 'localSaves'), action: () => (showLocalSaves = true) }]
+      : []),
+    ...(saveFeatures.saves && !localSaves
       ? [
           { label: t($language, 'loadGame'), action: () => (showLoadSaves = true) },
           { label: t($language, 'saveGame'), action: () => (showSaveGame = true) }
@@ -400,6 +426,7 @@
     showKeyConfig = false;
     showLoadSaves = false;
     showSaveGame = false;
+    showLocalSaves = false;
     showVideo = false;
     showLatency = false;
     showSpeed = false;
@@ -568,6 +595,7 @@
           {roomId}
           currentConfig={controls}
           {localPlayer2Playable}
+          deviceOnly={!!localSaves}
           on:saved={handleSaved}
         />
         <button on:click={handleBackFromSubmenu} class="back-button">
@@ -584,6 +612,15 @@
           on:notification={handleNotification}
           on:close={handleSaveClose}
         />
+        <button on:click={handleBackFromSubmenu} class="back-button">
+          {t($language, 'close')}
+        </button>
+      </div>
+    {/if}
+
+    {#if showLocalSaves && localSaves}
+      <div class="submenu">
+        <LocalSavesMenu slots={localSaves} />
         <button on:click={handleBackFromSubmenu} class="back-button">
           {t($language, 'close')}
         </button>

@@ -55,8 +55,13 @@ const config = {
        * '/profile' was the first to pay for it - its only link is the avatar in
        * the top bar, which renders only for a signed-in user - and '/docs' the
        * second, on 2026-09-08, whose only link sits in the home page's footer.
+       *
+       * '/local' est la troisième, et la seule qui DOIT être prérendue pour
+       * une autre raison encore : c'est l'écran de jeu sans compte, et le
+       * service worker ne précache que ce qui est prérendu. Absente d'ici,
+       * elle ne s'ouvrirait hors-ligne que par le repli de navigation.
        */
-      entries: ['/', '/profile', '/docs']
+      entries: ['/', '/profile', '/docs', '/local']
     }
   }
 };

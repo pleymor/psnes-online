@@ -32,6 +32,7 @@
     indexedChecksums
   } from '$lib/roms/local-library';
   import { syncFolder } from '$lib/roms/folder-sync';
+  import LocalSavesNote from './LocalSavesNote.svelte';
 
   const logger = createLogger('RomSourcePanel');
 
@@ -42,6 +43,8 @@
   let added = 0;
   let removed = 0;
   let upToDate = false;
+  /** Bumped by every refresh, so the saves note re-reads the permission it depends on. */
+  let checked = 0;
 
   /**
    * Combien de jeux du compte cet appareil ne peut pas ouvrir.
@@ -106,6 +109,7 @@
    * anyone seeing it.
    */
   async function refresh(): Promise<void> {
+    checked++;
     try {
       const supported = supportsDirectoryPicker();
       if (!supported) {
@@ -214,6 +218,10 @@
     <p class="explain">{t($language, 'romsStayLocal')}</p>
     <button on:click={pickFolder} disabled={busy}>{t($language, 'chooseRomFolder')}</button>
   {/if}
+
+  <!-- Solo sans compte seulement : avec un compte, les sauvegardes passent
+       encore par le serveur jusqu'à #71. -->
+  <LocalSavesNote refresh={checked} />
 
   {#if progress}
     <p class="explain">{progress}</p>

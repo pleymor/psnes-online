@@ -8,7 +8,7 @@
   import { startLogShipping } from '$lib/utils/log-shipper';
   import { createLogger } from '$lib/utils/logger';
   import { reportFolderCost } from '$lib/roms/local-library';
-  import { linkState } from '$lib/stores/connection';
+  import { linkState, noteServerSilent, serverSilent } from '$lib/stores/connection';
   import { inGame } from '$lib/stores/in-game';
   import { sharing } from '$lib/stores/sharing';
   import { vrActive } from '$lib/vr/entry';
@@ -47,9 +47,15 @@
       if (res.ok) {
         const userData = await res.json();
         user.set(userData);
+      } else if (serverSilent({ status: res.status })) {
+        noteServerSilent();
       }
     } catch (error) {
-      logger.error('Auth check failed:', error);
+      // No answer at all: no network, or the service worker with nothing
+      // behind it. This is the state that opens solo play without an account
+      // - see `rooms/local-play.ts` - so it is said, not only logged.
+      logger.warn('Auth check got no answer:', error);
+      noteServerSilent();
     } finally {
       userLoading.set(false);
     }
