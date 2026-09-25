@@ -34,6 +34,7 @@
   import { localPlayHref } from '$lib/rooms/local-play';
   import LanguageSelector from './LanguageSelector.svelte';
   import LocalSavesNote from './LocalSavesNote.svelte';
+  import SiteFooter from './SiteFooter.svelte';
 
   /** Why this screen is up: the player asked, or the server never answered. */
   export let why: 'chosen' | 'unreachable';
@@ -194,6 +195,10 @@
       </ul>
     {/if}
   </section>
+
+  <!-- Inside the column, as on the library: at the root it floats at its own
+       60rem, unrelated to the column above it. -->
+  <SiteFooter />
 </main>
 
 <style>
@@ -206,6 +211,7 @@
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
+    --footer-width: 100%;
   }
 
   .head h1 {

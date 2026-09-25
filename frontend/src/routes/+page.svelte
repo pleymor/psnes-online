@@ -614,7 +614,6 @@
 
 {#if mode.kind === 'local'}
   <LocalLibrary why={mode.why} on:signIn={() => playLocally.set(false)} />
-  <SiteFooter />
 {:else if !$user}
   <!-- Landing page for non-authenticated users.
 

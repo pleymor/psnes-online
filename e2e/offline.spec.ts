@@ -239,6 +239,7 @@ test('online, the sign-in page offers a discreet way in without an account', asy
 	await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible();
 	const link = page.getByRole('button', { name: 'Play without an account' });
 	await expect(link).toBeVisible();
+	await page.screenshot({ path: path.join(SHOTS, 'sign-in-link-1280x720.png') });
 	await link.click();
 	await expect(page.getByText('Solo, no account')).toBeVisible();
 	await expect(page.getByText(/Nothing is sent to the server/)).toBeVisible();
