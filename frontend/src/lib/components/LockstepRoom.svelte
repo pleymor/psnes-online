@@ -377,6 +377,37 @@
    * was set.
    */
   let workerTimer = false;
+  /*
+   * Whether the diagnostics run at all - the three PerformanceObservers and the
+   * line shipped every second.
+   *
+   * An experiment of its own, because the question is fair: one of those
+   * observers fires on EVERY pointer event, which on this phone is 136 times a
+   * second, and the shipper posts once a second over the same radio the pads
+   * use. Nothing measured says they cost anything, but nothing measured could:
+   * an instrument cannot weigh itself.
+   *
+   * Turning them off costs the logs, so a session run this way is judged by
+   * what the player feels and nothing else. That is the honest trade for
+   * answering the question at all.
+   */
+  let diagnostics = true;
+
+  function setDiagnostics(on: boolean): void {
+    diagnostics = on;
+    if (on) {
+      startDiagnostics();
+      return;
+    }
+    if (diagnosticsTimer) clearInterval(diagnosticsTimer);
+    diagnosticsTimer = null;
+    longTaskObserver?.disconnect();
+    longTaskObserver = null;
+    eventObserver?.disconnect();
+    eventObserver = null;
+    loafObserver?.disconnect();
+    loafObserver = null;
+  }
   let eventObserver: PerformanceObserver | null = null;
   let loafObserver: PerformanceObserver | null = null;
   let sramTimer: ReturnType<typeof setInterval> | null = null;
@@ -1659,6 +1690,7 @@
       {showStats}
       {latencyMode}
       {workerTimer}
+      {diagnostics}
       {canSetLatency}
       canReset={isHost}
       emulator={saveAdapter}
@@ -1668,6 +1700,7 @@
       on:display={(e) => void onDisplayChange(e.detail)}
       on:stats={() => (showStats = !showStats)}
       on:latency={(e) => setLatencyMode(e.detail.mode)}
+      on:diagnostics={(e) => setDiagnostics(e.detail.on)}
       on:workerTimer={(e) => {
         workerTimer = e.detail.on;
         governor?.setPreferWorker(workerTimer);

@@ -73,6 +73,13 @@
    */
   export let workerTimer: boolean | null = null;
   /**
+   * Whether the diagnostics run at all. Null where the room has none.
+   *
+   * An instrument cannot weigh itself, so the only way to know what the
+   * telemetry costs is to be able to switch it off without leaving the match.
+   */
+  export let diagnostics: boolean | null = null;
+  /**
    * Whether this player may change it. Only the room's creator can, so for
    * everyone else the entry explains what they are playing under rather than
    * being something to press.
@@ -562,6 +569,17 @@
               on:click={() => askForFrames(frames + 1)}>+</button
             >
           </div>
+        {/if}
+
+        {#if diagnostics !== null}
+          <label class="worker-row">
+            <input
+              type="checkbox"
+              checked={diagnostics}
+              on:change={(e) => dispatch('diagnostics', { on: e.currentTarget.checked })}
+            />
+            <span>Télémétrie <em>(couper pour tester)</em></span>
+          </label>
         {/if}
 
         {#if workerTimer !== null}
