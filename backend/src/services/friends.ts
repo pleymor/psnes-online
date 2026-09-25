@@ -3,6 +3,7 @@ import { getDb } from '../db/sqlite.js';
 import { listAcceptedFriendshipsFor, listAcceptedFriendshipsWithProfiles } from '../db/friendships.js';
 import type { Friendship } from '../db/types.js';
 import { cache } from '../utils/cache.js';
+import type { FriendRoomPresence } from '../websocket/friend-presence.js';
 
 export async function getFriendships(userId: string): Promise<Friendship[]> {
   const cacheKey = `friendships:${userId}`;
@@ -14,29 +15,6 @@ export async function getFriendships(userId: string): Promise<Friendship[]> {
   }
 
   return friendships;
-}
-
-export async function notifyFriendsRoomStatusChanged(
-  io: Server,
-  userId: string,
-  roomId: string,
-  status: 'playing' | 'destroyed',
-  getUserSocket: (id: string) => string | undefined
-) {
-  const friendships = await getFriendships(userId);
-
-  friendships.forEach(friendship => {
-    const friendId = friendship.initiatorId === userId ? friendship.receiverId : friendship.initiatorId;
-    const friendSocketId = getUserSocket(friendId);
-
-    if (friendSocketId) {
-      io.to(friendSocketId).emit('friend:roomStatusChanged', {
-        userId,
-        roomId,
-        status
-      });
-    }
-  });
 }
 
 /**
@@ -95,12 +73,15 @@ export interface OnlineFriend {
   avatar: string | null;
   online: boolean;
   inVr: boolean;
+  /** Le salon dont l'ami est membre, ou null - voir `websocket/friend-presence.ts`. */
+  room: FriendRoomPresence | null;
 }
 
 export async function getOnlineFriends(
   userId: string,
   presence: { socketFor(userId: string): string | undefined },
-  vr: { isInVr(userId: string): boolean }
+  vr: { isInVr(userId: string): boolean },
+  rooms: { roomOf(userId: string): FriendRoomPresence | null }
 ): Promise<OnlineFriend[]> {
   const friendships = listAcceptedFriendshipsWithProfiles(getDb(), userId);
 
@@ -116,7 +97,8 @@ export async function getOnlineFriends(
       discriminator: friend.discriminator,
       avatar: friend.avatar,
       online: presence.socketFor(friend.id) !== undefined,
-      inVr: vr.isInVr(friend.id)
+      inVr: vr.isInVr(friend.id),
+      room: rooms.roomOf(friend.id)
     };
   });
 }

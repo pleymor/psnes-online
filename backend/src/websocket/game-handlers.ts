@@ -3,7 +3,6 @@ import { Room, GameInput } from '../types/index.js';
 import { getDb } from '../db/sqlite.js';
 import { findOwnedGameId, saveSram, findSram } from '../db/games.js';
 import { findSaveWithGame, createSave, updateSaveData, nextFreeSlot, findSaveOwnerId } from '../db/saves.js';
-import { notifyFriendsRoomStatusChanged } from '../services/friends.js';
 import { createLogger } from '../utils/logger.js';
 import { getMemberRoom } from './guards.js';
 import { requireGame } from '../rooms/require-game.js';
@@ -75,8 +74,6 @@ export function registerGameHandlers(
     // room never left `waiting` from a VR player's point of view, and the
     // "already playing" guard in `launch-options.ts` could never fire.
     await broadcastRoomUpdate(io, room, getUserSocket);
-
-    await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'playing', getUserSocket);
 
     io.to(room.id).emit('game:started');
     logger.info({ roomId: room.id }, 'Game started (client-side emulation)');

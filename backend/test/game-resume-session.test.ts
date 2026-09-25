@@ -13,8 +13,7 @@
  * faux socket qui capture les `on(event, handler)` et les rejoue à la
  * demande - pas un serveur socket.io réel, qui serait disproportionné pour ce
  * qu'il y a à prouver ici. La base SQLite, elle, est réelle : `game:start`
- * traverse `notifyFriendsRoomStatusChanged`/`broadcastRoomUpdate`, qui lisent
- * `getDb()`.
+ * traverse `broadcastRoomUpdate`, qui lit `getDb()`.
  */
 
 import { test, afterAll } from 'bun:test';

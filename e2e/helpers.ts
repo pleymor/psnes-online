@@ -8,8 +8,9 @@ export const API = process.env.E2E_API_URL || 'http://localhost:3000';
  *
  * User 3 signs in with no chosen pseudonym, so the onboarding gate is up and
  * the server refuses its socket. Only pass it to a test about that gate.
+ * User 4 is past it, for the tests that need a third player.
  */
-export async function loginDev(userId: '1' | '2' | '3'): Promise<string> {
+export async function loginDev(userId: '1' | '2' | '3' | '4'): Promise<string> {
   const res = await fetch(`${API}/auth/dev/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

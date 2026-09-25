@@ -7,10 +7,10 @@
   import { createLogger } from '$lib/utils/logger';
   import { parseHandle } from '$lib/pseudo';
   import { myRoom } from '$lib/rooms/my-room';
+  import { friendRooms } from '$lib/rooms/friend-rooms';
   import { inviteToGroup, cancelGroupInvitation } from '$lib/rooms/actions';
 
   export let compact = false; // Compact mode for small screens
-  export let activeRooms: any[] = []; // List of active rooms from API
 
   const dispatch = createEventDispatcher();
   const logger = createLogger('FriendsList');
@@ -23,7 +23,6 @@
   let isSending = false;
   let errorMessage = '';
   let successMessage = '';
-  let friendRooms = new Map<string, any>(); // userId -> room
   let onlineFriends = new Map<string, boolean>(); // userId -> online status
   /**
    * Qui est dans le lobby VR.
@@ -35,20 +34,12 @@
   let inVrFriends = new Set<string>();
   let selectedFriend: any = null;
 
-  /**
-   * A friend's room, as it is now rather than as it was created.
-   *
-   * `friend:roomCreated` fires exactly once, at `room:create`. Everything that
-   * happens to the room afterwards - and choosing the game is now something
-   * that happens afterwards - travels on `room:update`, which the host's
-   * friends already receive and which nothing outside the room screen listened
-   * to. Without this, a friend who created an empty lobby and then picked a
-   * game stayed « in a room » for the rest of the session, with a Join button
-   * and no way to learn what the game was. Reopening the drawer did not help:
-   * the block below refills from the page's copy, fetched once.
-   *
-   * Keyed by `createdBy` like every other writer here, so the three sources
-   * agree on which friend a room belongs to.
+  /*
+   * Le salon de chaque ami ne se tient plus ici : `$friendRooms` est ce que le
+   * serveur dit de l'appartenance de chacun (`rooms/friend-rooms.ts`). Ce
+   * composant le déduisait des salons qu'il voyait passer, rangés par leur
+   * créateur - et un créateur parti restait « dans un salon » tant que le salon
+   * lui survivait.
    */
   /*
    * Nommés, et enregistrés puis retirés avec LA MÊME référence.
@@ -85,28 +76,6 @@
     }
   }
 
-  function handleRoomUpdate(room: any) {
-    const creatorId = room?.createdBy || room?.hostId;
-    if (!creatorId) return;
-    friendRooms.set(creatorId, room);
-    friendRooms = friendRooms; // Trigger reactivity
-  }
-
-  // Reactive statement to merge API rooms with WebSocket rooms
-  $: {
-    // Update friendRooms with rooms from API (indexed by creator, not current host)
-    if (activeRooms && activeRooms.length > 0) {
-      activeRooms.forEach(room => {
-        // Use createdBy to track original creator, fallback to hostId for compatibility
-        const creatorId = room.createdBy || room.hostId;
-        if (creatorId) {
-          friendRooms.set(creatorId, room);
-        }
-      });
-      friendRooms = friendRooms; // Trigger reactivity
-    }
-  }
-
   onMount(async () => {
     // Load friends
     const res = await fetch('/api/friends', { credentials: 'include' });
@@ -127,29 +96,6 @@
 
     // Request initial online status (after listeners are set up)
     $socket?.emit('friends:getOnlineStatus');
-
-    $socket?.on('friend:roomCreated', ({ userId, room }: any) => {
-      // Store the room for this friend
-      friendRooms.set(userId, room);
-      friendRooms = friendRooms; // Trigger reactivity
-    });
-
-    $socket?.on('room:update', handleRoomUpdate);
-
-    $socket?.on('friend:roomStatusChanged', ({ userId, roomId, status }: any) => {
-      if (status === 'destroyed') {
-        // Remove the room for this friend
-        friendRooms.delete(userId);
-        friendRooms = friendRooms; // Trigger reactivity
-      } else if (status === 'playing') {
-        // Update room status
-        const room = friendRooms.get(userId);
-        if (room && room.id === roomId) {
-          room.status = 'playing';
-          friendRooms = friendRooms; // Trigger reactivity
-        }
-      }
-    });
 
     // Listen for new friend requests
     $socket?.on('friend:requestReceived', (friendship: any) => {
@@ -174,6 +120,9 @@
           createdAt: friendship.createdAt
         }];
       }
+      // Un nouvel ami peut déjà être dans un salon, et rien d'autre ne le dirait
+      // avant qu'il en change.
+      $socket?.emit('friends:getOnlineStatus');
     });
 
     // Listen for rejected/deleted friend requests
@@ -193,7 +142,7 @@
 
   onDestroy(() => {
     // Clean up event listeners
-    // Named, like `room:update` below: `VrShell.svelte` binds these same two
+    // Named: `VrShell.svelte` binds these same two
     // events on the same socket, and a bare off() took its listeners down too.
     $socket?.off('friends:online', handleFriendsOnline);
     $socket?.off('friend:statusChanged', handleFriendStatusChanged);
@@ -201,12 +150,6 @@
     $socket?.off('friend:requestAccepted');
     $socket?.off('friend:requestRejected');
     $socket?.off('friend:removed');
-    $socket?.off('friend:roomCreated');
-    $socket?.off('friend:roomStatusChanged');
-    // Named, unlike its neighbours: `room:update` is the one event here that
-    // another screen also listens to, and a bare off() would take its listener
-    // down too.
-    $socket?.off('room:update', handleRoomUpdate);
   });
 
   /**
@@ -290,6 +233,7 @@
           createdAt: updatedFriendship.createdAt
         }];
       }
+      $socket?.emit('friends:getOnlineStatus');
     }
   }
 
@@ -416,7 +360,7 @@
         <p class="empty">{t($language, 'noFriendsYet')}</p>
       {:else}
         {#each friends as friendData}
-          {@const room = friendRooms.get(friendData.friend.id)}
+          {@const room = $friendRooms.get(friendData.friend.id)}
           <div class="friend">
             <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
             <div class="friend-main" on:click={() => openFriendDetails(friendData)}>
@@ -489,7 +433,7 @@
       {/if}
 
       {#each friends as friendData}
-        {@const room = friendRooms.get(friendData.friend.id)}
+        {@const room = $friendRooms.get(friendData.friend.id)}
         {@const isOnline = onlineFriends.get(friendData.friend.id)}
         {@const isPlaying = room !== undefined}
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->

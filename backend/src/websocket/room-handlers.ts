@@ -2,7 +2,8 @@ import { Server, Socket } from 'socket.io';
 import { Room, RoomPlayer, User, EmulationMode } from '../types/index.js';
 import { randomUUID } from 'crypto';
 import { getUserKeyConfig } from '../services/user-config.js';
-import { notifyFriendsRoomStatusChanged, getFriendships } from '../services/friends.js';
+import { getFriendships } from '../services/friends.js';
+import { presenceIn, publishRoomPresence } from './friend-presence.js';
 import { toPublicRoom, withoutInvitation } from './room-view.js';
 import { createLogger } from '../utils/logger.js';
 import { parseLatencyMode } from '../utils/latency-mode.js';
@@ -122,7 +123,6 @@ export function registerRoomHandlers(
     notifyFriendsAboutRoom(io, user.id, room, getUserSocket);
 
     if (autoStart) {
-      await notifyFriendsRoomStatusChanged(io, user.id, room.id, 'playing', getUserSocket);
       io.to(roomId).emit('game:started');
       logger.info({ roomId, host: user.pseudo }, 'Game auto-started');
     }
@@ -656,8 +656,16 @@ export async function handleLeaveRoom(
    */
   socket?.emit('room:left', { roomId });
 
+  /*
+   * Le partant n'est plus dans aucun salon, et ses amis doivent le savoir.
+   *
+   * Pas `room.hostId` : c'est au nom du PARTANT que ce statut change, qu'il ait
+   * créé le salon ou non, qu'il en reste d'autres ou non. Ceux qui restent sont
+   * annoncés par `broadcastRoomUpdate` plus bas, comme à chaque changement.
+   */
+  await publishRoomPresence(io, user.id, null, getUserSocket);
+
   if (room.players.length === 0) {
-    await notifyFriendsRoomStatusChanged(io, room.hostId, room.id, 'destroyed', getUserSocket);
     // Clean up per-room state so nothing outlives the room itself
     cleanupRoomChecksums(roomId);
     cleanupHostReady(roomId);
@@ -813,5 +821,20 @@ export async function broadcastRoomUpdate(
   for (const userId of onlookers) {
     const socketId = getUserSocketId(userId);
     if (socketId) io.to(socketId).emit('room:update', forOnlookers);
+  }
+
+  /*
+   * Et, pour chaque membre, ses amis à lui : « dans un salon » se lit sur
+   * l'appartenance, plus sur la création (voir `friend-presence.ts`).
+   *
+   * Ici parce que chaque changement d'un salon passe par cette fonction - une
+   * création, une arrivée, un jeu choisi, une partie lancée, un membre absent ou
+   * revenu - et que chacun peut changer ce que les amis d'un membre doivent
+   * lire. Un autre public que celui de `room:update` ci-dessus, volontairement :
+   * les amis de B apprennent que B est dans un salon, pas ce qu'il contient.
+   */
+  const presence = presenceIn(room);
+  for (const userId of members) {
+    await publishRoomPresence(io, userId, presence, getUserSocketId);
   }
 }

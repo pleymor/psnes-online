@@ -3,6 +3,7 @@ import { Room, User } from '../types/index.js';
 import { getDb } from '../db/sqlite.js';
 import { findUserById } from '../db/users.js';
 import { notifyFriendsStatusChanged, getOnlineFriends } from '../services/friends.js';
+import { roomPresenceOf } from './friend-presence.js';
 import {
   markPlayerAway,
   markPlayerPresent,
@@ -201,7 +202,12 @@ async function handleConnection(io: Server, socket: Socket) {
   // events that arrive with no listener attached, so any await placed before
   // this point is a window in which a client's first emit is silently dropped.
   socket.on('friends:getOnlineStatus', async () => {
-    const onlineFriends = await getOnlineFriends(user.id, presence, { isInVr: isUserInVr });
+    // Le salon de chaque ami arrive avec son statut : c'est ce qui reconstruit
+    // « dans un salon » après un rechargement, depuis l'appartenance et non
+    // depuis les salons que ce client aurait vus passer.
+    const onlineFriends = await getOnlineFriends(user.id, presence, { isInVr: isUserInVr }, {
+      roomOf: id => roomPresenceOf(id, rooms.values())
+    });
     socket.emit('friends:online', onlineFriends);
   });
 

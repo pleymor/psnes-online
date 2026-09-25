@@ -90,8 +90,8 @@ if (AUTH_MODE === 'dev' && process.env.NODE_ENV !== 'production') {
     try {
       const { userId } = req.body;
 
-      if (!userId || !['1', '2', '3'].includes(userId)) {
-        return res.status(400).json({ error: 'Invalid user ID. Must be 1, 2 or 3.' });
+      if (!userId || !['1', '2', '3', '4'].includes(userId)) {
+        return res.status(400).json({ error: 'Invalid user ID. Must be 1, 2, 3 or 4.' });
       }
 
       // Users 1 and 2 have chosen their pseudonyms; user 3 exists to sit
@@ -128,6 +128,17 @@ if (AUTH_MODE === 'dev' && process.env.NODE_ENV !== 'production') {
           discriminator: '0003',
           pseudoChosenAt: null,
           avatar: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=DevUser3&backgroundColor=43a047'
+        },
+        // Un troisième joueur passé la porte, et le quatrième compte : le 3 est
+        // déjà celui qui l'attend. Il sert au spectateur des tests à trois -
+        // l'ami qui regarde sa liste pendant que les deux autres jouent.
+        {
+          id: 'dev-user-4',
+          googleId: 'dev-google-id-4',
+          pseudo: 'DevFour',
+          discriminator: '0004',
+          pseudoChosenAt: Date.now(),
+          avatar: 'https://api.dicebear.com/7.x/pixel-art/svg?seed=DevUser4&backgroundColor=f57c00'
         }
       ];
 
