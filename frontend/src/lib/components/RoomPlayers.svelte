@@ -348,9 +348,67 @@
     color: #8fa2ff;
   }
 
-  @media (max-width: 480px) {
+  /*
+   * Sur un téléphone, les deux manettes restent côte à côte, en cartes
+   * serrées.
+   *
+   * Elles passaient en une colonne sous 480 px, deux cartes de 250 px
+   * empilées : à elles seules plus des trois quarts d'un écran de 640, avant
+   * même la jaquette et le bouton de lancement. Côte à côte, chaque carte a
+   * 160 px de large, assez pour une étiquette, un avatar, un nom et deux
+   * courtes lignes. Mêmes conditions que l'écran d'attente de la page
+   * (`routes/room/[id]`) : étroit, ou couché.
+   */
+  @media (max-width: 600px), (max-height: 500px) {
     .players {
-      grid-template-columns: 1fr;
+      gap: 0.5rem;
+      margin: 0;
+    }
+
+    .player {
+      gap: 0.25rem;
+      padding: 0.5rem 0.4rem;
+      min-height: 44px;
+      border-radius: 10px;
+    }
+
+    .port-label {
+      font-size: 0.8rem;
+      padding: 0.15rem 0.5rem;
+    }
+
+    .avatar {
+      width: 32px;
+      height: 32px;
+    }
+
+    .player-name {
+      font-size: 0.95rem;
+    }
+
+    .host-note {
+      font-size: 0.65rem;
+      line-height: 1.25;
+    }
+
+    .slot-action,
+    .player-rating,
+    .player-away {
+      font-size: 0.75rem;
+      line-height: 1.25;
+    }
+
+    .players-hint {
+      margin: 0;
+      font-size: 0.8rem;
+    }
+
+    .ranking-link {
+      margin: 0;
+      font-size: 0.8rem;
+      /* Un lien seul sur sa ligne reste une cible de pouce. */
+      min-height: 44px;
+      line-height: 44px;
     }
   }
 </style>

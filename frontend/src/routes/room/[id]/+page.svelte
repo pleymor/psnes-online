@@ -783,115 +783,132 @@
 
 <div class="room-container">
   {#if !gameStarted}
+    <!-- Trois blocs sans style propre sur grand écran - l'ordre de lecture y
+         est celui d'avant, à l'identique. Ils n'existent que pour le
+         téléphone, où l'écran d'attente doit tenir sans défiler : le jeu et
+         les manettes d'abord (`lobby-who`, qui prend la place qui reste), les
+         réglages ensuite, et le pied avec le bouton de lancement, collé en bas
+         sous le pouce. Voir la media query en fin de fichier. -->
     <div class="lobby">
-      {#if room?.gameCoverUrl}
-        <img src={room.gameCoverUrl} alt={room.gameTitle ?? ''} class="game-cover" />
-      {:else if !room}
-        <h1>{t($language, 'loading')}</h1>
-      {:else if room.gameTitle}
-        <h1>{room.gameTitle}</h1>
-      {:else}
-        <!-- Not the loading string, which is what stood here: a room with no
-             game is not a room still on its way, and telling the player to wait
-             for something nobody is sending is worse than a blank. -->
-        <h1 class="no-game">{t($language, 'noGameChosen')}</h1>
-      {/if}
+      <div class="lobby-body">
+        <div class="lobby-who">
+          {#if room?.gameCoverUrl}
+            <img src={room.gameCoverUrl} alt={room.gameTitle ?? ''} class="game-cover" />
+          {:else if !room}
+            <h1>{t($language, 'loading')}</h1>
+          {:else if room.gameTitle}
+            <h1>{room.gameTitle}</h1>
+          {:else}
+            <!-- Not the loading string, which is what stood here: a room with no
+                 game is not a room still on its way, and telling the player to wait
+                 for something nobody is sending is worse than a blank. -->
+            <h1 class="no-game">{t($language, 'noGameChosen')}</h1>
+          {/if}
 
-      {#if room}
-        <RoomPlayers {room} {roomId} />
+          {#if room}
+            <RoomPlayers {room} {roomId} />
+          {/if}
+        </div>
 
-        <!-- Le lien du salon, en clair et copiable.
-             C'est la moitié manquante de la porte sans compte : elle admet le
-             porteur du lien, mais rien ici ne permettait de fabriquer ce lien
-             autrement qu'en copiant la barre d'adresse. Réservé à l'attente :
-             une partie lancée n'accepte plus personne. -->
-        {#if room.status === 'waiting'}
-          <div class="share-room">
-            <!-- `btn-setup` est la forme de bouton du lobby, réutilisée telle
-                 quelle : ce bouton n'avait aucun style et prenait donc
-                 l'apparence par défaut du navigateur, au milieu d'un écran qui
-                 a la sienne. -->
-            <button class="btn-setup" class:on={copiedLink} on:click={copyRoomLink}>
-              {copiedLink ? t($language, 'roomLinkCopied') : t($language, 'copyRoomLink')}
-            </button>
-            <p class="share-hint">{t($language, 'roomLinkHint')}</p>
-          </div>
-        {/if}
+        {#if room}
+          <div class="lobby-settings">
 
-        <!-- Emulation Mode selector (only shown when 2+ players).
-             Three modes now rather than two, so a segmented control replaces
-             the old on/off toggle. -->
-        {#if !view.isSinglePlayer}
-          <div class="mode-toggle-container">
-            <div class="mode-segments" role="group" aria-label={t($language, 'emulationMode')}>
-              {#each modeOptions as option}
-                <button
-                  type="button"
-                  class="mode-segment"
-                  class:active={room.emulationMode === option.mode}
-                  disabled={!view.isCreator || !features.roomSetup}
-                  aria-pressed={room.emulationMode === option.mode}
-                  on:click={() => setEmulationMode(option.mode)}
-                >
-                  {t($language, option.label)}
-                  {#if option.badge}<span class="alpha-badge">{option.badge}</span>{/if}
+            <!-- Le lien du salon, en clair et copiable.
+                 C'est la moitié manquante de la porte sans compte : elle admet le
+                 porteur du lien, mais rien ici ne permettait de fabriquer ce lien
+                 autrement qu'en copiant la barre d'adresse. Réservé à l'attente :
+                 une partie lancée n'accepte plus personne. -->
+            {#if room.status === 'waiting'}
+              <div class="share-room">
+                <!-- `btn-setup` est la forme de bouton du lobby, réutilisée telle
+                     quelle : ce bouton n'avait aucun style et prenait donc
+                     l'apparence par défaut du navigateur, au milieu d'un écran qui
+                     a la sienne. -->
+                <button class="btn-setup" class:on={copiedLink} on:click={copyRoomLink}>
+                  {copiedLink ? t($language, 'roomLinkCopied') : t($language, 'copyRoomLink')}
                 </button>
-              {/each}
-            </div>
-            <p class="mode-description">{t($language, modeDescriptionKey(room.emulationMode))}</p>
-          </div>
-        {/if}
+                <p class="share-hint">{t($language, 'roomLinkHint')}</p>
+              </div>
+            {/if}
 
-        <!-- Only while waiting: the server refuses a change once the room has
-             started, so offering one here would be a button that cannot work.
+            <!-- Emulation Mode selector (only shown when 2+ players).
+                 Three modes now rather than two, so a segmented control replaces
+                 the old on/off toggle. -->
+            {#if !view.isSinglePlayer}
+              <div class="mode-toggle-container">
+                <div class="mode-segments" role="group" aria-label={t($language, 'emulationMode')}>
+                  {#each modeOptions as option}
+                    <button
+                      type="button"
+                      class="mode-segment"
+                      class:active={room.emulationMode === option.mode}
+                      disabled={!view.isCreator || !features.roomSetup}
+                      aria-pressed={room.emulationMode === option.mode}
+                      on:click={() => setEmulationMode(option.mode)}
+                    >
+                      {t($language, option.label)}
+                      {#if option.badge}<span class="alpha-badge">{option.badge}</span>{/if}
+                    </button>
+                  {/each}
+                </div>
+                <p class="mode-description">{t($language, modeDescriptionKey(room.emulationMode))}</p>
+              </div>
+            {/if}
 
-             The game is not chosen here any more, and neither is the friend: both
-             happen in the library now, and choosing a game there is what sends
-             both players to this page. What is left is the starting save, which
-             belongs to the room rather than to the library. -->
-        {#if room.status === 'waiting' && view.isCreator && features.roomSetup && room.gameId && myRoomSaves.length > 0}
-          <div class="lobby-setup">
-            <div class="setup-buttons">
-              <!-- Creator-only, like the latency mode: where the game starts is
-                   not a private preference, it decides where both players begin.
-                   And only with a save of my own to offer. -->
-              <button class="btn-setup" class:on={showSavePicker} on:click={() => (showSavePicker = !showSavePicker)}>
-                {t($language, 'startFromSave')}
-              </button>
-            </div>
+            <!-- Only while waiting: the server refuses a change once the room has
+                 started, so offering one here would be a button that cannot work.
 
-            {#if showSavePicker && myGameForRoom}
-              <div class="panel">
-                <SaveGrid
-                  gameId={myGameForRoom.id}
-                  preloaded={myRoomSaves}
-                  actionLabel={t($language, 'startHere')}
-                  on:select={(e) => chooseSave(e.detail)}
-                />
+                 The game is not chosen here any more, and neither is the friend: both
+                 happen in the library now, and choosing a game there is what sends
+                 both players to this page. What is left is the starting save, which
+                 belongs to the room rather than to the library. -->
+            {#if room.status === 'waiting' && view.isCreator && features.roomSetup && room.gameId && myRoomSaves.length > 0}
+              <div class="lobby-setup">
+                <div class="setup-buttons">
+                  <!-- Creator-only, like the latency mode: where the game starts is
+                       not a private preference, it decides where both players begin.
+                       And only with a save of my own to offer. -->
+                  <button class="btn-setup" class:on={showSavePicker} on:click={() => (showSavePicker = !showSavePicker)}>
+                    {t($language, 'startFromSave')}
+                  </button>
+                </div>
+
+                {#if showSavePicker && myGameForRoom}
+                  <div class="panel">
+                    <SaveGrid
+                      gameId={myGameForRoom.id}
+                      preloaded={myRoomSaves}
+                      actionLabel={t($language, 'startHere')}
+                      on:select={(e) => chooseSave(e.detail)}
+                    />
+                  </div>
+                {/if}
+              </div>
+            {/if}
+
+            <!-- Shown to both players, and outside the picker: what the room will
+                 start on is a fact about the room, not about whoever opened a panel.
+                 The guest reads it, the creator can undo it. -->
+            {#if room.resumeSaveId}
+              <div class="starting-save">
+                <span class="starting-save-label">
+                  {t($language, 'startingFrom', { name: room.resumeSaveName ?? '' })}
+                </span>
+                {#if view.isCreator}
+                  <button class="btn-clear-save" on:click={clearStartingSave}>
+                    {t($language, 'startFromBeginning')}
+                  </button>
+                {/if}
+                {#if !view.canResume}
+                  <span class="starting-save-warning">{t($language, 'saveNeedsLockstep')}</span>
+                {/if}
               </div>
             {/if}
           </div>
         {/if}
+      </div>
 
-        <!-- Shown to both players, and outside the picker: what the room will
-             start on is a fact about the room, not about whoever opened a panel.
-             The guest reads it, the creator can undo it. -->
-        {#if room.resumeSaveId}
-          <div class="starting-save">
-            <span class="starting-save-label">
-              {t($language, 'startingFrom', { name: room.resumeSaveName ?? '' })}
-            </span>
-            {#if view.isCreator}
-              <button class="btn-clear-save" on:click={clearStartingSave}>
-                {t($language, 'startFromBeginning')}
-              </button>
-            {/if}
-            {#if !view.canResume}
-              <span class="starting-save-warning">{t($language, 'saveNeedsLockstep')}</span>
-            {/if}
-          </div>
-        {/if}
-
+      {#if room}
         <div class="actions">
           <!-- No game, no launch: the server would refuse it, and there is
                nothing to run. -->
@@ -1274,6 +1291,218 @@
     color: #888;
     font-size: 1.125rem;
     margin: 2rem 0;
+  }
+
+  /*
+   * L'écran d'attente sur un téléphone : tout sur un écran, sans défiler.
+   *
+   * Mesuré avant ce bloc, en 360x640 avec deux joueurs, une jaquette et une
+   * sauvegarde de départ : 1500 px de page pour 640 de fenêtre, et le bouton
+   * « Démarrer » 830 px sous le bord. Même seul dans un 390x844, la page
+   * dépassait. Ce qui la faisait si haute : la jaquette figée à 400 px, les
+   * deux manettes empilées en cartes de 250 px, et 2 rem de marge entre
+   * chaque bloc.
+   *
+   * La page est donc bornée à la fenêtre visible - `100dvh`, pas `100vh`, pour
+   * la raison écrite sur `.room-container` - et partagée en deux : un corps
+   * qui s'arrange de la hauteur qu'il reste, et le pied avec les deux boutons,
+   * collé en bas, là où tombe le pouce. La jaquette est ce qui cède : elle
+   * prend la place laissée par le reste, jamais moins de 64 px. Si un
+   * panneau ouvert (la grille des sauvegardes) ne tient pas, c'est le corps
+   * qui défile, et le bouton de lancement reste à l'écran.
+   *
+   * Deux conditions : un écran étroit (téléphone en portrait), ou un écran
+   * bas (téléphone couché). Le bureau n'est pas touché.
+   */
+  @media (max-width: 600px), (max-height: 500px) {
+    :global(.app:has(.lobby)) {
+      height: 100vh;
+      height: 100dvh;
+    }
+
+    .room-container:has(.lobby) {
+      flex: 1 1 0;
+      min-height: 0;
+      align-items: stretch;
+      padding: 0.5rem max(1rem, env(safe-area-inset-right)) max(0.5rem, env(safe-area-inset-bottom))
+        max(1rem, env(safe-area-inset-left));
+    }
+
+    .lobby {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .lobby-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    /* Grandit dans la place libre, et la rend au-dessus et au-dessous du
+       jeu plutôt qu'en un trou entre les manettes et les réglages. */
+    .lobby-who {
+      flex: 1 0 auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 0.35rem;
+    }
+
+    .lobby-settings {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    /* La boîte grandit dans la place libre et l'image s'y loge sans être
+       rognée ; l'ombre suit l'image elle-même, pas la boîte, qui est plus
+       large qu'elle. */
+    .game-cover {
+      flex: 1 1 0;
+      min-height: 64px;
+      max-height: 36dvh;
+      width: 100%;
+      object-fit: contain;
+      margin: 0;
+      border-radius: 0;
+      box-shadow: none;
+      filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+    }
+
+    h1 {
+      font-size: 1.3rem;
+      margin: 0.25rem 0;
+    }
+
+    /* Le bouton et sa phrase sur une seule ligne. */
+    .share-room {
+      flex-direction: row;
+      margin: 0;
+      gap: 0.6rem;
+    }
+
+    .share-hint {
+      font-size: 0.75rem;
+      line-height: 1.3;
+      text-align: left;
+    }
+
+    .btn-setup {
+      flex-shrink: 0;
+      min-height: 44px;
+      font-size: 0.85rem;
+      padding: 0.35rem 0.75rem;
+    }
+
+    .mode-toggle-container {
+      margin: 0;
+      gap: 0.3rem;
+    }
+
+    /* Les trois modes sur une rangée, à parts égales. */
+    .mode-segments {
+      display: flex;
+      width: 100%;
+      flex-wrap: nowrap;
+    }
+
+    .mode-segment {
+      flex: 1 1 0;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0.25rem 0.4rem;
+      font-size: 0.85rem;
+    }
+
+    .alpha-badge {
+      font-size: 0.55rem;
+      padding: 0.1rem 0.3rem;
+    }
+
+    .mode-description {
+      font-size: 0.75rem;
+      line-height: 1.3;
+    }
+
+    .lobby-setup {
+      margin: 0;
+    }
+
+    .starting-save {
+      flex-wrap: nowrap;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin: 0;
+      padding: 0.35rem 0.35rem 0.35rem 0.75rem;
+      max-width: none;
+      text-align: left;
+    }
+
+    .starting-save-label {
+      font-size: 0.8rem;
+      line-height: 1.3;
+    }
+
+    .btn-clear-save {
+      min-height: 44px;
+      font-size: 0.8rem;
+    }
+
+    .starting-save-warning {
+      font-size: 0.75rem;
+    }
+
+    /* Le pied : lancer à gauche, en grand, partir à droite. */
+    .actions {
+      flex-shrink: 0;
+      margin: 0;
+      gap: 0.5rem;
+    }
+
+    .btn-start {
+      flex: 3 1 0;
+      min-height: 52px;
+      padding: 0.35rem 0.75rem;
+      font-size: 1.05rem;
+    }
+
+    .actions .btn-leave {
+      flex: 2 1 0;
+      min-height: 52px;
+      padding: 0.35rem 0.6rem;
+      font-size: 0.85rem;
+    }
+
+    .start-hint {
+      margin: 0;
+    }
+  }
+
+  /* Couché, la hauteur manque plus que la largeur : le jeu et les manettes
+     à gauche, les réglages à droite. */
+  @media (max-height: 500px) and (min-width: 601px) {
+    .lobby-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: start;
+      gap: 0.75rem;
+    }
+
+    .lobby-settings {
+      gap: 0.35rem;
+    }
+
+    .game-cover {
+      flex: 0 0 auto;
+      height: 72px;
+    }
   }
 
 </style>
