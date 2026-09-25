@@ -378,6 +378,7 @@
    */
   let workerTimer = false;
   let eventObserver: PerformanceObserver | null = null;
+  let loafObserver: PerformanceObserver | null = null;
   let sramTimer: ReturnType<typeof setInterval> | null = null;
   let lastFramesRun = 0;
 
@@ -888,6 +889,53 @@
       }
     }
 
+    /*
+     * Long Animation Frames: what a long frame was actually doing.
+     *
+     * `longtask` reports that a task was long and nothing else, which is how
+     * six hypotheses were eliminated without ever learning where the time went.
+     * This one breaks the frame down - blocking, rendering, style and layout,
+     * and the scripts with the call that invoked them.
+     *
+     * Chrome 123+; where it is missing the observer throws and the field simply
+     * stays empty, which is the same contract as the two observers above.
+     */
+    if (typeof PerformanceObserver !== 'undefined') {
+      try {
+        loafObserver = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            const f = entry as PerformanceEntry & {
+              blockingDuration?: number;
+              renderStart?: number;
+              styleAndLayoutStart?: number;
+              scripts?: { duration: number; invoker?: string; sourceURL?: string }[];
+            };
+            const end = entry.startTime + entry.duration;
+            // Zero means that phase never happened, so it is not an offset to
+            // subtract - it is an absence, and must read as nothing.
+            const render = f.renderStart ? end - f.renderStart : 0;
+            const styleLayout = f.styleAndLayoutStart ? end - f.styleAndLayoutStart : 0;
+            const scripts = f.scripts ?? [];
+            const worst = scripts.reduce(
+              (a, b) => (b.duration > (a?.duration ?? 0) ? b : a),
+              scripts[0]
+            );
+            hostHealth.noteLongFrame({
+              total: Math.round(entry.duration),
+              blocking: Math.round(f.blockingDuration ?? 0),
+              render: Math.round(render),
+              styleLayout: Math.round(styleLayout),
+              script: Math.round(worst?.duration ?? 0),
+              from: worst?.invoker ?? worst?.sourceURL ?? null
+            });
+          }
+        });
+        loafObserver.observe({ type: 'long-animation-frame', buffered: false } as PerformanceObserverInit);
+      } catch {
+        loafObserver = null;
+      }
+    }
+
     diagnosticsTimer = setInterval(() => {
       if (!session) return;
       const s = session.getStats();
@@ -954,6 +1002,9 @@
         heapMb: readHeapMb(typeof performance !== 'undefined' ? performance : null),
         workerTimer,
         longTasks: hostHealth.takeLongTasks(),
+        // Where a long frame's time actually went - the only instrument here
+        // that names it rather than counting it.
+        loaf: hostHealth.takeLongFrames(),
         // Handlers slow enough to matter, and the worst of them by name -
         // `longtask` cannot see anything under 50ms.
         slowEvents: (() => {
@@ -1440,6 +1491,8 @@
     longTaskObserver = null;
     eventObserver?.disconnect();
     eventObserver = null;
+    loafObserver?.disconnect();
+    loafObserver = null;
     window.removeEventListener('gamepadconnected', applySources);
     window.removeEventListener('gamepaddisconnected', applySources);
     governor?.stop();

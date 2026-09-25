@@ -29,6 +29,15 @@ export class HostHealth {
 	 * the one that accuses.
 	 */
 	private worstHandlerMs = 0;
+	private longFrames = 0;
+	private worstFrame: {
+		total: number;
+		blocking: number;
+		render: number;
+		styleLayout: number;
+		script: number;
+		from: string | null;
+	} = { total: 0, blocking: 0, render: 0, styleLayout: 0, script: 0, from: null };
 
 	/** One `longtask` entry, as the PerformanceObserver reports its duration. */
 	noteLongTask(durationMs: number): void {
@@ -71,6 +80,53 @@ export class HostHealth {
 		this.worstEventMs = 0;
 		this.worstHandlerMs = 0;
 		this.worstEventName = '';
+		return out;
+	}
+
+	/**
+	 * One frame the browser reports as long, with where its time went.
+	 *
+	 * `longtask` says a task was long and nothing else. Long Animation Frames
+	 * says what the frame was doing, which is the difference between counting a
+	 * symptom and naming it: six hypotheses were eliminated on 2026-09-22
+	 * without ever learning where the time went, because every instrument
+	 * inside the page could only count.
+	 *
+	 * The worst of the interval is kept whole rather than averaged. The symptom
+	 * is one bad frame at the moment of contact, and an average over a second
+	 * dissolves it exactly as `fps` did.
+	 */
+	noteLongFrame(f: {
+		total: number;
+		blocking: number;
+		render: number;
+		styleLayout: number;
+		script: number;
+		from: string | null;
+	}): void {
+		this.longFrames++;
+		if (f.total > this.worstFrame.total) this.worstFrame = { ...f };
+	}
+
+	/**
+	 * The worst long frame of the interval, and how many there were.
+	 *
+	 * A frame that blocks on nothing and runs no script is the reading that
+	 * would settle the question: the thread was neither computing nor
+	 * rendering, it was waiting - and nothing else in the page can show that.
+	 */
+	takeLongFrames(): {
+		count: number;
+		total: number;
+		blocking: number;
+		render: number;
+		styleLayout: number;
+		script: number;
+		from: string | null;
+	} {
+		const out = { count: this.longFrames, ...this.worstFrame };
+		this.longFrames = 0;
+		this.worstFrame = { total: 0, blocking: 0, render: 0, styleLayout: 0, script: 0, from: null };
 		return out;
 	}
 

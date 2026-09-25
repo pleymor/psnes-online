@@ -118,3 +118,35 @@ test('slow input handlers are reported per interval, worst one named', () => {
 	assert.equal(second.count, 0, 'and a quiet interval that follows reads quiet');
 	assert.equal(second.worst, null, 'with nothing to name');
 });
+
+test('the worst long animation frame is kept whole, with what it was doing', () => {
+	/*
+	 * `longtask` says a task was long and nothing else; Long Animation Frames
+	 * says what the frame spent its time on. That difference is the whole
+	 * reason this exists: six hypotheses were eliminated on 2026-09-22 without
+	 * ever learning where the time went, because every instrument in the page
+	 * could only count.
+	 *
+	 * The worst frame of the interval is kept whole rather than averaged - the
+	 * symptom is one bad frame at the moment of contact, and an average over a
+	 * second dissolves it exactly as `fps` did.
+	 *
+	 * A frame that blocks on nothing and runs no script is the reading that
+	 * would settle it: the thread was neither computing nor rendering, it was
+	 * waiting, and nothing else in the page can show that.
+	 */
+	const h = new HostHealth();
+	h.noteLongFrame({ total: 60, blocking: 10, render: 5, styleLayout: 2, script: 8, from: 'pointerdown' });
+	h.noteLongFrame({ total: 141, blocking: 3, render: 0, styleLayout: 0, script: 0, from: null });
+	h.noteLongFrame({ total: 55, blocking: 40, render: 30, styleLayout: 20, script: 12, from: 'keydown' });
+
+	const worst = h.takeLongFrames();
+	assert.equal(worst.count, 3);
+	assert.equal(worst.total, 141, 'the longest frame, not the busiest');
+	assert.equal(worst.blocking, 3, 'and its own figures travel with it');
+	assert.equal(worst.script, 0, 'a frame that ran no script says so');
+	assert.equal(worst.from, null);
+
+	const quiet = h.takeLongFrames();
+	assert.equal(quiet.count, 0, 'and a quiet interval that follows reads quiet');
+});
