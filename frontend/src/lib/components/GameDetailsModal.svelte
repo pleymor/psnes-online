@@ -138,108 +138,195 @@
   <div class="modal-content" role="document" on:click|stopPropagation>
     <button class="close-btn" on:click={close}>×</button>
 
-    <div class="modal-grid">
-      <div class="cover-section">
-        {#if game.coverUrl}
-          <img
-            src={game.coverUrl}
-            alt={game.title}
-            class="cover-image"
-            decoding="async"
-            width="512"
-            height="358"
-          />
-        {:else}
-          <div class="cover-placeholder">
-            <div class="placeholder-icon">🎮</div>
-          </div>
-        {/if}
-      </div>
-
-      <div class="details-section">
-        <h2 class="title">{game.title}</h2>
-
-        {#if game.description}
-          <p class="description">{game.description}</p>
-        {/if}
-
-        <div class="metadata-grid">
-          {#if game.genre}
-            <div class="metadata-item">
-              <span class="label">{t($language, 'genre')}</span>
-              <span class="value">{game.genre}</span>
-            </div>
-          {/if}
-
-          {#if game.publisher}
-            <div class="metadata-item">
-              <span class="label">{t($language, 'publisher')}</span>
-              <span class="value">{game.publisher}</span>
-            </div>
-          {/if}
-
-          {#if game.developer}
-            <div class="metadata-item">
-              <span class="label">{t($language, 'developer')}</span>
-              <span class="value">{game.developer}</span>
-            </div>
-          {/if}
-
-          {#if game.releaseDate}
-            <div class="metadata-item">
-              <span class="label">{t($language, 'releaseDate')}</span>
-              <span class="value">{formatDate(game.releaseDate)}</span>
-            </div>
-          {/if}
-
-          {#if game.players}
-            <div class="metadata-item">
-              <span class="label">{t($language, 'players')}</span>
-              <span class="value">{game.players}</span>
-            </div>
-          {/if}
-
-          {#if game.region}
-            <div class="metadata-item">
-              <span class="label">{t($language, 'region')}</span>
-              <span class="value">{game.region}</span>
-            </div>
-          {/if}
-
-          <div class="metadata-item">
-            <span class="label">{t($language, 'saveStates')}</span>
-            <span class="value">{game.saves?.length || 0}</span>
-          </div>
-
-          <div class="metadata-item">
-            <span class="label">{t($language, 'uploaded')}</span>
-            <span class="value">{formatDate(game.uploadedAt)}</span>
-          </div>
-        </div>
-
-        <div class="filename-section">
-          <span class="label">{t($language, 'romFile')}</span>
-          <span class="filename">{game.filename}</span>
-        </div>
-
-        {#if game.crc32 && saves.length > 0}
-          <!--
-            Starting from a save, rather than starting and then loading one.
-            The grid is handed its list rather than asked to fetch: /api/games
-            already carried these summaries here without the savestates
-            themselves, which are about a megabyte each.
-          -->
-          <section class="resume">
-            <h3>{t($language, 'resumeAGame')}</h3>
-            <SaveGrid
-              gameId={game.id}
-              preloaded={saves}
-              actionLabel={t($language, 'resumeFromHere')}
-              on:select={(e) => dispatch('resume', e.detail.id)}
-              on:deleted
+    <!--
+      Deux étages : le corps défile, la barre d'actions non. Les boutons
+      fermaient la fiche, sous la jaquette, la description et les
+      métadonnées, si bien qu'en 360x640 il fallait défiler plus d'un écran
+      pour atteindre Salon.
+    -->
+    <div class="modal-body">
+      <div class="modal-grid">
+        <div class="cover-section">
+          {#if game.coverUrl}
+            <!--
+              Sans `width` ni `height` : ils valaient 512x358, le format d'une
+              boîte américaine, et comme aucune règle ne rendait sa hauteur au
+              navigateur, une boîte européenne ou japonaise était écrasée dans ce
+              cadre. Le format n'est connu qu'au chargement - le serveur ramène
+              chaque jaquette à 512 de large et garde sa hauteur - donc rien à
+              réserver d'avance : l'image prend le sien, dans les bornes du CSS.
+            -->
+            <img
+              src={game.coverUrl}
+              alt={game.title}
+              class="cover-image"
+              decoding="async"
             />
-          </section>
+          {:else}
+            <div class="cover-placeholder">
+              <div class="placeholder-icon">🎮</div>
+            </div>
+          {/if}
+        </div>
+  
+        <div class="details-section">
+          <h2 class="title">{game.title}</h2>
+  
+          {#if game.description}
+            <p class="description">{game.description}</p>
+          {/if}
+  
+          <div class="metadata-grid">
+            {#if game.genre}
+              <div class="metadata-item">
+                <span class="label">{t($language, 'genre')}</span>
+                <span class="value">{game.genre}</span>
+              </div>
+            {/if}
+  
+            {#if game.publisher}
+              <div class="metadata-item">
+                <span class="label">{t($language, 'publisher')}</span>
+                <span class="value">{game.publisher}</span>
+              </div>
+            {/if}
+  
+            {#if game.developer}
+              <div class="metadata-item">
+                <span class="label">{t($language, 'developer')}</span>
+                <span class="value">{game.developer}</span>
+              </div>
+            {/if}
+  
+            {#if game.releaseDate}
+              <div class="metadata-item">
+                <span class="label">{t($language, 'releaseDate')}</span>
+                <span class="value">{formatDate(game.releaseDate)}</span>
+              </div>
+            {/if}
+  
+            {#if game.players}
+              <div class="metadata-item">
+                <span class="label">{t($language, 'players')}</span>
+                <span class="value">{game.players}</span>
+              </div>
+            {/if}
+  
+            {#if game.region}
+              <div class="metadata-item">
+                <span class="label">{t($language, 'region')}</span>
+                <span class="value">{game.region}</span>
+              </div>
+            {/if}
+  
+            <div class="metadata-item">
+              <span class="label">{t($language, 'saveStates')}</span>
+              <span class="value">{game.saves?.length || 0}</span>
+            </div>
+  
+            <div class="metadata-item">
+              <span class="label">{t($language, 'uploaded')}</span>
+              <span class="value">{formatDate(game.uploadedAt)}</span>
+            </div>
+          </div>
+  
+          <div class="filename-section">
+            <span class="label">{t($language, 'romFile')}</span>
+            <span class="filename">{game.filename}</span>
+          </div>
+  
+          {#if game.crc32 && saves.length > 0}
+            <!--
+              Starting from a save, rather than starting and then loading one.
+              The grid is handed its list rather than asked to fetch: /api/games
+              already carried these summaries here without the savestates
+              themselves, which are about a megabyte each.
+            -->
+            <section class="resume">
+              <h3>{t($language, 'resumeAGame')}</h3>
+              <SaveGrid
+                gameId={game.id}
+                preloaded={saves}
+                actionLabel={t($language, 'resumeFromHere')}
+                on:select={(e) => dispatch('resume', e.detail.id)}
+                on:deleted
+              />
+            </section>
+          {/if}
+        </div>
+      </div>
+    </div>
+
+    <!--
+      Toutes les actions de la fiche, et le partage avec elles : c'est la
+      barre que la fiche ouverte montre sans défiler, quelle que soit la
+      hauteur de la fenêtre. Reprendre une partie reste dans le corps - la
+      grille des sauvegardes est un contenu à parcourir, pas un bouton.
+    -->
+    <footer class="actions">
+      {#if game.crc32 && partnerName}
+        <!--
+          Envoyer le jeu à l'ami du groupe.
+
+          Ici plutôt que sur la carte : la carte porte déjà Jouer, Salon et
+          Supprimer, et ceci est une action rare - c'est là que vivent les
+          autres. Le partage n'était jusqu'ici qu'un effet de bord du
+          lancement, déclenché par l'absence de fichier chez l'invité au
+          pire moment ; ce bouton est le geste délibéré qui le remplace.
+        -->
+        {#if askingConsent}
+          <!--
+            L'avertissement remplace le bouton au lieu de s'ouvrir par-dessus.
+            Une modale au-dessus d'une modale, pour une phrase et deux
+            boutons, c'est un écran de plus à fermer ; et l'avertissement doit
+            se lire là où le geste part, pas ailleurs.
+          -->
+          <div class="share-consent">
+            <p class="share-consent-text">{t($language, 'shareLegal')}</p>
+            <div class="share-consent-actions">
+              <button class="share" on:click={confirmShare}>
+                {t($language, 'shareLegalConfirm')}
+              </button>
+              <button class="share-consent-cancel" on:click={() => (askingConsent = false)}>
+                {t($language, 'cancel')}
+              </button>
+            </div>
+          </div>
+        {:else}
+          <!--
+            Le bouton et son rappel dans un même bloc : posés côte à côte
+            dans le flux, la phrase prenait toute la largeur sous la rangée
+            et se lisait comme une note sur « Compléter la fiche » autant que
+            sur l'envoi.
+          -->
+          <div class="share-block">
+            <button class="share" on:click={requestShare} disabled={sharePending}>
+              {sharePending
+                ? t($language, 'shareWaiting', { name: partnerName })
+                : t($language, 'shareGame', { name: partnerName })}
+            </button>
+            <!--
+              Le rappel court reste, alors que l'avertissement complet ne se
+              lit qu'une fois. C'est ce qui rattrape ce que l'accord unique
+              laisse passer : la licence dépend de CHAQUE jeu envoyé, et
+              personne ne relit une question qui ne revient plus.
+            -->
+            <p class="share-legal-short">{t($language, 'shareLegalShort')}</p>
+            {#if answerKey && !sharePending}
+              <p class="share-answer">
+                {t($language, answerKey, { name: partnerName })}
+              </p>
+            {/if}
+          </div>
         {/if}
+      {/if}
+
+      <!-- Salon d'abord : c'est l'action que la fiche sert le plus, et la
+           première que le pouce trouve. -->
+      <div class="secondary">
+        <button class="room" on:click={() => dispatch('room')} disabled={roomDisabled}>
+          {t($language, 'roomButton')}
+        </button>
 
         {#if game.crc32}
           <!-- Always offered once there is a checksum to claim, not only when
@@ -251,86 +338,6 @@
           </button>
         {/if}
 
-        {#if game.crc32 && partnerName}
-          <!--
-            Envoyer le jeu à l'ami du groupe.
-            
-            Ici plutôt que sur la carte : la carte porte déjà Jouer, Salon et
-            Supprimer, et ceci est une action rare - c'est là que vivent les
-            autres. Le partage n'était jusqu'ici qu'un effet de bord du
-            lancement, déclenché par l'absence de fichier chez l'invité au
-            pire moment ; ce bouton est le geste délibéré qui le remplace.
-          -->
-          {#if askingConsent}
-            <!--
-              L'avertissement remplace le bouton au lieu de s'ouvrir par-dessus.
-              Une modale au-dessus d'une modale, pour une phrase et deux
-              boutons, c'est un écran de plus à fermer ; et l'avertissement doit
-              se lire là où le geste part, pas ailleurs.
-            -->
-            <div class="share-consent">
-              <p class="share-consent-text">{t($language, 'shareLegal')}</p>
-              <div class="share-consent-actions">
-                <button class="share" on:click={confirmShare}>
-                  {t($language, 'shareLegalConfirm')}
-                </button>
-                <button class="share-consent-cancel" on:click={() => (askingConsent = false)}>
-                  {t($language, 'cancel')}
-                </button>
-              </div>
-            </div>
-          {:else}
-            <!--
-              Le bouton et son rappel dans un même bloc : posés côte à côte
-              dans le flux, la phrase prenait toute la largeur sous la rangée
-              et se lisait comme une note sur « Compléter la fiche » autant que
-              sur l'envoi.
-            -->
-            <div class="share-block">
-              <button class="share" on:click={requestShare} disabled={sharePending}>
-                {sharePending
-                  ? t($language, 'shareWaiting', { name: partnerName })
-                  : t($language, 'shareGame', { name: partnerName })}
-              </button>
-              <!--
-                Le rappel court reste, alors que l'avertissement complet ne se
-                lit qu'une fois. C'est ce qui rattrape ce que l'accord unique
-                laisse passer : la licence dépend de CHAQUE jeu envoyé, et
-                personne ne relit une question qui ne revient plus.
-              -->
-              <p class="share-legal-short">{t($language, 'shareLegalShort')}</p>
-              {#if answerKey && !sharePending}
-                <p class="share-answer">
-                  {t($language, answerKey, { name: partnerName })}
-                </p>
-              {/if}
-            </div>
-          {/if}
-        {/if}
-
-        <div class="secondary">
-          <button class="room" on:click={() => dispatch('room')} disabled={roomDisabled}>
-            {t($language, 'roomButton')}
-          </button>
-          <!-- Une icône, plus un libellé porté par aria-label : le nom
-               accessible ne doit pas disparaître avec le mot. SVG et non
-               emoji, pour qu'un contrôle ne puisse pas s'afficher en carré
-               vide selon la police du système. -->
-          <button
-            class="delete"
-            on:click={() => dispatch('delete')}
-            aria-label={t($language, 'delete')}
-            title={t($language, 'delete')}
-          >
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
-                 stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
-              <path d="M2.5 4.5h11M6.5 4.5V3a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 .5.5v1.5" />
-              <path d="M4 4.5l.7 8.2a.8.8 0 0 0 .8.8h5a.8.8 0 0 0 .8-.8l.7-8.2" />
-              <path d="M6.8 7v4M9.2 7v4" />
-            </svg>
-          </button>
-        </div>
-
         {#if game.crc32 && (saves.length > 0 || game.sramUpdatedAt)}
           <!-- Only once there is something to carry. An empty file offered
                beside a game with no progress is an invitation to think
@@ -338,19 +345,49 @@
           <button class="export-saves" on:click={exportSaves} disabled={exporting}>
             {exporting ? t($language, 'exporting') : t($language, 'exportThisGame')}
           </button>
-          {#if exportError}<p class="export-error">{exportError}</p>{/if}
         {/if}
+
+        <!-- Une icône, plus un libellé porté par aria-label : le nom
+             accessible ne doit pas disparaître avec le mot. SVG et non
+             emoji, pour qu'un contrôle ne puisse pas s'afficher en carré
+             vide selon la police du système. -->
+        <button
+          class="delete"
+          on:click={() => dispatch('delete')}
+          aria-label={t($language, 'delete')}
+          title={t($language, 'delete')}
+        >
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
+               stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+            <path d="M2.5 4.5h11M6.5 4.5V3a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 .5.5v1.5" />
+            <path d="M4 4.5l.7 8.2a.8.8 0 0 0 .8.8h5a.8.8 0 0 0 .8-.8l.7-8.2" />
+            <path d="M6.8 7v4M9.2 7v4" />
+          </svg>
+        </button>
       </div>
-    </div>
+      {#if exportError}<p class="export-error">{exportError}</p>{/if}
+    </footer>
   </div>
 </div>
 
 <style>
   .secondary {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
-    margin-top: 1rem;
+  }
+
+  /* 44 px de haut, la cible d'un pouce : à 0.45rem de marge intérieure ces
+     boutons en faisaient une trentaine, et ce sont eux qu'on vise en premier
+     sur un téléphone maintenant qu'ils restent à l'écran. */
+  .room,
+  .delete,
+  .identify,
+  .share,
+  .export-saves,
+  .share-consent-cancel {
+    min-height: 44px;
   }
 
   .room,
@@ -367,6 +404,7 @@
   .delete {
     display: grid;
     place-items: center;
+    min-width: 44px;
     padding: 0.45rem 0.6rem;
     margin-left: auto;
   }
@@ -406,8 +444,6 @@
      et sa largeur, donc le bouton brut du navigateur juste sous deux boutons
      habillés - la même omission que `.share` plus tôt dans la journée. */
   .export-saves {
-    margin-top: 0.5rem;
-    width: 100%;
     background: transparent;
     border: 1px solid #3d3d52;
     color: #b7b7cc;
@@ -452,8 +488,6 @@
      et carré, à côté de son voisin. */
   .identify,
   .share {
-    margin-top: 1rem;
-    align-self: flex-start;
     background: transparent;
     border: 1px solid #3d3d52;
     color: #b7b7cc;
@@ -469,15 +503,13 @@
     color: var(--label);
   }
 
-  /* En ligne, pour que le bouton reste à côté de « Compléter la fiche » comme
-     avant - les deux sont des boutons de même poids - tout en emportant sa
-     phrase avec lui. `max-content` la laisse tenir sur une ligne quand la
-     colonne est large, et la colonne la borne quand elle ne l'est pas. */
+  /* Sa propre rangée, au-dessus des boutons : la phrase qui l'accompagne ne
+     tient pas dans une rangée qui passe à la ligne sur un téléphone, et elle
+     doit rester collée à l'envoi, pas à ses voisins. */
   .share-block {
-    display: inline-block;
-    vertical-align: top;
-    max-width: 100%;
-    width: max-content;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   /* Le rappel court porte la couleur des réponses de partage juste au-dessus :
@@ -491,7 +523,6 @@
   }
 
   .share-consent {
-    margin-top: 1rem;
     padding: 0.75rem 0.9rem;
     border: 1px solid #3d3d52;
     border-radius: 6px;
@@ -512,9 +543,7 @@
     align-items: center;
   }
 
-  /* La marge de `.share` sert à le décoller de ce qui le précède dans la
-     colonne ; à l'intérieur du cadre elle ne décolle plus rien et creuse un
-     trou sous le texte. */
+  /* Les deux boutons du cadre se décollent du texte au-dessus d'eux. */
   .share-consent-actions .share {
     margin-top: 0.75rem;
   }
@@ -547,7 +576,13 @@
     justify-content: center;
     align-items: center;
     z-index: 2000;
-    padding: 2rem;
+    /* La fiche tient dans ce cadre, et le cadre dans la fenêtre : un
+       élément fixe tendu de bord à bord suit la hauteur réelle de l'écran,
+       barre d'adresse mobile comprise - le 100dvh que 90vh n'était pas. Les
+       encoches et la barre de geste s'ajoutent à la marge au lieu de la
+       manger. */
+    padding: max(2rem, env(safe-area-inset-top)) max(2rem, env(safe-area-inset-right))
+      max(2rem, env(safe-area-inset-bottom)) max(2rem, env(safe-area-inset-left));
     animation: fadeIn 0.2s ease-out;
   }
 
@@ -565,8 +600,10 @@
     border-radius: 24px;
     max-width: 900px;
     width: 100%;
-    max-height: 90vh;
-    overflow-y: auto;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     position: relative;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -584,12 +621,32 @@
     }
   }
 
+  /* Le corps prend ce que la barre d'actions laisse, et défile seul.
+      `min-height: 0` est ce qui l'autorise à rétrécir sous la hauteur de son
+     contenu : sans lui, un enfant flex refuse, et la barre sort du cadre. */
+  .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .actions {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem 2.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    background: #262626;
+  }
+
   .close-btn {
     position: absolute;
     top: 1.5rem;
     right: 1.5rem;
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
@@ -621,8 +678,20 @@
     top: 0;
   }
 
+  /* Chaque jaquette à son propre format, dans une boîte bornée : une boîte
+     américaine est plus large que haute, une européenne ou japonaise plus
+     haute que large, et les images récupérées ailleurs varient encore.
+     `auto` sur les deux côtés et des bornes en `max-` : la boîte suit
+     l'image, sans l'étirer ni la rogner, et le cadre arrondi épouse
+     l'image plutôt qu'une bande vide autour. */
   .cover-image {
-    width: 100%;
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 60vh;
+    margin: 0 auto;
+    object-fit: contain;
     border-radius: 16px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -716,10 +785,41 @@
   }
 
   @media (max-width: 768px) {
+    .modal-overlay {
+      padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+        max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+    }
+
+    .modal-content {
+      border-radius: 16px;
+    }
+
+    /* Le haut dégagé pour le bouton de fermeture : une boîte américaine
+       prend toute la largeur, et la croix se posait sur son coin. */
     .modal-grid {
       grid-template-columns: 1fr;
-      gap: 2rem;
-      padding: 2rem;
+      gap: 1.5rem;
+      padding: calc(0.75rem + 44px + 0.5rem) 1.25rem 1.25rem;
+    }
+
+    /* Salon, Compléter la fiche et la corbeille sur une seule rangée en
+       360 de large : avec les marges du bureau, la corbeille passait seule
+       à la ligne et la barre prenait 50 px de plus sur l'écran. */
+    .actions {
+      padding: 0.75rem 1rem;
+    }
+
+    .room,
+    .identify,
+    .share,
+    .export-saves {
+      padding-left: 0.75rem;
+      padding-right: 0.75rem;
+    }
+
+    .close-btn {
+      top: 0.75rem;
+      right: 0.75rem;
     }
 
     .cover-section {
@@ -728,8 +828,14 @@
 
     .cover-image,
     .cover-placeholder {
-      max-width: 320px;
+      max-width: min(100%, 320px);
       margin: 0 auto;
+    }
+
+    /* Assez de jaquette pour la reconnaître, et le titre juste dessous
+       dès l'ouverture. */
+    .cover-image {
+      max-height: 40vh;
     }
 
     .title {
@@ -743,20 +849,20 @@
   }
 
   /* Custom scrollbar */
-  .modal-content::-webkit-scrollbar {
+  .modal-body::-webkit-scrollbar {
     width: 8px;
   }
 
-  .modal-content::-webkit-scrollbar-track {
+  .modal-body::-webkit-scrollbar-track {
     background: rgba(0, 0, 0, 0.2);
   }
 
-  .modal-content::-webkit-scrollbar-thumb {
+  .modal-body::-webkit-scrollbar-thumb {
     background: rgba(248, 208, 48, 0.45);
     border-radius: 4px;
   }
 
-  .modal-content::-webkit-scrollbar-thumb:hover {
+  .modal-body::-webkit-scrollbar-thumb:hover {
     background: rgba(248, 208, 48, 0.75);
   }
 </style>
