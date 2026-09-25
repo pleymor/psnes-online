@@ -1,10 +1,13 @@
 {
+  "id": "/",
   "name": "PSNES Online",
   "short_name": "PSNES",
-  "description": "Play SNES games online with friends",
+  "description": "Play SNES games online with friends, or alone and offline without an account",
+  "lang": "en",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#1a1a1a",
+  "background_color": "#131319",
   "theme_color": "#5647cb",
   "orientation": "any",
   "icons": [
@@ -25,11 +28,16 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ],
   "categories": [
     "games",
     "entertainment"
-  ],
-  "screenshots": []
+  ]
 }

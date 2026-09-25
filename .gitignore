@@ -33,6 +33,7 @@ build/
 # Test outputs
 playwright-report/
 test-results/
+e2e/offline-shots/
 
 # OS
 .DS_Store

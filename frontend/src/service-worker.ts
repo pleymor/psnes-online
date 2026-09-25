@@ -3,23 +3,38 @@
 /// <reference lib="esnext" />
 /// <reference lib="webworker" />
 
-import { build, files, version } from '$service-worker';
+import { build, files, prerendered, version } from '$service-worker';
+import { cacheableResponse, networkOnly, SHELL, shellFallback } from '$lib/pwa/cache-policy';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
-// Create a unique cache name for this deployment
-const CACHE = `cache-${version}`;
+/*
+ * One cache per deployment, named after the build.
+ *
+ * `version` changes on every build, so a deploy opens a fresh cache and the
+ * `activate` below deletes every other one. That is what keeps the emulator's
+ * glue and its wasm from different builds apart: served together, a new glue
+ * and a stale wasm give "offset is out of bounds" and blame the core.
+ */
+const CACHE = `psnes-${version}`;
 
-const ASSETS = [
-  ...build, // the app itself
-  ...files  // everything in `static`
-];
+/*
+ * Everything the app needs to open and play with no network: the built app
+ * (`build`, the wasm core included - it is in `static/psnes-core`, so in
+ * `files`), and the prerendered pages, which are the shell a navigation falls
+ * back on. `ssr = false` makes every one of them the same empty shell that
+ * boots the client router, so '/' can stand in for any route.
+ */
+const ASSETS = [...build, ...files, ...prerendered];
+const PRECACHED = new Set(ASSETS);
 
 sw.addEventListener('install', (event) => {
-  // Create a new cache and add all files to it
   async function addFilesToCache() {
     const cache = await caches.open(CACHE);
-    await cache.addAll(ASSETS);
+    // `cache: 'reload'` so the install never copies a stale file out of the
+    // HTTP cache into a cache that is then served, unrevalidated, until the
+    // next deploy. The core's files were the ones that paid for it.
+    await cache.addAll(ASSETS.map((path) => new Request(path, { cache: 'reload' })));
   }
 
   event.waitUntil(addFilesToCache());
@@ -61,24 +76,24 @@ sw.addEventListener('fetch', (event) => {
   // ignore POST requests etc
   if (event.request.method !== 'GET') return;
 
-  async function respond() {
-    const url = new URL(event.request.url);
+  const url = new URL(event.request.url);
 
-    // Skip service worker for auth and API requests (let Vite proxy handle them)
-    if (url.pathname.startsWith('/auth') ||
-        url.pathname.startsWith('/api') ||
-        url.pathname.startsWith('/socket.io')) {
-      return fetch(event.request);
-    }
+  /*
+   * The API, the session and the socket never touch the cache, in either
+   * direction: not read from it, not written to it. A cached `/api/...` answer
+   * served to the next person on this browser after a logout is somebody
+   * else's library, friends and saves. Returning without `respondWith` hands
+   * the request back to the browser untouched.
+   */
+  if (networkOnly(url, sw.location.origin)) return;
 
+  async function respond(): Promise<Response> {
     const cache = await caches.open(CACHE);
 
-    // `build`/`files` can always be served from the cache
-    if (ASSETS.includes(url.pathname)) {
+    // `build`/`files`/`prerendered` can always be served from the cache
+    if (url.origin === sw.location.origin && PRECACHED.has(url.pathname)) {
       const response = await cache.match(url.pathname);
-      if (response) {
-        return response;
-      }
+      if (response) return response;
     }
 
     // for everything else, try the network first, but
@@ -92,19 +107,28 @@ sw.addEventListener('fetch', (event) => {
         throw new Error('invalid response from fetch');
       }
 
-      // Only cache static assets. Caching navigations would store per-room
-      // HTML under a URL that never repeats, filling the cache with entries
-      // that can only ever be served stale.
-      if (response.status === 200 && event.request.mode !== 'navigate') {
+      // Navigations are still never stored: one per room URL, never replayed,
+      // the cache would fill with entries that can only be served stale. The
+      // shell is precached instead, and stands in for all of them below.
+      if (event.request.mode !== 'navigate' && cacheableResponse(response)) {
         cache.put(event.request, response.clone());
       }
 
       return response;
     } catch (err) {
       const response = await cache.match(event.request);
+      if (response) return response;
 
-      if (response) {
-        return response;
+      /*
+       * The navigation fallback, and the reason this app opens offline.
+       *
+       * Any route - `/`, `/local?rom=…`, a room link - gets the app shell, and
+       * the client router takes it from there. Without this the browser shows
+       * its own offline page, which is what `/` did until #70.
+       */
+      if (shellFallback(event.request.mode, url, sw.location.origin)) {
+        const shell = await cache.match(SHELL);
+        if (shell) return shell;
       }
 
       // if there's no cache, then just error out

@@ -29,6 +29,9 @@ const executablePath = findChromium();
 
 export default defineConfig({
   testDir: '.',
+  // Its own config (`offline.config.ts`): it needs a production build, since
+  // only a build registers the service worker, and no backend at all.
+  testIgnore: /offline\.spec\.ts$/,
   globalSetup: './global-setup.ts',
   fullyParallel: false, // tests share one backend and its in-memory room state
   workers: 1,
