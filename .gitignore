@@ -84,3 +84,6 @@ core/build/
 # The relief probe regenerates these from any ROM in about a minute.
 tools/vr-relief/generated/
 tools/vr-relief/page/demo.js
+
+# Le backend jetable de `offline-sync.spec.ts` (#71) : base, jaquettes, refaits à chaque lancement.
+e2e/.sync-stack/
