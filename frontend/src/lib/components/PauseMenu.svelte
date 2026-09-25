@@ -62,39 +62,7 @@
    * the modes that are not lockstep.
    */
   export let latencyMode: LatencyMode | null = null;
-  /**
-   * Whether the slices are scheduled off a worker timer instead of the display
-   * clock. Null where the room has no governor to ask.
-   *
-   * An experiment (#88), and it lives here rather than behind a console hook
-   * because the machine that shows the symptom is a phone, where there is no
-   * console to open. Comparing a felt symptom needs the switch to be within
-   * reach of the thumb that feels it.
-   */
-  export let workerTimer: boolean | null = null;
-  /**
-   * Whether the diagnostics run at all. Null where the room has none.
-   *
-   * An instrument cannot weigh itself, so the only way to know what the
-   * telemetry costs is to be able to switch it off without leaving the match.
-   */
-  export let diagnostics: boolean | null = null;
-  /**
-   * Les pans de code qu'on peut couper pour chercher par dichotomie - #88.
-   *
-   * Vide là où le salon n'en propose pas. Chacun est sûr à couper : le jeu
-   * continue, on perd la fonction.
-   */
-  export let switches: Record<string, boolean> | null = null;
 
-  const SWITCH_LABELS: Record<string, string> = {
-    visualFeedback: 'Retour visuel des boutons',
-    pointerCapture: 'Capture de pointeur',
-    matchWatch: 'Suivi de match',
-    desyncCheck: 'Détection de désync',
-    rendererHealth: 'Santé du renderer',
-    sound: 'Son'
-  };
   /**
    * Whether this player may change it. Only the room's creator can, so for
    * everyone else the entry explains what they are playing under rather than
@@ -587,55 +555,6 @@
           </div>
         {/if}
 
-        {#if switches}
-          <!--
-            Dichotomie pour #88 : huit hypothèses ont été éliminées par la
-            mesure sans que la cause apparaisse, donc on coupe des pans plutôt
-            que d'en supposer un. Les deux premiers ne s'exécutent qu'au
-            contact, les deux suivants seulement en lockstep - ce sont les deux
-            contraintes du symptôme.
-          -->
-          {#each Object.entries(switches) as [key, on] (key)}
-            <label class="worker-row">
-              <input
-                type="checkbox"
-                checked={on}
-                on:change={(e) => dispatch('switch', { key, on: e.currentTarget.checked })}
-              />
-              <span>{SWITCH_LABELS[key] ?? key}</span>
-            </label>
-          {/each}
-        {/if}
-
-        {#if diagnostics !== null}
-          <label class="worker-row">
-            <input
-              type="checkbox"
-              checked={diagnostics}
-              on:change={(e) => dispatch('diagnostics', { on: e.currentTarget.checked })}
-            />
-            <span>Télémétrie <em>(couper pour tester)</em></span>
-          </label>
-        {/if}
-
-        {#if workerTimer !== null}
-          <!--
-            An experiment, and labelled as one. It swaps the display clock for a
-            worker timer to find out whether a deferred requestAnimationFrame is
-            what makes a touch press stutter - see #88. It may well make the
-            cadence worse, which is the point of being able to turn it off again
-            without leaving the match.
-          -->
-          <label class="worker-row">
-            <input
-              type="checkbox"
-              checked={workerTimer}
-              on:change={(e) => dispatch('workerTimer', { on: e.currentTarget.checked })}
-            />
-            <span>Timer worker <em>(essai)</em></span>
-          </label>
-        {/if}
-
         <button on:click={handleBackFromSubmenu} class="back-button">
           {t($language, 'close')}
         </button>
@@ -803,20 +722,6 @@
 
   /* One row: the label, then minus / field / plus, so a thumb and a keyboard
      both have something to aim at. */
-  .worker-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 0.75rem 0 0;
-    font-size: 0.9rem;
-  }
-
-  .worker-row em {
-    opacity: 0.7;
-    font-style: normal;
-    font-size: 0.8rem;
-  }
-
   .frames-row {
     display: flex;
     align-items: center;

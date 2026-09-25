@@ -84,7 +84,6 @@ export class FrameGovernor {
 	 */
 	private worker: Worker | null = null;
 	private keepRunningWhenHidden: boolean;
-	private preferWorker = false;
 	private onVisibilityChange = () => this.reschedule();
 	/** Overrides `requestAnimationFrame` as where the next slice comes from. See `GovernorOptions.schedule`. */
 	private scheduler: ((run: () => void) => void) | null;
@@ -159,43 +158,7 @@ export class FrameGovernor {
 		this.schedule();
 	}
 
-	/**
-	 * Schedules the slices off the worker timer instead of the display clock.
-	 *
-	 * The experiment #88 asks for, switchable in flight so the two can be
-	 * compared inside one session rather than across two deploys.
-	 *
-	 * `longTasks` reads zero while frames go 203ms apart, so nothing is
-	 * blocking the main thread - the slice simply is not being run. The
-	 * suspicion is that a mobile browser defers requestAnimationFrame while it
-	 * handles a touch, by a few tens of milliseconds: too little to be a long
-	 * task, enough to send a pad late and, through the lockstep round trip, to
-	 * freeze both players.
-	 *
-	 * Not free if it turns out to help: the worker's timer is not the display's
-	 * clock, so the cadence it keeps has to be measured rather than assumed.
-	 */
-	setPreferWorker(on: boolean): void {
-		if (this.preferWorker === on) return;
-		this.preferWorker = on;
-		if (!this.running) return;
-
-		if (this.handle !== null) {
-			cancelAnimationFrame(this.handle);
-			this.handle = null;
-		}
-		this.stopWorker();
-		// Whichever path was live has been torn down, so the gap since the last
-		// slice means nothing - start the clock fresh rather than replay it.
-		this.lastTime = performance.now();
-		this.schedule();
-	}
-
 	private schedule(): void {
-		if (this.preferWorker) {
-			this.startWorker();
-			return;
-		}
 		if (typeof document !== 'undefined' && document.hidden && this.keepRunningWhenHidden) {
 			this.startWorker();
 			return;

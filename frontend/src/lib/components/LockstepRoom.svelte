@@ -345,7 +345,6 @@
    * refuses. One boolean read per slice, and no new timer.
    */
   function checkRendererHealth(): void {
-    if (!switches.rendererHealth) return;
     surface?.checkHealth(display);
   }
 
@@ -370,76 +369,7 @@
   let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
   const hostHealth = new HostHealth();
   let longTaskObserver: PerformanceObserver | null = null;
-  /*
-   * Whether the slices run off a worker timer rather than the display clock -
-   * the experiment of #88, surfaced in the pause menu because the machine that
-   * shows the symptom is a phone, with no console to open. Shipped in the
-   * telemetry too, so a session can be read without having to ask which way it
-   * was set.
-   */
-  let workerTimer = false;
-  /*
-   * Whether the diagnostics run at all - the three PerformanceObservers and the
-   * line shipped every second.
-   *
-   * An experiment of its own, because the question is fair: one of those
-   * observers fires on EVERY pointer event, which on this phone is 136 times a
-   * second, and the shipper posts once a second over the same radio the pads
-   * use. Nothing measured says they cost anything, but nothing measured could:
-   * an instrument cannot weigh itself.
-   *
-   * Turning them off costs the logs, so a session run this way is judged by
-   * what the player feels and nothing else. That is the honest trade for
-   * answering the question at all.
-   */
-  let diagnostics = true;
 
-  /*
-   * Les pans de code qu'on peut couper en cours de partie, pour chercher par
-   * dichotomie plutôt que par hypothèse - voir #88, où huit hypothèses ont été
-   * éliminées par la mesure sans que la cause apparaisse.
-   *
-   * Chacun est sûr à couper : le jeu continue, on perd la fonction. Les deux
-   * premiers ne s'exécutent qu'au CONTACT et pas pendant un maintien, ce qui
-   * est la contrainte la plus forte du symptôme ; les deux suivants sont les
-   * seuls composants qui tournent en lockstep et pas en solo, ce qui est la
-   * seconde.
-   *
-   * Et un angle mort qui justifie la méthode : Long Animation Frames mesure le
-   * THREAD PRINCIPAL. Un repaint ou une recomposition se passent ailleurs et
-   * n'y apparaissent pas, donc « zéro frame longue » ne dit rien du
-   * compositeur.
-   */
-  let switches: Record<string, boolean> = {
-    visualFeedback: true,
-    pointerCapture: true,
-    matchWatch: true,
-    desyncCheck: true,
-    rendererHealth: true,
-    sound: true
-  };
-
-  function setSwitch(key: string, on: boolean): void {
-    switches = { ...switches, [key]: on };
-    if (key === 'sound') audio?.setMuted(!on);
-    if (key === 'desyncCheck') session?.setCrcInterval(on ? 60 : 0);
-  }
-
-  function setDiagnostics(on: boolean): void {
-    diagnostics = on;
-    if (on) {
-      startDiagnostics();
-      return;
-    }
-    if (diagnosticsTimer) clearInterval(diagnosticsTimer);
-    diagnosticsTimer = null;
-    longTaskObserver?.disconnect();
-    longTaskObserver = null;
-    eventObserver?.disconnect();
-    eventObserver = null;
-    loafObserver?.disconnect();
-    loafObserver = null;
-  }
   let eventObserver: PerformanceObserver | null = null;
   let loafObserver: PerformanceObserver | null = null;
   let sramTimer: ReturnType<typeof setInterval> | null = null;
@@ -733,7 +663,7 @@
           audio!.push(core!.audio());
           // Read-only, off the emulation path, and on a schedule of its own -
           // the same rule the renderer obeys, for the same reason.
-          if (switches.matchWatch) matchWatch?.onFrame(frame, pad1, pad2);
+          matchWatch?.onFrame(frame, pad1, pad2);
         }
       });
 
@@ -861,21 +791,6 @@
       if (!session) return null;
       if (typeof frames === 'number') session.setInputDelay(frames);
       return session.inputDelay;
-    };
-
-    /*
-     * Schedules the slices off a worker timer instead of the display clock.
-     *
-     * The experiment #88 asks for, and switchable here rather than behind a
-     * deploy so the two can be compared inside one session - the symptom is a
-     * felt one, and comparing a felt thing across two sessions on two builds is
-     * how three days were spent on the audio.
-     *
-     * `__znetWorker(true)` to leave requestAnimationFrame, `false` to return.
-     */
-    w.__znetWorker = (on?: boolean) => {
-      governor?.setPreferWorker(on !== false);
-      return on !== false;
     };
 
     if (!import.meta.env.DEV) return;
@@ -1063,7 +978,6 @@
         downlink: readDownlink(typeof navigator !== 'undefined' ? navigator : null),
         apiRtt: readApiRtt(typeof navigator !== 'undefined' ? navigator : null),
         heapMb: readHeapMb(typeof performance !== 'undefined' ? performance : null),
-        workerTimer,
         longTasks: hostHealth.takeLongTasks(),
         // Where a long frame's time actually went - the only instrument here
         // that names it rather than counting it.
@@ -1706,11 +1620,7 @@
       component knows neither: it fills the box it is given.
     -->
     <div class="touch-zone">
-      <TouchControls
-        pad={touchPad}
-        visualFeedback={switches.visualFeedback}
-        pointerCapture={switches.pointerCapture}
-      />
+      <TouchControls pad={touchPad} />
     </div>
   {/if}
 
@@ -1725,9 +1635,6 @@
       {display}
       {showStats}
       {latencyMode}
-      {workerTimer}
-      {diagnostics}
-      {switches}
       {canSetLatency}
       canReset={isHost}
       emulator={saveAdapter}
@@ -1737,12 +1644,6 @@
       on:display={(e) => void onDisplayChange(e.detail)}
       on:stats={() => (showStats = !showStats)}
       on:latency={(e) => setLatencyMode(e.detail.mode)}
-      on:diagnostics={(e) => setDiagnostics(e.detail.on)}
-      on:switch={(e) => setSwitch(e.detail.key, e.detail.on)}
-      on:workerTimer={(e) => {
-        workerTimer = e.detail.on;
-        governor?.setPreferWorker(workerTimer);
-      }}
       on:controlsSaved={handleControlsSaved}
     />
   {/if}
