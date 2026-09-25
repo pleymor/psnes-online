@@ -59,6 +59,17 @@ export const NOTICE_SHAPES: Record<string, NoticeShape> = {
     live: true
   },
 
+  /**
+   * « Bob a quitté le groupe », chez celui qui reste.
+   *
+   * Sans elle, le bouton « Quitter le groupe » disparaissait sous ses yeux sans
+   * qu'il sache pourquoi.
+   */
+  'group-member-left': {
+    text: (params, lang) => t(lang, 'groupMemberLeft', { name: String(params.name) }),
+    tone: 'info'
+  },
+
   /** « Bob veut t'envoyer Umihara Kawase ». La phrase que `ShareOffer` portait. */
   'share-offer': {
     text: (params, lang) =>

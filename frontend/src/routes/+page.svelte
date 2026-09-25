@@ -335,6 +335,15 @@
   /** Two members: a group, rather than the leftover of one. */
   $: inGroup = ($myRoom?.players.length ?? 0) >= 2;
   $: groupBusy = $myRoom?.status === 'playing';
+  /*
+   * Un groupe à quitter : un partenaire, ou quelqu'un qu'on attend.
+   *
+   * Quand l'autre part, le salon survit pour celui qui reste - un salon ne
+   * meurt pas quand il se vide à moitié - et `myRoom` le garde donc. Sans ce
+   * test, le bouton « Quitter le groupe » restait affiché face à un groupe qui
+   * n'existait plus.
+   */
+  $: groupToLeave = inGroup || !!$myRoom?.invitation;
 
   function handleDeleteRequest(game: Game) {
     gameToDelete = game;
@@ -724,7 +733,7 @@
              here, and the way back into a game that is already running. It takes
              the place of the "create a room" button, which had nothing left to do
              once inviting a friend opened the room by itself. -->
-        {#if $myRoom}
+        {#if $myRoom && (groupToLeave || $myRoom.gameId || groupBusy)}
           <div class="group-strip">
             {#if $myRoom.invitation}
               <span class="group-who">
@@ -750,7 +759,7 @@
                 {t($language, 'backToRoom')}
               </button>
             {/if}
-            {#if !groupBusy}
+            {#if !groupBusy && groupToLeave}
               <button class="group-action" on:click={() => leaveGroup($myRoom?.id ?? '')}>
                 {t($language, 'leaveGroup')}
               </button>

@@ -681,6 +681,22 @@ export async function handleLeaveRoom(
       io.to(roomId).emit('host:left');
     }
 
+    /*
+     * Ceux qui restent, chacun à son adresse.
+     *
+     * `player:left` ci-dessus part sur le canal du salon, et un membre resté
+     * sur sa bibliothèque n'y est plus après son premier rechargement - la
+     * même raison qu'`openRoomForMembers`. Il recevait bien `room:update`,
+     * mais rien qui dise qui était parti : c'est ce nom que la notification
+     * « <pseudo> a quitté le groupe » affiche.
+     */
+    for (const player of room.players) {
+      const socketId = getUserSocket(player.userId);
+      if (socketId) {
+        io.to(socketId).emit('group:memberLeft', { roomId, userId: user.id, pseudo: user.pseudo });
+      }
+    }
+
     io.to(roomId).emit('room:updated', room);
     await broadcastRoomUpdate(io, room, getUserSocket);
   }

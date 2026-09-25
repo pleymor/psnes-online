@@ -966,6 +966,39 @@ test('quitter un salon où il reste quelqu un prévient aussi le partant', async
   });
 });
 
+test('quitter le groupe prévient celui qui reste, même hors du canal du salon, et le nomme', async () => {
+  /*
+   * Celui qui reste voyait encore « Quitter le groupe ».
+   *
+   * `player:left` part sur le canal du salon, et un membre qui a rechargé sa
+   * bibliothèque n'y est plus : il tient son siège sans être dans le canal. Le
+   * socket neuf d'Alice ci-dessous est exactement ce cas.
+   */
+  await withLobby(async ({ alice, bob, client, rooms }) => {
+    const host = await client(alice);
+    const guest = await client(bob);
+
+    const created = once<Room>(host, 'room:created');
+    host.emit('room:create', {});
+    const room = await created;
+
+    const delivered = once<{ id: string }>(guest, 'lobby:invitation');
+    host.emit('lobby:invite', { roomId: room.id, friendId: bob.id });
+    const acked = once(guest, 'lobby:accepted');
+    guest.emit('lobby:accept', { invitationId: (await delivered).id });
+    await acked;
+
+    // Un rechargement : un nouveau socket, qui n'est entré dans aucun canal.
+    const reloaded = await client(alice);
+
+    const told = once<{ roomId: string; userId: string; pseudo: string }>(reloaded, 'group:memberLeft');
+    guest.emit('room:leave', { roomId: room.id });
+
+    assert.deepEqual(await told, { roomId: room.id, userId: bob.id, pseudo: bob.pseudo });
+    assert.deepEqual(rooms.get(room.id)!.players.map(p => p.userId), [alice.id]);
+  });
+});
+
 test('room:join ouvre un salon en attente à qui tient le lien, jamais une partie en cours', async () => {
   await withLobby(async ({ alice, bob, client, rooms }) => {
     const host = await client(alice);
