@@ -47,6 +47,8 @@
   import { homeMode } from '$lib/rooms/local-play';
   import { linkState } from '$lib/stores/connection';
   import { playLocally } from '$lib/stores/local-play';
+  import { offlineAccount } from '$lib/stores/offline-account';
+  import { localPlayHref } from '$lib/rooms/local-play';
 
   const logger = createLogger('HomePage');
 
@@ -116,10 +118,22 @@
    * solo play without an account (#70). `homeMode` decides, and switches to
    * the third by itself only when the server never answered at all.
    */
-  $: mode = homeMode({ user: $user, loading: $userLoading, link: $linkState, chosen: $playLocally });
+  $: mode = homeMode({
+    user: $user,
+    loading: $userLoading,
+    link: $linkState,
+    chosen: $playLocally,
+    offline: $offlineAccount
+  });
   $: setPageTitle(
     $language,
-    mode.kind === 'local' ? t($language, 'localTitle') : $user ? t($language, 'library') : null
+    mode.kind === 'local'
+      ? t($language, 'localTitle')
+      : mode.kind === 'offline-account'
+        ? t($language, 'offlineAccountTitle')
+        : $user
+          ? t($language, 'library')
+          : null
   );
 
   let selectedGame: Game | null = null;
@@ -444,6 +458,17 @@
       return;
     }
 
+    /*
+     * Le serveur s'est tu en cours de soirée (#71) : un salon ne peut pas
+     * s'ouvrir sans lui, mais une partie solo n'en a pas besoin. Elle se joue
+     * par `/local`, sauvegardes sur l'appareil, et la file les enverra au
+     * retour de la connexion.
+     */
+    if ($linkState !== 'connected') {
+      void goto(localPlayHref(game.crc32));
+      return;
+    }
+
     void launchSolo({ id: game.id, title: game.title }, saveId);
   }
 
@@ -614,6 +639,8 @@
 
 {#if mode.kind === 'local'}
   <LocalLibrary why={mode.why} on:signIn={() => playLocally.set(false)} />
+{:else if mode.kind === 'offline-account'}
+  <LocalLibrary why="unreachable" account={mode.account} />
 {:else if !$user}
   <!-- Landing page for non-authenticated users.
 

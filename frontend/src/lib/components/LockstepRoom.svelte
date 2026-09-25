@@ -20,7 +20,9 @@
   import { createLogger } from '$lib/utils/logger';
   import { fromBase64 } from '$lib/saves/base64';
   import { setLogLabels } from '$lib/utils/log-shipper';
-  import { encodeSram, decodeSram } from '$lib/rooms/sram';
+  import { openSram, persistSram as persistLocalFirst } from '$lib/saves/sram-sync';
+  import { sramContext, sramDeps } from '$lib/saves/sync';
+  import { user } from '$lib/stores/user';
   import { applyInputSources } from '$lib/rooms/input-sources';
   import { createRendererSurface, type SurfaceState } from '$lib/rooms/renderer-surface';
   import { createFullscreen } from '$lib/rooms/fullscreen';
@@ -1056,49 +1058,49 @@
     $socket?.emit('room:setLatencyMode', { roomId, latencyMode: next });
   }
 
-  /** Fetches this game's battery save and puts it in the machine. */
-  function loadSram(): Promise<void> {
-    return new Promise((resolve) => {
-      const sock = $socket;
-      if (!sock) return resolve();
+  /**
+   * Whether the host's local battery save was read, which is what allows
+   * writing it back (#71): the invariant of `SoloRoom`, moved to the copy that
+   * now holds authority. Without it a local read that failed would let the
+   * thirty-second timer write the ROM's blank SRAM over the real one.
+   */
+  let sramReadable = false;
 
-      const done = setTimeout(() => {
-        sock.off('game:sramLoaded', onLoaded);
-        resolve();
-      }, 5000);
+  /** This cartridge, for the account playing it here. */
+  $: sramCtx = sramContext(gameCrc32 ?? '', $user && !$user.isAnonymous ? $user.id : null);
 
-      const onLoaded = (payload: { sramData?: string | null }) => {
-        clearTimeout(done);
-        sock.off('game:sramLoaded', onLoaded);
-        try {
-          if (payload?.sramData && core) {
-            const bytes = decodeSram(payload.sramData);
-            core.loadSram(bytes);
-            logger.info('Battery save restored', { bytes: bytes.length });
-          }
-        } catch (err) {
-          logger.error('Could not restore the battery save', err);
-        }
-        resolve();
-      };
-
-      sock.on('game:sramLoaded', onLoaded);
-      sock.emit('game:loadSram', { roomId });
-    });
+  /**
+   * Reads this game's battery save and puts it in the machine - local first,
+   * then caught up with the server (`saves/sram-sync.ts`), the same path as
+   * every other room.
+   */
+  async function loadSram(): Promise<void> {
+    if (!core || !sramCtx.checksum) return;
+    const opened = await openSram(sramDeps(sramCtx.userId), sramCtx);
+    if (!opened.ok) {
+      logger.error('Could not read the local battery save; it will not be written this session');
+      return;
+    }
+    sramReadable = true;
+    if (opened.bytes && core) {
+      core.loadSram(opened.bytes);
+      logger.info('Battery save restored', { bytes: opened.bytes.length, from: opened.source });
+    }
   }
 
   /**
-   * Persists the battery save.
+   * Persists the battery save: this device, then the queue.
    *
    * Host only: both machines hold identical SRAM by construction, so having
-   * both write would double the traffic to store the same bytes twice.
+   * both write would double the traffic to store the same bytes twice - and
+   * the guest's copy is the host's, which must not land in the guest's own
+   * saves for that cartridge.
    */
   function persistSram() {
-    if (!isHost || !core || !$socket) return;
-    const sramData = encodeSram(core);
-    if (!sramData) return;
-
-    $socket.emit('game:saveSram', { roomId, sramData });
+    if (!isHost || !core || !sramReadable || !sramCtx.checksum) return;
+    const bytes = core.sram();
+    if (bytes.length === 0) return;
+    void persistLocalFirst(sramDeps(sramCtx.userId), sramCtx, bytes);
   }
 
   function onSaveLoaded(payload: { saveData?: string; name?: string }) {

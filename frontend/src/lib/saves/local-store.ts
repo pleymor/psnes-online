@@ -281,10 +281,22 @@ export function browserSaveFolder(): SaveFolder {
  * en laissant le joueur sans bibliothèque. Une base à part n'a pas ce couplage.
  */
 const DB_NAME = 'psnes-local';
-const DB_VERSION = 1;
+/**
+ * 2 depuis #71 : la file des sauvegardes, la mémoire de la dernière
+ * synchronisation, et la bibliothèque vue en ligne. Ce module est le seul à
+ * ouvrir cette base - la page comme le service worker passent par ici - donc
+ * monter la version ne laisse personne derrière.
+ */
+const DB_VERSION = 2;
 const SAVES = 'saves';
 /** checksum -> nom de fichier, pour les ROMs désignées une par une. */
 export const TITLES = 'titles';
+/** syncId -> écriture en attente du serveur (`outbox.ts`). */
+export const OUTBOX = 'outbox';
+/** `userId:checksum` -> ce que la dernière synchronisation a laissé (`SyncRecord`). */
+export const SYNC_RECORDS = 'sync-records';
+/** userId -> la bibliothèque de ce compte telle qu'elle a été vue en ligne. */
+export const LIBRARY = 'library';
 
 export function openLocalDb(): Promise<IDBDatabase> {
 	return new Promise((resolve, reject) => {
@@ -293,8 +305,18 @@ export function openLocalDb(): Promise<IDBDatabase> {
 			const db = request.result;
 			if (!db.objectStoreNames.contains(SAVES)) db.createObjectStore(SAVES);
 			if (!db.objectStoreNames.contains(TITLES)) db.createObjectStore(TITLES);
+			if (!db.objectStoreNames.contains(OUTBOX)) db.createObjectStore(OUTBOX);
+			if (!db.objectStoreNames.contains(SYNC_RECORDS)) db.createObjectStore(SYNC_RECORDS);
+			if (!db.objectStoreNames.contains(LIBRARY)) db.createObjectStore(LIBRARY);
 		};
-		request.onsuccess = () => resolve(request.result);
+		request.onsuccess = () => {
+			const db = request.result;
+			// Un onglet resté ouvert sur l'ancienne version ne doit pas bloquer la
+			// montée de celui qui vient d'être déployé : il lâche la base, et la
+			// rouvrira à la version nouvelle à sa prochaine opération.
+			db.onversionchange = () => db.close();
+			resolve(db);
+		};
 		request.onerror = () => reject(request.error);
 		request.onblocked = () => reject(new Error('Another tab is holding the saves database open'));
 	});

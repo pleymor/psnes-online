@@ -142,8 +142,9 @@
   } from '$lib/vr/panels/saves';
   import { gameClick } from '$lib/rooms/game-click';
   import { resumeSaveToRequest } from '$lib/rooms/resume-save';
-  import { decodeSram } from '$lib/rooms/sram';
-  import { toBase64, fromBase64 } from '$lib/saves/base64';
+  import { openSram, persistSram } from '$lib/saves/sram-sync';
+  import { sramContext, sramDeps } from '$lib/saves/sync';
+  import { fromBase64 } from '$lib/saves/base64';
   import { socket } from '$lib/api/socket';
   import { setLogLabels } from '$lib/utils/log-shipper';
   import type { PsnesCore } from '$lib/znet/core';
@@ -2261,10 +2262,7 @@
         engine = await createSoloEngine({
           core,
           rom,
-          sram: {
-            load: () => readRoomSram(roomId),
-            save: (bytes) => $socket?.emit('game:saveSram', { roomId, sramData: toBase64(bytes) })
-          },
+          sram: vrSramPort(game.crc32),
           audio,
           // Les Touch et la manette Bluetooth, fusionnées par `localPad`, qui
           // porte aussi la règle du zéro pendant que les panneaux sont levés.
@@ -2467,7 +2465,7 @@
    * room already gone, a dropped packet - and this socket outlives the VR
    * session, so the leak outlives it too. Two relaunches would then leave two
    * closures, and a late reply would apply a save to a core whose engine has
-   * already been stopped. `readRoomSram` bounds its own one-shot for exactly
+   * already been stopped. `openSram` bounds its own server attempt for exactly
    * this reason; this one now does the same, and `teardown` takes it off on
    * the way out.
    *
@@ -2664,25 +2662,31 @@
     saveListener = null;
   }
 
-  function readRoomSram(roomId: string): Promise<Uint8Array | null> {
-    return new Promise((resolve) => {
-      const sock = $socket;
-      if (!sock) return resolve(null);
-      const timer = setTimeout(() => { sock.off('game:sramLoaded', done); resolve(null); }, 5000);
-      function done(data: { sramData: string | null }) {
-        sock!.off('game:sramLoaded', done);
-        clearTimeout(timer);
-        try {
-          resolve(data.sramData ? decodeSram(data.sramData) : null);
-        } catch {
-          // A save that will not decode is not a save. Starting fresh beats
-          // refusing to start.
-          resolve(null);
-        }
+  /**
+   * The battery save for the headset, on the path every room takes (#71):
+   * this device first, then the queue for the account. `readRoomSram` used to
+   * be the socket round trip; `openSram` bounds its own server attempt the
+   * same way, at five seconds, and starts on the local copy past that.
+   *
+   * One port per launch, carrying its own "was it read" flag: the invariant
+   * of `SoloRoom` - a local read that failed forbids writing - with no state
+   * shared between two launches.
+   */
+  function vrSramPort(crc32: string): { load(): Promise<Uint8Array | null>; save(bytes: Uint8Array): void } {
+    const ctx = sramContext(crc32, $user && !$user.isAnonymous ? $user.id : null);
+    let readable = false;
+    return {
+      async load() {
+        const opened = await openSram(sramDeps(ctx.userId), ctx);
+        if (!opened.ok) return null;
+        readable = true;
+        return opened.bytes;
+      },
+      save(bytes) {
+        if (!readable) return;
+        void persistSram(sramDeps(ctx.userId), ctx, bytes);
       }
-      sock.on('game:sramLoaded', done);
-      sock.emit('game:loadSram', { roomId });
-    });
+    };
   }
 
 
@@ -2929,10 +2933,7 @@
         rom,
         isHost,
         transport,
-        sram: {
-          load: () => readRoomSram(roomId),
-          save: (bytes) => $socket?.emit('game:saveSram', { roomId, sramData: toBase64(bytes) })
-        },
+        sram: vrSramPort(crc32),
         audio,
         joinRelay: () => joinRelay(roomId),
         // One mask - no `pad2: 0` here, because the other pad arrives over the
@@ -3625,7 +3626,7 @@
 
       friendsPanel = scene.addPanel('friends', scene.layout.friends, FRIENDS_PANEL_SIZE);
       try {
-        // Bounded the same way `readRoomSram` bounds its own round trip
+        // Bounded the same way `openSram` bounds its own server attempt
         // below: a network stall here is the same class of problem the
         // reordering above just fixed for `frame()` and `vrActive` - an
         // await with no ceiling holding something armed for however long it

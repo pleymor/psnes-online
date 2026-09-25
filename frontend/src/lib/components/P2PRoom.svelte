@@ -12,7 +12,9 @@
   import { parsePadCode, type ControlsConfig } from '$lib/controls/binding';
   import { EmulationMode } from '$lib/types';
   import { createLogger } from '$lib/utils/logger';
-  import { toBase64, fromBase64 } from '$lib/saves/base64';
+  import { openSram, persistSram } from '$lib/saves/sram-sync';
+  import { sramContext, sramDeps } from '$lib/saves/sync';
+  import { user } from '$lib/stores/user';
   import { DualModeHandler } from '$lib/multiplayer/dual-mode';
   import { StreamingModeHandler } from '$lib/multiplayer/streaming-mode';
   import { SimpleSyncManager, destroyFrameController } from '$lib/netplay';
@@ -240,31 +242,25 @@
       return;
     }
 
-    return new Promise((resolve) => {
-      const handleSramLoaded = (data: { sramData: string | null; updatedAt?: string }) => {
-        $socket?.off('game:sramLoaded', handleSramLoaded);
-
-        if (data.sramData) {
-          // Convert base64 to Blob
-          const bytes = fromBase64(data.sramData);
-          initialSram = new Blob([bytes], { type: 'application/octet-stream' });
-          logger.info(`SRAM loaded (${bytes.length} bytes, updated: ${data.updatedAt})`);
-        } else {
-          logger.info('No SRAM data found for this game');
-        }
-        resolve();
-      };
-
-      $socket?.on('game:sramLoaded', handleSramLoaded);
-      $socket?.emit('game:loadSram', { roomId });
-
-      // Timeout after 5 seconds
-      setTimeout(() => {
-        $socket?.off('game:sramLoaded', handleSramLoaded);
-        resolve();
-      }, 5000);
-    });
+    // This device first, then the server (#71): the path every room takes.
+    if (!gameCrc32) return;
+    const opened = await openSram(sramDeps(sramCtx.userId), sramCtx);
+    if (!opened.ok) {
+      logger.error('Could not read the local battery save; it will not be written this session');
+      return;
+    }
+    sramReadable = true;
+    if (opened.bytes) {
+      initialSram = new Blob([opened.bytes as Uint8Array<ArrayBuffer>], { type: 'application/octet-stream' });
+      logger.info(`SRAM loaded (${opened.bytes.length} bytes, from ${opened.source})`);
+    } else {
+      logger.info('No SRAM data found for this game');
+    }
   }
+
+  /** The local read succeeded, which is what allows writing back (see `SoloRoom`). */
+  let sramReadable = false;
+  $: sramCtx = sramContext(gameCrc32 ?? '', $user && !$user.isAnonymous ? $user.id : null);
 
   // --- SRAM Saving ---
   async function saveSRAM(): Promise<void> {
@@ -289,16 +285,11 @@
         return;
       }
 
-      // Convert Blob to base64
-      const arrayBuffer = await sramBlob.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      // before: the whole SRAM was spread one argument per byte into a
-      // char-code string, exactly the stack overflow toBase64 exists to
-      // prevent.
-      const sramData = toBase64(uint8Array);
-
-      $socket?.emit('game:saveSram', { roomId, sramData });
-      logger.info(`SRAM saved (${uint8Array.length} bytes)`);
+      if (!sramReadable || !gameCrc32) return;
+      const uint8Array = new Uint8Array(await sramBlob.arrayBuffer());
+      // This device, then the queue for the account (#71).
+      const persisted = await persistSram(sramDeps(sramCtx.userId), sramCtx, uint8Array);
+      if (persisted.ok) logger.info(`SRAM saved (${uint8Array.length} bytes)`);
     } catch (err) {
       logger.error('Failed to save SRAM:', err);
     }

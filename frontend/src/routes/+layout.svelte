@@ -9,6 +9,8 @@
   import { createLogger } from '$lib/utils/logger';
   import { reportFolderCost } from '$lib/roms/local-library';
   import { linkState, noteServerSilent, serverSilent } from '$lib/stores/connection';
+  import { offlineAccount, readRememberedAccount, rememberAccount } from '$lib/stores/offline-account';
+  import { startSaveSync } from '$lib/saves/sync';
   import { inGame } from '$lib/stores/in-game';
   import { sharing } from '$lib/stores/sharing';
   import { vrActive } from '$lib/vr/entry';
@@ -38,27 +40,57 @@
     return () => reportFolderCost(null);
   });
 
-  onMount(async () => {
-    // Check authentication
+  /**
+   * Qui est là, demandé au serveur.
+   *
+   * Au montage, et de nouveau à chaque `online` du navigateur tant que personne
+   * n'est reconnu : c'est ainsi qu'un joueur qui jouait hors-ligne sous son
+   * compte retrouve sa session quand le réseau revient - la réponse pose
+   * `user`, qui ouvre la socket, qui passe à `connected`, qui vide la file des
+   * sauvegardes (`saves/sync.ts`). `online` seul ne vide rien : il répond vrai
+   * sur un wifi de train qui ne mène nulle part.
+   */
+  async function checkAuth(): Promise<void> {
     try {
       // 200 with a null body when nobody is signed in - see the note on the
       // route. `user.set(null)` is then the same no-one the store started as.
       const res = await fetch('/auth/me', { credentials: 'include' });
       if (res.ok) {
         const userData = await res.json();
+        if (userData) rememberAccount(localStorage, userData);
+        offlineAccount.set(null);
         user.set(userData);
+        // Le serveur a répondu : ce qui disait qu'il ne répondait pas est faux
+        // désormais, et la socket qui va s'ouvrir dira le reste. Après `user`,
+        // et c'est l'ordre qui compte : ce retour à `connected` est ce qui
+        // vide la file des sauvegardes, et elle ne part que pour une session.
+        if (get(linkState) === 'unreachable') linkState.set('connected');
       } else if (serverSilent({ status: res.status })) {
         noteServerSilent();
+        offlineAccount.set(readRememberedAccount(localStorage));
       }
     } catch (error) {
       // No answer at all: no network, or the service worker with nothing
       // behind it. This is the state that opens solo play without an account
-      // - see `rooms/local-play.ts` - so it is said, not only logged.
+      // - see `rooms/local-play.ts` - so it is said, not only logged. With a
+      // remembered account it opens that account's library instead (#71).
       logger.warn('Auth check got no answer:', error);
       noteServerSilent();
+      offlineAccount.set(readRememberedAccount(localStorage));
     } finally {
       userLoading.set(false);
     }
+  }
+
+  function onBrowserOnline(): void {
+    if (!get(user)) void checkAuth();
+  }
+
+  onMount(() => {
+    startSaveSync();
+    void checkAuth();
+    window.addEventListener('online', onBrowserOnline);
+    return () => window.removeEventListener('online', onBrowserOnline);
   });
 
   /**

@@ -84,6 +84,7 @@
     bind:this={grid}
     {gameId}
     {busy}
+    kinds={['state']}
     actionLabel={t($language, 'overwrite')}
     on:select={(e) => (pendingOverwrite = e.detail)}
   />

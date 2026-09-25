@@ -22,7 +22,13 @@ export type HomeMode =
 	/** Personne, le serveur répond : la page de connexion, avec son petit lien. */
 	| { kind: 'signIn' }
 	/** Solo sans compte. `why` dit si le joueur l'a choisi ou si le serveur s'est tu. */
-	| { kind: 'local'; why: 'chosen' | 'unreachable' };
+	| { kind: 'local'; why: 'chosen' | 'unreachable' }
+	/**
+	 * Solo hors-ligne, sous le compte qui jouait sur cet appareil (#71) : sa
+	 * bibliothèque telle qu'elle a été vue en ligne, et des sauvegardes qui
+	 * partiront vers lui au retour du réseau.
+	 */
+	| { kind: 'offline-account'; account: { id: string; pseudo: string; discriminator: string } };
 
 /**
  * Quel accueil montrer.
@@ -42,9 +48,17 @@ export function homeMode(input: {
 	loading: boolean;
 	link: LinkState;
 	chosen: boolean;
+	/** Le compte retenu sur cet appareil, posé seulement quand le serveur s'est tu. */
+	offline?: { id: string; pseudo: string; discriminator: string } | null;
 }): HomeMode {
 	if (input.loading) return { kind: 'waiting' };
 	if (input.user) return { kind: 'account' };
+	// Le compte retenu passe avant le mode sans compte : un joueur connecté
+	// hier dont le réseau manque aujourd'hui est toujours ce joueur-là, et ses
+	// sauvegardes de ce soir doivent partir vers lui.
+	if (input.link === 'unreachable' && input.offline) {
+		return { kind: 'offline-account', account: input.offline };
+	}
 	if (input.link === 'unreachable') return { kind: 'local', why: 'unreachable' };
 	if (input.chosen) return { kind: 'local', why: 'chosen' };
 	return { kind: 'signIn' };
@@ -76,4 +90,19 @@ export function localFeatures(): LocalFeatures {
 /** Où mène « Jouer » sur un jeu local. Une route statique, donc précachée. */
 export function localPlayHref(checksum: string): string {
 	return `/local?rom=${encodeURIComponent(checksum)}`;
+}
+
+/**
+ * Qui synchronise une partie jouée par `/local`.
+ *
+ * Le compte de la session s'il y en a un - un joueur connecté dont le serveur
+ * vient de se taire en pleine soirée -, sinon celui retenu sur l'appareil,
+ * sinon personne : c'est alors le joueur sans compte de #70, et rien ne part.
+ */
+export function localPlayer(
+	user: { id: string; isAnonymous: boolean } | null,
+	offline: { id: string } | null
+): string | null {
+	if (user) return user.isAnonymous ? null : user.id;
+	return offline?.id ?? null;
 }

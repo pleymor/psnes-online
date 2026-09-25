@@ -159,7 +159,9 @@ export function savesRows(state: {
   locale: string;
   quickSave?: string;
 }): SavesRow[] {
-  return byNewest([...state.saves])
+  // Pas les sauvegardes de cartouche gardées par la synchro (#71) : elles se
+  // restaurent, elles ne se chargent pas.
+  return byNewest(state.saves.filter((save) => save.kind !== 'sram'))
     .slice(0, SAVES_VISIBLE)
     .map((save) => {
       const identity = saveIdentity(save, state.locale, state.quickSave);

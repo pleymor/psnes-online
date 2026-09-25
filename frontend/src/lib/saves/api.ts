@@ -16,6 +16,11 @@ export interface SaveSummary {
   screenshot: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * `sram` pour une sauvegarde de cartouche gardée par la synchronisation (#71) :
+   * elle se restaure, elle ne se charge pas. Absent vaut `state`.
+   */
+  kind?: 'state' | 'sram';
 }
 
 /** The translation key describing why an operation on saves did not happen. */

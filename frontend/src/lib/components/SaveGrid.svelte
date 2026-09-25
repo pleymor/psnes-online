@@ -30,6 +30,15 @@
    * and this grid will not fetch.
    */
   export let preloaded: SaveSummary[] | null = null;
+  /**
+   * Les sortes de sauvegarde que ce menu montre. Le menu d'écriture ne
+   * montre que les savestates : écrire par-dessus une sauvegarde de cartouche
+   * gardée par la synchronisation (#71) effacerait la seule copie de la partie
+   * perdante, et le serveur le refuse de toute façon.
+   */
+  export let kinds: ('state' | 'sram')[] = ['state', 'sram'];
+  /** Ce que dit le bouton d'une sauvegarde de cartouche gardée : on la restaure. */
+  export let sramActionLabel = '';
 
   const dispatch = createEventDispatcher<{ select: SaveSummary; deleted: SaveSummary }>();
 
@@ -124,6 +133,9 @@
     loading = false;
   }
 
+  $: shown = saves.filter((save) => kinds.includes(save.kind ?? 'state'));
+  $: kept = { state: t($language, 'keptStateLabel'), sram: t($language, 'keptSramLabel') };
+
   // `formatDate` used to live here. `saveIdentity` replaces it: the tile now
   // decides between one line and two rather than always printing both, which
   // is what stopped the date being painted across the action label.
@@ -136,12 +148,12 @@
     {t($language, failure)}
     <button class="btn-retry" on:click={reload}>{t($language, 'retry')}</button>
   </p>
-{:else if saves.length === 0}
+{:else if shown.length === 0}
   <p class="grid-note">{t($language, 'noSaves')}</p>
 {:else}
   <ul class="grid">
-    {#each saves as save (save.id)}
-      {@const identity = saveIdentity(save, $language, t($language, 'quickSave'))}
+    {#each shown as save (save.id)}
+      {@const identity = saveIdentity(save, $language, t($language, 'quickSave'), kept)}
       <!-- A row holding two buttons rather than one big button: a delete
            control cannot be nested inside the button it sits on. -->
       <li class="tile">
@@ -159,7 +171,7 @@
               <small>{identity.secondary}</small>
             {/if}
           </span>
-          <span class="action">{actionLabel}</span>
+          <span class="action">{save.kind === 'sram' && sramActionLabel ? sramActionLabel : actionLabel}</span>
         </button>
         <button
           class="remove"
@@ -180,7 +192,7 @@
     title={t($language, 'deleteSave')}
     message={t($language, 'confirmDeleteSave').replace(
       '{name}',
-      saveIdentity(pendingDelete, $language, t($language, 'quickSave')).primary
+      saveIdentity(pendingDelete, $language, t($language, 'quickSave'), kept).primary
     )}
     confirmText={t($language, 'deleteSave')}
     danger={true}

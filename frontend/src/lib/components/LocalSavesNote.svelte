@@ -15,6 +15,11 @@
 
   /** Bump it after a gesture that may have changed the folder or its permission. */
   export let refresh = 0;
+  /**
+   * Avec un compte (#71), la même phrase est vraie : le local fait autorité
+   * pour tout le monde, le serveur reçoit ensuite. Seul le préfixe change.
+   */
+  export let account = false;
 
   let key: SaveNoteKey | null = null;
 
@@ -32,7 +37,7 @@
 
 {#if key}
   <p class="saves-note" data-note={key}>
-    <strong>{t($language, 'localSavesPrefix')}</strong>
+    <strong>{t($language, account ? 'localSavesPrefixAccount' : 'localSavesPrefix')}</strong>
     {t($language, key)}
   </p>
 {/if}
