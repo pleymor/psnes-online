@@ -34,6 +34,7 @@ import { browser } from '$app/environment';
 import type { Socket } from 'socket.io-client';
 import { socket } from '$lib/api/socket';
 import { user } from '$lib/stores/user';
+import { notices } from '$lib/services/notification';
 import { createLogger } from '$lib/utils/logger';
 
 const logger = createLogger('MyRoom');
@@ -150,6 +151,11 @@ function attach(sock: Socket) {
 	// toujours pour ceux qui restent, mais il n'est plus le mien.
 	sock.on('room:left', ({ roomId }: { roomId: string }) => forget(roomId));
 	sock.on('friend:roomCreated', ({ room }: { room: RoomView }) => upsert(room));
+	// Rien à changer dans le magasin : `room:update` suit, avec un joueur de
+	// moins. Seul cet événement dit QUI est parti.
+	sock.on('group:memberLeft', ({ pseudo }: { pseudo: string }) => {
+		notices.post('group-member-left', { name: pseudo });
+	});
 
 	void seed();
 }

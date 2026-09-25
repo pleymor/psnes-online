@@ -306,6 +306,18 @@
   }
 
   /*
+   * Inviter, puis le dire au tiroir qui nous porte.
+   *
+   * Une fois l'invitation partie, la suite se passe ailleurs - le bandeau du
+   * groupe dit qui l'on attend - et le tiroir restait ouvert par-dessus. Seul
+   * ce bouton le ferme : les autres gestes de la liste le gardent ouvert.
+   */
+  async function invite(friendId: string) {
+    await inviteToGroup(friendId);
+    dispatch('invited');
+  }
+
+  /*
    * Whether this friend can be asked to play, and what to show instead.
    *
    * Read from my own room rather than from a local flag: the invitation lives on
@@ -454,7 +466,7 @@
             {:else if !groupFull && !groupBusy && !invitedId}
               <button
                 class="btn-invite-friend"
-                on:click|stopPropagation={() => inviteToGroup(friendData.friend.id)}
+                on:click|stopPropagation={() => invite(friendData.friend.id)}
               >
                 {t($language, 'invite')}
               </button>

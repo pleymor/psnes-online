@@ -476,7 +476,7 @@
        the only place either is reachable from. The drawer is 24rem wide, which
        is what the full layout was built for in the sidebar. -->
   <div class="friends-drawer">
-    <FriendsList bind:this={friendsListRef} activeRooms={$activeRooms} on:friendClicked={handleFriendClicked} />
+    <FriendsList bind:this={friendsListRef} activeRooms={$activeRooms} on:friendClicked={handleFriendClicked} on:invited={() => (showFriends = false)} />
   </div>
 {/if}
 
