@@ -29,6 +29,13 @@
   let screenshots = true;
   let replaceSram = false;
   let busy: '' | 'export' | 'import' = '';
+  /**
+   * Pourquoi exporter et importer ne marchent pas ici, ou null : les
+   * sauvegardes de l'archive sont lues et écrites sur le serveur. Hors-ligne,
+   * la carte garde sa place, ses boutons éteints, et le dit.
+   */
+  export let unavailable: string | null = null;
+  $: off = busy !== '' || unavailable !== null;
   let error = '';
   let lines: SummaryLine[] = [];
   let fileInput: HTMLInputElement;
@@ -92,16 +99,17 @@
 <section class="card">
   <h2>{t($language, 'savesPortability')}</h2>
   <p class="note">{t($language, 'savesPortabilityHint')}</p>
+  {#if unavailable}<p class="note">{unavailable}</p>{/if}
 
   <label class="check">
-    <input type="checkbox" bind:checked={screenshots} disabled={busy !== ''} />
+    <input type="checkbox" bind:checked={screenshots} disabled={off} />
     <span>
       {t($language, 'includeScreenshots')}
       <small>{t($language, 'includeScreenshotsHint')}</small>
     </span>
   </label>
 
-  <button on:click={exportAll} disabled={busy !== ''}>
+  <button on:click={exportAll} disabled={off}>
     {busy === 'export' ? t($language, 'exporting') : t($language, 'exportSaves')}
   </button>
 
@@ -111,7 +119,7 @@
   <p class="note">{t($language, 'importSavesHint')}</p>
 
   <label class="check">
-    <input type="checkbox" bind:checked={replaceSram} disabled={busy !== ''} />
+    <input type="checkbox" bind:checked={replaceSram} disabled={off} />
     <span>
       {t($language, 'replaceSram')}
       <small>{t($language, 'replaceSramHint')}</small>
@@ -125,7 +133,7 @@
     on:change={onFile}
     hidden
   />
-  <button on:click={() => fileInput.click()} disabled={busy !== ''}>
+  <button on:click={() => fileInput.click()} disabled={off}>
     {busy === 'import' ? t($language, 'importing') : t($language, 'chooseArchive')}
   </button>
 

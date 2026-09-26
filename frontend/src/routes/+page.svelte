@@ -43,12 +43,15 @@
   import { setPageTitle } from '$lib/utils/page-title';
   import { notifications } from '$lib/services/notification';
   import { signupRefusalKey } from '$lib/auth/signup-refusal';
-  import LocalLibrary from '$lib/components/LocalLibrary.svelte';
-  import { homeMode } from '$lib/rooms/local-play';
+  import SyncStatus from '$lib/components/SyncStatus.svelte';
+  import { isOfflineMode, localPlayHref } from '$lib/rooms/local-play';
+  import { reasonKey } from '$lib/rooms/anonymous-join';
   import { linkState } from '$lib/stores/connection';
   import { playLocally } from '$lib/stores/local-play';
-  import { offlineAccount } from '$lib/stores/offline-account';
-  import { localPlayHref } from '$lib/rooms/local-play';
+  import { controls, currentHomeMode } from '$lib/stores/home-mode';
+  import { offlineLibrary, readLibrarySnapshot, type OfflineGame } from '$lib/games/library-snapshot';
+  import { listLocalGames } from '$lib/roms/local-games';
+  import { formatHandle } from '$lib/pseudo';
 
   const logger = createLogger('HomePage');
 
@@ -114,17 +117,19 @@
   ].join(';');
 
   /*
-   * Three screens live at this address now: the library, the sign-in page, and
-   * solo play without an account (#70). `homeMode` decides, and switches to
-   * the third by itself only when the server never answered at all.
+   * Two screens live at this address: the library and the sign-in page.
+   * `homeMode` decides, and the library has three sources - the account, the
+   * account as last seen when the server is silent (#71), and this device
+   * alone without an account (#70). It switches to the last two by itself
+   * only when the server never answered at all.
+   *
+   * The offline library is the online one: the same bar, grid, cards and
+   * footer. It used to be a page of its own (`LocalLibrary`), whose cards had
+   * no cover and whose bar had nothing in it; what needs the server now stays
+   * in place, disabled, and says why (`$controls`).
    */
-  $: mode = homeMode({
-    user: $user,
-    loading: $userLoading,
-    link: $linkState,
-    chosen: $playLocally,
-    offline: $offlineAccount
-  });
+  $: mode = $currentHomeMode;
+  $: offline = isOfflineMode(mode);
   $: setPageTitle(
     $language,
     mode.kind === 'local'
@@ -321,7 +326,65 @@
    * second une intention. Les garder distincts est ce qui permet à l'état
    * vide de dire laquelle des deux a vidé la grille.
    */
-  $: onThisDevice = resolvable === null ? $games : deviceLibrary($games, resolvable);
+  $: onThisDevice = offline
+    ? offlineGames
+    : resolvable === null
+      ? $games
+      : deviceLibrary($games, resolvable);
+
+  /**
+   * La bibliothèque sans serveur, dans la forme que la grille dessine.
+   *
+   * Une seule liste, fusionnée par CRC32 dans `offlineLibrary` : ce que le
+   * compte a vu en ligne, avec son titre et sa jaquette, et ce que cet
+   * appareil ouvre sans que le compte le connaisse, titré par son nom de
+   * fichier. Sans compte, la première moitié est vide et c'est tout.
+   *
+   * Relue quand le compte change - un autre joueur, ou le retour du réseau qui
+   * rend la main à `$games` - et quand un geste ajoute des octets ici.
+   */
+  let offlineGames: Game[] = [];
+  $: offlineAccountId = mode.kind === 'offline-account' ? mode.account.id : null;
+  $: offlineKey = offline ? `${mode.kind}:${offlineAccountId ?? ''}` : null;
+  $: void refreshOffline(offlineKey);
+
+  async function refreshOffline(key: string | null): Promise<void> {
+    if (!key) {
+      offlineGames = [];
+      return;
+    }
+    const accountId = offlineAccountId;
+    const [local, here, snapshot] = await Promise.all([
+      listLocalGames().catch(() => []),
+      resolvableHere().catch(() => [] as string[]),
+      accountId ? readLibrarySnapshot(accountId).catch(() => null) : Promise.resolve(null)
+    ]);
+    // Un autre compte, ou le réseau revenu, pendant la lecture : la réponse
+    // appartient à un écran qui n'est plus là.
+    if (key !== offlineKey) return;
+    offlineGames = offlineLibrary({ snapshot, resolvable: here, local }).map(asCard);
+  }
+
+  function asCard(game: OfflineGame): Game {
+    return {
+      id: game.id,
+      title: game.title,
+      filename: game.filename,
+      coverUrl: game.coverUrl ?? undefined,
+      uploadedAt: '',
+      saves: [],
+      crc32: game.crc32,
+      genre: game.genre ?? undefined,
+      publisher: game.publisher ?? undefined,
+      releaseDate: game.releaseDate ?? undefined,
+      players: game.players ?? undefined
+    };
+  }
+
+  /** Ce que la barre et la grille éteignent ici, et la phrase qui dit pourquoi. */
+  $: detailsReason = reasonKey($controls.gameDetails);
+  $: detailsTitle = detailsReason ? t($language, detailsReason) : null;
+  $: rescanReason = reasonKey($controls.rescan);
   $: shownGames = searchGames(onThisDevice, gameQuery);
 
   /*
@@ -413,17 +476,22 @@
     await loadGames();
   }
 
-  onMount(async () => {
-    // Wait for auth check to complete
-    const unsubscribe = userLoading.subscribe(async (loading) => {
-      if (!loading) {
-        if ($user) {
-          await loadUserData();
-        }
-        unsubscribe();
-      }
-    });
-  });
+  /*
+   * La bibliothèque du compte, chaque fois qu'un compte apparaît.
+   *
+   * C'était une fois au montage, une fois la session lue. Mais un compte peut
+   * apparaître plus tard sur cette page sans qu'elle se remonte : le réseau
+   * revient pendant qu'on regardait la bibliothèque hors-ligne, le layout
+   * redemande `/auth/me`, `user` se remplit - et la grille passait à `$games`,
+   * resté vide, donc à « ta bibliothèque est vide ». Sortir du mode hors-ligne
+   * sans recharger demande que la liste suive le compte.
+   */
+  let gamesLoadedFor: string | null = null;
+  $: if ($user && !$userLoading && gamesLoadedFor !== $user.id) {
+    gamesLoadedFor = $user.id;
+    void loadUserData();
+    void refreshResolvable();
+  }
 
   /** A game from before local ROMs, waiting for the player to point at its file. */
   let gameToLink: Game | null = null;
@@ -618,10 +686,9 @@
       if (res.ok) {
         const userData = await res.json();
         user.set(userData);
-        // onMount already ran (and unsubscribed) while logged out, so the
-        // library/rooms/controls fetches have to be kicked off here — a
-        // client-side goto('/') does not remount this page.
-        await loadUserData();
+        // The library follows `user` (see `gamesLoadedFor`), so setting it is
+        // what loads the games - a client-side goto('/') does not remount
+        // this page.
         goto('/');
       } else {
         logger.error('Dev login failed');
@@ -637,11 +704,7 @@
   });
 </script>
 
-{#if mode.kind === 'local'}
-  <LocalLibrary why={mode.why} on:signIn={() => playLocally.set(false)} />
-{:else if mode.kind === 'offline-account'}
-  <LocalLibrary why="unreachable" account={mode.account} />
-{:else if !$user}
+{#if !$user && !offline}
   <!-- Landing page for non-authenticated users.
 
        <main> rather than a <div>: this branch carries no TopBar, so nothing
@@ -765,13 +828,42 @@
           {:else if syncNote}
             <p class="sync-note">{syncNote}</p>
           {/if}
+          <!-- Sans serveur, une ligne sous le titre, et c'est la seule chose
+               que cette page ajoute à celle d'en ligne : dire qui joue, et
+               que les sauvegardes restent ici. -->
+          {#if mode.kind === 'offline-account'}
+            <p class="offline-mode">
+              <span class="offline-tag">{t($language, 'offlineAccountTitle')}</span>
+              <span role="status">
+                {t($language, 'offlineAccountIntro', {
+                  name: formatHandle(mode.account.pseudo, mode.account.discriminator)
+                })}
+              </span>
+            </p>
+            <div class="offline-sync"><SyncStatus /></div>
+          {:else if mode.kind === 'local'}
+            <p class="offline-mode">
+              <span class="offline-tag">{t($language, 'localTitle')}</span>
+              <span role={mode.why === 'unreachable' ? 'status' : undefined}>
+                {t($language, mode.why === 'unreachable' ? 'localIntroUnreachable' : 'localIntroChosen')}
+              </span>
+            </p>
+            {#if mode.why === 'chosen'}
+              <button class="sign-in-instead" on:click={() => playLocally.set(false)}>
+                {t($language, 'localSignIn')}
+              </button>
+            {/if}
+          {/if}
         </div>
         {#if folderKnown}
+          <!-- Hors-ligne, à sa place et éteint : rescanner inscrit au compte
+               ce que le dossier contient, et le dossier se choisit, sans
+               serveur, depuis le panneau ROM du profil. -->
           <button
             class="rescan"
             on:click={rescanFolder}
-            disabled={syncing}
-            title={t($language, 'refreshLibrary')}
+            disabled={syncing || rescanReason !== null}
+            title={rescanReason ? t($language, rescanReason) : t($language, 'refreshLibrary')}
           >
             <span class="rescan-icon" class:spinning={syncing} aria-hidden="true">⟳</span>
             <span class="rescan-label">{t($language, 'refreshLibrary')}</span>
@@ -843,6 +935,12 @@
               <button class="empty-cta" on:click={() => (gameQuery = '')}>
                 {t($language, 'clearSearch')}
               </button>
+            {:else if mode.kind === 'offline-account'}
+              <h2>{t($language, 'offlineAccountNoGames')}</h2>
+              <a class="empty-cta" href="/profile">{t($language, 'romSource')}</a>
+            {:else if mode.kind === 'local'}
+              <h2>{t($language, 'localNoGames')}</h2>
+              <a class="empty-cta" href="/profile">{t($language, 'romSource')}</a>
             {:else if $games.length > 0}
               <h2>{t($language, 'noneOnThisDevice', { count: $games.length })}</h2>
               <p>{t($language, 'noneOnThisDeviceHint')}</p>
@@ -871,6 +969,7 @@
                 playLabel={inGroup && myPartner && !groupBusy
                   ? t($language, 'playWith', { name: myPartner.pseudo })
                   : t($language, 'play')}
+                detailsReason={detailsTitle}
                 on:play={() => playGame(game)}
                 on:details={() => selectedGame = game}
               />
@@ -1314,6 +1413,49 @@
     font-size: 1.1rem;
     color: var(--label);
     text-shadow: 2px 2px 0 var(--deep);
+  }
+
+  /* Éteint hors-ligne : le vert dit « avance », il ne reste que la forme. */
+  .rescan:disabled {
+    background: rgba(19, 19, 25, 0.55);
+    border-color: rgba(255, 255, 255, 0.3);
+    cursor: not-allowed;
+  }
+
+  /* La ligne qui dit qu'on joue sans serveur : dans le ciel, sur un
+     cartouche sombre, pour se lire comme le reste du HUD et non comme une
+     alerte. */
+  .offline-mode {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 0.6rem;
+    max-width: 44rem;
+    margin: 0.6rem 0 0;
+    padding: 0.5rem 0.75rem;
+    background: rgba(16, 16, 24, 0.82);
+    border-radius: 8px;
+    color: #e6e6ee;
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+
+  .offline-tag {
+    font-family: var(--display);
+    color: var(--edge);
+    white-space: nowrap;
+  }
+
+  .offline-sync {
+    max-width: 44rem;
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(16, 16, 24, 0.82);
+    border-radius: 8px;
+  }
+
+  .sign-in-instead {
+    margin-top: 0.6rem;
   }
 
   /* Sous 480px l'en-tête passe en colonne : le libellé mangerait la largeur du

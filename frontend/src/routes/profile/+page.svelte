@@ -44,10 +44,38 @@
   import { forgetRecordsOf } from '$lib/saves/outbox-browser';
   import { deviceLibrary } from '$lib/roms/device-library';
   import { designateFile, resolvableHere } from '$lib/roms/provider';
+  import { get } from 'svelte/store';
+  import { controls, currentHomeMode } from '$lib/stores/home-mode';
+  import { isOfflineMode } from '$lib/rooms/local-play';
+  import { reasonKey } from '$lib/rooms/anonymous-join';
+  import { playLocally } from '$lib/stores/local-play';
+  import { readLocalControls } from '$lib/stores/local-controls';
+  import { rememberTitle } from '$lib/roms/local-games';
+  import { forgetKnownFriends } from '$lib/stores/known-friends';
 
   const logger = createLogger('ProfilePage');
 
   $: setPageTitle($language, t($language, 'profile'));
+
+  /*
+   * La même page sans serveur (#70, #71).
+   *
+   * Elle était inaccessible : sans `user` elle renvoyait à l'accueil, et
+   * l'accueil hors-ligne était une page à part sans avatar pour y mener. Elle
+   * garde maintenant toutes ses cartes. Ce qui vit sur cet appareil y marche -
+   * le dossier de ROMs, les commandes (gardées ici, comme en jeu sans compte),
+   * l'affichage, la langue ; ce qui passe par le serveur y reste éteint, et
+   * dit pourquoi.
+   */
+  $: mode = $currentHomeMode;
+  $: offline = isOfflineMode(mode);
+  $: offlineName = mode.kind === 'offline-account' ? mode.account : null;
+  $: shownName = $user?.pseudo ?? offlineName?.pseudo ?? t($language, 'thisDevice');
+  const reasonText = (r: ReturnType<typeof reasonKey>) => (r ? t($language, r) : null);
+  $: accountOff = reasonText(reasonKey($controls.accountSettings));
+  $: configOff = reasonText(reasonKey($controls.configFile));
+  $: archiveOff = reasonText(reasonKey($controls.savesArchive));
+  $: logoutOff = reasonText(reasonKey($controls.logout));
 
   // The bar is the same one the library page shows, so the page keeps its
   // chrome instead of stranding the user with a lone back link. It needs the
@@ -87,10 +115,14 @@
   // Seeded from the store, and re-seeded whenever the store changes - after a
   // successful rename, most of all, so the field agrees with the heading above
   // it rather than keeping the text that was submitted.
-  $: pseudoDraft = $user?.pseudo ?? '';
-  $: handle = $user ? formatHandle($user.pseudo, $user.discriminator) : '';
+  $: pseudoDraft = $user?.pseudo ?? offlineName?.pseudo ?? '';
+  $: handle = $user
+    ? formatHandle($user.pseudo, $user.discriminator)
+    : offlineName
+      ? formatHandle(offlineName.pseudo, offlineName.discriminator)
+      : '';
   $: pseudoMalformed = pseudoDraft.length > 0 && !isValidPseudo(pseudoDraft);
-  $: canRename = isValidPseudo(pseudoDraft) && pseudoDraft !== $user?.pseudo && !renaming;
+  $: canRename = !accountOff && isValidPseudo(pseudoDraft) && pseudoDraft !== $user?.pseudo && !renaming;
 
   async function copyHandle(): Promise<void> {
     try {
@@ -169,7 +201,10 @@
       // et n'enregistrer que l'identité laissait une bibliothèque définitivement
       // vide - le jeu ajouté n'était résoluble nulle part.
       const { checksum } = await designateFile(file);
-      await registerGame(checksum, file.name);
+      // Sans serveur, le fichier est gardé ici et son nom retenu : c'est le
+      // seul titre qu'il aura tant que le compte ne le connaît pas.
+      if (offline) await rememberTitle(checksum, file.name).catch(() => {});
+      else await registerGame(checksum, file.name);
       romAdded = true;
       // La grille et la ligne « N jeux ne sont pas sur cet appareil » lisent
       // deux listes montées une fois ; sans ces deux relectures le jeu qu'on
@@ -199,7 +234,7 @@
     const stop = userLoading.subscribe((loading) => {
       if (loading || settled) return;
       settled = true;
-      if (!$user) void goto('/');
+      if (!$user && !isOfflineMode(get(currentHomeMode))) void goto('/');
     });
     return stop;
   });
@@ -222,6 +257,15 @@
     // so there is nothing to keep in sync.
     shader = readShaderPreference(localStorage);
 
+    // Hors-ligne, les commandes de cet appareil : celles que `/local` joue.
+    // Attendre la réponse de `/auth/me` d'abord : ouverte directement, la
+    // page monte avant que le layout sache si le serveur répond.
+    await sessionSettled();
+    if (isOfflineMode(get(currentHomeMode))) {
+      controlsConfig = readLocalControls(localStorage);
+      return;
+    }
+
     try {
       const res = await fetch('/api/user/controls', { credentials: 'include' });
       // Showing nothing on failure is deliberate: presenting stale or absent
@@ -234,6 +278,22 @@
     }
 
   });
+
+  /** Résolue quand `/auth/me` a répondu, ou s'est tu pour de bon. */
+  function sessionSettled(): Promise<void> {
+    return new Promise((resolve) => {
+      let stop: (() => void) | null = null;
+      let done = false;
+      stop = userLoading.subscribe((loading) => {
+        if (loading || done) return;
+        done = true;
+        resolve();
+        // Rappelé de façon synchrone quand la session est déjà lue : `stop`
+        // n'existe pas encore, d'où le relais.
+        queueMicrotask(() => stop?.());
+      });
+    });
+  }
 
   function chooseShader(id: string): void {
     shader = id;
@@ -364,6 +424,7 @@
         const leaving = $user?.id;
         forgetAccount(localStorage);
         if (leaving) {
+          forgetKnownFriends(localStorage, leaving);
           void forgetLibrarySnapshot(leaving).catch(() => {});
           void forgetRecordsOf(leaving).catch(() => {});
         }
@@ -392,18 +453,25 @@
       {/if}
     </div>
     <div class="who">
-      <h1>{$user?.pseudo ?? ''}</h1>
+      <h1>{shownName}</h1>
+      {#if mode.kind === 'offline-account'}
+        <p class="note offline-intro" role="status">{t($language, 'offlineProfileIntro')}</p>
+      {:else if mode.kind === 'local'}
+        <p class="note offline-intro" role="status">{t($language, 'localProfileIntro')}</p>
+      {/if}
       <!--
         The code, standing exactly where the email used to. This is what a
         player gives to someone who wants to add them: there is no way to
         search for an account any more.
       -->
+      {#if handle}
       <p class="handle">
         <code>{handle}</code>
         <button class="copy" on:click={copyHandle} disabled={!handle}>
           {copied ? t($language, 'handleCopied') : t($language, 'copyHandle')}
         </button>
       </p>
+      {/if}
 
       <form class="rename" on:submit|preventDefault={renamePseudo}>
         <label for="pseudo-field">{t($language, 'changePseudo')}</label>
@@ -416,13 +484,15 @@
             spellcheck="false"
             maxlength={PSEUDO_MAX}
             aria-invalid={pseudoMalformed}
+            disabled={!!accountOff}
+            title={accountOff ?? undefined}
           />
-          <button type="submit" disabled={!canRename}>
+          <button type="submit" disabled={!canRename} title={accountOff ?? undefined}>
             {renaming ? t($language, 'saving') : t($language, 'save')}
           </button>
         </div>
         <p class="note" class:error={pseudoMalformed || !!renameError}>
-          {renameError || t($language, 'pseudoRules', { min: PSEUDO_MIN, max: PSEUDO_MAX })}
+          {renameError || accountOff || t($language, 'pseudoRules', { min: PSEUDO_MIN, max: PSEUDO_MAX })}
         </p>
         <!-- Said plainly, because it is the one surprising consequence: the
              discriminator is drawn afresh, so a code shared earlier stops
@@ -432,7 +502,7 @@
     </div>
   </header>
 
-  <MyInvites />
+  <MyInvites unavailable={accountOff} />
 
   <!-- The controls card always spans the full grid width: it needs the
        whole page width for its two side-by-side pad drawings (46rem
@@ -445,6 +515,7 @@
       {#if controlsConfig}
         <ControlsSettings
           headingLevel={3}
+          deviceOnly={offline}
           currentConfig={controlsConfig}
           on:saved={(e) => (controlsConfig = e.detail.config)}
         />
@@ -454,7 +525,7 @@
     </section>
 
     <div class="stack">
-      <RomSourcePanel {missingCount}>
+      <RomSourcePanel {missingCount} {offline} account={mode.kind !== 'local'}>
         <div slot="fallback" class="rom-fallback">
           <button on:click={() => fileInput.click()} disabled={romBusy}>
             {t($language, 'chooseOneRom')}
@@ -506,16 +577,17 @@
       <section class="card">
         <h2>{t($language, 'myConfiguration')}</h2>
         <p class="note">{t($language, 'configExplain')}</p>
+        {#if configOff}<p class="note">{configOff}</p>{/if}
         <div class="config-actions">
-          <button on:click={exportConfig} disabled={!controlsConfig || configBusy}>
+          <button on:click={exportConfig} disabled={!controlsConfig || configBusy || !!configOff} title={configOff ?? undefined}>
             {t($language, 'exportConfiguration')}
           </button>
-          <label class="import">
+          <label class="import" class:off={!!configOff} title={configOff ?? undefined}>
             <span>{t($language, 'importConfiguration')}</span>
             <input
               type="file"
               accept="application/json,.json"
-              disabled={configBusy}
+              disabled={configBusy || !!configOff}
               on:change={importConfig}
             />
           </label>
@@ -530,17 +602,33 @@
       <!-- Next to the ROM folder panel on purpose: both answer "what of mine
            lives where", and someone who has just learnt their ROMs are local
            is the likeliest person to wonder about their saves. -->
-      <SavesPortabilityPanel />
+      <SavesPortabilityPanel unavailable={archiveOff} />
     </div>
   </div>
 
   <section class="card danger">
+    {#if mode.kind === 'local'}
+      <!-- Sans compte, rien à fermer : la même place, pour entrer. Le lien
+           de la page de connexion, qui n'a de sens que si le serveur répond. -->
+      <div class="danger-row">
+        <p class="danger-note">{t($language, 'localProfileIntro')}</p>
+        <button
+          class="logout"
+          disabled={mode.why === 'unreachable'}
+          title={mode.why === 'unreachable' ? t($language, 'needsConnection') : undefined}
+          on:click={() => { playLocally.set(false); void goto('/'); }}
+        >
+          {t($language, 'localSignIn')}
+        </button>
+      </div>
+    {:else}
     <div class="danger-row">
-      <p class="danger-note">{t($language, 'logoutFromThisDevice')}</p>
-      <button class="logout" on:click={logout} disabled={loggingOut}>
+      <p class="danger-note">{logoutOff ?? t($language, 'logoutFromThisDevice')}</p>
+      <button class="logout" on:click={logout} disabled={loggingOut || !!logoutOff} title={logoutOff ?? undefined}>
         {t($language, 'logout')}
       </button>
     </div>
+    {/if}
     {#if logoutMessage}<p class="note error">{logoutMessage}</p>{/if}
   </section>
 </main>
@@ -883,6 +971,17 @@
   .import:has(input:disabled) {
     opacity: 0.5;
     cursor: default;
+  }
+
+  /* Le libellé qui habille un champ fichier éteint : il n'a pas de
+     `:disabled` à lui, donc il le reçoit ici, comme le plancher des boutons. */
+  .import.off {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .offline-intro {
+    max-width: 36rem;
   }
 
   .import input {

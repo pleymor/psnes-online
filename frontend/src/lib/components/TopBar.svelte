@@ -7,8 +7,11 @@
    * menu opened on demand, and adding games stopped being a repeated action
    * when ROMs went local.
    *
-   * Only rendered when signed in. The landing page keeps its own language
-   * selector, because /profile is unreachable to someone who has not signed in.
+   * Rendered when signed in, and offline - with an account the server cannot
+   * reach, or with none at all (#70, #71): the offline screens are the online
+   * ones, so the bar is the same bar. What needs the server stays in its place,
+   * disabled, and says why (`rooms/local-play.ts`, `onlineControls`). The
+   * landing page keeps its own language selector.
    *
    * The friends feature lives here whole - the list, the details modal it opens
    * and the removal that modal asks for. Removal goes through a method exported
@@ -121,6 +124,21 @@
   import { games } from '$lib/stores/games';
   import { notifications } from '$lib/services/notification';
   import NoticeCentre from './NoticeCentre.svelte';
+  import { controls, currentHomeMode } from '$lib/stores/home-mode';
+  import { reasonKey } from '$lib/rooms/anonymous-join';
+
+  $: vrOff = reasonKey($controls.vr);
+  $: friendsOff = reasonKey($controls.friendsDrawer);
+  /*
+   * Qui l'avatar désigne. Hors-ligne, le compte retenu - sans son image, que
+   * l'appareil ne garde pas ; sans compte, cet appareil : le profil y mène
+   * aux réglages qui y vivent, le dossier de ROMs d'abord.
+   */
+  $: avatarTitle =
+    $user?.pseudo ??
+    ($currentHomeMode.kind === 'offline-account'
+      ? $currentHomeMode.account.pseudo
+      : t($language, 'thisDevice'));
 
   /** Undefined until asked, so the button does not flash in and out on load. */
   let headsetHere: boolean | undefined;
@@ -417,8 +435,9 @@
            nothing else" assumption only has to hold inside the session. -->
       <button
         class="bar-button vr"
-        title={t($language, 'vrSeatedTitle')}
+        title={vrOff ? t($language, vrOff) : t($language, 'vrSeatedTitle')}
         aria-label={t($language, 'enterVr')}
+        disabled={vrOff !== null}
         on:click={enterVr}
       >
         <!-- Un cardboard dessiné, pas un emoji : sur une machine sans police
@@ -439,8 +458,9 @@
     <button
       class="bar-button friends"
       class:on={showFriends}
-      title={t($language, 'friends')}
+      title={friendsOff ? t($language, friendsOff) : t($language, 'friends')}
       aria-label={t($language, 'friends')}
+      disabled={friendsOff !== null}
       on:click={toggleFriends}
     >
       <!-- Deux silhouettes, dessinées : c'est ce qu'on reconnaît d'une liste
@@ -455,11 +475,17 @@
       <span class="friends-label">{t($language, 'friends')}</span>
     </button>
 
-    <a class="avatar" href="/profile" title={$user?.pseudo ?? ''}>
+    <a class="avatar" href="/profile" title={avatarTitle} aria-label={t($language, 'profile')}>
       {#if $user?.avatar}
         <img src={$user.avatar} alt={$user.pseudo} />
       {:else}
-        <span class="placeholder">👤</span>
+        <!-- Dessinée, pas un emoji : hors-ligne le compte n'a pas son image,
+             et sur une machine sans police emoji un 👤 rendait un tofu. -->
+        <svg class="placeholder" viewBox="0 0 16 16" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+          <circle cx="8" cy="5.5" r="2.8" />
+          <path d="M2.5 14c0-3 2.5-4.8 5.5-4.8s5.5 1.8 5.5 4.8" />
+        </svg>
       {/if}
     </a>
   </div>
@@ -597,9 +623,16 @@
     cursor: pointer;
   }
 
-  .bar-button:hover {
+  .bar-button:hover:not(:disabled) {
     background: var(--panel);
     color: var(--label);
+  }
+
+  /* Éteint : à sa place, le filet doré retiré - c'est lui qui dit « appuie ». */
+  .bar-button:disabled {
+    border-color: rgba(255, 255, 255, 0.25);
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 
   /*
@@ -654,6 +687,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .avatar .placeholder {
+    color: var(--shell);
+  }
+
+  .avatar:has(.placeholder) {
+    border: 2px solid var(--edge);
   }
 
   .avatar img {

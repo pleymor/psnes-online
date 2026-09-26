@@ -156,17 +156,22 @@ for (const viewport of VIEWPORTS) {
 		// solo play by itself.
 		await expect(page.getByText('Solo, no account')).toBeVisible();
 		await expect(page.getByText(/server cannot be reached/i)).toBeVisible();
-		// Nothing that belongs to an account.
 		await expect(page.getByRole('button', { name: /Sign in with Google/ })).toHaveCount(0);
-		await expect(page.locator('a[href="/profile"]')).toHaveCount(0);
+		// The online layout, not a page of its own: the bar and its profile
+		// button are there, and what needs an account stays in place, off.
+		await expect(page.locator('.top-bar a.avatar')).toBeVisible();
+		await expect(page.locator('.top-bar button.friends')).toBeDisabled();
 
+		// The folder is chosen where it is online: the ROM panel of the profile.
+		await page.locator('.top-bar a.avatar').click();
 		await page.getByRole('button', { name: 'Choose my ROM folder' }).click();
-		const card = page.locator('.card', { hasText: 'psnes-sram-counter' });
-		await expect(card).toBeVisible();
 		await expect(page.locator('[data-note="localSavesInFolder"]')).toBeVisible();
+		await page.goto('/');
+		const card = page.locator('.game-card', { hasText: 'psnes-sram-counter' });
+		await expect(card).toBeVisible();
 		await page.screenshot({ path: path.join(SHOTS, `home-offline-${viewport.name}.png`), fullPage: true });
 
-		await card.getByRole('button', { name: 'Play' }).click();
+		await card.click();
 		await expect(page).toHaveURL(new RegExp(`/local\\?rom=${CHECKSUM}`));
 		await waitForGame(page);
 		await page.screenshot({ path: path.join(SHOTS, `game-offline-${viewport.name}.png`) });
@@ -206,17 +211,19 @@ test('offline, no folder picker: saves fall back to this browser, and survive a 
 
 	await expect(page.getByText('Solo, no account')).toBeVisible();
 	// The fallback is silent in game and said on the ROM panel.
+	await page.locator('.top-bar a.avatar').click();
 	await expect(page.locator('[data-note="localSavesUnsupported"]')).toBeVisible();
 
-	await page.locator('input[type="file"]').setInputFiles({
+	await page.locator('input[type="file"][accept*=".sfc"]').setInputFiles({
 		name: ROM_NAME,
 		mimeType: 'application/octet-stream',
 		buffer: Buffer.from(ROM)
 	});
-	const card = page.locator('.card', { hasText: 'psnes-sram-counter' });
+	await page.goto('/');
+	const card = page.locator('.game-card', { hasText: 'psnes-sram-counter' });
 	await expect(card).toBeVisible();
 
-	await card.getByRole('button', { name: 'Play' }).click();
+	await card.click();
 	await waitForGame(page);
 	await openPauseMenu(page);
 	await expect.poll(() => srmOnDevice(page, CHECKSUM)).not.toBeNull();
