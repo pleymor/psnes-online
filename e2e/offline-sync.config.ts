@@ -16,6 +16,9 @@ import baseConfig from './playwright.config';
  * backend (`preview.proxy` reprend `server.proxy`), donc la page, sa session
  * et sa socket sont sur une seule origine, comme en production derrière nginx.
  *
+ * `offline-saves.spec.ts` tourne sur la même pile : les sauvegardes prises en
+ * ligne, retrouvées hors-ligne dans le même menu.
+ *
  * `bun run test:e2e:sync`. Les captures vont dans `e2e/offline-shots/`.
  */
 const APP_PORT = Number(process.env.E2E_SYNC_APP_PORT || 4176);
@@ -27,7 +30,7 @@ export default defineConfig({
   ...baseConfig,
   globalSetup: undefined,
   testIgnore: undefined,
-  testMatch: /offline-(sync|layout)\.spec\.ts$/,
+  testMatch: /offline-(sync|layout|saves)\.spec\.ts$/,
   timeout: 120_000,
   use: {
     ...baseConfig.use,

@@ -186,3 +186,9 @@ export function findSaveOwnerId(db: Database, saveId: string): string | null {
 export function deleteSave(db: Database, id: string): boolean {
   return db.query(`DELETE FROM "Save" WHERE id = ?`).run(id).changes > 0;
 }
+
+/** When a save was last written, in milliseconds, or null if there is no such save. */
+export function findSaveUpdatedAt(db: Database, id: string): number | null {
+  const row = db.query(`SELECT updatedAt FROM "Save" WHERE id = ?`).get(id) as { updatedAt: number } | undefined;
+  return row?.updatedAt ?? null;
+}

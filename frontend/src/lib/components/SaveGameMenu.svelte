@@ -8,6 +8,11 @@
    *
    * There is no slot picker. The server assigns the number, so a new save can
    * always be made and nothing has to be chosen to make one.
+   *
+   * The same menu offline (a game outside any room): `shelf` and `write` then
+   * point at this device's saves instead of the server. Online, each save is
+   * also kept on this device first (`saves/offline-copy.ts`), so that it is
+   * still there once the network is gone.
    */
   import { createEventDispatcher } from 'svelte';
   import SaveGrid from './SaveGrid.svelte';
@@ -15,48 +20,59 @@
   import { socket } from '$lib/api/socket';
   import { language } from '$lib/stores/language';
   import { t } from '$lib/i18n/translations';
-  import { createLogger } from '$lib/utils/logger';
   import { autoSaveName, type SaveSummary } from '$lib/saves/api';
   import { captureShot, captureState } from '$lib/saves/capture';
+  import { mirrorOf, writeThroughSocket } from '$lib/saves/offline-copy';
+  import type { DeviceSaveActions, SaveShelf } from '$lib/saves/shelf';
   import { notifications } from '$lib/services/notification';
 
   export let roomId: string;
   export let gameId: string;
   /** Needs `saveState()`; `getCanvas()` is optional and only costs a thumbnail. */
   export let emulator: any = null;
+  /** The cartridge, so the save can be kept on this device too. */
+  export let gameCrc32: string | null = null;
+  /** Offline: this device's saves, in place of the server's. */
+  export let shelf: SaveShelf | null = null;
+  export let deviceWrite: DeviceSaveActions['write'] | null = null;
 
-  const logger = createLogger('SaveGameMenu');
   const dispatch = createEventDispatcher();
 
   let grid: SaveGrid;
   let busy = false;
   let pendingOverwrite: SaveSummary | null = null;
 
-  async function write(saveId: string | undefined, name: string) {
+  async function write(target: SaveSummary | undefined, name: string) {
     busy = true;
+    if (deviceWrite) {
+      const ok = await deviceWrite(target, name);
+      busy = false;
+      notifications.show(t($language, ok ? 'saveCreated' : 'failedToSave'), ok ? 'success' : 'error');
+      if (ok) grid?.reload();
+      return;
+    }
+
     const screenshot = captureShot(emulator);
     const saveData = await captureState(emulator);
 
-    $socket?.emit('game:save', { roomId, saveId, name, saveData, screenshot });
-
     // Straight to the toast store. These used to be dispatched to a parent
     // that never listened, so "save created" has never actually been shown.
-    const onSaved = () => {
-      busy = false;
-      notifications.show(t($language, 'saveCreated'), 'success');
-      grid?.reload();
-      $socket?.off('error', onError);
-    };
-
-    const onError = (error: unknown) => {
-      busy = false;
-      logger.error('Error saving:', error);
+    const result = await writeThroughSocket({
+      socket: $socket,
+      roomId,
+      target: target ? { id: target.id, name: target.name } : null,
+      name,
+      saveData,
+      screenshot,
+      mirror: mirrorOf(gameCrc32)
+    });
+    busy = false;
+    if (!result.ok) {
       notifications.show(t($language, 'failedToSave'), 'error');
-      $socket?.off('game:saved', onSaved);
-    };
-
-    $socket?.once('game:saved', onSaved);
-    $socket?.once('error', onError);
+      return;
+    }
+    notifications.show(t($language, result.queued ? 'savedOnDevice' : 'saveCreated'), 'success');
+    grid?.reload();
   }
 
   function createNew() {
@@ -66,7 +82,7 @@
   function confirmOverwrite() {
     const target = pendingOverwrite;
     pendingOverwrite = null;
-    if (target) write(target.id, target.name);
+    if (target) write(target, target.name);
   }
 </script>
 
@@ -84,6 +100,8 @@
     bind:this={grid}
     {gameId}
     {busy}
+    {shelf}
+    withLegacy={false}
     kinds={['state']}
     actionLabel={t($language, 'overwrite')}
     on:select={(e) => (pendingOverwrite = e.detail)}

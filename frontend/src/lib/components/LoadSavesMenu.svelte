@@ -12,6 +12,9 @@
    * that can do that provides `RESTORE_SRAM` in its context; a room that
    * cannot (lockstep, where both machines must hold the same battery) leaves
    * it out, and the tile says so instead of pretending.
+   *
+   * The same menu offline: `shelf` and `deviceLoad` then read this device's
+   * saves and put one straight into the machine - there is no room to tell.
    */
   import { createEventDispatcher, getContext } from 'svelte';
   import SaveGrid from './SaveGrid.svelte';
@@ -22,9 +25,13 @@
   import type { SaveSummary } from '$lib/saves/api';
   import { notifications } from '$lib/services/notification';
   import { RESTORE_SRAM, type RestoreSram } from '$lib/saves/restore';
+  import type { DeviceSaveActions, SaveShelf } from '$lib/saves/shelf';
 
   export let roomId: string;
   export let gameId: string;
+  /** Offline: this device's saves, in place of the server's. */
+  export let shelf: SaveShelf | null = null;
+  export let deviceLoad: DeviceSaveActions['load'] | null = null;
 
   const logger = createLogger('LoadSavesMenu');
   const dispatch = createEventDispatcher();
@@ -45,7 +52,24 @@
     if (ok) dispatch('close');
   }
 
+  async function loadFromDevice(save: SaveSummary, load: DeviceSaveActions['load']) {
+    if (save.kind === 'sram' && !confirm(t($language, 'restoreSramConfirm'))) return;
+    busy = true;
+    const ok = await load(save);
+    busy = false;
+    if (save.kind === 'sram') {
+      notifications.show(t($language, ok ? 'sramRestored' : 'failedToRestoreSram'), ok ? 'success' : 'error');
+    } else {
+      notifications.show(t($language, ok ? 'saveLoaded' : 'failedToLoad'), ok ? 'success' : 'error');
+    }
+    if (ok) dispatch('close');
+  }
+
   function loadSave(save: SaveSummary) {
+    if (deviceLoad) {
+      void loadFromDevice(save, deviceLoad);
+      return;
+    }
     if (save.kind === 'sram') {
       void restoreKept(save);
       return;
@@ -79,7 +103,8 @@
   <SaveGrid
     {gameId}
     {busy}
-    kinds={restore ? ['state', 'sram'] : ['state']}
+    {shelf}
+    kinds={restore || shelf ? ['state', 'sram'] : ['state']}
     actionLabel={t($language, 'loadState')}
     sramActionLabel={t($language, 'restoreSram')}
     on:select={(e) => loadSave(e.detail)}

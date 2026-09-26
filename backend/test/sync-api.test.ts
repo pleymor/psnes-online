@@ -248,3 +248,26 @@ test('une vignette qui n\'est pas une image matricielle est refusée', async () 
   });
   assert.equal(res.status, 400);
 });
+
+/* ------------------------------------------------- la copie hors-ligne */
+
+test('une seule sauvegarde et ses octets, pour la copie de l\'appareil', async () => {
+  const { user, crc32 } = aPlayerWithAGame();
+  const id = syncId();
+  const sent = await call('POST', `/${crc32}/states`, user.id, { syncId: id, userId: user.id, name: 'Soir', data: b64(7, 8), screenshot: null, savedAt: Date.now() - 1000 });
+  const read = await call('GET', `/${crc32}/states/${sent.body.saveId}`, user.id);
+  assert.equal(read.status, 200);
+  assert.equal(read.cache, 'no-store');
+  assert.equal(read.body.name, 'Soir');
+  assert.equal(read.body.kind, 'state');
+  assert.equal(read.body.syncId, id);
+  assert.deepEqual([...Buffer.from(read.body.data, 'base64')], [7, 8]);
+});
+
+test('la sauvegarde d\'un autre, ou d\'un autre jeu, ne se lit pas : 404', async () => {
+  const a = aPlayerWithAGame();
+  const b = aPlayerWithAGame();
+  const sent = await call('POST', `/${a.crc32}/states`, a.user.id, { syncId: syncId(), userId: a.user.id, name: 'x', data: b64(1), savedAt: Date.now() - 1000 });
+  assert.equal((await call('GET', `/${a.crc32}/states/${sent.body.saveId}`, b.user.id)).status, 404);
+  assert.equal((await call('GET', `/${b.crc32}/states/${sent.body.saveId}`, b.user.id)).status, 404);
+});

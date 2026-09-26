@@ -7,6 +7,7 @@ import {
   writeLibrarySnapshot
 } from '../games/library-snapshot';
 import { COVERS_CACHE } from '../pwa/cache-policy';
+import { keepSavesForOffline } from '../saves/offline-copy';
 
 export interface Game {
   id: string;
@@ -89,6 +90,9 @@ export async function loadGames(): Promise<void> {
     loaded.sort((a, b) => a.title.localeCompare(b.title));
     games.set(loaded);
     void keepForOffline(loaded);
+    // Et les sauvegardes de ces jeux, pour qu'une partie hors-ligne retrouve
+    // ce qui a été sauvegardé en ligne - seulement ce qui a changé.
+    void keepSavesForOffline(loaded);
   } catch {
     // Voir ci-dessus : l'écran garde ce qu'il affichait.
   }

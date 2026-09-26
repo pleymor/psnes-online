@@ -34,12 +34,13 @@
   import { language } from '$lib/stores/language';
   import { QUICK_SAVE_KEY, QUICK_LOAD_KEY, QUICK_SAVE_NAME, padUsesKey } from '$lib/saves/quick';
   import { quickSave, quickLoad } from '$lib/saves/quick-actions';
-  import { localSaveStore, type SaveListing } from '$lib/saves/local-store';
   import { openSram, persistSram } from '$lib/saves/sram-sync';
-  import { queueState, sramContext, sramDeps } from '$lib/saves/sync';
+  import { reachable, sramContext, sramDeps } from '$lib/saves/sync';
   import { restoreKept, RESTORE_SRAM, type RestoreSram } from '$lib/saves/restore';
-  import { autoSaveName } from '$lib/saves/api';
   import { captureShot } from '$lib/saves/capture';
+  import { deviceQuickSave, deviceSaves } from '$lib/saves/offline-copy';
+  import { games } from '$lib/stores/games';
+  import { linkState } from '$lib/stores/connection';
   import { user } from '$lib/stores/user';
   import SyncStatus from './SyncStatus.svelte';
   import { notifications } from '$lib/services/notification';
@@ -66,9 +67,10 @@
   /**
    * Solo through `/local`, possibly without a network (#70).
    *
-   * Set, it replaces the room and the socket: the savestate slots go through
-   * `saves/local-store.ts`, next to the ROM or in this browser. `userId` is
-   * the account those saves also queue for (#71), null without one. The
+   * Set, it replaces the room and the socket: the pause menu's saves are this
+   * device's (`saves/offline-copy.ts`) - the ones made here, and the copies of
+   * the ones made online. `userId` is the account those saves also queue for
+   * (#71), null without one. The
    * battery save takes the same local-first path in every room now, so this
    * no longer changes where it goes - only who it syncs to.
    */
@@ -423,51 +425,31 @@
   }
 
   /**
-   * The pause menu's slots, for solo play without an account.
+   * The pause menu's saves outside any room: this device's.
    *
-   * A savestate is applied straight to the core, like `onGameLoaded` does:
-   * there is nobody to synchronise.
+   * The same two menus as in a room (one saves menu, online and offline); what
+   * changes is where they read and write. A savestate is applied straight to
+   * the core, like `onGameLoaded` does: there is nobody to synchronise.
    */
-  $: localSlots = localGame
-    ? {
-        list: (): Promise<SaveListing[]> => localSaveStore().list(localGame!.checksum),
-        save: (slot: number) => saveLocalState(slot),
-        load: (slot: number) => loadLocalState(slot)
-      }
+  $: localSaves = localGame
+    ? deviceSaves({
+        owner: localGame.userId ?? null,
+        checksum: localGame.checksum,
+        slotLabel: (n) => t($language, 'localSlot', { n }),
+        capture: async () =>
+          core ? { bytes: core.saveState(), screenshot: captureShot(saveAdapter) ?? null } : null,
+        apply: applyLocalState,
+        restoreSram: restoreKeptSram,
+        // The server answering right now, for a session - not `navigator.onLine`.
+        connected: () => $linkState === 'connected' && reachable(),
+        gameId: () => $games.find((g) => g.crc32 === localGame?.checksum)?.id ?? null
+      })
     : null;
 
-  async function saveLocalState(slot: number): Promise<boolean> {
-    if (!core || !localGame) return false;
-    const state = core.saveState();
+  function applyLocalState(bytes: Uint8Array): boolean {
+    if (!core) return false;
     try {
-      await localSaveStore().write(localGame.checksum, slot, state);
-    } catch (err) {
-      logger.error('Could not write the savestate', err);
-      return false;
-    }
-    // With an account (#71), the slot is also a save for the server, queued
-    // until the network is back. Slot 1 is the quick slot here, so it goes as
-    // the account's quick save - one per game, and the sync keeps both when
-    // it meets one taken on another device. The others are new saves: the
-    // server never overwrites one it did not see being chosen.
-    if (localGame.userId) {
-      void queueState({
-        userId: localGame.userId,
-        checksum: localGame.checksum,
-        name: slot === 1 ? QUICK_SAVE_NAME : autoSaveName($language),
-        bytes: state,
-        screenshot: captureShot(saveAdapter) ?? null
-      }).catch((err) => logger.error('Could not queue the savestate for the server', err));
-    }
-    return true;
-  }
-
-  async function loadLocalState(slot: number): Promise<boolean> {
-    if (!core || !localGame) return false;
-    try {
-      const record = await localSaveStore().read(localGame.checksum, slot);
-      if (!record) return false;
-      core.loadState(record.bytes);
+      core.loadState(bytes);
       audio?.flush();
       // The menu stays open over a stopped game; draw the loaded picture.
       renderer?.draw(core);
@@ -476,6 +458,23 @@
       logger.error('Could not load the savestate', err);
       return false;
     }
+  }
+
+  /** F2 and F4 outside a room: this device's quick save, the one the menu shows. */
+  async function localQuick(kind: 'save' | 'load'): Promise<void> {
+    if (!localSaves || !localGame) return;
+    const existing = await deviceQuickSave(localGame.userId ?? null, localGame.checksum).catch(() => null);
+    if (kind === 'save') {
+      const ok = await localSaves.write(existing ?? undefined, QUICK_SAVE_NAME);
+      notifications.show(t($language, ok ? 'quickSaved' : 'failedToSave'), ok ? 'success' : 'error');
+      return;
+    }
+    if (!existing) {
+      notifications.show(t($language, 'noQuickSave'), 'info');
+      return;
+    }
+    const ok = await localSaves.load(existing);
+    notifications.show(t($language, ok ? 'saveLoaded' : 'failedToLoad'), ok ? 'success' : 'error');
   }
 
   /**
@@ -847,19 +846,11 @@
     if (!showPauseMenu && (event.code === QUICK_SAVE_KEY || event.code === QUICK_LOAD_KEY)) {
       if (padUsesKey(controls.p1.keys, event.code) || padUsesKey(controls.p2.keys, event.code)) return;
       event.preventDefault();
-      if (localSlots) {
-        // Slot 1 is the quick slot without an account: the server's quick
-        // save is a named save this player has nowhere to keep.
-        const quick = event.code === QUICK_SAVE_KEY ? localSlots.save(1) : localSlots.load(1);
-        void quick.then((ok) =>
-          notifications.show(
-            t($language, ok ? (event.code === QUICK_SAVE_KEY ? 'localSaved' : 'localLoaded') : 'localSaveFailed', { n: 1 }),
-            ok ? 'success' : 'error'
-          )
-        );
+      if (localSaves) {
+        void localQuick(event.code === QUICK_SAVE_KEY ? 'save' : 'load');
         return;
       }
-      const ctx = { socket: $socket, roomId, gameId, locale: $language };
+      const ctx = { socket: $socket, roomId, gameId, checksum: gameCrc32, locale: $language };
       if (event.code === QUICK_SAVE_KEY) void quickSave({ ...ctx, emulator: saveAdapter });
       else void quickLoad(ctx);
       return;
@@ -1171,7 +1162,8 @@
       {turbo}
       {turboSpeed}
       canReset={true}
-      localSaves={localSlots}
+      deviceSaves={localSaves}
+      {gameCrc32}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}

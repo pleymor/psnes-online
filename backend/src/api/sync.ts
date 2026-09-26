@@ -26,7 +26,7 @@ import { Router, type Response } from 'express';
 import type { User } from '../types/index.js';
 import { getDb } from '../db/sqlite.js';
 import { findGameByChecksum } from '../db/games.js';
-import { readStoredSram, restoreKeptSram, syncSram, syncState } from '../db/sync.js';
+import { readSaveOfGame, readStoredSram, restoreKeptSram, syncSram, syncState } from '../db/sync.js';
 import { MAX_NAME_CHARS, MAX_SCREENSHOT_CHARS, MAX_SRAM_BYTES, MAX_STATE_BYTES, decodedLength, isBase64, isImageDataUrl } from '../saves/archive.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/async-handler.js';
@@ -224,6 +224,34 @@ syncRouter.post('/:crc32/states', asyncHandler(async (req, res) => {
   });
   logger.info({ gameId, userId: user.id, outcome: result.outcome, saveId: result.saveId }, 'Savestate synchronised');
   res.json(result);
+}));
+
+/**
+ * Une sauvegarde et ses octets, pour la copie que l'appareil garde (#71).
+ *
+ * `/api/games/:id/saves` rend déjà les octets, mais de TOUTES les sauvegardes
+ * du jeu d'un coup : l'appareil qui rattrape une seule sauvegarde changée
+ * téléchargerait les autres avec. Celle-ci n'en rend qu'une, et c'est ce qui
+ * permet de ne chercher que ce qui a changé.
+ */
+syncRouter.get('/:crc32/states/:saveId', asyncHandler(async (req, res) => {
+  const user = req.user as User;
+  const gameId = ownGame(res, user, req.params.crc32);
+  if (!gameId) return;
+  const save = readSaveOfGame(getDb(), gameId, req.params.saveId);
+  // 404 pour « pas à vous » comme pour « n'existe pas » : la règle de la
+  // suppression, pour la même raison.
+  if (!save) return res.status(404).json({ error: 'Save not found' });
+  res.json({
+    id: save.id,
+    name: save.name,
+    kind: save.kind,
+    screenshot: save.screenshot,
+    createdAt: save.createdAt,
+    updatedAt: save.updatedAt,
+    syncId: save.syncId,
+    data: save.data.toString('base64')
+  });
 }));
 
 /**

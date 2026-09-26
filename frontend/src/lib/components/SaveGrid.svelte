@@ -13,6 +13,7 @@
   import { t } from '$lib/i18n/translations';
   import { fetchSaves, deleteSave, byNewest, type SaveSummary, type LoadFailure } from '$lib/saves/api';
   import { saveIdentity } from '$lib/saves/identity';
+  import type { SaveShelf } from '$lib/saves/shelf';
   import ConfirmModal from './ConfirmModal.svelte';
   import { notifications } from '$lib/services/notification';
 
@@ -39,6 +40,15 @@
   export let kinds: ('state' | 'sram')[] = ['state', 'sram'];
   /** Ce que dit le bouton d'une sauvegarde de cartouche gardée : on la restaure. */
   export let sramActionLabel = '';
+  /**
+   * D'où vient la liste, si ce n'est pas le serveur : les sauvegardes de
+   * l'appareil, hors-ligne (`saves/shelf.ts`). Même grille, mêmes tuiles ;
+   * ce que la source ne peut pas faire ici reste visible, grisé, avec la
+   * raison - pas caché.
+   */
+  export let shelf: SaveShelf | null = null;
+  /** Les anciens emplacements `.stateN` : chargeables, mais pas une cible d'écriture. */
+  export let withLegacy = true;
 
   const dispatch = createEventDispatcher<{ select: SaveSummary; deleted: SaveSummary }>();
 
@@ -62,7 +72,7 @@
     if (!target) return;
 
     deleting = true;
-    const result = await deleteSave(gameId, target.id);
+    const result = shelf ? await shelf.remove(target) : await deleteSave(gameId, target.id);
     deleting = false;
 
     /*
@@ -110,7 +120,7 @@
     }
 
     loading = true;
-    const result = await fetchSaves(gameId);
+    const result = shelf ? await shelf.list() : await fetchSaves(gameId);
     loading = false;
 
     if (result.ok) {
@@ -133,13 +143,19 @@
     loading = false;
   }
 
-  $: shown = saves.filter((save) => kinds.includes(save.kind ?? 'state'));
+  $: shown = saves.filter(
+    (save) => kinds.includes(save.kind ?? 'state') && (withLegacy || !save.legacySlot)
+  );
   $: kept = { state: t($language, 'keptStateLabel'), sram: t($language, 'keptSramLabel') };
 
   // `formatDate` used to live here. `saveIdentity` replaces it: the tile now
   // decides between one line and two rather than always printing both, which
   // is what stopped the date being painted across the action label.
 </script>
+
+{#if shelf?.note}
+  <p class="grid-source">{t($language, shelf.note)}</p>
+{/if}
 
 {#if loading}
   <p class="grid-note">{t($language, 'loading')}</p>
@@ -154,10 +170,17 @@
   <ul class="grid">
     {#each shown as save (save.id)}
       {@const identity = saveIdentity(save, $language, t($language, 'quickSave'), kept)}
+      {@const pickBlocked = shelf?.pickBlocked?.(save) ?? null}
+      {@const removeBlocked = shelf?.removeBlocked?.(save) ?? null}
       <!-- A row holding two buttons rather than one big button: a delete
            control cannot be nested inside the button it sits on. -->
       <li class="tile">
-        <button class="pick" disabled={busy} on:click={() => dispatch('select', save)}>
+        <button
+          class="pick"
+          disabled={busy || !!pickBlocked}
+          title={pickBlocked ? t($language, pickBlocked) : undefined}
+          on:click={() => dispatch('select', save)}
+        >
           <span class="shot">
             {#if save.screenshot}
               <img src={save.screenshot} alt="" />
@@ -170,14 +193,21 @@
             {#if identity.secondary}
               <small>{identity.secondary}</small>
             {/if}
+            {#if pickBlocked}
+              <small class="blocked">{t($language, pickBlocked)}</small>
+            {/if}
           </span>
           <span class="action">{save.kind === 'sram' && sramActionLabel ? sramActionLabel : actionLabel}</span>
         </button>
         <button
           class="remove"
-          disabled={busy || deleting}
-          title={t($language, 'deleteSave')}
-          aria-label={`${t($language, 'deleteSave')} — ${identity.primary}`}
+          disabled={busy || deleting || !!removeBlocked}
+          title={removeBlocked
+            ? `${t($language, 'deleteSave')} — ${t($language, removeBlocked)}`
+            : t($language, 'deleteSave')}
+          aria-label={removeBlocked
+            ? `${t($language, 'deleteSave')} — ${identity.primary} — ${t($language, removeBlocked)}`
+            : `${t($language, 'deleteSave')} — ${identity.primary}`}
           on:click={() => (pendingDelete = save)}
         >
           ×
@@ -392,6 +422,17 @@
     .meta strong {
       font-size: 0.875rem;
     }
+  }
+
+  /* The pick greyed out: the reason, in the tile, where the eye already is. */
+  .meta small.blocked {
+    color: #c9a24a;
+  }
+
+  .grid-source {
+    margin: 0 0 0.75rem;
+    color: #c9a24a;
+    font-size: 0.8125rem;
   }
 
   .grid-note {

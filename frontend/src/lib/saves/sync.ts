@@ -71,7 +71,7 @@ export async function refreshSyncStatus(): Promise<void> {
 }
 
 /** Le serveur répond-il, là, maintenant - pour une session, pas pour `navigator.onLine`. */
-function reachable(): boolean {
+export function reachable(): boolean {
 	return shouldDrain(get(linkState), !!get(user));
 }
 
@@ -164,7 +164,7 @@ export async function queueState(input: {
 	bytes: Uint8Array;
 	screenshot: string | null;
 	replaces?: { id: string; updatedAt: number } | null;
-}): Promise<{ queued: true; saveId: string | null }> {
+}): Promise<{ queued: true; saveId: string | null; syncId: string }> {
 	const outbox = saveOutbox();
 	const op = await outbox.add({
 		userId: input.userId,
@@ -177,10 +177,10 @@ export async function queueState(input: {
 		replaces: input.replaces ?? null
 	});
 	requestBackgroundSync();
-	if (!reachable()) return { queued: true, saveId: null };
+	if (!reachable()) return { queued: true, saveId: null, syncId: op.id };
 	const report = await outbox.drain(input.userId, { checksum: input.checksum });
 	await refreshSyncStatus();
-	return { queued: true, saveId: report.states.get(op.lane) ?? null };
+	return { queued: true, saveId: report.states.get(op.lane) ?? null, syncId: op.id };
 }
 
 let started = false;

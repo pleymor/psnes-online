@@ -2,6 +2,7 @@ import type { Socket } from 'socket.io-client';
 import { fetchSaves } from './api';
 import { captureShot, captureState, type CapturableEmulator } from './capture';
 import { findQuickSave, QUICK_SAVE_NAME } from './quick';
+import { mirrorOf, writeThroughSocket } from './offline-copy';
 import { notifications } from '$lib/services/notification';
 import { t } from '$lib/i18n/translations';
 
@@ -24,6 +25,8 @@ interface QuickContext {
 	roomId: string;
 	gameId: string;
 	locale: string;
+	/** The cartridge, so the quick save is also kept on this device (#71). */
+	checksum?: string | null;
 }
 
 export async function quickSave(
@@ -45,24 +48,21 @@ export async function quickSave(
 	const screenshot = captureShot(emulator);
 	const saveData = await captureState(emulator);
 
-	const onSaved = () => {
-		socket.off('error', onError);
-		notifications.show(t(locale as never, 'quickSaved'), 'success');
-	};
-	const onError = () => {
-		socket.off('game:saved', onSaved);
-		notifications.show(t(locale as never, 'failedToSave'), 'error');
-	};
-	socket.once('game:saved', onSaved);
-	socket.once('error', onError);
-
-	socket.emit('game:save', {
+	// This device first, then the socket (`offline-copy.ts`): a quick save
+	// taken online is there offline too.
+	const result = await writeThroughSocket({
+		socket,
 		roomId,
-		saveId: existing?.id,
+		target: existing ? { id: existing.id, name: existing.name } : null,
 		name: QUICK_SAVE_NAME,
 		saveData,
-		screenshot
+		screenshot,
+		mirror: mirrorOf(ctx.checksum)
 	});
+	notifications.show(
+		t(locale as never, result.ok ? (result.queued ? 'savedOnDevice' : 'quickSaved') : 'failedToSave'),
+		result.ok ? 'success' : 'error'
+	);
 }
 
 export async function quickLoad(ctx: QuickContext): Promise<void> {

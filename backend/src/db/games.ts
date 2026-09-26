@@ -138,10 +138,10 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
   // rencontrée - jusqu'à cent, ici. Recompiler est moins cher que retenir cent
   // variantes dont on ne réutilisera presque jamais la même.
   const summaries = db.prepare(`
-    SELECT id, name, slotNumber, screenshot, createdAt, updatedAt, gameId, kind
+    SELECT id, name, slotNumber, screenshot, createdAt, updatedAt, gameId, kind, syncId
     FROM "Save" WHERE gameId IN (${games.map(() => '?').join(',')})
-  `).all(...games.map(g => g.id)) as (Omit<SaveSummary, 'createdAt' | 'updatedAt' | 'kind'> & {
-    createdAt: number; updatedAt: number; gameId: string; kind: string;
+  `).all(...games.map(g => g.id)) as (Omit<SaveSummary, 'createdAt' | 'updatedAt' | 'kind' | 'syncId'> & {
+    createdAt: number; updatedAt: number; gameId: string; kind: string; syncId: string | null;
   })[];
 
   const byGame = new Map<string, SaveSummary[]>();
@@ -154,7 +154,8 @@ export function listGamesWithSaveSummaries(db: Database, userId: string): GameWi
       screenshot: s.screenshot,
       createdAt: new Date(s.createdAt),
       updatedAt: new Date(s.updatedAt),
-      kind: s.kind === 'sram' ? 'sram' : 'state'
+      kind: s.kind === 'sram' ? 'sram' : 'state',
+      syncId: s.syncId
     });
     byGame.set(s.gameId, list);
   }

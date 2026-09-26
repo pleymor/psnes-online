@@ -13,7 +13,10 @@
  * Deux endroits où une copie peut vivre :
  *
  * - **le dossier de ROMs**, à côté de la cartouche : `<rom>.srm` octet pour
- *   octet, `<rom>.state1`… pour les savestates (`local-rules.ts` dit pourquoi) ;
+ *   octet, `<rom>.state1`… pour les savestates (`local-rules.ts` dit pourquoi).
+ *   Ces trois emplacements ne sont plus écrits : les savestates vont
+ *   désormais dans `local-states.ts`, nommés et sans limite, comme ceux d'un
+ *   compte. Ceux qui existent se lisent encore, depuis le menu de chargement ;
  * - **l'appareil**, dans IndexedDB, quand le dossier n'est pas possible :
  *   Firefox et Safari, un dossier sans permission d'écriture, une ROM désignée
  *   à la main qui n'est dans aucun dossier.
@@ -286,8 +289,13 @@ const DB_NAME = 'psnes-local';
  * synchronisation, et la bibliothèque vue en ligne. Ce module est le seul à
  * ouvrir cette base - la page comme le service worker passent par ici - donc
  * monter la version ne laisse personne derrière.
+ *
+ * 3 : les savestates gardés sur l'appareil (`local-states.ts`) - ceux pris
+ * hors-ligne comme la copie de ceux du serveur, pour qu'une partie hors-ligne
+ * retrouve ce qu'on a sauvegardé en ligne. Leurs octets à part de leur fiche :
+ * lister les sauvegardes d'un jeu ne doit pas charger un mégaoctet par ligne.
  */
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const SAVES = 'saves';
 /** checksum -> nom de fichier, pour les ROMs désignées une par une. */
 export const TITLES = 'titles';
@@ -297,6 +305,10 @@ export const OUTBOX = 'outbox';
 export const SYNC_RECORDS = 'sync-records';
 /** userId -> la bibliothèque de ce compte telle qu'elle a été vue en ligne. */
 export const LIBRARY = 'library';
+/** id local -> la fiche d'un savestate gardé sur l'appareil (`LocalStateMeta`). */
+export const STATES = 'states';
+/** id local -> ses octets. */
+export const STATE_BYTES = 'state-bytes';
 
 export function openLocalDb(): Promise<IDBDatabase> {
 	return new Promise((resolve, reject) => {
@@ -308,6 +320,8 @@ export function openLocalDb(): Promise<IDBDatabase> {
 			if (!db.objectStoreNames.contains(OUTBOX)) db.createObjectStore(OUTBOX);
 			if (!db.objectStoreNames.contains(SYNC_RECORDS)) db.createObjectStore(SYNC_RECORDS);
 			if (!db.objectStoreNames.contains(LIBRARY)) db.createObjectStore(LIBRARY);
+			if (!db.objectStoreNames.contains(STATES)) db.createObjectStore(STATES);
+			if (!db.objectStoreNames.contains(STATE_BYTES)) db.createObjectStore(STATE_BYTES);
 		};
 		request.onsuccess = () => {
 			const db = request.result;

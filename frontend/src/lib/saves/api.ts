@@ -21,6 +21,12 @@ export interface SaveSummary {
    * elle se restaure, elle ne se charge pas. Absent vaut `state`.
    */
   kind?: 'state' | 'sram';
+  /**
+   * Hors-ligne seulement : un emplacement `<rom>.stateN` écrit par la version
+   * d'avant (#70), qui ne proposait que trois emplacements. Il se charge
+   * encore ; il ne s'écrase ni ne se supprime d'ici.
+   */
+  legacySlot?: number;
 }
 
 /** The translation key describing why an operation on saves did not happen. */
