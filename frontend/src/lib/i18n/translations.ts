@@ -67,6 +67,16 @@ export const translations = {
     offlineAccountTitle: 'Offline',
     offlineAccountIntro: 'The server cannot be reached. You are playing as {name}: your saves stay on this device and will be sent to your account when the network is back.',
     offlineAccountNoGames: 'None of the games in your library are on this device. Choose your ROM folder, or add a file.',
+    // L'écran hors-ligne est l'écran en ligne : ce qui demande le serveur y
+    // reste, éteint, et dit pourquoi.
+    needsConnection: 'Requires a connection',
+    needsAccount: 'Requires an account',
+    offlineFriendsNote: 'Offline: your friends as they were at your last connection. Inviting and answering come back with the network.',
+    noAccountFriendsNote: 'Friends and invitations need an account.',
+    thisDevice: 'This device',
+    offlineProfileIntro: 'Offline: what goes through the server comes back with the network. Everything else here works on this device.',
+    localProfileIntro: 'No account: these settings stay on this device.',
+    localControlsNote: 'Kept on this device.',
     syncTitle: 'Save sync',
     syncAllSent: 'All your saves are on the server.',
     syncPendingOne: '1 save waiting to be sent',
@@ -766,6 +776,16 @@ export const translations = {
     offlineAccountTitle: 'Hors-ligne',
     offlineAccountIntro: 'Le serveur est injoignable. Tu joues en tant que {name} : tes sauvegardes restent sur cet appareil et partiront vers ton compte au retour du réseau.',
     offlineAccountNoGames: 'Aucun jeu de ta bibliothèque n’est sur cet appareil. Choisis ton dossier de ROMs, ou ajoute un fichier.',
+    // L'écran hors-ligne est l'écran en ligne : ce qui demande le serveur y
+    // reste, éteint, et dit pourquoi.
+    needsConnection: 'Nécessite une connexion',
+    needsAccount: 'Nécessite un compte',
+    offlineFriendsNote: 'Hors-ligne : tes amis tels qu’à ta dernière connexion. Inviter et répondre reviendront avec le réseau.',
+    noAccountFriendsNote: 'Les amis et les invitations demandent un compte.',
+    thisDevice: 'Cet appareil',
+    offlineProfileIntro: 'Hors-ligne : ce qui passe par le serveur revient avec le réseau. Tout le reste de cette page marche sur cet appareil.',
+    localProfileIntro: 'Sans compte : ces réglages restent sur cet appareil.',
+    localControlsNote: 'Gardées sur cet appareil.',
     syncTitle: 'Synchronisation des sauvegardes',
     syncAllSent: 'Toutes tes sauvegardes sont sur le serveur.',
     syncPendingOne: '1 sauvegarde en attente d’envoi',

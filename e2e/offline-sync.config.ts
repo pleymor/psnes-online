@@ -27,7 +27,7 @@ export default defineConfig({
   ...baseConfig,
   globalSetup: undefined,
   testIgnore: undefined,
-  testMatch: /offline-sync\.spec\.ts$/,
+  testMatch: /offline-(sync|layout)\.spec\.ts$/,
   timeout: 120_000,
   use: {
     ...baseConfig.use,

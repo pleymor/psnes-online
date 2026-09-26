@@ -27,6 +27,12 @@ import {
 	rememberAccount
 } from '../../frontend/src/lib/stores/offline-account.js';
 import { saveIdentity } from '../../frontend/src/lib/saves/identity.js';
+import {
+	forgetKnownFriends,
+	knownFriendsOf,
+	readKnownFriends,
+	rememberFriends
+} from '../../frontend/src/lib/stores/known-friends.js';
 
 const ORIGIN = 'https://psnes.example';
 const at = (path: string) => new URL(path, ORIGIN);
@@ -58,6 +64,70 @@ test('hors-ligne, la bibliothèque est celle d\'en ligne, filtrée par ce que l\
 		['Chrono Trigger', '/covers/ct.webp', true],
 		['Zelda', null, false]
 	]);
+});
+
+test("un jeu que le compte et l'appareil connaissent tous deux est une seule carte, celle du compte", () => {
+	// Le cas du doublon : la même ROM, vue en ligne sous le compte et trouvée
+	// dans le dossier. Une carte, avec le titre et la jaquette du serveur.
+	const shown = offlineLibrary({
+		snapshot: snapshotOf('u1', listed, 1),
+		resolvable: ['AAAAAAAA', 'BBBBBBBB'],
+		local: [
+			{ checksum: 'AAAAAAAA', title: 'Chrono Trigger (USA)', filename: 'Chrono Trigger (USA).sfc' },
+			{ checksum: 'BBBBBBBB', title: 'eb', filename: 'eb.sfc' }
+		]
+	});
+	assert.deepEqual(shown.map((g) => [g.crc32, g.title, g.coverUrl]), [
+		['AAAAAAAA', 'Chrono Trigger', '/covers/ct.webp'],
+		['BBBBBBBB', 'Earthbound', '/covers/eb.webp']
+	]);
+});
+
+test('la clé est le CRC32 quelle que soit sa casse, et une source qui le répète ne fait pas deux cartes', () => {
+	const shown = offlineLibrary({
+		snapshot: snapshotOf('u1', [{ ...listed[0], crc32: 'aaaaaaaa' }, { ...listed[0], id: 'g1-bis', coverUrl: null }], 1),
+		resolvable: ['AAAAAAAA', 'cccccccc', 'CCCCCCCC'],
+		local: [
+			{ checksum: 'AAAAAAAA', title: 'ct', filename: 'ct.sfc' },
+			{ checksum: 'CCCCCCCC', title: 'Zelda', filename: 'Zelda.sfc' },
+			{ checksum: 'cccccccc', title: 'Zelda (copie)', filename: 'Zelda (copie).sfc' }
+		]
+	});
+	assert.deepEqual(shown.map((g) => [g.crc32, g.title, g.coverUrl]), [
+		['AAAAAAAA', 'Chrono Trigger', '/covers/ct.webp'],
+		['CCCCCCCC', 'Zelda', null]
+	]);
+});
+
+test("sans compte, la même liste : ce que l'appareil ouvre, une carte par ROM, triée par titre", () => {
+	const shown = offlineLibrary({
+		snapshot: null,
+		resolvable: ['CCCCCCCC', 'AAAAAAAA'],
+		local: [
+			{ checksum: 'CCCCCCCC', title: 'Zelda', filename: 'Zelda.sfc' },
+			{ checksum: 'AAAAAAAA', title: 'Chrono', filename: 'Chrono.sfc' }
+		]
+	});
+	assert.deepEqual(shown.map((g) => g.title), ['Chrono', 'Zelda']);
+});
+
+/* ------------------------------------------------------ les amis retenus */
+
+test('les amis retenus ne gardent que ce que le tiroir affiche, par compte, et partent à la déconnexion', () => {
+	const storage = memoryStorage();
+	rememberFriends(storage, 'u1', [
+		{ friendshipId: 'f1', friendsSince: '2026-09-01', friend: { id: 'u2', pseudo: 'Bob', avatar: 'https://x/b.png', email: 'b@x' } as never },
+		{ friendshipId: 42 as never, friend: { id: 'u3', pseudo: 'Nope' } }
+	]);
+	assert.deepEqual(readKnownFriends(storage, 'u1'), [
+		{ friendshipId: 'f1', friendsSince: '2026-09-01', friend: { id: 'u2', pseudo: 'Bob', avatar: 'https://x/b.png' } }
+	]);
+	assert.deepEqual(readKnownFriends(storage, 'u9'), [], 'un autre compte ne lit pas ceux-là');
+	forgetKnownFriends(storage, 'u1');
+	assert.deepEqual(readKnownFriends(storage, 'u1'), []);
+	storage.setItem('psnes.friends.u1', '{pas du json');
+	assert.deepEqual(readKnownFriends(storage, 'u1'), []);
+	assert.deepEqual(knownFriendsOf([]), []);
 });
 
 test('une jaquette que la liste suivante ne cite plus sort du cache : la fiche a changé', () => {

@@ -86,11 +86,33 @@
     if (!get(user)) void checkAuth();
   }
 
+  /*
+   * Et, tant que le serveur se tait, une question toutes les trente secondes.
+   *
+   * `online` ne dit rien quand c'est le serveur qui revient et non le réseau
+   * du navigateur - un déploiement, un proxy qui redémarre -, et c'est alors
+   * par là seulement que l'application quitte le mode hors-ligne sans qu'on
+   * recharge. Une requête `/auth/me` par demi-minute, et seulement dans cet
+   * état : le coût est nul pour tous les autres.
+   */
+  const RETRY_MS = 30_000;
+  let retry: ReturnType<typeof setInterval> | null = null;
+  $: silent = !$user && !$userLoading && $linkState === 'unreachable';
+  $: if (silent && !retry) {
+    retry = setInterval(() => void checkAuth(), RETRY_MS);
+  } else if (!silent && retry) {
+    clearInterval(retry);
+    retry = null;
+  }
+
   onMount(() => {
     startSaveSync();
     void checkAuth();
     window.addEventListener('online', onBrowserOnline);
-    return () => window.removeEventListener('online', onBrowserOnline);
+    return () => {
+      window.removeEventListener('online', onBrowserOnline);
+      if (retry) clearInterval(retry);
+    };
   });
 
   /**

@@ -152,13 +152,27 @@
     }
   }
 
-  onMount(load);
+  /**
+   * Pourquoi la carte ne peut rien faire ici, ou null.
+   *
+   * Hors-ligne, ou sans compte : les invitations sont sur le serveur. La
+   * carte garde sa place et son bouton, éteint, et dit pourquoi ; elle ne
+   * demande rien, puisque la réponse ne viendrait pas.
+   */
+  export let unavailable: string | null = null;
+
+  onMount(() => {
+    if (!unavailable) void load();
+  });
 </script>
 
 <section class="my-invites">
   <h2>{t($language, 'myInvites')}</h2>
 
-  {#if loading}
+  {#if unavailable}
+    <p class="note">{unavailable}</p>
+    <button disabled title={unavailable}>{t($language, 'mintInvite')}</button>
+  {:else if loading}
     <p class="note">{t($language, 'loading')}</p>
   {:else if error === 'invitesLoadFailed'}
     <!-- Un chargement raté n'est pas une liste vide : ne pas afficher

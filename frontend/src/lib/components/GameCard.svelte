@@ -11,11 +11,14 @@
   /** « Jouer », or « Jouer avec Bob »: the button says which of the two it is. */
   export let playLabel = '';
   /**
-   * La fiche, que la bibliothèque hors-ligne (#71) ne peut pas ouvrir : tout
-   * ce qu'elle propose - salon, correction, suppression - demande le serveur,
-   * et un bouton qui n'ouvre rien ressemble à une panne.
+   * Pourquoi la fiche ne s'ouvre pas, ou null quand elle s'ouvre.
+   *
+   * Hors-ligne (#71) tout ce qu'elle propose - salon, correction, suppression,
+   * partage, sauvegardes du serveur - demande le serveur. Le bouton était
+   * retiré ; il reste maintenant à sa place, éteint, et son infobulle dit
+   * pourquoi : la carte hors-ligne est la carte en ligne.
    */
-  export let details = true;
+  export let detailsReason: string | null = null;
 
   const dispatch = createEventDispatcher();
 
@@ -32,8 +35,10 @@
    * par l'affordance discrète en coin - un bouton visible en permanence, et
    * non un survol, parce qu'un téléphone ne survole rien.
    */
-  function handleCardClick() {
+  function handleCardClick(event?: Event) {
     if (playDisabled) return;
+    // La fiche éteinte : ce clic visait elle, pas le jeu.
+    if ((event?.target as Element | null)?.closest?.('.details')) return;
     dispatch('play');
   }
 
@@ -176,21 +181,22 @@
     {/if}
 
     <!-- Visible en permanence et non au survol : un téléphone ne survole
-         rien, et c'est le seul chemin vers le salon et la suppression. -->
-    {#if details}
-      <button
-        class="details"
-        on:click={openDetails}
-        aria-label={t($language, 'clickForDetails')}
-        title={t($language, 'clickForDetails')}
-      >
-        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
-             stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
-          <circle cx="8" cy="8" r="6.2" />
-          <path d="M8 7.2v4M8 4.9v.1" />
-        </svg>
-      </button>
-    {/if}
+         rien, et c'est le seul chemin vers le salon et la suppression.
+         Éteint hors-ligne, et un clic dessus ne lance pas non plus le jeu :
+         `handleCardClick` l'ignore, la carte entière étant le bouton Jouer. -->
+    <button
+      class="details"
+      on:click={openDetails}
+      disabled={detailsReason !== null}
+      aria-label={t($language, 'clickForDetails')}
+      title={detailsReason ?? t($language, 'clickForDetails')}
+    >
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
+           stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.2" />
+        <path d="M8 7.2v4M8 4.9v.1" />
+      </svg>
+    </button>
 
     <div class="play-hint"><span>{playLabel || t($language, 'play')}</span></div>
   </div>
@@ -397,7 +403,12 @@
     cursor: pointer;
   }
 
-  .details:hover,
+  .details:disabled {
+    border-color: rgba(255, 255, 255, 0.25);
+    cursor: not-allowed;
+  }
+
+  .details:hover:not(:disabled),
   .details:focus-visible {
     color: var(--label);
     border-color: var(--brand-lift);

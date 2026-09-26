@@ -57,6 +57,19 @@
   export let missingCount = 0;
 
   /**
+   * Sans serveur : le dossier s'indexe sur cet appareil, et rien n'est inscrit.
+   *
+   * C'est ici que le joueur hors-ligne choisit son dossier, comme en ligne -
+   * l'écran à part qui le faisait (`LocalLibrary`) n'existe plus. Inscrire
+   * au compte demanderait quarante POST qui échoueraient tous ; le prochain
+   * rescan en ligne le fera, puisque l'index sait déjà ce que le dossier
+   * contient.
+   */
+  export let offline = false;
+  /** Un compte à qui les sauvegardes partiront : sans lui, pas de file à montrer. */
+  export let account = true;
+
+  /**
    * Aligne le compte et l'index sur ce que le dossier contient.
    *
    * Appelée depuis pickFolder dès qu'un handle utilisable existe - qu'il vienne
@@ -68,12 +81,15 @@
    */
   async function scanAndRegister(handle: FileSystemDirectoryHandle): Promise<void> {
     progress = t($language, 'scanningFolder');
-    const known = new Set(
-      $games.map((g) => g.crc32).filter((c): c is string => !!c)
-    );
+    // Hors-ligne, « connu » veut dire déjà indexé ici : le compte est
+    // injoignable, et un jeu n'est « ajouté » que s'il est nouveau sur cet
+    // appareil.
+    const known = offline
+      ? new Set(await indexedChecksums().catch(() => [] as string[]))
+      : new Set($games.map((g) => g.crc32).filter((c): c is string => !!c));
     const result = await syncFolder({
       scan: () => scanDirectory(handle),
-      register: registerGame,
+      register: offline ? async () => {} : registerGame,
       indexed: indexedChecksums,
       forget: forgetIndexed,
       // Le compte sait ce qu'il possède, donc un dossier inchangé ne se
@@ -224,11 +240,13 @@
        écrite sur cet appareil, et part ensuite vers le compte. C'est ici, là
        où le dépôt met ce qui concerne la machine du joueur plutôt que son
        compte, que l'état de cette file se lit. -->
-  <LocalSavesNote refresh={checked} account />
-  <div class="sync-block">
-    <h3>{t($language, 'syncTitle')}</h3>
-    <SyncStatus />
-  </div>
+  <LocalSavesNote refresh={checked} {account} />
+  {#if account}
+    <div class="sync-block">
+      <h3>{t($language, 'syncTitle')}</h3>
+      <SyncStatus />
+    </div>
+  {/if}
 
   {#if progress}
     <p class="explain">{progress}</p>

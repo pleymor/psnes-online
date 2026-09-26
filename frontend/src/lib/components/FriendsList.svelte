@@ -9,8 +9,31 @@
   import { myRoom } from '$lib/rooms/my-room';
   import { friendRooms } from '$lib/rooms/friend-rooms';
   import { inviteToGroup, cancelGroupInvitation } from '$lib/rooms/actions';
+  import { get } from 'svelte/store';
+  import { controls, currentHomeMode } from '$lib/stores/home-mode';
+  import { isOfflineMode } from '$lib/rooms/local-play';
+  import { reasonKey } from '$lib/rooms/anonymous-join';
+  import { readKnownFriends, rememberFriends } from '$lib/stores/known-friends';
 
   export let compact = false; // Compact mode for small screens
+
+  /*
+   * Hors-ligne, le tiroir est le même, éteint.
+   *
+   * La liste est celle de la dernière connexion (`stores/known-friends.ts`),
+   * sans statut : sans socket personne n'est « en ligne ». Chaque bouton qui
+   * demande le serveur - ajouter, accepter, refuser, inviter - reste à sa
+   * place, éteint, et son infobulle dit pourquoi.
+   */
+  $: actionReason = reasonKey($controls.friendActions);
+  $: actionsOff = actionReason !== null;
+  $: actionTitle = actionReason ? t($language, actionReason) : undefined;
+  $: offlineNote =
+    $currentHomeMode.kind === 'local'
+      ? t($language, 'noAccountFriendsNote')
+      : $currentHomeMode.kind === 'offline-account'
+        ? t($language, 'offlineFriendsNote')
+        : '';
 
   const dispatch = createEventDispatcher();
   const logger = createLogger('FriendsList');
@@ -77,10 +100,18 @@
   }
 
   onMount(async () => {
+    const mode = get(currentHomeMode);
+    if (isOfflineMode(mode)) {
+      // Aucune requête : elle échouerait, et la socket n'existe pas.
+      friends = mode.kind === 'offline-account' ? readKnownFriends(localStorage, mode.account.id) : [];
+      return;
+    }
+
     // Load friends
     const res = await fetch('/api/friends', { credentials: 'include' });
     if (res.ok) {
       friends = await res.json();
+      if ($user && !$user.isAnonymous) rememberFriends(localStorage, $user.id, friends);
     }
 
     // Load pending requests
@@ -246,6 +277,8 @@
   }
 
   function openFriendDetails(friendData: any) {
+    // La fiche d'un ami ne propose que de le retirer, ce qui demande le serveur.
+    if (actionsOff) return;
     dispatch('friendClicked', friendData);
   }
 
@@ -304,10 +337,19 @@
     <!-- Full view -->
     <div class="header">
       <h2>{t($language, 'friends')}</h2>
-      <button on:click={() => showAddFriend = !showAddFriend} class="btn-add">
+      <button
+        on:click={() => showAddFriend = !showAddFriend}
+        class="btn-add"
+        disabled={actionsOff}
+        title={actionTitle}
+      >
         +
       </button>
     </div>
+
+    {#if offlineNote}
+      <p class="offline-note" role="status">{offlineNote}</p>
+    {/if}
 
     {#if showAddFriend}
       <div class="add-friend">
@@ -347,8 +389,8 @@
               <strong>{request.initiator.pseudo}</strong>
             </div>
             <div class="actions">
-              <button on:click={() => acceptRequest(request.id)} class="btn-accept">✓</button>
-              <button on:click={() => rejectRequest(request.id)} class="btn-reject">✗</button>
+              <button on:click={() => acceptRequest(request.id)} class="btn-accept" disabled={actionsOff} title={actionTitle}>✓</button>
+              <button on:click={() => rejectRequest(request.id)} class="btn-reject" disabled={actionsOff} title={actionTitle}>✗</button>
             </div>
           </div>
         {/each}
@@ -373,7 +415,9 @@
               </div>
               <div class="info">
                 <strong>{friendData.friend.pseudo}</strong>
-                {#if room}
+                {#if actionsOff}
+                  <!-- Sans socket personne n'est en ligne : rien à affirmer. -->
+                {:else if room}
                   <!-- A room can be waiting with no game chosen yet, and a blank
                        line there says nothing at all - so name the state
                        instead of the game. -->
@@ -403,6 +447,8 @@
             {:else if invitedId === friendData.friend.id}
               <button
                 class="btn-invite-friend cancel"
+                disabled={actionsOff}
+                title={actionTitle}
                 on:click|stopPropagation={() => cancelGroupInvitation($myRoom?.invitation?.id ?? '')}
               >
                 {t($language, 'invitedWaiting')} ✕
@@ -410,6 +456,8 @@
             {:else if !groupFull && !groupBusy && !invitedId}
               <button
                 class="btn-invite-friend"
+                disabled={actionsOff}
+                title={actionTitle}
                 on:click|stopPropagation={() => invite(friendData.friend.id)}
               >
                 {t($language, 'invite')}
@@ -657,6 +705,22 @@
     color: #ffffff;
     font-size: 0.95rem;
     padding: 0.2rem 0.7rem;
+  }
+
+  /* Éteint, et lisible comme tel : le plancher baisse l'opacité, ceci retire
+     le vert qui dit « appuie ici ». */
+  .btn-invite-friend:disabled,
+  .btn-add:disabled {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.25);
+    cursor: not-allowed;
+  }
+
+  .offline-note {
+    margin: 0 0 1rem;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    color: #b8b8c8;
   }
 
   .btn-invite-friend.cancel {
