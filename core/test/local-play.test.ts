@@ -12,7 +12,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { get } from 'svelte/store';
-import { homeMode, localFeatures, localPlayHref } from '../../frontend/src/lib/rooms/local-play.js';
+import { homeMode, isOfflineMode, onlineControls, localPlayHref } from '../../frontend/src/lib/rooms/local-play.js';
 import { linkState, noteServerSilent, serverSilent } from '../../frontend/src/lib/stores/connection.js';
 import { localGames } from '../../frontend/src/lib/roms/local-games.js';
 import {
@@ -49,11 +49,30 @@ test('un compte garde sa bibliothèque, même quand la socket est bloquée', () 
 	assert.deepEqual(homeMode({ ...nobody, user, link: 'unreachable', chosen: true }), { kind: 'account' });
 });
 
-test('sans compte, tout ce qui appartient à un compte disparaît', () => {
-	const features = localFeatures();
-	assert.equal(features.localSaves, true);
-	for (const key of ['library', 'friends', 'profile', 'saves', 'roomSetup', 'ratings'] as const) {
-		assert.equal(features[key], false, key);
+test("en ligne, rien n'est éteint", () => {
+	const on = onlineControls({ kind: 'account' });
+	for (const [name, availability] of Object.entries(on)) assert.deepEqual(availability, { enabled: true }, name);
+	assert.equal(isOfflineMode({ kind: 'account' }), false);
+	assert.equal(isOfflineMode({ kind: 'signIn' }), false);
+});
+
+test('sans compte, ce qui appartient à un compte reste à sa place, éteint, faute de compte', () => {
+	// #70 retirait ces contrôles ; ils restent maintenant, et disent pourquoi.
+	for (const why of ['chosen', 'unreachable'] as const) {
+		const mode = { kind: 'local' as const, why };
+		assert.equal(isOfflineMode(mode), true);
+		const off = onlineControls(mode);
+		for (const name of ['friendsDrawer', 'friendActions', 'vr', 'gameDetails', 'rescan', 'accountSettings', 'configFile', 'savesArchive'] as const) {
+			assert.deepEqual(off[name], { enabled: false, reason: 'needsAccount' }, name);
+		}
+	}
+});
+
+test('un compte hors-ligne garde son tiroir Amis, et tout ce qui parle au serveur y est éteint, faute de connexion', () => {
+	const off = onlineControls({ kind: 'offline-account', account: { id: 'u1', pseudo: 'Sprite', discriminator: '0417' } });
+	assert.deepEqual(off.friendsDrawer, { enabled: true }, 'la liste retenue se lit sans réseau');
+	for (const name of ['friendActions', 'vr', 'gameDetails', 'rescan', 'accountSettings', 'configFile', 'savesArchive', 'logout'] as const) {
+		assert.deepEqual(off[name], { enabled: false, reason: 'needsConnection' }, name);
 	}
 });
 

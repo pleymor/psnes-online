@@ -12,7 +12,7 @@
  */
 
 import type { LinkState } from '../stores/connection.js';
-import type { AccountFeatures } from './anonymous-join.js';
+import { AVAILABLE, unavailable, type Availability, type UnavailableReason } from './anonymous-join.js';
 
 export type HomeMode =
 	/** `/auth/me` n'a pas encore répondu : ne rien trancher. */
@@ -64,26 +64,63 @@ export function homeMode(input: {
 	return { kind: 'signIn' };
 }
 
-/** Ce qu'un écran peut proposer en solo sans compte : ce qu'un compte offre, moins tout. */
-export interface LocalFeatures extends AccountFeatures {
-	/** Sauvegarder et charger, par le magasin local et non par la socket. */
-	localSaves: boolean;
+/** Les deux accueils sans serveur : solo sans compte, et compte hors-ligne. */
+export type OfflineMode = Extract<HomeMode, { kind: 'local' } | { kind: 'offline-account' }>;
+
+export function isOfflineMode(mode: HomeMode): mode is OfflineMode {
+	return mode.kind === 'local' || mode.kind === 'offline-account';
 }
 
 /**
- * Tout ce qui appartient à un compte disparaît : amis, salons, invitations,
- * profil, lobby VR, export de sauvegardes (#70 §4.4). Il ne reste que jouer et
- * sauvegarder sur cette machine.
+ * Les contrôles de l'application en ligne qui demandent le serveur, un par un.
+ *
+ * Nommés par ce que le joueur voit, pas par la route qu'ils appellent : c'est
+ * la liste que la revue relit pour savoir ce qui est éteint hors-ligne.
  */
-export function localFeatures(): LocalFeatures {
+export interface OnlineControls {
+	/** Ouvrir le tiroir Amis. Il s'ouvre hors-ligne : la liste retenue s'y lit. */
+	friendsDrawer: Availability;
+	/** Inviter un ami, annuler une invitation, ajouter un ami, répondre à une demande. */
+	friendActions: Availability;
+	/** Le bouton VR de la barre : le lobby est sur le serveur. */
+	vr: Availability;
+	/** La fiche d'un jeu : salon, correction, suppression, partage, sauvegardes du serveur. */
+	gameDetails: Availability;
+	/** Rescanner le dossier : il inscrit les jeux trouvés au compte. */
+	rescan: Availability;
+	/** Changer de pseudonyme, les invitations d'inscription. */
+	accountSettings: Availability;
+	/** Exporter et importer sa configuration : les commandes vivent sur le compte. */
+	configFile: Availability;
+	/** Exporter ou importer ses sauvegardes : elles sont lues sur le serveur. */
+	savesArchive: Availability;
+	/** Se déconnecter : c'est le serveur qui ferme la session. */
+	logout: Availability;
+}
+
+/**
+ * Ce que l'application en ligne garde allumé, selon l'accueil.
+ *
+ * #70 retirait tout ce qui appartient à un compte (§4.4) ; c'est maintenant
+ * éteint à sa place, avec sa raison, pour que l'écran hors-ligne soit l'écran
+ * en ligne et non une page à part. Seul le tiroir Amis reste ouvrable pour un
+ * compte hors-ligne : il montre les amis vus à la dernière connexion, et ce
+ * qu'il propose y est éteint.
+ */
+export function onlineControls(mode: HomeMode): OnlineControls {
+	const online = !isOfflineMode(mode);
+	const ok = (allowed: boolean, reason: UnavailableReason) => (allowed ? AVAILABLE : unavailable(reason));
+	const reason: UnavailableReason = mode.kind === 'local' ? 'needsAccount' : 'needsConnection';
 	return {
-		library: false,
-		friends: false,
-		profile: false,
-		saves: false,
-		roomSetup: false,
-		ratings: false,
-		localSaves: true
+		friendsDrawer: ok(mode.kind !== 'local', 'needsAccount'),
+		friendActions: ok(online, reason),
+		vr: ok(online, reason),
+		gameDetails: ok(online, reason),
+		rescan: ok(online, reason),
+		accountSettings: ok(online, reason),
+		configFile: ok(online, reason),
+		savesArchive: ok(online, reason),
+		logout: ok(online, 'needsConnection')
 	};
 }
 

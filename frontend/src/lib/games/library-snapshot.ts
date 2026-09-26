@@ -123,19 +123,34 @@ export function offlineLibrary(input: {
 	resolvable: Iterable<string>;
 	local: ReadonlyArray<{ checksum: string; title: string; filename: string | null }>;
 }): OfflineGame[] {
-	const here = new Set(input.resolvable);
+	/*
+	 * Une cartouche, une carte : la clé est le CRC32, écrit d'une seule façon.
+	 *
+	 * Le client l'écrit en majuscules (`roms/checksum.ts`) et le serveur n'en
+	 * accepte pas d'autre, mais une clé qui dépend de la casse de deux sources
+	 * est exactement le défaut qui donne deux fois le même jeu, l'un avec sa
+	 * jaquette, l'autre titré par son fichier. Le premier vu gagne, dans les
+	 * deux listes : l'ordre du serveur ne doit pas faire changer la fiche.
+	 */
+	const key = (crc: string) => crc.toUpperCase();
+	const here = new Set([...input.resolvable].map(key));
 	const seen = new Map<string, SnapshotGame>();
-	for (const g of input.snapshot?.games ?? []) if (g.crc32) seen.set(g.crc32, g);
+	for (const g of input.snapshot?.games ?? []) {
+		if (g.crc32 && !seen.has(key(g.crc32))) seen.set(key(g.crc32), g);
+	}
 
 	const shown: OfflineGame[] = [];
 	for (const [crc32, g] of seen) if (here.has(crc32)) shown.push({ ...g, crc32, seen: true });
+	const alone = new Set<string>();
 	for (const l of input.local) {
-		if (seen.has(l.checksum) || !here.has(l.checksum)) continue;
+		const crc32 = key(l.checksum);
+		if (seen.has(crc32) || alone.has(crc32) || !here.has(crc32)) continue;
+		alone.add(crc32);
 		shown.push({
-			id: l.checksum,
+			id: crc32,
 			title: l.title,
 			filename: l.filename ?? l.title,
-			crc32: l.checksum,
+			crc32,
 			coverUrl: null,
 			genre: null,
 			publisher: null,

@@ -145,3 +145,40 @@ const EVERYTHING: AccountFeatures = {
 export function accountFeaturesAllowed(user: { isAnonymous: boolean } | null): AccountFeatures {
   return user && !user.isAnonymous ? { ...EVERYTHING } : { ...NOTHING };
 }
+
+/**
+ * Pourquoi un contrôle est éteint : il lui manque le réseau, ou un compte.
+ *
+ * Les deux clés de traduction sont les deux phrases que le joueur lit au
+ * survol, et rien d'autre : « Nécessite une connexion », « Nécessite un
+ * compte ». Un compte hors-ligne manque de réseau ; un joueur sans compte
+ * manque d'un compte, même quand le serveur répond.
+ */
+export type UnavailableReason = 'needsConnection' | 'needsAccount';
+
+/**
+ * Ce qu'un contrôle peut faire ici : marcher, ou rester à sa place éteint en
+ * disant pourquoi.
+ *
+ * `hidden` n'existe pas, et c'est la décision : un bouton qui disparaît déplace
+ * ses voisins et ne dit rien, donc l'écran hors-ligne cesse de ressembler à
+ * l'écran en ligne et le joueur ne sait pas ce qui lui manque. Éteint, il
+ * garde sa place et nomme ce qui le rallumera.
+ */
+export type Availability = { enabled: true } | { enabled: false; reason: UnavailableReason };
+
+export const AVAILABLE: Availability = { enabled: true };
+
+export function unavailable(reason: UnavailableReason): Availability {
+  return { enabled: false, reason };
+}
+
+/**
+ * La clé de la phrase qui dit pourquoi, ou null quand le contrôle marche.
+ *
+ * Un bouton en tire `disabled` et son `title` ; null laisse l'infobulle qu'il
+ * porte déjà.
+ */
+export function reasonKey(availability: Availability): UnavailableReason | null {
+  return availability.enabled ? null : availability.reason;
+}
