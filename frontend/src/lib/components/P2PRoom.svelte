@@ -1178,6 +1178,7 @@
       {keyConfig}
       {controls}
       emulator={emulatorComponent}
+      gameCrc32={gameCrc32 ?? null}
       restoreFullscreen={wasFullscreenBeforePause}
       on:resume={handleResume}
       on:quit={handleQuit}

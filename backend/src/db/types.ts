@@ -116,6 +116,12 @@ export interface SaveSummary {
   createdAt: Date;
   updatedAt: Date;
   kind?: SaveKind;
+  /**
+   * L'envoi de la file qui a écrit cette version (#71), s'il en vient un.
+   * L'appareil qui a rangé une sauvegarde hors-ligne s'y reconnaît, et
+   * n'a pas à retélécharger ce qu'il a déjà.
+   */
+  syncId?: string | null;
 }
 
 /** Who owns a catalogue row: the shipped JSON file, or a player. */

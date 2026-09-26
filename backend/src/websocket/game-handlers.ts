@@ -2,7 +2,7 @@ import { Server, Socket } from 'socket.io';
 import { Room, GameInput } from '../types/index.js';
 import { getDb } from '../db/sqlite.js';
 import { findOwnedGameId, saveSram, findSram } from '../db/games.js';
-import { findSaveWithGame, createSave, updateSaveData, nextFreeSlot, findSaveOwnerId } from '../db/saves.js';
+import { findSaveWithGame, createSave, updateSaveData, nextFreeSlot, findSaveOwnerId, findSaveUpdatedAt } from '../db/saves.js';
 import { createLogger } from '../utils/logger.js';
 import { getMemberRoom } from './guards.js';
 import { requireGame } from '../rooms/require-game.js';
@@ -191,7 +191,10 @@ export function registerGameHandlers(
           socket.emit('error', { message: 'That save cannot be overwritten' });
           return;
         }
-        socket.emit('game:saved', { saveId: data.saveId });
+        // `updatedAt` pour la copie que l'appareil garde (#71) : sans lui, la
+        // prochaine bibliothèque croirait la sauvegarde changée ailleurs et la
+        // retéléchargerait.
+        socket.emit('game:saved', { saveId: data.saveId, updatedAt: findSaveUpdatedAt(db, data.saveId) });
         logger.info({ saveName: data.name, saveId: data.saveId, gameId: game.gameId }, 'Save overwritten');
         return;
       }
@@ -205,7 +208,7 @@ export function registerGameHandlers(
         screenshot
       });
 
-      socket.emit('game:saved', { saveId: created.id });
+      socket.emit('game:saved', { saveId: created.id, updatedAt: created.updatedAt.getTime() });
       logger.info({ saveName: data.name, saveId: created.id, gameId: game.gameId }, 'Save created');
     } catch (error) {
       logger.error({ err: error }, 'Error saving game state');

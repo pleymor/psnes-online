@@ -427,7 +427,7 @@
     if (!showPauseMenu && (event.code === QUICK_SAVE_KEY || event.code === QUICK_LOAD_KEY)) {
       if (padUsesKey(keyConfig, event.code)) return;
       event.preventDefault();
-      const ctx = { socket: $socket, roomId, gameId, locale: $language };
+      const ctx = { socket: $socket, roomId, gameId, checksum: gameCrc32, locale: $language };
       if (event.code === QUICK_SAVE_KEY) void quickSave({ ...ctx, emulator: saveAdapter });
       else void quickLoad(ctx);
       return;
@@ -1640,6 +1640,7 @@
       {canSetLatency}
       canReset={isHost}
       emulator={saveAdapter}
+      gameCrc32={gameCrc32 ?? null}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}
       on:reset={resetGame}

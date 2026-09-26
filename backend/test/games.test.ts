@@ -47,6 +47,7 @@ test('a library lists newest first, with save summaries but never save blobs', (
   assert.equal(library[0].saves.length, 1);
   assert.equal(library[0].saves[0].name, 'slot one');
   assert.ok(!('data' in library[0].saves[0]), 'a library listing must not carry savestate blobs');
+  assert.equal(library[0].saves[0].syncId, null, 'a save written outside the sync queue carries no syncId');
   assert.ok(library[0].saves[0].createdAt instanceof Date);
   assert.deepEqual(library[1].saves, []);
 });

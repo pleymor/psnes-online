@@ -90,18 +90,6 @@ function srmInFolder(page: Page): Promise<number | null> {
 	}, ROM_NAME.replace(/\.sfc$/, '.srm'));
 }
 
-function fileInFolder(page: Page, name: string): Promise<boolean> {
-	return page.evaluate(async (n) => {
-		try {
-			const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('roms');
-			await dir.getFileHandle(n);
-			return true;
-		} catch {
-			return false;
-		}
-	}, name);
-}
-
 /** Byte 0 of the battery save kept in this browser, or null. */
 function srmOnDevice(page: Page, checksum: string): Promise<number | null> {
 	return page.evaluate(
@@ -180,14 +168,17 @@ for (const viewport of VIEWPORTS) {
 		await expect.poll(() => srmInFolder(page)).not.toBeNull();
 		const first = (await srmInFolder(page))!;
 
-		// A savestate slot too, into `<rom>.state1` next to it.
-		await page.getByRole('button', { name: 'Saves' }).click();
-		await page.locator('[data-slot="1"]').getByRole('button', { name: 'Save' }).click();
-		await expect(page.getByText('Saved in slot 1')).toBeVisible();
+		// A savestate too, through the same saves menu as online: kept in this
+		// browser, and loadable from the load menu.
+		await page.getByRole('button', { name: 'Save Game' }).click();
+		await page.getByRole('button', { name: /New save/ }).click();
+		await expect(page.locator('.submenu .tile')).toHaveCount(1);
 		await page.screenshot({ path: path.join(SHOTS, `saves-offline-${viewport.name}.png`) });
-		expect(await fileInFolder(page, 'psnes-sram-counter.state1')).toBe(true);
-		await page.locator('[data-slot="1"]').getByRole('button', { name: 'Load' }).click();
-		await expect(page.getByText('Slot 1 loaded')).toBeVisible();
+		await page.getByRole('button', { name: 'Close' }).click();
+		await page.getByRole('button', { name: 'Load Game' }).click();
+		await page.locator('.submenu .tile .pick').first().click();
+		// Loaded: the load menu closes by itself (toasts stay quiet in game).
+		await expect(page.locator('.submenu')).toHaveCount(0);
 
 		// Still offline: the game page itself comes back from the worker, and
 		// boots from the save the first session wrote.

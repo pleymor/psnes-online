@@ -236,3 +236,27 @@ export function readStoredSram(
 ): { bytes: Buffer; updatedAt: number } | null {
   return readSram(db, gameId);
 }
+
+/**
+ * Un savestate - ou une SRAM gardée - avec ses octets, pour l'appareil qui en
+ * garde une copie (#71, la copie hors-ligne). Null si la sauvegarde n'est pas
+ * de ce jeu : la même réponse que « n'existe pas », comme pour la suppression.
+ */
+export function readSaveOfGame(
+  db: Database,
+  gameId: string,
+  saveId: string
+): {
+  id: string; name: string; kind: 'state' | 'sram'; screenshot: string | null;
+  createdAt: number; updatedAt: number; syncId: string | null; data: Buffer;
+} | null {
+  const row = db.query(`
+    SELECT id, name, kind, screenshot, createdAt, updatedAt, syncId, data
+    FROM "Save" WHERE id = ? AND gameId = ?
+  `).get(saveId, gameId) as {
+    id: string; name: string; kind: string; screenshot: string | null;
+    createdAt: number; updatedAt: number; syncId: string | null; data: Uint8Array;
+  } | undefined;
+  if (!row) return null;
+  return { ...row, kind: row.kind === 'sram' ? 'sram' : 'state', data: asBuffer(row.data) };
+}

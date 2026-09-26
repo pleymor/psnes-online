@@ -5,8 +5,7 @@
   import ControlsSettings from './ControlsSettings.svelte';
   import LoadSavesMenu from './LoadSavesMenu.svelte';
   import SaveGameMenu from './SaveGameMenu.svelte';
-  import LocalSavesMenu from './LocalSavesMenu.svelte';
-  import type { SaveListing } from '$lib/saves/local-store';
+  import type { DeviceSaveActions } from '$lib/saves/shelf';
   import { user } from '$lib/stores/user';
   import { accountFeaturesAllowed } from '$lib/rooms/anonymous-join';
   import ConfirmModal from './ConfirmModal.svelte';
@@ -85,18 +84,17 @@
   export let canReset = false;
 
   /**
-   * Savestate slots on this machine, for solo play without an account (#70).
+   * This device's saves, for a game outside any room - `/local`, offline or
+   * without an account (#70, #71).
    *
    * Null everywhere else, which keeps every room exactly as it was: the
-   * account's named saves go through the server, and those are what the two
-   * entries above offer. When set, they replace them - there is no account to
-   * save to - and the controls are kept on this device for the same reason.
+   * account's saves go through the server. When set, the SAME two entries and
+   * the same two menus read this device instead - one saves menu, online and
+   * offline - and the controls are kept on this device too.
    */
-  export let localSaves: {
-    list(): Promise<SaveListing[]>;
-    save(slot: number): Promise<boolean>;
-    load(slot: number): Promise<boolean>;
-  } | null = null;
+  export let deviceSaves: DeviceSaveActions | null = null;
+  /** The cartridge, so that a save made online is also kept on this device. */
+  export let gameCrc32: string | null = null;
 
   const dispatch = createEventDispatcher();
 
@@ -122,7 +120,6 @@
   let showKeyConfig = false;
   let showLoadSaves = false;
   let showSaveGame = false;
-  let showLocalSaves = false;
 
   /** Lu ici plutôt que passé en propriété à travers trois composants de salon. */
   $: saveFeatures = accountFeaturesAllowed($user);
@@ -143,7 +140,6 @@
     showKeyConfig ||
     showLoadSaves ||
     showSaveGame ||
-    showLocalSaves ||
     showVideo ||
     showLatency ||
     showSpeed;
@@ -308,11 +304,11 @@
      * joueur anonyme deux entrées de menu qui échouent en silence au milieu
      * d'une partie - #12 avait déjà tranché que recevoir une ROM n'est pas la
      * posséder, et c'est la même règle vue depuis le menu pause.
+     *
+     * Ou hors de tout salon (`deviceSaves`) : les sauvegardes sont alors
+     * celles de l'appareil, avec ou sans compte, dans les mêmes deux menus.
      */
-    ...(localSaves
-      ? [{ label: t($language, 'localSaves'), action: () => (showLocalSaves = true) }]
-      : []),
-    ...(saveFeatures.saves && !localSaves
+    ...(saveFeatures.saves || deviceSaves
       ? [
           { label: t($language, 'loadGame'), action: () => (showLoadSaves = true) },
           { label: t($language, 'saveGame'), action: () => (showSaveGame = true) }
@@ -426,7 +422,6 @@
     showKeyConfig = false;
     showLoadSaves = false;
     showSaveGame = false;
-    showLocalSaves = false;
     showVideo = false;
     showLatency = false;
     showSpeed = false;
@@ -595,7 +590,7 @@
           {roomId}
           currentConfig={controls}
           {localPlayer2Playable}
-          deviceOnly={!!localSaves}
+          deviceOnly={!!deviceSaves}
           on:saved={handleSaved}
         />
         <button on:click={handleBackFromSubmenu} class="back-button">
@@ -609,18 +604,11 @@
         <LoadSavesMenu
           {roomId}
           {gameId}
+          shelf={deviceSaves?.shelf ?? null}
+          deviceLoad={deviceSaves?.load ?? null}
           on:notification={handleNotification}
           on:close={handleSaveClose}
         />
-        <button on:click={handleBackFromSubmenu} class="back-button">
-          {t($language, 'close')}
-        </button>
-      </div>
-    {/if}
-
-    {#if showLocalSaves && localSaves}
-      <div class="submenu">
-        <LocalSavesMenu slots={localSaves} />
         <button on:click={handleBackFromSubmenu} class="back-button">
           {t($language, 'close')}
         </button>
@@ -633,6 +621,9 @@
           {roomId}
           {gameId}
           {emulator}
+          {gameCrc32}
+          shelf={deviceSaves?.shelf ?? null}
+          deviceWrite={deviceSaves?.write ?? null}
           on:notification={handleNotification}
         />
         <button on:click={handleBackFromSubmenu} class="back-button">

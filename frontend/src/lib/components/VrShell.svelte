@@ -138,6 +138,7 @@
    */
   import { fetchSaves, deleteSave, autoSaveName, type SaveSummary } from '$lib/saves/api';
   import { captureState } from '$lib/saves/capture';
+  import { mirrorOf, writeThroughSocket } from '$lib/saves/offline-copy';
   import {
     SAVES_PANEL_SIZE, layoutSavesPanel, drawSavesPanel
   } from '$lib/vr/panels/saves';
@@ -682,7 +683,7 @@
    * condition that decides whether the buttons exist at all. Clearing it in
    * the teardown paths below is hygiene, not the invariant.
    */
-  let saveContext: { roomId: string; gameId: string; core: PsnesCore } | null = null;
+  let saveContext: { roomId: string; gameId: string; core: PsnesCore; crc32?: string | null } | null = null;
 
   /** Reused: a capture allocates nothing but the pixels it copies. */
   let shotCanvas: HTMLCanvasElement | null = null;
@@ -725,7 +726,7 @@
   }
 
   /** The save context, but only while there is actually a game to save. */
-  function saveable(): { roomId: string; gameId: string; core: PsnesCore } | null {
+  function saveable(): { roomId: string; gameId: string; core: PsnesCore; crc32?: string | null } | null {
     return engine && saveContext ? saveContext : null;
   }
   let audio: AudioSink | null = null;
@@ -2261,7 +2262,7 @@
 
         // Gathered here because here is where all three exist at once. See
         // `saveContext`'s own note for why `core` stopped being write-only.
-        saveContext = { roomId, gameId: game.id, core };
+        saveContext = { roomId, gameId: game.id, core, crc32: game.crc32 };
 
         engine = await createSoloEngine({
           core,
@@ -2548,42 +2549,40 @@
     });
     const screenshot = captureThumbnailHere();
 
-    const done = () => {
-      sock.off('error', failed);
-      savesBusy = false;
-      // La liste, pas une insertion à la main : le serveur décide de l'id et
-      // de la date, et deviner l'un des deux les ferait diverger.
-      void refreshSaves();
-      /*
-       * Et le store des jeux, sans quoi la sauvegarde n'existe qu'ici.
-       *
-       * `$games` est rempli une seule fois, par la page d'accueil, et jamais
-       * pendant une session VR. Or l'écran de lancement construit sa liste de
-       * sauvegardes depuis ce store : une sauvegarde écrite en VR était donc
-       * absente de l'endroit où le joueur va naturellement la chercher, tout
-       * en existant en base. C'est ce qui a été rapporté comme « je ne la vois
-       * plus nulle part ».
-       */
-      void loadGames();
-    };
-    const failed = () => {
-      sock.off('game:saved', done);
-      savesBusy = false;
-      notifications.show(t($language, 'failedToSave'), 'error');
-      repaintSaves();
-    };
-    sock.once('game:saved', done);
-    sock.once('error', failed);
-
-    sock.emit('game:save', {
+    // L'appareil d'abord, puis la socket (`offline-copy.ts`) : une sauvegarde
+    // prise en VR se retrouve elle aussi hors-ligne.
+    const result = await writeThroughSocket({
+      socket: sock,
       roomId: ctx.roomId,
       // `saveId` absent pour une neuve : le serveur attribue alors l'id et le
       // numéro d'emplacement, et deviner l'un des deux les ferait diverger.
-      saveId: target?.id,
+      target: target ?? null,
       name: target?.name ?? autoSaveName($language),
       saveData,
-      screenshot
+      screenshot,
+      mirror: mirrorOf(ctx.crc32)
     });
+    savesBusy = false;
+    if (!result.ok) {
+      notifications.show(t($language, 'failedToSave'), 'error');
+      repaintSaves();
+      return;
+    }
+    if (result.queued) notifications.show(t($language, 'savedOnDevice'), 'success');
+    // La liste, pas une insertion à la main : le serveur décide de l'id et
+    // de la date, et deviner l'un des deux les ferait diverger.
+    void refreshSaves();
+    /*
+     * Et le store des jeux, sans quoi la sauvegarde n'existe qu'ici.
+     *
+     * `$games` est rempli une seule fois, par la page d'accueil, et jamais
+     * pendant une session VR. Or l'écran de lancement construit sa liste de
+     * sauvegardes depuis ce store : une sauvegarde écrite en VR était donc
+     * absente de l'endroit où le joueur va naturellement la chercher, tout
+     * en existant en base. C'est ce qui a été rapporté comme « je ne la vois
+     * plus nulle part ».
+     */
+    void loadGames();
   }
 
   /**
@@ -2915,7 +2914,7 @@
        * see the `save`/`load` branch.
        */
       const groupGameId = $myRoom?.gameId ?? null;
-      saveContext = groupGameId ? { roomId, gameId: groupGameId, core } : null;
+      saveContext = groupGameId ? { roomId, gameId: groupGameId, core, crc32 } : null;
 
       matchWatch = createMatchRecorder({
         crc32,
