@@ -399,6 +399,13 @@ registerProcessor('psnes-sink', PsnesSink);
 export class AudioSink {
 	private context: AudioContext | null = null;
 	private node: AudioWorkletNode | null = null;
+	/**
+	 * Only exists once somebody asks for a gain other than unity - today that is
+	 * the VR voice chat ducking the game under a friend's voice. Created lazily
+	 * so the flat page, which never asks, keeps the exact graph it always had:
+	 * worklet straight into the destination.
+	 */
+	private gain: GainNode | null = null;
 	private ready = false;
 	private muted = false;
 	/** Frames the worklet last said it was holding, and the rate to read it in ms. */
@@ -484,6 +491,25 @@ export class AudioSink {
 		if (muted) this.node?.port.postMessage('flush');
 	}
 
+	/**
+	 * The game's volume, 0..1, ramped over about a tenth of a second so a change
+	 * never clicks. Used by the VR voice chat to duck the game while a friend
+	 * speaks; nothing outside VR calls it.
+	 */
+	setGain(value: number): void {
+		const context = this.context;
+		const node = this.node;
+		if (!context || !node) return;
+		if (!this.gain) {
+			if (value === 1) return;
+			this.gain = context.createGain();
+			node.disconnect();
+			node.connect(this.gain);
+			this.gain.connect(context.destination);
+		}
+		this.gain.gain.setTargetAtTime(value, context.currentTime, 0.03);
+	}
+
 	/** Drops buffered audio - use after a resync, where the old audio is wrong. */
 	flush(): void {
 		this.node?.port.postMessage('flush');
@@ -492,6 +518,8 @@ export class AudioSink {
 	async stop(): Promise<void> {
 		this.node?.disconnect();
 		this.node = null;
+		this.gain?.disconnect();
+		this.gain = null;
 		this.ready = false;
 		await this.context?.close();
 		this.context = null;
