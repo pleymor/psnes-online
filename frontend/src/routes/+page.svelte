@@ -38,6 +38,10 @@
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import SiteFooter from '$lib/components/SiteFooter.svelte';
+  import BedroomWall from '$lib/components/BedroomWall.svelte';
+  import BgSwitcher from '$lib/components/BgSwitcher.svelte';
+  import { wall } from '$lib/bedroom/choice';
+  import { inGame } from '$lib/stores/in-game';
   import { columnsThatFit, rowBottoms, trackWidth } from '$lib/games/shelves';
   import { createLogger } from '$lib/utils/logger';
   import { setPageTitle } from '$lib/utils/page-title';
@@ -789,7 +793,15 @@
   <SiteFooter />
 {:else}
   <!-- Library page for authenticated users -->
-  <div class="app-layout">
+  <!--
+    Le mur de la chambre, s'il y en a un, sous tout le reste. Arrêté dès
+    qu'une partie tourne ou qu'une fiche le couvre : il n'a alors plus rien
+    à montrer, et l'émulateur garde toutes ses frames.
+  -->
+  <div class="app-layout" class:walled={$wall !== 'current'} data-wall={$wall}>
+    {#if $wall !== 'current'}
+      <BedroomWall variant={$wall} paused={$inGame || !!selectedGame} />
+    {/if}
     <!-- Refermer la recherche efface la requête : la barre prête sa place au
          champ mais ne le connaît pas, donc c'est ici que ça se passe. Sans
          cela la bibliothèque resterait filtrée sans que rien ne dise pourquoi. -->
@@ -980,6 +992,8 @@
       <SiteFooter />
     </main>
   </div>
+
+  <BgSwitcher />
 
   {#if gameToLink}
     <LinkRom
@@ -1248,6 +1262,27 @@
        au lieu de son plafond de lecture de 60 rem. Il hérite par la
        propriété, seule voie qui traverse le scopage de Svelte. */
     --footer-width: none;
+  }
+
+  /*
+   * Sur un mur, le ciel s'efface et le contenu passe devant.
+   *
+   * `z-index: 1` sur la colonne, au-dessus du mur fixe (0) et sous la barre
+   * (101). Le titre et son compteur prennent une plaque sombre : sur un
+   * papier peint, une ombre portée ne suffit plus à les lire.
+   */
+  .walled .main-content {
+    position: relative;
+    z-index: 1;
+    background: transparent;
+  }
+
+  .walled .page-header > div:first-child {
+    padding: 0.5rem 0.9rem 0.6rem;
+    background: rgba(16, 16, 24, 0.82);
+    border: 3px solid var(--edge);
+    border-radius: 10px;
+    --deep: #000;
   }
 
   .page-header {
