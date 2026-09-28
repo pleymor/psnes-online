@@ -39,6 +39,17 @@ export const HEAD_SIZE = 0.24;
 export const HAND_SIZE = 0.1;
 /** De combien la plaque de pseudo flotte au-dessus du crâne. */
 const LABEL_RISE = 0.22;
+/**
+ * L'anneau de celui qui parle : un halo horizontal autour de la tête.
+ *
+ * Plus large que la demi-diagonale de la tête (17 cm) pour ne jamais s'y
+ * enfoncer quand elle penche, et à plat plutôt que tourné vers le lecteur :
+ * un anneau qui pivote se lit comme une cible, un halo comme quelqu'un qui
+ * parle. Le vert des indicateurs de voix des appels de groupe.
+ */
+const RING_RADIUS = 0.21;
+const RING_TUBE = 0.012;
+const RING_COLOR = 0x3ddc84;
 
 /**
  * Le canvas d'une plaque de pseudo, et la taille qu'elle occupe dans le monde.
@@ -76,6 +87,14 @@ export interface Avatars {
    * qui porte le repli : ce module n'en décide rien.
    */
   update(peers: ReadonlyMap<string, PeerPose>, mine: Pose | null): void;
+  /**
+   * Qui parle en ce moment, d'après la voix (`voice/voice-chat.ts`).
+   *
+   * Appelé au rythme des niveaux - dix fois par seconde au plus - et non à
+   * chaque image : l'anneau n'a qu'une visibilité à changer, et sa position
+   * suit la tête dans `update`, qui tourne déjà.
+   */
+  setSpeaking(ids: ReadonlySet<string>): void;
   dispose(): void;
 }
 
@@ -85,9 +104,13 @@ interface Avatar {
   left: THREE.Mesh;
   right: THREE.Mesh;
   label: THREE.Sprite;
+  ring: THREE.Mesh;
   material: THREE.Material;
   labelMaterial: THREE.SpriteMaterial;
+  ringMaterial: THREE.MeshBasicMaterial;
   geometries: THREE.BufferGeometry[];
+  /** La dernière présence calculée, pour que `setSpeaking` n'allume pas un ami effacé. */
+  shown: boolean;
 }
 
 /**
@@ -204,6 +227,7 @@ function release(avatar: Avatar): void {
   avatar.material.dispose();
   avatar.labelMaterial.map?.dispose();
   avatar.labelMaterial.dispose();
+  avatar.ringMaterial.dispose();
 }
 
 function place(mesh: THREE.Object3D, pose: Pose): void {
@@ -214,6 +238,7 @@ function place(mesh: THREE.Object3D, pose: Pose): void {
 export function createAvatars(opts: AvatarsOptions): Avatars {
   const group = new THREE.Group();
   const avatars = new Map<string, Avatar>();
+  let speaking: ReadonlySet<string> = new Set();
 
   function build(id: string, pseudo: string): Avatar {
     /*
@@ -299,16 +324,31 @@ export function createAvatars(opts: AvatarsOptions): Avatars {
     const label = new THREE.Sprite(labelMaterial);
     label.scale.set(LABEL_METRES.width, LABEL_METRES.height, 1);
 
+    const ringGeometry = new THREE.TorusGeometry(RING_RADIUS, RING_TUBE, 6, 40);
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: RING_COLOR,
+      transparent: true,
+      // Comme la plaque : un halo se mélange à ce qu'il entoure, il ne creuse
+      // pas le tampon de profondeur.
+      depthWrite: false,
+      toneMapped: false
+    });
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+    // Couché à plat : un tore de three est dressé dans le plan XY.
+    ring.rotation.x = Math.PI / 2;
+    ring.visible = false;
+
     const root = new THREE.Group();
-    root.add(head, left, right, label);
+    root.add(head, left, right, label, ring);
     group.add(root);
     // `id` sert au débogage depuis l'inspecteur : trouver de qui est la tête
     // qu'on regarde, sans avoir à remonter la carte à la main.
     root.name = `avatar:${id}`;
 
     return {
-      root, head, left, right, label, material, labelMaterial,
-      geometries: [headGeometry, handGeometry, right.geometry as THREE.BufferGeometry]
+      root, head, left, right, label, ring, material, labelMaterial, ringMaterial,
+      geometries: [headGeometry, handGeometry, right.geometry as THREE.BufferGeometry, ringGeometry],
+      shown: false
     };
   }
 
@@ -348,10 +388,14 @@ export function createAvatars(opts: AvatarsOptions): Avatars {
         const presence = presenceFor(mine, pose.head);
 
         avatar.root.visible = presence.visible;
+        avatar.shown = presence.visible;
         if (!presence.visible) continue;
 
         avatar.material.opacity = presence.opacity;
         avatar.labelMaterial.opacity = presence.opacity;
+        avatar.ringMaterial.opacity = presence.opacity;
+        avatar.ring.visible = speaking.has(id);
+        avatar.ring.position.set(pose.head[0], pose.head[1], pose.head[2]);
 
         place(avatar.head, pose.head);
 
@@ -365,6 +409,11 @@ export function createAvatars(opts: AvatarsOptions): Avatars {
         // faudrait faire pivoter à la main comme les billboards du décor.
         avatar.label.position.set(pose.head[0], pose.head[1] + LABEL_RISE, pose.head[2]);
       }
+    },
+
+    setSpeaking(ids) {
+      speaking = ids;
+      for (const [id, avatar] of avatars) avatar.ring.visible = avatar.shown && ids.has(id);
     },
 
     dispose() {

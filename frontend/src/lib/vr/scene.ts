@@ -180,6 +180,19 @@ export interface VrScene {
   aimedAt(): PointerTarget | null;
   triggerDown(): boolean;
   inputSources(): Iterable<XRInputSource>;
+  /**
+   * Accroche un objet à la manette GAUCHE, là où l'on regarde son poignet.
+   *
+   * Existe pour le badge du micro de la voix VR : un état qu'on doit pouvoir
+   * lire à tout moment, lobby comme partie, sans lever un panneau. La manette
+   * et pas la tête : un indicateur collé au regard gêne toujours, un indicateur
+   * au poignet se consulte d'un coup d'œil, comme une montre.
+   *
+   * La main est reconnue à sa latéralité et non à son index - `getController`
+   * les distribue dans l'ordre de connexion, voir `aimedAt`. Une manette posée
+   * puis reprise emporte l'objet avec elle.
+   */
+  addToLeftHand(object: THREE.Object3D): void;
   dispose(): void;
 }
 
@@ -427,10 +440,26 @@ export function createVrScene(opts: {
     new THREE.Vector3(0, 0, -2)
   ]);
   const rayMaterial = new THREE.LineBasicMaterial({ color: 0x7aa2ff, transparent: true, opacity: 0.6 });
+  /** Ce que porte la main gauche, et la manette qui l'est en ce moment. */
+  const leftHandItems: THREE.Object3D[] = [];
+  let leftController: THREE.Object3D | null = null;
+
   const controllers = [0, 1].map((index) => {
     const controller = renderer.xr.getController(index);
     controller.add(new THREE.Line(rayGeometry, rayMaterial));
     scene.add(controller);
+    // three rend la source d'entrée en `data` : c'est la seule chose qui dise
+    // quelle main tient cette manette-ci.
+    controller.addEventListener('connected', (event) => {
+      if ((event as { data?: { handedness?: string } }).data?.handedness !== 'left') return;
+      leftController = controller;
+      for (const item of leftHandItems) controller.add(item);
+    });
+    controller.addEventListener('disconnected', () => {
+      if (leftController !== controller) return;
+      for (const item of leftHandItems) controller.remove(item);
+      leftController = null;
+    });
     return controller;
   });
 
@@ -852,8 +881,15 @@ export function createVrScene(opts: {
     triggerDown,
     inputSources: () => renderer.xr.getSession()?.inputSources ?? [],
 
+    addToLeftHand(object: THREE.Object3D): void {
+      leftHandItems.push(object);
+      leftController?.add(object);
+    },
+
     dispose(): void {
       renderer.setAnimationLoop(null);
+      for (const item of leftHandItems) item.parent?.remove(item);
+      leftHandItems.length = 0;
       vignette.dispose();
       screen.dispose();
       for (const panel of panels) panel.dispose();

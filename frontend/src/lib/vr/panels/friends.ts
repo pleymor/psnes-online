@@ -29,6 +29,7 @@
 
 import { truncate, type PanelSize, type Region } from '../panel';
 import { SMW, EDGE, LINER, drawField, statusBox, ribbon, chromeButton } from './chrome';
+import type { MicState } from '../voice/spatial';
 
 export const FRIENDS_PANEL_SIZE: PanelSize = { width: 1120, height: 840 };
 
@@ -63,6 +64,20 @@ const BUTTON_X = FRIENDS_PANEL_SIZE.width - PAD - BUTTON_W - EDGE - LINER;
 const STATUS_RIGHT = BUTTON_X - BUTTON_GAP;
 /** Reserved for the status, so the pseudonym has a budget that does not move. */
 const STATUS_W = 240;
+/**
+ * Le bouton « couper cet ami », à gauche de la colonne des boutons.
+ *
+ * À gauche et pas à la place : un ami du lobby est en ligne, donc sa ligne
+ * porte déjà « Inviter », et la voix ne doit pas prendre la place de la seule
+ * action qui fasse une partie à deux.
+ */
+const PEER_W = 150;
+const PEER_X = BUTTON_X - BUTTON_GAP - PEER_W;
+/** Le bouton du micro, dans l'en-tête : toujours là, lobby comme partie. */
+const MIC_W = 280;
+const MIC_H = 46;
+const MIC_X = FRIENDS_PANEL_SIZE.width - (PAD - 14) - EDGE - LINER - MIC_W - 8;
+const MIC_Y = 12 + (HEADER - 24 - MIC_H) / 2;
 const PSEUDO_X = PAD + 30;
 
 /**
@@ -73,8 +88,8 @@ const PSEUDO_X = PAD + 30;
  * one up while it is up. A function rather than a constant because the answer
  * genuinely has two values now.
  */
-export function friendsVisibleRows(hasIncoming: boolean): number {
-  const band = hasIncoming ? BAND_H : 0;
+export function friendsVisibleRows(hasIncoming: boolean, micDenied = false): number {
+  const band = (hasIncoming ? BAND_H : 0) + (micDenied ? BAND_H : 0);
   return Math.floor((FRIENDS_PANEL_SIZE.height - HEADER - FOOTER - PAD - band) / ROW_H);
 }
 
@@ -107,6 +122,32 @@ export interface FriendsLabels {
    *  `library.ts`' `noneHere` is with its count. An unattributed invitation is
    *  not answerable. */
   incomingFrom: string;
+  /** Les libellés de la voix VR ; absents, le panneau n'en dessine rien. */
+  voice?: VoiceLabels;
+}
+
+export interface VoiceLabels {
+  /** Sur le bouton quand le micro est ouvert : l'action, pas l'état. */
+  muteMic: string;
+  unmuteMic: string;
+  /** Le bandeau d'un micro refusé : ce qui se passe et où l'autoriser. */
+  denied: string;
+  retry: string;
+  mutePeer: string;
+  unmutePeer: string;
+}
+
+/**
+ * La voix, vue du lutrin. `null` hors VR - le panneau reste alors celui qu'il
+ * était.
+ */
+export interface FriendsVoice {
+  mic: MicState;
+  /** Les amis avec qui je suis en conversation. */
+  peers: ReadonlySet<string>;
+  speaking: ReadonlySet<string>;
+  /** Ceux que j'ai coupés, chez moi. */
+  mutedPeers: ReadonlySet<string>;
 }
 
 /**
@@ -190,12 +231,18 @@ export interface FriendsState {
    * friends store.
    */
   members: ReadonlySet<string>;
+  voice?: FriendsVoice | null;
 }
 
-/** Where a row's button goes, given the row's index and whether a band is up. */
-function buttonAt(index: number, hasIncoming: boolean): Omit<Region, 'id'> {
-  const top = HEADER + (hasIncoming ? BAND_H : 0) + index * ROW_H;
-  return { x: BUTTON_X, y: top + (ROW_H - BUTTON_H) / 2, w: BUTTON_W, h: BUTTON_H };
+/** Combien de bandeaux sont levés au-dessus de la liste : invitation, micro refusé. */
+function bandsAbove(state: FriendsState): number {
+  return (state.incoming[0] ? 1 : 0) + (state.voice?.mic === 'denied' ? 1 : 0);
+}
+
+/** Where a row's button goes, given the row's index and how many bands are up. */
+function buttonAt(index: number, bands: number, x = BUTTON_X, w = BUTTON_W): Omit<Region, 'id'> {
+  const top = HEADER + bands * BAND_H + index * ROW_H;
+  return { x, y: top + (ROW_H - BUTTON_H) / 2, w, h: BUTTON_H };
 }
 
 /**
@@ -217,6 +264,8 @@ function buttonAt(index: number, hasIncoming: boolean): Omit<Region, 'id'> {
 export function layoutFriendsPanel(state: FriendsState): Region[] {
   const regions: Region[] = [];
   const asking = state.incoming[0] ?? null;
+  const bands = bandsAbove(state);
+  const voice = state.voice ?? null;
 
   /*
    * The band first, so it wins a tie in `hit()`, which returns the first
@@ -230,7 +279,27 @@ export function layoutFriendsPanel(state: FriendsState): Region[] {
     regions.push({ id: `accept:${asking.id}`, x: BUTTON_X, y, w: BUTTON_W, h: BUTTON_H });
   }
 
+  /*
+   * Le micro, toujours atteignable : dans l'en-tête, qui ne défile jamais et
+   * qu'aucun bandeau ne pousse. `muted` et les autres états partagent le même
+   * identifiant - c'est une bascule - et un micro refusé n'en a pas, puisqu'il
+   * n'y a rien à couper : son bandeau porte « Réessayer ».
+   */
+  if (voice && voice.mic !== 'denied') {
+    regions.push({ id: 'voice:mute', x: MIC_X, y: MIC_Y, w: MIC_W, h: MIC_H });
+  }
+  if (voice?.mic === 'denied') {
+    const y = HEADER + (asking ? BAND_H : 0) + (BAND_H - BUTTON_H) / 2;
+    regions.push({ id: 'voice:retry', x: BUTTON_X, y, w: BUTTON_W, h: BUTTON_H });
+  }
+
   state.rows.forEach((row, index) => {
+    // La voix d'abord, et à part : couper un ami ne dépend ni de l'invitation
+    // ni du groupe - on peut vouloir faire taire quelqu'un qui est déjà là.
+    if (voice?.peers.has(row.id)) {
+      regions.push({ id: `voice-peer:${row.id}`, ...buttonAt(index, bands, PEER_X, PEER_W) });
+    }
+
     /*
      * Already here: nothing to offer, and this comes FIRST.
      *
@@ -244,12 +313,12 @@ export function layoutFriendsPanel(state: FriendsState): Region[] {
 
     if (state.pending) {
       if (row.id === state.pending.toUserId) {
-        regions.push({ id: `cancel-invite:${state.pending.id}`, ...buttonAt(index, !!asking) });
+        regions.push({ id: `cancel-invite:${state.pending.id}`, ...buttonAt(index, bands) });
       }
       return;
     }
     if (!row.online) return;
-    regions.push({ id: `invite:${row.id}`, ...buttonAt(index, !!asking) });
+    regions.push({ id: `invite:${row.id}`, ...buttonAt(index, bands) });
   });
 
   return regions;
@@ -265,6 +334,8 @@ export function drawFriendsPanel(
   const { width, height } = FRIENDS_PANEL_SIZE;
   const byId = new Map(regions.map((r) => [r.id, r]));
   const asking = state.incoming[0] ?? null;
+  const voice = labels.voice ? (state.voice ?? null) : null;
+  const voiceLabels = labels.voice;
 
   ctx.save();
   ctx.clearRect(0, 0, width, height);
@@ -275,7 +346,23 @@ export function drawFriendsPanel(
   ctx.font = '600 42px system-ui, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(labels.heading, PAD + 8, 12 + (HEADER - 24) / 2);
+  const mic = byId.get('voice:mute');
+  ctx.fillText(
+    truncate(ctx, labels.heading, (mic ? mic.x : width - PAD) - PAD - 8 - BUTTON_GAP),
+    PAD + 8,
+    12 + (HEADER - 24) / 2
+  );
+  /*
+   * Le bouton dit ce qu'il FAIT, et sa couleur ce qui EST : rouge quand le
+   * micro est coupé, pour que l'état se lise d'un coup d'œil même sans lire.
+   */
+  if (mic && voice && voiceLabels) {
+    const muted = voice.mic === 'muted';
+    chromeButton(
+      ctx, mic, muted ? voiceLabels.unmuteMic : voiceLabels.muteMic,
+      muted ? 'warn' : 'quiet', hoverId === mic.id, 26
+    );
+  }
 
   /*
    * The band before the empty check, not after.
@@ -299,6 +386,23 @@ export function drawFriendsPanel(
     if (accept) chromeButton(ctx, accept, labels.accept, 'loud', hoverId === accept.id, 28);
   }
 
+  /*
+   * Le micro refusé : on entend les autres, eux non, et on dit où l'autoriser.
+   * Un bandeau et pas une ligne d'en-tête, parce que la phrase est longue et
+   * qu'elle est la seule réponse à « pourquoi personne ne m'entend ».
+   */
+  const retry = byId.get('voice:retry');
+  if (voice?.mic === 'denied' && voiceLabels) {
+    const bandY = HEADER + (asking ? BAND_H : 0);
+    statusBox(ctx, PAD - 14, bandY, width - (PAD - 14) * 2, BAND_H);
+    ctx.fillStyle = '#b3261e';
+    ctx.font = '600 26px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    const room = (retry ? retry.x : width - PAD) - BUTTON_GAP - PAD;
+    ctx.fillText(truncate(ctx, voiceLabels.denied, room), PAD, bandY + BAND_H / 2);
+    if (retry) chromeButton(ctx, retry, voiceLabels.retry, 'loud', hoverId === retry.id, 28);
+  }
+
   if (state.rows.length === 0) {
     // A blank panel reads as one that failed to load.
     // Sur une boîte, sinon le texte se perd dans l'herbe.
@@ -312,7 +416,7 @@ export function drawFriendsPanel(
     return;
   }
 
-  const top = HEADER + (asking ? BAND_H : 0);
+  const top = HEADER + bandsAbove(state) * BAND_H;
 
   state.rows.forEach((row, index) => {
     const y = top + index * ROW_H + ROW_H / 2;
@@ -322,19 +426,39 @@ export function drawFriendsPanel(
     // Un ruban par ligne : sur l'herbe, du texte nu ne se lit pas.
     ribbon(ctx, PAD - 14, top + index * ROW_H + 4, width - (PAD - 14) * 2, ROW_H - 8);
 
+    // Celui qui parle a un anneau autour de sa pastille, comme son avatar
+    // en a un autour de la tête : le même signe aux deux endroits.
+    if (voice?.speaking.has(row.id)) {
+      ctx.beginPath();
+      ctx.strokeStyle = '#2fd070';
+      ctx.lineWidth = 4;
+      ctx.arc(PSEUDO_X - 22, y, 13, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.beginPath();
     ctx.fillStyle = row.online ? '#2fa34a' : '#8a8a98';
     ctx.arc(PSEUDO_X - 22, y, 8, 0, Math.PI * 2);
     ctx.fill();
 
+    const peerButton = byId.get(`voice-peer:${row.id}`);
+    const statusRight = peerButton ? peerButton.x - BUTTON_GAP : STATUS_RIGHT;
+
     ctx.textAlign = 'left';
     ctx.fillStyle = row.online ? SMW.dark : '#6a6a70';
     ctx.font = '31px system-ui, sans-serif';
     ctx.fillText(
-      truncate(ctx, row.pseudo, STATUS_RIGHT - STATUS_W - PSEUDO_X - BUTTON_GAP),
+      truncate(ctx, row.pseudo, statusRight - STATUS_W - PSEUDO_X - BUTTON_GAP),
       PSEUDO_X,
       y
     );
+
+    if (peerButton && voice && voiceLabels) {
+      const muted = voice.mutedPeers.has(row.id);
+      chromeButton(
+        ctx, peerButton, muted ? voiceLabels.unmutePeer : voiceLabels.mutePeer,
+        muted ? 'warn' : 'quiet', hoverId === peerButton.id, 24
+      );
+    }
 
     /*
      * "Invited" replaces the presence text rather than joining it.
@@ -366,7 +490,7 @@ export function drawFriendsPanel(
       : invited
         ? labels.invited
         : (row.playing ?? (row.inVr ? labels.inVr : row.online ? labels.online : labels.offline));
-    ctx.fillText(truncate(ctx, status, STATUS_W), STATUS_RIGHT, y);
+    ctx.fillText(truncate(ctx, status, STATUS_W), statusRight, y);
 
     const cancel = state.pending && invited ? byId.get(`cancel-invite:${state.pending.id}`) : null;
     if (cancel) {
