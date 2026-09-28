@@ -19,6 +19,9 @@ import baseConfig from './playwright.config';
  * `offline-saves.spec.ts` tourne sur la même pile : les sauvegardes prises en
  * ligne, retrouvées hors-ligne dans le même menu.
  *
+ * `wallpaper.spec.ts` aussi : le fond d'écran se juge sur un build, celui
+ * qui part en production, et hors-ligne comme en ligne.
+ *
  * `bun run test:e2e:sync`. Les captures vont dans `e2e/offline-shots/`.
  */
 const APP_PORT = Number(process.env.E2E_SYNC_APP_PORT || 4176);
@@ -30,7 +33,7 @@ export default defineConfig({
   ...baseConfig,
   globalSetup: undefined,
   testIgnore: undefined,
-  testMatch: /offline-(sync|layout|saves)\.spec\.ts$/,
+  testMatch: /(offline-(sync|layout|saves)|wallpaper)\.spec\.ts$/,
   timeout: 120_000,
   use: {
     ...baseConfig.use,

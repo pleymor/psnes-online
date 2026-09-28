@@ -38,6 +38,9 @@
   import LanguageSelector from '$lib/components/LanguageSelector.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import SiteFooter from '$lib/components/SiteFooter.svelte';
+  import BedroomWall from '$lib/components/BedroomWall.svelte';
+  import { wall } from '$lib/bedroom/choice';
+  import { inGame } from '$lib/stores/in-game';
   import { columnsThatFit, rowBottoms, trackWidth } from '$lib/games/shelves';
   import { createLogger } from '$lib/utils/logger';
   import { setPageTitle } from '$lib/utils/page-title';
@@ -789,7 +792,14 @@
   <SiteFooter />
 {:else}
   <!-- Library page for authenticated users -->
-  <div class="app-layout">
+  <!--
+    Le mur de la chambre, sous tout le reste : celui du profil, ou celui que
+    « Aléatoire » a tiré pour cette visite. Arrêté dès qu'une partie tourne
+    ou qu'une fiche le couvre : il n'a alors plus rien à montrer, et
+    l'émulateur garde toutes ses frames.
+  -->
+  <div class="app-layout" data-wall={$wall}>
+    <BedroomWall variant={$wall} paused={$inGame || !!selectedGame} />
     <!-- Refermer la recherche efface la requête : la barre prête sa place au
          champ mais ne le connaît pas, donc c'est ici que ça se passe. Sans
          cela la bibliothèque resterait filtrée sans que rien ne dise pourquoi. -->
@@ -1240,14 +1250,25 @@
   .main-content {
     flex: 1;
     padding: 2rem;
-    /* Le ciel s'arrête à la bibliothèque. Posé sur `body`, il passerait
-       sous les panneaux gris foncé de /profile, /docs et /room, qui
-       peignent les leurs et n'ont pas été refaits. */
-    background: var(--sky);
+    /* Devant le mur fixe (0), sous la barre (101). Transparente : le mur
+       n'appartient qu'à la bibliothèque, et surtout pas à `body`, sous les
+       panneaux sombres de /profile, /docs et /room. */
+    position: relative;
+    z-index: 1;
     /* Le pied de page termine cette colonne, donc il en prend la largeur
        au lieu de son plafond de lecture de 60 rem. Il hérite par la
        propriété, seule voie qui traverse le scopage de Svelte. */
     --footer-width: none;
+  }
+
+  /* Le titre et son compteur sur une plaque sombre : sur un papier peint,
+     une ombre portée ne suffit plus à les lire. */
+  .page-header > div:first-child {
+    padding: 0.5rem 0.9rem 0.6rem;
+    background: rgba(16, 16, 24, 0.82);
+    border: 3px solid var(--edge);
+    border-radius: 10px;
+    --deep: #000;
   }
 
   .page-header {
