@@ -22,6 +22,7 @@ import { anonymousRoomOf } from '../auth/anonymous.js';
 import { createLogger } from '../utils/logger.js';
 import { Presence } from './presence.js';
 import { registerVrLobby, type VrLobby } from './vr-lobby.js';
+import { registerVrVoice, type VrVoice } from './vr-voice.js';
 
 const logger = createLogger('WebSocket');
 
@@ -35,6 +36,8 @@ const presence = new Presence();
  * remplit, et `attach` qui branche chaque connexion dessus.
  */
 let vrLobby: VrLobby | null = null;
+/** La voix VR : qui s'entend, et le relais de sa signalisation. Voir `vr-voice.ts`. */
+let vrVoice: VrVoice | null = null;
 
 // Export io instance for use in other modules
 let ioInstance: Server | null = null;
@@ -73,6 +76,9 @@ export function isUserInVr(userId: string): boolean {
  */
 export function forgetVrFriendship(userA: string, userB: string): void {
   vrLobby?.forgetFriendship(userA, userB);
+  // Et la voix, qui a son propre cache d'amis : une conversation ouverte ne
+  // s'arrête pas d'elle-même comme un instantané de pose.
+  vrVoice?.forgetFriendship(userA, userB);
 }
 
 export function getRooms(): Map<string, Room> {
@@ -103,6 +109,7 @@ function protectHandlers(socket: Socket) {
 export function initializeWebSocket(io: Server) {
   ioInstance = io;
   vrLobby = registerVrLobby(io, presence);
+  vrVoice = registerVrVoice(io, rooms);
 
   io.on('connection', async (socket: Socket) => {
     try {
@@ -197,6 +204,7 @@ async function handleConnection(io: Server, socket: Socket) {
   // Après `presence.register` : l'annonce « je suis en VR » passe par la carte
   // de présence pour joindre les amis, donc celui qui entre doit d'abord y être.
   vrLobby?.attach(socket, user);
+  vrVoice?.attach(socket, user);
 
   // Register every handler before awaiting anything else. socket.io discards
   // events that arrive with no listener attached, so any await placed before

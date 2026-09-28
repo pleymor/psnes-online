@@ -63,7 +63,11 @@ export const ACCOUNT_ONLY_EVENTS: ReadonlySet<string> = new Set([
   'lobby:decline',
   // Le lobby VR
   'vr:enter',
-  'vr:pose'
+  'vr:pose',
+  // La voix VR : un anonyme n'a aucun ami, donc personne à entendre - et
+  // ouvrir la porte lui permettrait de faire lire la base pour une liste vide.
+  'vr:voice:join',
+  'vr:voice:signal'
 ]);
 
 export function isAccountOnly(event: string): boolean {

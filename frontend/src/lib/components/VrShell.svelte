@@ -37,6 +37,9 @@
   import { createDecor, type Decor } from '$lib/vr/decor/build';
   import { createAvatars, type Avatars } from '$lib/vr/lobby/avatars';
   import { createRoster, type LobbySnapshot, type Pose } from '$lib/vr/lobby/roster';
+  import { VoiceChat, type VoiceSpace, type VoiceState } from '$lib/vr/voice/voice-chat';
+  import { createMicBadge, type MicBadge } from '$lib/vr/voice/badge';
+  import { badgeTone } from '$lib/vr/voice/badge-look';
   import { counterRuns } from '$lib/vr/layout';
   import { measureFloor } from '$lib/vr/decor/floor';
   import { readAspectPreference } from '$lib/stores/aspect-preference';
@@ -178,6 +181,77 @@
    * plafond de débit finirait par jeter le surplus.
    */
   const POSE_INTERVAL_MS = 66;
+
+  /**
+   * La voix entre amis, pour toute la session. Voir `vr/voice/voice-chat.ts`.
+   *
+   * Créée à l'entrée et rendue au `teardown`, mais elle ne DEMANDE rien à
+   * l'entrée : le micro n'est ouvert que quand le serveur désigne un ami à qui
+   * parler. Entrer en VR seul ne touche pas au micro.
+   */
+  let voice: VoiceChat | null = null;
+  let voiceState: VoiceState | null = null;
+  /** Au poignet gauche : l'état du micro, lisible à tout moment. */
+  let micBadge: MicBadge | null = null;
+  /** Ce que le lutrin montre de la voix hors « qui parle », pour ne le repeindre qu'à bon escient. */
+  let voicePanelKey = '';
+
+  /**
+   * Où parle-t-on : au lobby partagé, dans le salon de la partie à deux, ou nulle part.
+   *
+   * LE LOBBY ET LA PARTIE, PAS LA PARTIE SOLO. Au lobby on entend ses amis
+   * présents, à leur place. Pendant une partie à deux on entend son
+   * partenaire - le serveur exige l'amitié ET le même salon - sans position,
+   * puisque le lobby est quitté et qu'aucune pose ne voyage plus. En solo on
+   * a quitté le lobby et personne ne joue avec nous : la voix se tait et le
+   * micro est rendu.
+   */
+  function voiceSpace(inLobby: boolean, roomId: string | null): VoiceSpace {
+    if (inLobby) return null;
+    if (roomId !== null) return roomId;
+    return false;
+  }
+
+  /*
+   * RÉACTIF, ET C'EST CE QUI LE REND SÛR. Six chemins posent ou effacent
+   * `groupRoomId` - lancement, fin, abandon, échec, départ de l'autre - et
+   * `inSharedLobby` suit le rideau. Plutôt qu'un appel à ne pas oublier dans
+   * chacun, la voix suit les deux variables elles-mêmes : `setSpace` est
+   * idempotent, donc un recalcul de trop ne coûte rien.
+   */
+  $: if (voice) voice.setSpace(voiceSpace(inSharedLobby, groupRoomId));
+
+  function onVoiceChange(state: VoiceState): void {
+    voiceState = state;
+    avatars?.setSpeaking(new Set(state.peers.filter((p) => p.speaking).map((p) => p.id)));
+    paintMicBadge();
+    /*
+     * Le lutrin coûte une rasterisation : on ne le repeint pour « qui parle »
+     * que s'il est à l'écran. Ce qui change sa MISE EN PAGE - le micro, les
+     * pairs, qui est coupé - le repeint toujours, pour qu'il soit juste au
+     * moment où on le rappelle en partie.
+     */
+    const key = JSON.stringify([state.mic, state.peers.map((p) => [p.id, p.muted])]);
+    if (key !== voicePanelKey || scene?.arePanelsVisible()) {
+      voicePanelKey = key;
+      repaintFriends();
+    }
+  }
+
+  const BADGE_TEXT = {
+    ready: 'vrBadgeReady',
+    asking: 'vrBadgeAsking',
+    live: 'vrBadgeLive',
+    speaking: 'vrBadgeLive',
+    muted: 'vrBadgeMuted',
+    denied: 'vrBadgeDenied'
+  } as const;
+
+  function paintMicBadge(): void {
+    if (!micBadge) return;
+    const tone = badgeTone(voice ? voice.state().mic : 'idle', voiceState?.selfSpeaking ?? false);
+    micBadge.show(tone, t($language, BADGE_TEXT[tone]));
+  }
 
   /**
    * Entrer dans le lobby partagé, et en sortir. Les deux sont idempotents.
@@ -636,7 +710,17 @@
 
     // Hors du `if` ci-dessus : une image sans envoi doit quand même avancer
     // l'interpolation.
-    avatars.update(roster.at(now), myPose);
+    const shown = roster.at(now);
+    avatars.update(shown, myPose);
+
+    /*
+     * Les voix sur les têtes, et rien d'autre : c'est tout ce que la voix
+     * ajoute à l'image. Seulement quand quelqu'un nous parle - `poseInRoom`
+     * recompose une matrice, et le faire pour un lobby silencieux serait payer
+     * pour rien. La tête de CETTE image, pas `myPose` qui date du dernier
+     * envoi : l'oreille doit tourner avec la tête, pas quinze fois par seconde.
+     */
+    if (voice?.talking) voice.spatialize(scene?.poseInRoom()?.head ?? myPose, shown);
   }
 
   /** Guards `leave()` against re-entrant calls - see the header. */
@@ -1158,7 +1242,7 @@
       onlineFriends,
       inVrFriends,
       playingByUserId,
-      friendsVisibleRows(!!asking),
+      friendsVisibleRows(!!asking, voiceState?.mic === 'denied'),
       pending?.toUserId
     );
 
@@ -1176,7 +1260,16 @@
      */
     const members = new Set(($myRoom?.players ?? []).map((player) => player.userId));
 
-    const state = { rows, pending, incoming: asking ? [asking] : [], members };
+    const peers = voiceState?.peers ?? [];
+    const voiceShown = voice
+      ? {
+          mic: voice.state().mic,
+          peers: new Set(peers.map((p) => p.id)),
+          speaking: new Set(peers.filter((p) => p.speaking).map((p) => p.id)),
+          mutedPeers: new Set(peers.filter((p) => p.muted).map((p) => p.id))
+        }
+      : null;
+    const state = { rows, pending, incoming: asking ? [asking] : [], members, voice: voiceShown };
     friendsPanel.regions = layoutFriendsPanel(state);
     const regions = friendsPanel.regions;
     const hoverId = hovered?.panel === 'friends' ? hovered.region.id : null;
@@ -1196,7 +1289,15 @@
         inVr: t($language, 'vrInVr'),
         incomingFrom: asking
           ? t($language, 'vrInvitesYou', { pseudo: asking.fromPseudo })
-          : ''
+          : '',
+        voice: {
+          muteMic: t($language, 'vrMicMute'),
+          unmuteMic: t($language, 'vrMicUnmute'),
+          denied: t($language, 'vrMicDenied'),
+          retry: t($language, 'vrMicRetry'),
+          mutePeer: t($language, 'vrPeerMute'),
+          unmutePeer: t($language, 'vrPeerUnmute')
+        }
       }, hoverId)
     );
   }
@@ -1712,6 +1813,21 @@
      */
     if (target.panel === 'friends') {
       const id = target.region.id;
+      // La voix : son micro, le redemander, couper un ami chez soi.
+      if (id === 'voice:mute') {
+        voice?.toggleMuted();
+        return;
+      }
+      if (id === 'voice:retry') {
+        voice?.retryMic();
+        return;
+      }
+      if (id.startsWith('voice-peer:')) {
+        const peerId = id.slice('voice-peer:'.length);
+        const muted = voiceState?.peers.find((p) => p.id === peerId)?.muted ?? false;
+        voice?.setPeerMuted(peerId, !muted);
+        return;
+      }
       if (id.startsWith('invite:')) {
         // Fire and forget: `inviteToGroup` may have to open a room first, and
         // the panel is repainted by the store update that follows either way.
@@ -3594,6 +3710,24 @@
        * reste de la VR marche.
        */
       $socket?.on('vr:lobby', handleVrLobby);
+      /*
+       * La voix, avant le `showDecor(true)` qui suit : c'est lui qui la fait
+       * entrer au lobby. Elle n'y demande rien encore - le micro attend qu'un
+       * ami soit là. Sans socket, pas de voix, comme pas de lobby partagé.
+       */
+      micBadge = createMicBadge();
+      scene.addToLeftHand(micBadge.object);
+      if ($socket) {
+        voice = new VoiceChat({
+          socket: $socket as never,
+          onChange: onVoiceChange,
+          // Le jeu baisse quand un ami parle. `audio` est celui de la partie en
+          // cours, s'il y en a une : hors partie il n'y a rien à baisser.
+          onGameGain: (gain) => audio?.setGain(gain),
+          log: (message, detail) => logger.info(message, detail)
+        });
+      }
+      paintMicBadge();
       // Et le rejeu après une coupure, avec l'écouteur qu'il sert : le socket
       // revient tout seul, l'appartenance au lobby non. Voir
       // `rejoinSharedLobby`, et `rejoinRoom` plus bas pour la même classe.
@@ -3857,6 +3991,17 @@
      * où `showDecor(false)` a déjà quitté - ne réémet rien.
      */
     leaveSharedLobby();
+    /*
+     * La voix, pendant que le socket est encore là pour dire qu'on part : elle
+     * ferme chaque connexion, arrête chaque piste du micro - l'indicateur du
+     * casque s'éteint - et ferme son contexte audio.
+     */
+    voice?.dispose();
+    voice = null;
+    voiceState = null;
+    voicePanelKey = '';
+    micBadge?.dispose();
+    micBadge = null;
     avatars?.dispose();
     avatars = null;
     myPose = null;
