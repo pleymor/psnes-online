@@ -31,8 +31,9 @@ export default defineConfig({
   testDir: '.',
   // Its own config (`offline.config.ts`): it needs a production build, since
   // only a build registers the service worker, and no backend at all. The
-  // same for `offline-sync.config.ts` (#71), which brings its own backend.
-  testIgnore: /offline(-sync)?\.spec\.ts$/,
+  // same for `offline-sync.config.ts` (#71), which brings its own backend,
+  // and runs `wallpaper.spec.ts` against that build too.
+  testIgnore: /(offline(-sync)?|wallpaper)\.spec\.ts$/,
   globalSetup: './global-setup.ts',
   fullyParallel: false, // tests share one backend and its in-memory room state
   workers: 1,

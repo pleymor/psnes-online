@@ -34,6 +34,7 @@ build/
 playwright-report/
 test-results/
 e2e/offline-shots/
+e2e/wallpaper-shots/
 
 # OS
 .DS_Store

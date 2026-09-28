@@ -51,18 +51,18 @@
 
   .window {
     top: calc(24px + 88px);
-    right: calc(24px + 2vw);
+    right: calc(24px + 2cqw);
   }
 
   .poster {
-    top: calc(24px + 44vh);
-    left: calc(24px + 1.5vw);
+    top: calc(24px + 44cqh);
+    left: calc(24px + 1.5cqw);
     transform: rotate(-3deg);
   }
 
   .pennant {
-    top: calc(24px + 30vh);
-    left: calc(24px + 1vw);
+    top: calc(24px + 30cqh);
+    left: calc(24px + 1cqw);
     transform: rotate(6deg);
   }
 
@@ -78,12 +78,12 @@
   }
 
   .carts {
-    left: calc(24px + 1vw);
+    left: calc(24px + 1cqw);
     bottom: calc(24px + 36px);
   }
 
   .tv-glow {
-    right: calc(24px + 1vw - 30px);
+    right: calc(24px + 1cqw - 30px);
     bottom: calc(24px + 70px);
     width: 220px;
     height: 180px;
@@ -92,11 +92,11 @@
   }
 
   /* Sur un téléphone, la moitié de la taille : les mêmes pixels, par deux. */
-  @media (max-width: 768px) {
+  @container (max-width: 768px) {
     .px :global(svg) { zoom: 0.5; }
     .window { top: calc(24px + 70px); right: calc(24px + 8px); }
-    .poster { top: calc(24px + 52vh); left: calc(24px + 4px); }
-    .pennant { top: calc(24px + 34vh); left: calc(24px + 2px); }
+    .poster { top: calc(24px + 52cqh); left: calc(24px + 4px); }
+    .pennant { top: calc(24px + 34cqh); left: calc(24px + 2px); }
     .crt :global(svg) { zoom: 0.5; }
     .crt { right: calc(24px + 4px); }
     .carts { left: calc(24px + 4px); }

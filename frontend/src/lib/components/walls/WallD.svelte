@@ -110,7 +110,7 @@
 
   .window {
     top: calc(24px + 96px);
-    right: calc(24px + 3vw);
+    right: calc(24px + 3cqw);
     width: 200px;
     height: 230px;
   }
@@ -148,27 +148,27 @@
   }
 
   .boat {
-    top: calc(24px + 26vh);
-    left: calc(24px + 1.4vw);
+    top: calc(24px + 26cqh);
+    left: calc(24px + 1.4cqw);
     width: 112px;
   }
 
   .balloon {
-    top: calc(24px + 26vh + 124px);
-    left: calc(24px + 2.4vw);
+    top: calc(24px + 26cqh + 124px);
+    left: calc(24px + 2.4cqw);
     width: 84px;
   }
 
   .plane {
     top: calc(24px + 54px);
-    right: calc(24px + 3vw + 220px);
+    right: calc(24px + 3cqw + 220px);
     width: 76px;
   }
 
-  @media (max-width: 768px) {
+  @container (max-width: 768px) {
     .window { top: calc(24px + 70px); right: calc(24px + 8px); transform: scale(0.55); transform-origin: top right; }
-    .boat { top: calc(24px + 44vh); left: calc(24px + 4px); width: 72px; }
-    .balloon { top: calc(24px + 44vh + 84px); left: calc(24px + 8px); width: 56px; }
+    .boat { top: calc(24px + 44cqh); left: calc(24px + 4px); width: 72px; }
+    .balloon { top: calc(24px + 44cqh + 84px); left: calc(24px + 8px); width: 56px; }
     .plane { display: none; }
   }
 </style>

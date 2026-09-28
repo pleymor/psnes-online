@@ -23,6 +23,9 @@
   import MyInvites from '$lib/components/MyInvites.svelte';
   import { SHADERS } from '$lib/shaders';
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
+  import WallpaperThumbnail from '$lib/components/WallpaperThumbnail.svelte';
+  import { WALLPAPER_CHOICES, type WallpaperChoice } from '$lib/stores/wallpaper-preference';
+  import { chooseWallpaper, wallpaperChoice } from '$lib/bedroom/choice';
   import {
     MAX_CONFIG_BYTES,
     applyConfig,
@@ -294,6 +297,15 @@
       });
     });
   }
+
+  /** Le nom de chaque fond, dans l'ordre où le profil les propose. */
+  const WALLPAPER_NAMES: Record<WallpaperChoice, TranslationKey> = {
+    nineties: 'wallpaperNineties',
+    gamer: 'wallpaperGamer',
+    pastel: 'wallpaperPastel',
+    blue: 'wallpaperBlue',
+    random: 'wallpaperRandom'
+  };
 
   function chooseShader(id: string): void {
     shader = id;
@@ -567,6 +579,28 @@
             </button>
           {/each}
         </div>
+
+        <!-- Le mur derrière la bibliothèque. Chaque vignette est le mur
+             lui-même, réduit, et non une capture : ce qu'on choisit ici est
+             ce qu'on verra. -->
+        <h3 class="subhead" id="wallpaper-heading">{t($language, 'wallpaper')}</h3>
+        <div class="shaders wallpapers" role="group" aria-labelledby="wallpaper-heading">
+          {#each WALLPAPER_CHOICES as choice}
+            <button
+              class="shader wallpaper"
+              class:on={$wallpaperChoice === choice}
+              aria-pressed={$wallpaperChoice === choice}
+              data-wallpaper={choice}
+              on:click={() => chooseWallpaper(choice)}
+            >
+              <WallpaperThumbnail {choice} />
+              <span class="shader-name">{t($language, WALLPAPER_NAMES[choice])}</span>
+            </button>
+          {/each}
+        </div>
+        {#if $wallpaperChoice === 'random'}
+          <p class="note">{t($language, 'wallpaperRandomNote')}</p>
+        {/if}
       </section>
 
       <section class="card">
@@ -883,6 +917,16 @@
     object-fit: cover;
     border-radius: 6px;
     background: #000;
+  }
+
+  .subhead {
+    margin: 1.25rem 0 0.6rem;
+    font-size: 1rem;
+  }
+
+  /* Plus larges que les shaders : un mur se lit en paysage. */
+  .wallpapers {
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
   }
 
   .shader-name {

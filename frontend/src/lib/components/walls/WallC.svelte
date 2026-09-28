@@ -90,7 +90,7 @@
 
   .moon {
     top: calc(24px + 96px);
-    right: calc(24px + 4vw);
+    right: calc(24px + 4cqw);
     width: 120px;
   }
 
@@ -100,8 +100,8 @@
   }
 
   .cloud { width: 170px; }
-  .cloud-1 { top: calc(24px + 30vh); left: calc(24px - 40px); }
-  .cloud-2 { top: calc(24px + 62vh); right: calc(24px - 30px); }
+  .cloud-1 { top: calc(24px + 30cqh); left: calc(24px - 40px); }
+  .cloud-2 { top: calc(24px + 62cqh); right: calc(24px - 30px); }
 
   .garland {
     position: absolute;
@@ -118,13 +118,13 @@
   }
 
   .lamp {
-    left: calc(24px + 1vw);
+    left: calc(24px + 1cqw);
     bottom: calc(24px + 8px);
     width: 110px;
   }
 
   .halo {
-    left: calc(24px + 1vw - 110px);
+    left: calc(24px + 1cqw - 110px);
     bottom: calc(24px - 40px);
     width: 340px;
     height: 340px;
@@ -132,7 +132,7 @@
     background: radial-gradient(closest-side, rgba(255, 226, 160, 0.45), rgba(255, 226, 160, 0));
   }
 
-  @media (max-width: 768px) {
+  @container (max-width: 768px) {
     .moon { top: calc(24px + 76px); right: calc(24px + 14px); width: 64px; }
     .lamp { width: 64px; left: calc(24px + 2px); }
     .halo { width: 200px; height: 200px; left: calc(24px - 70px); }

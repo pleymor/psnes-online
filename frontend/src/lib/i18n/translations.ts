@@ -530,6 +530,14 @@ export const translations = {
 
     // Shaders
     display: 'Display',
+    // The bedroom wall behind the library, chosen in the profile's Display card
+    wallpaper: 'Wallpaper',
+    wallpaperNineties: '90s wallpaper',
+    wallpaperGamer: '16-bit gamer bedroom',
+    wallpaperPastel: 'Pastel',
+    wallpaperBlue: 'Blue',
+    wallpaperRandom: 'Random',
+    wallpaperRandomNote: 'A different wall each time the page loads.',
     shader: 'Shader',
     // Display settings, shown in the pause menu since the on-screen toolbar went
     video: 'Video',
@@ -1237,6 +1245,14 @@ export const translations = {
 
     // Shaders
     display: 'Affichage',
+    // Le mur de chambre derrière la bibliothèque, choisi dans la carte Affichage du profil
+    wallpaper: "Fond d'écran",
+    wallpaperNineties: 'Papier peint 90s',
+    wallpaperGamer: 'Chambre de gamer 16-bit',
+    wallpaperPastel: 'Pastel',
+    wallpaperBlue: 'Bleu',
+    wallpaperRandom: 'Aléatoire',
+    wallpaperRandomNote: 'Un mur différent à chaque chargement de la page.',
     shader: 'Shader',
     // Réglages d'affichage, dans le menu pause depuis la disparition de la barre
     video: 'Vidéo',

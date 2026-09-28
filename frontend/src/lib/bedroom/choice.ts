@@ -1,56 +1,81 @@
 /**
- * Quel fond derrière la bibliothèque : l'un des quatre murs proposés, ou le
- * ciel d'aujourd'hui.
+ * Quel mur derrière la bibliothèque, pour cette visite.
  *
- * Le temps que l'opérateur choisisse. `?bg=a|b|c|d|current` dans l'adresse
- * l'emporte, pour qu'un lien montre toujours le même fond ; sinon le dernier
- * choix du sélecteur, retenu dans ce navigateur.
+ * `wallpaperChoice` est le réglage du profil ; `wall` est le mur qu'on voit.
+ * Sur « Aléatoire », le tirage se fait une fois, au premier mur demandé après
+ * le chargement de la page : ce module vit tant que la page vit, donc on
+ * navigue de la bibliothèque au profil et retour sans changer de mur, et un
+ * rechargement en tire un autre.
+ *
+ * En développement seulement, `?bg=nineties|gamer|pastel|blue` l'emporte, pour
+ * regarder un mur sans toucher au réglage. `import.meta.env.DEV` est remplacé
+ * par `false` au build, et la branche disparaît avec lui.
  */
 
-import { writable } from 'svelte/store';
-import { replaceState } from '$app/navigation';
+import { derived, writable } from 'svelte/store';
+import type { PreferenceStorage } from '$lib/stores/shader-preference';
+import {
+	drawWallpaper,
+	isWallpaper,
+	pickWallpaper,
+	readWallpaperChoice,
+	writeWallpaperChoice,
+	type Wallpaper,
+	type WallpaperChoice
+} from '$lib/stores/wallpaper-preference';
 
-export const WALLS = ['current', 'a', 'b', 'c', 'd'] as const;
-export type Wall = (typeof WALLS)[number];
-
-export const WALL_NAMES: Record<Wall, string> = {
-	current: 'Ciel actuel',
-	a: 'A · Papier peint 90s',
-	b: 'B · Chambre de gamer 16-bit',
-	c: 'C · Pastel, ciel de nuit',
-	d: 'D · Bleu repensé'
-};
-
-const KEY = 'psnes.bg-preview';
-
-function isWall(value: unknown): value is Wall {
-	return typeof value === 'string' && (WALLS as readonly string[]).includes(value);
+/** `localStorage`, ou rien : en navigation privée stricte, y toucher lève. */
+function storage(): PreferenceStorage | null {
+	try {
+		return typeof window === 'undefined' ? null : window.localStorage;
+	} catch {
+		return null;
+	}
 }
 
-function initial(): Wall {
-	if (typeof window === 'undefined') return 'current';
+function readChoice(): WallpaperChoice {
+	const store = storage();
+	if (!store) return 'random';
+	try {
+		return readWallpaperChoice(store);
+	} catch {
+		return 'random';
+	}
+}
+
+export const wallpaperChoice = writable<WallpaperChoice>(readChoice());
+
+let visitPick: Wallpaper | null = null;
+
+/** Le tirage de la visite, fait une fois, au premier mur demandé sur « Aléatoire ». */
+function drawForVisit(): Wallpaper {
+	if (visitPick) return visitPick;
+	const store = storage();
+	try {
+		visitPick = store ? drawWallpaper(store) : pickWallpaper(null);
+	} catch {
+		visitPick = pickWallpaper(null);
+	}
+	return visitPick;
+}
+
+function devOverride(): Wallpaper | null {
+	if (!import.meta.env.DEV || typeof window === 'undefined') return null;
 	const asked = new URLSearchParams(window.location.search).get('bg');
-	if (isWall(asked)) return asked;
-	try {
-		const kept = localStorage.getItem(KEY);
-		if (isWall(kept)) return kept;
-	} catch {
-		// Navigation privée : on repart du ciel, c'est tout.
-	}
-	return 'current';
+	return isWallpaper(asked) ? asked : null;
 }
 
-export const wall = writable<Wall>(initial());
+export const wall = derived(wallpaperChoice, (choice): Wallpaper => {
+	return devOverride() ?? (choice === 'random' ? drawForVisit() : choice);
+});
 
-export function chooseWall(next: Wall): void {
-	wall.set(next);
+export function chooseWallpaper(choice: WallpaperChoice): void {
+	wallpaperChoice.set(choice);
+	const store = storage();
+	if (!store) return;
 	try {
-		localStorage.setItem(KEY, next);
+		writeWallpaperChoice(store, choice);
 	} catch {
-		// Voir plus haut.
+		// Voir `storage()` : le choix vaut pour cette visite, c'est tout.
 	}
-	const url = new URL(window.location.href);
-	url.searchParams.set('bg', next);
-	// Par le routeur : un `history.replaceState` nu, SvelteKit le reprendrait.
-	replaceState(url, {});
 }

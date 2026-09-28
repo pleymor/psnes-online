@@ -331,11 +331,7 @@
     --edge: #f8d030;
     --label: #ffffff;
 
-    /* Le ciel. Il n'appartient qu'à la bibliothèque - `.main-content` le
-       pose - et surtout pas à `body` : /profile, /docs et /room peignent
-       leurs propres panneaux sombres, qui sur du bleu se liraient comme un
-       demi-portage abandonné en route. */
-    --sky: #7cb8f0;
+    /* L'ombre portée des titres de la bibliothèque. */
     --deep: #1d4a86;
 
     /* La boîte à message : crème, encre brune. Les cartouches de la grille

@@ -123,13 +123,13 @@
   /* Un calque déborde de 24 px : chaque coordonnée les ajoute. */
   .window {
     top: calc(24px + 92px);
-    right: calc(24px + 3vw);
+    right: calc(24px + 3cqw);
     width: 180px;
   }
 
   .poster {
-    top: calc(24px + 30vh);
-    left: calc(24px + 1.2vw);
+    top: calc(24px + 30cqh);
+    left: calc(24px + 1.2cqw);
     width: 112px;
     transform: rotate(-5deg);
   }
@@ -152,13 +152,13 @@
 
   .mobile {
     top: calc(24px + 54px);
-    right: calc(24px + 2vw + 190px);
+    right: calc(24px + 2cqw + 190px);
     width: 64px;
   }
 
-  @media (max-width: 768px) {
+  @container (max-width: 768px) {
     .window { top: calc(24px + 72px); right: calc(24px + 8px); width: 104px; }
-    .poster { top: calc(24px + 52vh); left: calc(24px + 4px); width: 76px; }
+    .poster { top: calc(24px + 52cqh); left: calc(24px + 4px); width: 76px; }
     .mobile { display: none; }
   }
 </style>
