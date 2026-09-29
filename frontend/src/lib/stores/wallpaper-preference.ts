@@ -84,3 +84,31 @@ export function drawWallpaper(storage: PreferenceStorage, random: () => number =
 	storage.setItem(LAST_KEY, wall);
 	return wall;
 }
+
+/*
+ * La parallaxe du mur, qu'on peut couper : certains n'aiment pas voir le fond
+ * bouger. Allumée par défaut, comme #100 l'a livrée ; seul « éteinte » s'écrit,
+ * sous sa propre clé, à côté du mur.
+ */
+
+const PARALLAX_KEY = 'psnes-parallax';
+
+export const DEFAULT_PARALLAX = true;
+
+/**
+ * La parallaxe est-elle voulue. Une valeur inconnue est effacée et vaut le
+ * défaut, comme pour le mur.
+ */
+export function readParallax(storage: PreferenceStorage): boolean {
+	const stored = storage.getItem(PARALLAX_KEY);
+	if (!stored) return DEFAULT_PARALLAX;
+	if (stored === 'off') return false;
+	storage.removeItem(PARALLAX_KEY);
+	return DEFAULT_PARALLAX;
+}
+
+/** Retient le choix. Le défaut efface la clé. */
+export function writeParallax(storage: PreferenceStorage, on: boolean): void {
+	if (on === DEFAULT_PARALLAX) storage.removeItem(PARALLAX_KEY);
+	else storage.setItem(PARALLAX_KEY, 'off');
+}

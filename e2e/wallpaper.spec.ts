@@ -12,7 +12,11 @@
  *  2. « Aléatoire », le défaut, donne l'un des quatre, le garde d'une page à
  *     l'autre de la visite, et en tire un autre au chargement suivant ;
  *  3. la parallaxe : 18 px au plus, aucune frame demandée au repos, rien sous
- *     `prefers-reduced-motion`.
+ *     `prefers-reduced-motion` ;
+ *  4. l'interrupteur « Effet de profondeur (parallaxe) » : allumé par défaut,
+ *     coupé il laisse les calques au repos sans rien écouter, sans
+ *     rechargement, et tient au rechargement ;
+ *  5. sous `prefers-reduced-motion`, l'interrupteur est grisé et dit pourquoi.
  *
  * Les captures - le réglage, et chaque mur à 390x844 et 1440x900 - vont dans
  * `e2e/wallpaper-shots/`.
@@ -255,3 +259,154 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
 		await context.close();
 	});
 }
+
+/* ------------------------------------------------------------------ 4 */
+
+/**
+ * Compte les frames demandées et les demandes de permission d'inclinaison :
+ * coupée, la parallaxe ne doit faire ni l'un ni l'autre.
+ */
+async function counting(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		const w = window as unknown as { __rafs: number; __tiltAsks: number };
+		const raf = window.requestAnimationFrame.bind(window);
+		w.__rafs = 0;
+		w.__tiltAsks = 0;
+		window.requestAnimationFrame = (cb) => {
+			w.__rafs++;
+			return raf(cb);
+		};
+		(window.DeviceOrientationEvent as unknown as { requestPermission: () => Promise<string> }).requestPermission =
+			async () => {
+				w.__tiltAsks++;
+				return 'granted';
+			};
+	});
+}
+
+function parallaxSwitch(page: Page) {
+	return page.getByRole('switch', { name: 'Effet de profondeur (parallaxe)' });
+}
+
+/** Le plus grand déplacement des calques du mur, en pixels. */
+async function largestShift(page: Page): Promise<number> {
+	const shifts = await page.locator('.app-layout > .wall [data-depth]').evaluateAll((els) =>
+		els.map((el) => {
+			const match = /translate3d\((-?[\d.]+)px, (-?[\d.]+)px/.exec((el as HTMLElement).style.transform);
+			return match ? Math.max(Math.abs(Number(match[1])), Math.abs(Number(match[2]))) : 0;
+		})
+	);
+	expect(shifts.length).toBeGreaterThan(0);
+	return Math.max(...shifts);
+}
+
+/** La souris d'un coin à l'autre, puis le temps que les calques arrivent. */
+async function sweep(page: Page): Promise<number> {
+	const before = await page.evaluate(() => (window as unknown as { __rafs: number }).__rafs);
+	await page.mouse.move(10, 10, { steps: 4 });
+	await page.mouse.move(1430, 890, { steps: 6 });
+	await page.mouse.wheel(0, 400);
+	await page.waitForTimeout(2000);
+	const after = await page.evaluate(() => (window as unknown as { __rafs: number }).__rafs);
+	return after - before;
+}
+
+test('« Effet de profondeur » : allumé par défaut, coupé sans rechargement, les calques au repos, et tenu au rechargement', async ({
+	browser
+}) => {
+	const { context, page } = await signedIn(browser);
+	await page.evaluate(() => {
+		localStorage.setItem('psnes-wallpaper', 'nineties');
+		localStorage.removeItem('psnes-parallax');
+	});
+	await counting(page);
+	await page.reload();
+	await wallOnScreen(page);
+
+	// Allumée par défaut : le mur suit la souris.
+	await sweep(page);
+	expect(await largestShift(page)).toBeGreaterThan(8);
+
+	// Dans le profil, juste sous le fond d'écran, et allumé.
+	await page.locator('.top-bar a.avatar').click();
+	await expect(page).toHaveURL(/\/profile/);
+	const card = page.locator('section.card', { has: page.locator('.wallpapers') });
+	await expect(card.getByRole('switch', { name: 'Effet de profondeur (parallaxe)' })).toBeVisible();
+	await expect(parallaxSwitch(page)).toBeChecked();
+	await expect(parallaxSwitch(page)).toBeEnabled();
+	await expect(page.getByText('Désactivé : votre système demande de réduire les animations')).toHaveCount(0);
+
+	await parallaxSwitch(page).uncheck();
+	await expect(parallaxSwitch(page)).not.toBeChecked();
+	expect(await page.evaluate(() => localStorage.getItem('psnes-parallax'))).toBe('off');
+	// Le mur, lui, reste celui qu'on a choisi.
+	expect(await page.evaluate(() => localStorage.getItem('psnes-wallpaper'))).toBe('nineties');
+
+	// Sans rechargement : retour à la bibliothèque dans l'application.
+	await page.goBack();
+	await expect(page).toHaveURL(/\/$/);
+	expect(await wallOnScreen(page)).toBe('nineties');
+	expect(await largestShift(page), 'les calques reviennent au repos').toBe(0);
+	expect(await sweep(page), 'requestAnimationFrame, parallaxe coupée').toBe(0);
+	expect(await largestShift(page)).toBe(0);
+
+	// Au rechargement, toujours coupée, et jamais la permission d'inclinaison.
+	await page.reload();
+	expect(await wallOnScreen(page)).toBe('nineties');
+	expect(await sweep(page), 'requestAnimationFrame, parallaxe coupée').toBe(0);
+	expect(await largestShift(page)).toBe(0);
+	expect(await page.evaluate(() => (window as unknown as { __tiltAsks: number }).__tiltAsks)).toBe(0);
+
+	await page.locator('.top-bar a.avatar').click();
+	await expect(parallaxSwitch(page)).not.toBeChecked();
+
+	// Et rallumée, elle repart aussitôt.
+	await parallaxSwitch(page).check();
+	expect(await page.evaluate(() => localStorage.getItem('psnes-parallax'))).toBeNull();
+	await page.goBack();
+	await wallOnScreen(page);
+	await sweep(page);
+	expect(await largestShift(page)).toBeGreaterThan(8);
+	expect(await page.evaluate(() => (window as unknown as { __tiltAsks: number }).__tiltAsks)).toBe(0);
+
+	await context.close();
+});
+
+/* ------------------------------------------------------------------ 5 */
+
+test('sous `prefers-reduced-motion`, l’interrupteur est grisé et dit pourquoi, et les calques ne bougent pas', async ({
+	browser
+}) => {
+	const { context, page } = await signedIn(browser, { reducedMotion: 'reduce' });
+	await page.evaluate(() => {
+		localStorage.setItem('psnes-wallpaper', 'nineties');
+		localStorage.removeItem('psnes-parallax');
+	});
+	await counting(page);
+	await page.reload();
+	await wallOnScreen(page);
+
+	// Le réglage dit « allumée », le système l'emporte.
+	expect(await sweep(page), 'requestAnimationFrame sous reduced-motion').toBe(0);
+	expect(await largestShift(page)).toBe(0);
+
+	await page.locator('.top-bar a.avatar').click();
+	await expect(page).toHaveURL(/\/profile/);
+	await expect(parallaxSwitch(page)).toBeDisabled();
+	await expect(parallaxSwitch(page)).not.toBeChecked();
+	await expect(parallaxSwitch(page)).toHaveAccessibleDescription(
+		'Désactivé : votre système demande de réduire les animations'
+	);
+
+	const card = page.locator('section.card', { has: page.locator('.wallpapers') });
+	fs.mkdirSync(SHOTS, { recursive: true });
+	const hideBar = await page.addStyleTag({ content: '.top-bar { visibility: hidden !important; }' });
+	for (const viewport of VIEWPORTS) {
+		await page.setViewportSize({ width: viewport.width, height: viewport.height });
+		await page.waitForTimeout(300);
+		await card.screenshot({ path: path.join(SHOTS, `setting-reduced-motion-${viewport.name}.png`) });
+	}
+	await hideBar.evaluate((el) => el.remove());
+
+	await context.close();
+});

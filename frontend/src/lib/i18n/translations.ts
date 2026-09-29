@@ -538,6 +538,8 @@ export const translations = {
     wallpaperBlue: 'Blue',
     wallpaperRandom: 'Random',
     wallpaperRandomNote: 'A different wall each time the page loads.',
+    parallax: 'Depth effect (parallax)',
+    parallaxReducedMotion: 'Off: your system asks for reduced motion',
     shader: 'Shader',
     // Display settings, shown in the pause menu since the on-screen toolbar went
     video: 'Video',
@@ -1253,6 +1255,8 @@ export const translations = {
     wallpaperBlue: 'Bleu',
     wallpaperRandom: 'Aléatoire',
     wallpaperRandomNote: 'Un mur différent à chaque chargement de la page.',
+    parallax: 'Effet de profondeur (parallaxe)',
+    parallaxReducedMotion: 'Désactivé : votre système demande de réduire les animations',
     shader: 'Shader',
     // Réglages d'affichage, dans le menu pause depuis la disparition de la barre
     video: 'Vidéo',

@@ -39,7 +39,7 @@
   import TopBar from '$lib/components/TopBar.svelte';
   import SiteFooter from '$lib/components/SiteFooter.svelte';
   import BedroomWall from '$lib/components/BedroomWall.svelte';
-  import { wall } from '$lib/bedroom/choice';
+  import { parallaxOn, wall } from '$lib/bedroom/choice';
   import { inGame } from '$lib/stores/in-game';
   import { columnsThatFit, rowBottoms, trackWidth } from '$lib/games/shelves';
   import { createLogger } from '$lib/utils/logger';
@@ -799,7 +799,7 @@
     l'émulateur garde toutes ses frames.
   -->
   <div class="app-layout" data-wall={$wall}>
-    <BedroomWall variant={$wall} paused={$inGame || !!selectedGame} />
+    <BedroomWall variant={$wall} depth={$parallaxOn} paused={$inGame || !!selectedGame} />
     <!-- Refermer la recherche efface la requête : la barre prête sa place au
          champ mais ne le connaît pas, donc c'est ici que ça se passe. Sans
          cela la bibliothèque resterait filtrée sans que rien ne dise pourquoi. -->
