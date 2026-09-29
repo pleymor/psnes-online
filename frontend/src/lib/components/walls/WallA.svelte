@@ -128,18 +128,20 @@
   }
 
   .poster {
-    top: calc(24px + 30cqh);
+    top: calc(24px + var(--room) * 0.3);
     left: calc(24px + 1.2cqw);
     width: 112px;
     transform: rotate(-5deg);
   }
 
+  /* Au pied du mur, donc au bas de la bibliothèque, et haut d'un tiers de
+     pièce ; le calque déborde de 24 px, la frise les ajoute. */
   .lower {
     position: absolute;
-    top: 68%;
+    bottom: 0;
     left: 0;
     width: 100%;
-    height: 40%;
+    height: calc(24px + var(--room) * 0.32);
   }
 
   .bunting {
@@ -158,7 +160,7 @@
 
   @container (max-width: 768px) {
     .window { top: calc(24px + 72px); right: calc(24px + 8px); width: 104px; }
-    .poster { top: calc(24px + 52cqh); left: calc(24px + 4px); width: 76px; }
+    .poster { top: calc(24px + var(--room) * 0.52); left: calc(24px + 4px); width: 76px; }
     .mobile { display: none; }
   }
 </style>

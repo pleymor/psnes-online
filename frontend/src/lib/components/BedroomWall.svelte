@@ -2,9 +2,17 @@
   /**
    * Le mur de la chambre, derrière la bibliothèque.
    *
-   * Fixé à la fenêtre, pas à la page : les étagères défilent devant un mur
-   * qui reste, et c'est déjà là la moitié de la profondeur. L'autre moitié est
-   * `parallax.ts`, qui fait glisser les calques de quelques pixels.
+   * Posé sur la page, pas sur la fenêtre : les étagères sont accrochées à ce
+   * mur, donc il défile avec elles, pixel pour pixel, et c'est le navigateur
+   * qui le fait défiler - aucun script ne le suit. Il couvre toute la hauteur
+   * de la bibliothèque : le papier peint se répète, le décor reste en haut de
+   * la pièce, la plinthe et les meubles en bas du contenu. La profondeur est
+   * `parallax.ts`, qui fait glisser les calques de quelques pixels autour de
+   * leur place.
+   *
+   * `--room` est la hauteur de la pièce, celle d'un écran : le décor se place
+   * dans ce premier écran, en fractions de `--room` plutôt qu'en `cqh`, qui
+   * vaut ici toute la hauteur de la bibliothèque.
    *
    * Monté par la seule page de la bibliothèque. Le salon et l'écran de jeu ne
    * le connaissent pas : l'émulateur ne peut pas perdre une frame à cause
@@ -46,8 +54,11 @@
 
 <style>
   .wall {
-    position: fixed;
+    /* Absolu dans `.app-layout`, qui est la page entière : il en prend
+       toute la hauteur et défile avec elle. */
+    position: absolute;
     inset: 0;
+    --room: 100svh;
     z-index: 0;
     overflow: hidden;
     pointer-events: none;
@@ -57,8 +68,9 @@
     container: wall / size;
   }
 
+  /* L'aperçu est une pièce entière, en petit : sa boîte est l'écran. */
   .wall.thumbnail {
-    position: absolute;
+    --room: 100cqh;
   }
 
   /*

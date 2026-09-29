@@ -3,8 +3,18 @@
  *
  * Chaque calque porte `data-depth`, de 0 (le mur, qui ne bouge pas) à 1 (ce
  * qui pend devant, qui bouge de `MAX_SHIFT` pixels au plus). La souris sur un
- * ordinateur, l'inclinaison du téléphone s'il la donne, et sinon le défilement
- * de la page : trois sources, une seule cible entre -1 et 1 sur chaque axe.
+ * ordinateur, l'inclinaison du téléphone s'il la donne : deux sources, une
+ * seule cible entre -1 et 1 sur chaque axe. Le mur défile avec la page, et
+ * les calques glissent autour de leur place défilée.
+ *
+ * Le défilement n'est PAS une source. Il l'a été, sur téléphone, mais des
+ * calques qui défilent à une autre vitesse que les étagères contredisent un
+ * mur où elles sont accrochées, et suivre le défilement demandait un script à
+ * chaque `scroll`, là où le navigateur fait défiler le mur tout seul. Même
+ * le ciel derrière la fenêtre du mur bleu, seul calque vraiment « dehors »,
+ * n'y a pas droit : il suit la souris et l'inclinaison comme les autres.
+ * Un téléphone sans inclinaison a donc un mur immobile, ce qui vaut mieux
+ * qu'un mur qui glisse sous ses étagères.
  *
  * LE COÛT, et c'est lui qui a décidé de la forme :
  *
@@ -22,8 +32,8 @@
  *
  * L'inclinaison n'est jamais demandée : `DeviceOrientationEvent.requestPermission`
  * n'est appelé nulle part. Là où le navigateur la réserve à une permission
- * (iOS), `deviceorientation` n'arrive simplement pas et le défilement prend le
- * relais ; coupée, la parallaxe n'écoute même pas.
+ * (iOS), `deviceorientation` n'arrive simplement pas et les calques restent au
+ * repos ; coupée, la parallaxe n'écoute même pas.
  */
 
 export interface ParallaxOptions {
@@ -49,14 +59,12 @@ function clamp(value: number): number {
 
 export function parallax(root: HTMLElement, options: ParallaxOptions = {}) {
 	const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
-	const coarse = window.matchMedia('(pointer: coarse)');
 
 	let layers: Layer[] = [];
 	let paused = !!options.paused;
 	let enabled = options.enabled ?? true;
 	let listening = false;
 	let frame = 0;
-	let tilted = false;
 
 	const target = { x: 0, y: 0 };
 	const current = { x: 0, y: 0 };
@@ -103,18 +111,9 @@ export function parallax(root: HTMLElement, options: ParallaxOptions = {}) {
 
 	function onTilt(event: DeviceOrientationEvent) {
 		if (event.gamma === null || event.beta === null) return;
-		tilted = true;
 		// Un téléphone se tient penché vers soi, vers 45° : c'est le repos.
 		target.x = clamp(event.gamma / 30);
 		target.y = clamp((event.beta - 45) / 30);
-		wake();
-	}
-
-	function onScroll() {
-		// L'inclinaison, quand elle existe, est la meilleure des deux.
-		if (tilted || !coarse.matches) return;
-		const room = document.documentElement.scrollHeight - window.innerHeight;
-		target.y = room > 0 ? clamp((window.scrollY / room) * 2 - 1) : 0;
 		wake();
 	}
 
@@ -124,7 +123,6 @@ export function parallax(root: HTMLElement, options: ParallaxOptions = {}) {
 		const method = on ? 'addEventListener' : 'removeEventListener';
 		window[method]('pointermove', onPointer as EventListener, { passive: true });
 		window[method]('deviceorientation', onTilt as EventListener, { passive: true });
-		window[method]('scroll', onScroll, { passive: true });
 	}
 
 	function apply() {
@@ -139,8 +137,6 @@ export function parallax(root: HTMLElement, options: ParallaxOptions = {}) {
 				target.x = target.y = current.x = current.y = 0;
 				paint();
 			}
-		} else {
-			onScroll();
 		}
 	}
 

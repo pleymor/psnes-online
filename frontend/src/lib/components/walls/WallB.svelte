@@ -15,7 +15,7 @@
 
 <div class="layer" data-depth="0.12">
   <div class="fill" style="background: {paper} 0 0 / {tile} {tile} repeat"></div>
-  <!-- La plinthe, en bas de l'écran. -->
+  <!-- La plinthe, au pied du mur : au bas de la bibliothèque. -->
   <div class="skirting"></div>
 </div>
 
@@ -55,13 +55,13 @@
   }
 
   .poster {
-    top: calc(24px + 44cqh);
+    top: calc(24px + var(--room) * 0.44);
     left: calc(24px + 1.5cqw);
     transform: rotate(-3deg);
   }
 
   .pennant {
-    top: calc(24px + 30cqh);
+    top: calc(24px + var(--room) * 0.3);
     left: calc(24px + 1cqw);
     transform: rotate(6deg);
   }
@@ -95,8 +95,8 @@
   @container (max-width: 768px) {
     .px :global(svg) { zoom: 0.5; }
     .window { top: calc(24px + 70px); right: calc(24px + 8px); }
-    .poster { top: calc(24px + 52cqh); left: calc(24px + 4px); }
-    .pennant { top: calc(24px + 34cqh); left: calc(24px + 2px); }
+    .poster { top: calc(24px + var(--room) * 0.52); left: calc(24px + 4px); }
+    .pennant { top: calc(24px + var(--room) * 0.34); left: calc(24px + 2px); }
     .crt :global(svg) { zoom: 0.5; }
     .crt { right: calc(24px + 4px); }
     .carts { left: calc(24px + 4px); }

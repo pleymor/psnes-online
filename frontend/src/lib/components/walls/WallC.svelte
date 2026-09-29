@@ -8,7 +8,7 @@
   const BULBS = [
     [22, 17], [66, 30], [110, 34], [154, 30], [198, 17]
   ];
-  // Les étoiles du ciel en stickers : position en %, taille en px.
+  // Les étoiles du ciel en stickers : position en % de la pièce, taille en px.
   const STARS: [number, number, number][] = [
     [8, 30, 16], [20, 56, 11], [4, 78, 14], [92, 44, 12], [86, 70, 18],
     [95, 86, 10], [50, 24, 9], [62, 52, 8], [36, 64, 10], [74, 92, 12], [16, 92, 9]
@@ -37,7 +37,7 @@
     </svg>
   </div>
   {#each STARS as [x, y, size]}
-    <svg class="item star" style="left: calc(24px + {x}%); top: calc(24px + {y}%); width: {size}px" viewBox="0 0 20 20" aria-hidden="true">
+    <svg class="item star" style="left: calc(24px + {x}%); top: calc(24px + var(--room) * {y / 100}); width: {size}px" viewBox="0 0 20 20" aria-hidden="true">
       <path d="M10 0 C11 7 13 9 20 10 C13 11 11 13 10 20 C9 13 7 11 0 10 C7 9 9 7 10 0Z" fill="#ffe9a8" />
     </svg>
   {/each}
@@ -100,8 +100,8 @@
   }
 
   .cloud { width: 170px; }
-  .cloud-1 { top: calc(24px + 30cqh); left: calc(24px - 40px); }
-  .cloud-2 { top: calc(24px + 62cqh); right: calc(24px - 30px); }
+  .cloud-1 { top: calc(24px + var(--room) * 0.3); left: calc(24px - 40px); }
+  .cloud-2 { top: calc(24px + var(--room) * 0.62); right: calc(24px - 30px); }
 
   .garland {
     position: absolute;
