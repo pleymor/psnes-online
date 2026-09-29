@@ -1240,6 +1240,8 @@
 
   /* Library page styles */
   .app-layout {
+    /* La boîte du mur : il couvre la page entière et défile avec elle. */
+    position: relative;
     display: flex;
     flex-direction: column;
     min-height: 100vh;
@@ -1250,7 +1252,7 @@
   .main-content {
     flex: 1;
     padding: 2rem;
-    /* Devant le mur fixe (0), sous la barre (101). Transparente : le mur
+    /* Devant le mur (0), sous la barre (101). Transparente : le mur
        n'appartient qu'à la bibliothèque, et surtout pas à `body`, sous les
        panneaux sombres de /profile, /docs et /room. */
     position: relative;

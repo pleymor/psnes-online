@@ -16,10 +16,14 @@
  *  4. l'interrupteur « Effet de profondeur (parallaxe) » : allumé par défaut,
  *     coupé il laisse les calques au repos sans rien écouter, sans
  *     rechargement, et tient au rechargement ;
- *  5. sous `prefers-reduced-motion`, l'interrupteur est grisé et dit pourquoi.
+ *  5. sous `prefers-reduced-motion`, l'interrupteur est grisé et dit pourquoi ;
+ *  6. le mur défile avec les étagères, pixel pour pixel, sur les quatre murs,
+ *     et descend au moins jusqu'à la dernière étagère d'une longue
+ *     bibliothèque ; le défilement ne coûte aucune frame longue.
  *
- * Les captures - le réglage, et chaque mur à 390x844 et 1440x900 - vont dans
- * `e2e/wallpaper-shots/`.
+ * Les captures - le réglage, chaque mur à 390x844 et 1440x900, en haut et
+ * après défilement - vont dans `e2e/wallpaper-shots/`, avec le coût mesuré du
+ * défilement dans `scroll-cost.jsonl`.
  */
 
 import { test, expect, type Browser, type Page } from '@playwright/test';
@@ -407,6 +411,168 @@ test('sous `prefers-reduced-motion`, l’interrupteur est grisé et dit pourquoi
 		await card.screenshot({ path: path.join(SHOTS, `setting-reduced-motion-${viewport.name}.png`) });
 	}
 	await hideBar.evaluate((el) => el.remove());
+
+	await context.close();
+});
+
+/* ------------------------------------------------------------------ 6 */
+
+/**
+ * `count` ROMs sur le compte, par le même scan : la ROM du test, chaque fois
+ * avec un octet changé dans une zone qu'elle n'exécute pas, donc autant de
+ * jeux distincts que de fichiers. De quoi remplir des étagères bien plus
+ * hautes qu'un écran.
+ */
+async function withManyGames(page: Page, count: number): Promise<void> {
+	await page.evaluate(
+		async ({ bytes, count }) => {
+			const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('roms', { create: true });
+			for (let i = 0; i < count; i++) {
+				const rom = new Uint8Array(bytes);
+				rom[0x7000] = i & 0xff;
+				rom[0x7001] = i >> 8;
+				const file = await dir.getFileHandle(`psnes-shelf-${String(i).padStart(3, '0')}.sfc`, { create: true });
+				const writable = await file.createWritable();
+				await writable.write(rom);
+				await writable.close();
+			}
+		},
+		{ bytes: [...sramCounterRom()], count }
+	);
+	await page.getByRole('button', { name: 'Choisir mon dossier de ROMs' }).click();
+	await expect(page.getByText(/jeux ajoutés|déjà à jour|correspond déjà/i).first()).toBeVisible({ timeout: 60_000 });
+}
+
+/** Deux frames : le défilement demandé est peint. */
+async function painted(page: Page): Promise<void> {
+	await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
+
+/** Le haut, à l'écran, du mur, d'un calque, d'un objet du décor et d'une étagère. */
+async function tops(page: Page) {
+	return page.evaluate(() => {
+		const top = (el: Element | null) => (el ? el.getBoundingClientRect().top : NaN);
+		return {
+			wall: top(document.querySelector('.app-layout > .wall')),
+			layer: top(document.querySelector('.app-layout > .wall .layer')),
+			item: top(document.querySelector('.app-layout > .wall .item')),
+			shelf: top(document.querySelector('.games-grid .shelf'))
+		};
+	});
+}
+
+const GAMES = 60;
+const SCROLL = 600;
+
+test('le mur défile avec les étagères, pixel pour pixel, et couvre toute la bibliothèque, sur les quatre murs', async ({
+	browser
+}) => {
+	const { context, page } = await signedIn(browser);
+	await page.locator('.top-bar a.avatar').click();
+	await expect(page).toHaveURL(/\/profile/);
+	await withManyGames(page, GAMES);
+	fs.mkdirSync(SHOTS, { recursive: true });
+	const cdp = await context.newCDPSession(page);
+	await cdp.send('Performance.enable');
+	const metric = async (name: string) =>
+		(await cdp.send('Performance.getMetrics')).metrics.find((m) => m.name === name)?.value ?? 0;
+	const costs: string[] = [];
+
+	for (const viewport of VIEWPORTS) {
+		await page.setViewportSize({ width: viewport.width, height: viewport.height });
+		for (const wall of WALLS) {
+			await page.evaluate((id) => localStorage.setItem('psnes-wallpaper', id), wall);
+			await page.goto('/');
+			expect(await wallOnScreen(page)).toBe(wall);
+			await expect(page.locator('.games-grid .game-card')).toHaveCount(GAMES);
+			await page.evaluate(() => window.scrollTo(0, 0));
+			await page.waitForTimeout(400);
+			await painted(page);
+			await page.screenshot({ path: path.join(SHOTS, `scroll-${wall}-${viewport.name}-top.png`) });
+
+			// Assez de bibliothèque pour défiler, et le mur jusqu'en bas.
+			const room = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+			expect(room, 'la bibliothèque dépasse largement l’écran').toBeGreaterThan(SCROLL * 2);
+			const reach = await page.evaluate(() => {
+				const wallBox = document.querySelector('.app-layout > .wall')!.getBoundingClientRect();
+				const shelves = document.querySelectorAll('.games-grid .shelf');
+				const last = shelves[shelves.length - 1].getBoundingClientRect();
+				return { wall: wallBox.bottom, shelf: last.bottom, page: document.documentElement.scrollHeight };
+			});
+			expect(reach.wall, `${wall} : le mur descend sous la dernière étagère`).toBeGreaterThanOrEqual(reach.shelf);
+			expect(Math.round(reach.wall), `${wall} : le mur va jusqu'au bas de la page`).toBe(reach.page);
+
+			// N px de défilement : le mur, un calque et un objet du décor bougent de N, comme l'étagère.
+			const before = await tops(page);
+			await page.evaluate((y) => window.scrollTo(0, y), SCROLL);
+			await painted(page);
+			const after = await tops(page);
+			for (const key of ['wall', 'layer', 'item', 'shelf'] as const) {
+				expect(before[key] - after[key], `${wall} ${viewport.name} : ${key}`).toBeCloseTo(SCROLL, 1);
+			}
+			await page.screenshot({ path: path.join(SHOTS, `scroll-${wall}-${viewport.name}-scrolled.png`) });
+			// Tout en bas : la plinthe, ou le lambris, au pied de la dernière étagère.
+			await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+			await painted(page);
+			await page.screenshot({ path: path.join(SHOTS, `scroll-${wall}-${viewport.name}-bottom.png`) });
+
+			// Le coût : défiler à la molette depuis le haut, en comptant les frames
+			// longues, les mises en page et le plus long écart entre deux frames.
+			await page.evaluate(() => window.scrollTo(0, 0));
+			await painted(page);
+			await page.evaluate(() => {
+				const w = window as unknown as { __long: number[]; __gaps: number[]; __run: boolean };
+				w.__long = [];
+				w.__gaps = [];
+				w.__run = true;
+				new PerformanceObserver((list) => {
+					for (const entry of list.getEntries()) w.__long.push(Math.round(entry.duration));
+				}).observe({ type: 'long-animation-frame' });
+				let last = performance.now();
+				const tick = (now: number) => {
+					w.__gaps.push(now - last);
+					last = now;
+					if (w.__run) requestAnimationFrame(tick);
+				};
+				requestAnimationFrame(tick);
+			});
+			const layouts = await metric('LayoutCount');
+			await page.mouse.move(viewport.width / 2, viewport.height / 2);
+			for (let i = 0; i < 30; i++) {
+				await page.mouse.wheel(0, 120);
+				await page.waitForTimeout(16);
+			}
+			await page.waitForTimeout(300);
+			const measured = await page.evaluate(() => {
+				const w = window as unknown as { __long: number[]; __gaps: number[]; __run: boolean };
+				w.__run = false;
+				const gaps = w.__gaps.slice(1).sort((a, b) => a - b);
+				return {
+					long: w.__long,
+					frames: gaps.length,
+					p95: Math.round(gaps[Math.floor(gaps.length * 0.95)] ?? 0),
+					max: Math.round(gaps[gaps.length - 1] ?? 0),
+					scrolled: window.scrollY
+				};
+			});
+			const cost = {
+				wall,
+				viewport: viewport.name,
+				scrolled: measured.scrolled,
+				frames: measured.frames,
+				p95Ms: measured.p95,
+				maxMs: measured.max,
+				longFrames: measured.long,
+				layouts: (await metric('LayoutCount')) - layouts
+			};
+			costs.push(JSON.stringify(cost));
+			expect(measured.scrolled, 'la molette a fait défiler').toBeGreaterThan(SCROLL);
+			expect(cost.longFrames, `${wall} ${viewport.name} : frames longues pendant le défilement`).toEqual([]);
+		}
+	}
+	await page.evaluate(() => localStorage.removeItem('psnes-wallpaper'));
+	fs.writeFileSync(path.join(SHOTS, 'scroll-cost.jsonl'), costs.join('\n') + '\n');
+	console.log(costs.join('\n'));
 
 	await context.close();
 });
