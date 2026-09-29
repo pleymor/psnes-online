@@ -12,13 +12,15 @@
  * par `false` au build, et la branche disparaît avec lui.
  */
 
-import { derived, writable } from 'svelte/store';
+import { derived, readable, writable } from 'svelte/store';
 import type { PreferenceStorage } from '$lib/stores/shader-preference';
 import {
 	drawWallpaper,
 	isWallpaper,
 	pickWallpaper,
+	readParallax,
 	readWallpaperChoice,
+	writeParallax,
 	writeWallpaperChoice,
 	type Wallpaper,
 	type WallpaperChoice
@@ -79,3 +81,43 @@ export function chooseWallpaper(choice: WallpaperChoice): void {
 		// Voir `storage()` : le choix vaut pour cette visite, c'est tout.
 	}
 }
+
+/*
+ * La parallaxe : le réglage du profil, et ce que dit le système. Sous
+ * `prefers-reduced-motion: reduce`, le mur ne bouge pas, quel que soit le
+ * réglage - `parallax.ts` le vérifie lui-même, et le profil grise l'interrupteur
+ * pour dire pourquoi.
+ */
+
+function readParallaxOn(): boolean {
+	const store = storage();
+	if (!store) return true;
+	try {
+		return readParallax(store);
+	} catch {
+		return true;
+	}
+}
+
+export const parallaxOn = writable<boolean>(readParallaxOn());
+
+export function chooseParallax(on: boolean): void {
+	parallaxOn.set(on);
+	const store = storage();
+	if (!store) return;
+	try {
+		writeParallax(store, on);
+	} catch {
+		// Voir `storage()` : le choix vaut pour cette visite, c'est tout.
+	}
+}
+
+/** `prefers-reduced-motion: reduce`, suivi s'il change en cours de route. */
+export const reducedMotion = readable(false, (set) => {
+	if (typeof window === 'undefined' || !window.matchMedia) return;
+	const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+	const update = () => set(query.matches);
+	update();
+	query.addEventListener('change', update);
+	return () => query.removeEventListener('change', update);
+});

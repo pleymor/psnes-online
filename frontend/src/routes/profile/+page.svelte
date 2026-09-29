@@ -25,7 +25,7 @@
   import { readShaderPreference, writeShaderPreference } from '$lib/stores/shader-preference';
   import WallpaperThumbnail from '$lib/components/WallpaperThumbnail.svelte';
   import { WALLPAPER_CHOICES, type WallpaperChoice } from '$lib/stores/wallpaper-preference';
-  import { chooseWallpaper, wallpaperChoice } from '$lib/bedroom/choice';
+  import { chooseParallax, chooseWallpaper, parallaxOn, reducedMotion, wallpaperChoice } from '$lib/bedroom/choice';
   import {
     MAX_CONFIG_BYTES,
     applyConfig,
@@ -601,6 +601,25 @@
         {#if $wallpaperChoice === 'random'}
           <p class="note">{t($language, 'wallpaperRandomNote')}</p>
         {/if}
+
+        <!-- La parallaxe du mur, qu'on peut couper. Le système qui demande
+             moins d'animations l'emporte : l'interrupteur est alors grisé,
+             éteint, et dit pourquoi. -->
+        <label class="switch" class:off={$reducedMotion}>
+          <input
+            type="checkbox"
+            role="switch"
+            checked={$parallaxOn && !$reducedMotion}
+            disabled={$reducedMotion}
+            aria-describedby={$reducedMotion ? 'parallax-reduced' : undefined}
+            on:change={(event) => chooseParallax(event.currentTarget.checked)}
+          />
+          <span class="track" aria-hidden="true"></span>
+          <span>{t($language, 'parallax')}</span>
+        </label>
+        {#if $reducedMotion}
+          <p class="note" id="parallax-reduced">{t($language, 'parallaxReducedMotion')}</p>
+        {/if}
       </section>
 
       <section class="card">
@@ -922,6 +941,76 @@
   .subhead {
     margin: 1.25rem 0 0.6rem;
     font-size: 1rem;
+  }
+
+  /* L'interrupteur de la parallaxe : une case à cocher, dessinée en glissière. */
+  .switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+
+  .switch.off {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  /* Invisible mais étendue à tout le libellé : c'est elle qu'on touche. */
+  .switch input {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: inherit;
+  }
+
+  .switch .track {
+    position: relative;
+    flex: 0 0 auto;
+    width: 2.6rem;
+    height: 1.5rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    transition: background 0.15s;
+  }
+
+  .switch .track::after {
+    content: '';
+    position: absolute;
+    top: 0.2rem;
+    left: 0.2rem;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.15s;
+  }
+
+  .switch input:checked + .track {
+    background: var(--edge, #f8d030);
+  }
+
+  .switch input:checked + .track::after {
+    transform: translateX(1.1rem);
+  }
+
+  .switch input:focus-visible + .track {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .switch .track,
+    .switch .track::after {
+      transition: none;
+    }
   }
 
   /* Plus larges que les shaders : un mur se lit en paysage. */

@@ -25,6 +25,8 @@
   export let variant: Wallpaper;
   /** Tout arrêter : une partie tourne, ou une fiche couvre le mur. */
   export let paused = false;
+  /** L'interrupteur « Effet de profondeur » du profil. Coupé, le mur reste, immobile. */
+  export let depth = true;
   export let thumbnail = false;
 
   const WALLS = { nineties: WallA, gamer: WallB, pastel: WallC, blue: WallD };
@@ -37,7 +39,7 @@
 
 <!-- `{#key}` : un autre mur, d'autres calques, que l'action doit relire. -->
 {#key variant}
-  <div class="wall" class:thumbnail data-wall={variant} aria-hidden="true" use:motion={{ paused, still: thumbnail }}>
+  <div class="wall" class:thumbnail data-wall={variant} aria-hidden="true" use:motion={{ paused, enabled: depth, still: thumbnail }}>
     <svelte:component this={WALLS[variant]} />
   </div>
 {/key}

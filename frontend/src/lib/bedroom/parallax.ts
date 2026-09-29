@@ -16,12 +16,20 @@
  * - `paused` coupe tout, écouteurs compris : la page le pose dès qu'une
  *   partie tourne, pour que l'émulateur n'ait pas à partager ses frames.
  *
- * `prefers-reduced-motion: reduce` et les calques restent où ils sont, sans
- * boucle ni écouteur - y compris si la préférence change en cours de route.
+ * `prefers-reduced-motion: reduce`, ou `enabled: false` (l'interrupteur du
+ * profil), et les calques reviennent au repos, sans boucle ni écouteur - y
+ * compris si l'un ou l'autre change en cours de route. Le mur, lui, reste.
+ *
+ * L'inclinaison n'est jamais demandée : `DeviceOrientationEvent.requestPermission`
+ * n'est appelé nulle part. Là où le navigateur la réserve à une permission
+ * (iOS), `deviceorientation` n'arrive simplement pas et le défilement prend le
+ * relais ; coupée, la parallaxe n'écoute même pas.
  */
 
 export interface ParallaxOptions {
 	paused?: boolean;
+	/** L'interrupteur du profil. Allumé à défaut. */
+	enabled?: boolean;
 }
 
 /** Le déplacement du calque le plus proche, en pixels. Discret par décision. */
@@ -45,6 +53,7 @@ export function parallax(root: HTMLElement, options: ParallaxOptions = {}) {
 
 	let layers: Layer[] = [];
 	let paused = !!options.paused;
+	let enabled = options.enabled ?? true;
 	let listening = false;
 	let frame = 0;
 	let tilted = false;
@@ -119,12 +128,13 @@ export function parallax(root: HTMLElement, options: ParallaxOptions = {}) {
 	}
 
 	function apply() {
-		const still = motion.matches || paused;
+		const off = motion.matches || !enabled;
+		const still = off || paused;
 		listen(!still);
 		if (still) {
 			if (frame) cancelAnimationFrame(frame);
 			frame = 0;
-			if (motion.matches) {
+			if (off) {
 				// Au repos, et non figés là où ils étaient.
 				target.x = target.y = current.x = current.y = 0;
 				paint();
@@ -141,6 +151,7 @@ export function parallax(root: HTMLElement, options: ParallaxOptions = {}) {
 	return {
 		update(next: ParallaxOptions = {}) {
 			paused = !!next.paused;
+			enabled = next.enabled ?? true;
 			collect();
 			apply();
 		},
