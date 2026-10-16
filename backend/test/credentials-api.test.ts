@@ -24,8 +24,8 @@ import type { AddressInfo } from 'node:net';
 
 // Sous le dossier de test et non dans le temp du système, qui est partagé.
 const dir = mkdtempSync(join(import.meta.dirname, '.tmp-credentials-api-'));
+const savedEnv = { ...process.env };
 process.env.DATABASE_URL = `file:${join(dir, 'test.db')}`;
-process.env.AUTH_MODE = 'dev';
 process.env.FRONTEND_URL = 'http://front.test';
 delete process.env.PASSWORD_AUTH;
 delete process.env.SMTP_URL;
@@ -35,7 +35,6 @@ const { default: session } = await import('express-session');
 const { default: passport } = await import('passport');
 const { getDb, forgetDbForTest } = await import('../src/db/sqlite.js');
 const { migrate } = await import('../src/db/migrate.js');
-const { initializeAuth } = await import('../src/auth/passport.js');
 const { authRouter } = await import('../src/api/auth.js');
 const { credentialsRouter, confirmSignup } = await import('../src/api/credentials.js');
 const { hashPassword, verifyPassword } = await import('../src/auth/password.js');
@@ -44,7 +43,7 @@ const { mintInvite, findInviteByCode, revokeInvite } = await import('../src/db/s
 const { createPendingSignup, findLivePendingSignupByToken } = await import('../src/db/pending-signups.js');
 const { createCredential, findCredentialByEmail } = await import('../src/db/credentials.js');
 const { createPasswordReset } = await import('../src/db/password-resets.js');
-const { createPasswordUser } = await import('../src/db/users.js');
+const { createPasswordUser, findUserById } = await import('../src/db/users.js');
 const { insertUser } = await import('./helpers.js');
 
 forgetDbForTest();
@@ -57,7 +56,11 @@ app.use(express.json());
 app.use(session({ secret: 'test-secret', resave: false, saveUninitialized: false }));
 app.use(passport.initialize());
 app.use(passport.session());
-initializeAuth();
+// Les deux sérialiseurs d'`initializeAuth`, et seulement eux : celui-ci
+// monterait aussi la stratégie Google dès que `passport.ts` a été importé par
+// un autre fichier de la suite avec `AUTH_MODE` à sa valeur par défaut.
+passport.serializeUser((user, done) => done(null, (user as { id: string }).id));
+passport.deserializeUser((id: string, done) => done(null, findUserById(getDb(), id)));
 app.use('/auth', credentialsRouter);
 app.use('/auth', authRouter);
 const server = app.listen(0);
@@ -71,6 +74,13 @@ afterAll(() => {
   // refuse alors de supprimer le dossier. Les ramasser d'abord.
   Bun.gc(true);
   db.close();
+  forgetDbForTest();
+  // Les fichiers suivants de la suite partagent ce processus : sans cela, le
+  // prochain `getDb()` rouvrirait une base dans le dossier qu'on supprime.
+  for (const key of ['DATABASE_URL', 'FRONTEND_URL', 'PASSWORD_AUTH', 'SMTP_URL']) {
+    if (savedEnv[key] === undefined) delete process.env[key];
+    else process.env[key] = savedEnv[key];
+  }
   rmSync(dir, { recursive: true, force: true });
 });
 
