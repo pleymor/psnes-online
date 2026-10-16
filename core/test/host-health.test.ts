@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import {
 	FrameTimes,
 	HostHealth,
+	StageTimes,
 	readApiRtt,
 	readDownlink,
 	readHeapMb,
@@ -149,4 +150,31 @@ test('the worst long animation frame is kept whole, with what it was doing', () 
 
 	const quiet = h.takeLongFrames();
 	assert.equal(quiet.count, 0, 'and a quiet interval that follows reads quiet');
+});
+
+test('each stage of the frame is shaped on its own, so a heavy one names itself', () => {
+	/*
+	 * #87: a scene change makes frames heavy, and the candidates are the core,
+	 * the draw and the audio push. Summed, they would say a frame was heavy -
+	 * which `frameMs` already says. Kept apart, the stage that grew is the one
+	 * whose tail moves while the others stay flat.
+	 */
+	const s = new StageTimes();
+	for (let i = 0; i < 19; i++) s.note(6, 2, 0.3);
+	s.note(31, 2, 0.3); // the transition: the core, and only the core
+
+	const shape = s.take();
+	assert.ok(shape, 'frames ran, so there is a reading');
+	assert.deepEqual(shape.emu, [6, 31, 31], 'the core carries the tail');
+	assert.deepEqual(shape.draw, [2, 2, 2], 'the draw stayed flat');
+	assert.deepEqual(shape.audio, [0.3, 0.3, 0.3], 'and so did the audio push');
+});
+
+test('stage times are per interval, and an interval with no frame reads null', () => {
+	// Null rather than zeros: a paused or stalled second ran no frame at all,
+	// which is not the same reading as a frame that cost nothing.
+	const s = new StageTimes();
+	s.note(40, 1, 1);
+	assert.equal(s.take()?.emu[2], 40);
+	assert.equal(s.take(), null, 'the next interval starts empty');
 });

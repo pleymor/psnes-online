@@ -14,6 +14,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createSoloEngine } from '../../frontend/src/lib/rooms/solo-engine.js';
 import type { PsnesCore } from '../../frontend/src/lib/znet/core.js';
+import { StageTimes } from '../../frontend/src/lib/znet/host-health.js';
 
 /** Enough of `PsnesCore` for the engine: what it loads, runs and reports. */
 function fakeCore() {
@@ -23,6 +24,7 @@ function fakeCore() {
     fps: 60.0988,
     sampleRate: 32040,
     frame: 0,
+    lastRunMs: 5,
     loadRom(bytes: Uint8Array) { calls.push(`loadRom:${bytes.length}`); },
     loadSram(bytes: Uint8Array) { calls.push(`loadSram:${bytes.length}`); },
     // `core.sram()`, not `saveSram()` - see `rooms/sram.ts`'s `SramCore`.
@@ -103,5 +105,31 @@ test('onFrame receives the core and a rising frame number', async () => {
   engine.session.tick();
   engine.session.tick();
   assert.deepEqual(seen, [1, 2], 'the presentation port is the only thing the engine tells');
+  await engine.stop();
+});
+
+test('each frame the engine runs is timed stage by stage, when asked to be (#87)', async () => {
+  // The audio push happens inside the engine, so the engine is the only place
+  // that can time it; a room that ships telemetry hands it somewhere to write.
+  const { core } = fakeCore();
+  const ports = fakePorts();
+  const stages = new StageTimes();
+  const engine = await createSoloEngine({
+    core,
+    rom: new Uint8Array(8),
+    sram: ports.sram,
+    audio: ports.audio,
+    readPads: () => ({ pad1: 0, pad2: 0 }),
+    onFrame: () => {},
+    onError: (e) => assert.fail(String(e)),
+    stages
+  });
+
+  engine.session.tick();
+  engine.session.tick();
+
+  const shape = stages.take();
+  assert.ok(shape, 'two frames ran, so there is a reading');
+  assert.deepEqual(shape.emu, [5, 5, 5], "the core's own figure, not the whole tick");
   await engine.stop();
 });
