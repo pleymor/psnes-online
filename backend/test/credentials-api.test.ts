@@ -78,6 +78,11 @@ afterAll(() => {
 const PASSWORD = 'correct horse battery';
 const HASH = await hashPassword(PASSWORD);
 
+/** Le corps JSON d'une réponse, que chaque test lit à sa façon. */
+function body(res: Response): Promise<any> {
+  return res.json();
+}
+
 let ipSerial = 1;
 let mailSerial = 0;
 
@@ -104,7 +109,7 @@ function visitor() {
     post: (path: string, body: unknown) => call('POST', path, body),
     get: (path: string) => call('GET', path),
     async me() {
-      return (await call('GET', '/me')).json();
+      return body(await call('GET', '/me'));
     }
   };
 }
@@ -215,7 +220,7 @@ test('deux confirmations du même jeton ne font qu\'un compte', () => {
 test('l\'inscription sans invitation est refusée', async () => {
   const res = await visitor().post('/signup', { email: freshEmail(), password: PASSWORD });
   assert.equal(res.status, 404);
-  assert.equal((await res.json()).error, 'INVITE_UNKNOWN');
+  assert.equal((await body(res)).error, 'INVITE_UNKNOWN');
 });
 
 test('l\'inscription refuse une adresse malformée, un mot de passe court, une adresse prise', async () => {
@@ -224,16 +229,16 @@ test('l\'inscription refuse une adresse malformée, un mot de passe court, une a
 
   let res = await v.post('/signup', { code: invite.code, email: 'pas une adresse', password: PASSWORD });
   assert.equal(res.status, 400);
-  assert.equal((await res.json()).error, 'EMAIL_MALFORMED');
+  assert.equal((await body(res)).error, 'EMAIL_MALFORMED');
 
   res = await v.post('/signup', { code: invite.code, email: freshEmail(), password: '123456789' });
   assert.equal(res.status, 400);
-  assert.equal((await res.json()).error, 'PASSWORD_TOO_SHORT');
+  assert.equal((await body(res)).error, 'PASSWORD_TOO_SHORT');
 
   const { email } = passwordAccount();
   res = await v.post('/signup', { code: invite.code, email: email.toUpperCase(), password: PASSWORD });
   assert.equal(res.status, 409);
-  assert.equal((await res.json()).error, 'EMAIL_TAKEN');
+  assert.equal((await body(res)).error, 'EMAIL_TAKEN');
 
   // Aucun de ces refus n'a retenu le lien.
   const pending = db.query(`SELECT COUNT(*) AS n FROM "PendingSignup" WHERE inviteId = ?`).get(invite.id) as { n: number };
@@ -257,10 +262,10 @@ test('l\'inscription acceptée ne crée aucun compte, et retient le lien', async
   // Un second visiteur sur le même lien trouve la place retenue.
   const second = await visitor().post('/signup', { code: invite.code, email: freshEmail(), password: PASSWORD });
   assert.equal(second.status, 409);
-  assert.equal((await second.json()).error, 'INVITE_HELD');
+  assert.equal((await body(second)).error, 'INVITE_HELD');
   // Et Google aussi : la retenue est dans la porte commune.
   const lookup = await visitor().get(`/invite/${invite.code}`);
-  assert.equal((await lookup.json()).error, 'INVITE_HELD');
+  assert.equal((await body(lookup)).error, 'INVITE_HELD');
 });
 
 // ------------------------------------------------------ GET /signup/confirm
@@ -295,7 +300,7 @@ test('la connexion avec le bon mot de passe pose une session', async () => {
   // La casse de l'adresse n'y change rien.
   const res = await v.post('/login', { email: email.toUpperCase(), password: PASSWORD });
   assert.equal(res.status, 200);
-  const self = await res.json();
+  const self = await body(res);
   assert.equal(self.id, user.id);
   // `toSelf` et rien d'autre : ni adresse, ni hash.
   assert.equal('email' in self, false);
@@ -314,7 +319,7 @@ test('un mauvais mot de passe et une adresse inconnue reçoivent la même répon
 
   for (const res of [wrong, unknown, empty]) {
     assert.equal(res.status, 401);
-    assert.deepEqual(await res.json(), { error: 'BAD_CREDENTIALS' });
+    assert.deepEqual(await body(res), { error: 'BAD_CREDENTIALS' });
   }
   assert.equal(await v.me(), null);
 });
@@ -333,7 +338,7 @@ test('dix échecs sur une adresse ferment la porte, même depuis une autre IP', 
   }
   const blocked = await visitor().post('/login', { email, password: PASSWORD });
   assert.equal(blocked.status, 429);
-  assert.equal((await blocked.json()).error, 'TOO_MANY_ATTEMPTS');
+  assert.equal((await body(blocked)).error, 'TOO_MANY_ATTEMPTS');
 });
 
 test('dix échecs depuis une IP ferment la porte à cette IP, pour toutes les adresses', async () => {
@@ -356,7 +361,7 @@ test('« mot de passe oublié » répond pareil, qu\'un compte existe ou non', a
 
   assert.equal(known.status, 200);
   assert.equal(unknown.status, 200);
-  assert.deepEqual(await known.json(), await unknown.json());
+  assert.deepEqual(await body(known), await body(unknown));
 
   const resets = db.query(`SELECT COUNT(*) AS n FROM "PasswordReset" WHERE userId = ?`).get(user.id) as { n: number };
   assert.equal(resets.n, 1);
@@ -369,11 +374,11 @@ test('la réinitialisation refuse un mot de passe court, puis un jeton inconnu',
 
   const short = await v.post('/reset', { token: newToken().token, password: 'court' });
   assert.equal(short.status, 400);
-  assert.equal((await short.json()).error, 'PASSWORD_TOO_SHORT');
+  assert.equal((await body(short)).error, 'PASSWORD_TOO_SHORT');
 
   const unknown = await v.post('/reset', { token: newToken().token, password: 'un mot de passe neuf' });
   assert.equal(unknown.status, 410);
-  assert.equal((await unknown.json()).error, 'TOKEN_INVALID');
+  assert.equal((await body(unknown)).error, 'TOKEN_INVALID');
 });
 
 test('réinitialiser change le mot de passe, ferme les autres sessions, et ne sert qu\'une fois', async () => {
@@ -411,11 +416,11 @@ test('PASSWORD_AUTH=off ferme les quatre routes, et /auth/mode le dit', async ()
   const invite = inviteFromSomeone();
   const v = visitor();
 
-  assert.equal((await (await v.get('/mode')).json()).passwordAuth, true);
+  assert.equal((await body(await v.get('/mode'))).passwordAuth, true);
 
   process.env.PASSWORD_AUTH = 'off';
   try {
-    assert.equal((await (await v.get('/mode')).json()).passwordAuth, false);
+    assert.equal((await body(await v.get('/mode'))).passwordAuth, false);
     assert.equal((await v.post('/login', { email, password: PASSWORD })).status, 404);
     assert.equal((await v.post('/signup', { code: invite.code, email: freshEmail(), password: PASSWORD })).status, 404);
     assert.equal((await v.post('/reset', { token: newToken().token, password: PASSWORD })).status, 404);
