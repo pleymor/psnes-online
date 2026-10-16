@@ -10,7 +10,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { migratedDb, insertUser } from './helpers.js';
 import { runInviteCli } from '../src/db/invite-cli.js';
-import { countChargedInvites, listInvitesOf } from '../src/db/signup-invites.js';
+import { consumeInvite, countChargedInvites, listInvitesOf, mintInvite } from '../src/db/signup-invites.js';
 
 test('grant frappe une invitation hors quota', () => {
   const db = migratedDb();
@@ -66,4 +66,37 @@ test('une commande inconnue rend l\'usage et un code non nul', () => {
   const result = runInviteCli(db, ['offrir']);
   assert.equal(result.code, 1);
   assert.match(result.lines.join('\n'), /grant/);
+});
+
+test('revoke ne compte pas un lien déjà consommé parmi les liens vivants', () => {
+  // L'ancien comptage prenait la longueur de `listInvitesOf`, qui exclut les
+  // révoqués mais garde les consommés : un inviteur dont l'autre lien a déjà
+  // placé quelqu'un se serait fait dire qu'il lui en reste un. Un lien
+  // consommé et un lien vivant à côté du révoqué distinguent les deux
+  // comptages -- l'ancien dirait 2, le juste dit 1.
+  const db = migratedDb();
+  const alice = insertUser(db, { pseudo: 'Sprite', discriminator: '0417' });
+  const bob = insertUser(db);
+  const used = mintInvite(db, alice.id);
+  consumeInvite(db, used.id, bob.id);
+  mintInvite(db, alice.id);
+  const doomed = mintInvite(db, alice.id);
+
+  const result = runInviteCli(db, ['revoke', doomed.code]);
+
+  assert.equal(result.code, 0);
+  assert.match(result.lines.join('\n'), /Il reste 1 lien\(s\) vivant\(s\)/);
+});
+
+test('revoke refuse un lien déjà consommé', () => {
+  const db = migratedDb();
+  const alice = insertUser(db);
+  const bob = insertUser(db);
+  const used = mintInvite(db, alice.id);
+  consumeInvite(db, used.id, bob.id);
+
+  const result = runInviteCli(db, ['revoke', used.code]);
+
+  assert.equal(result.code, 1);
+  assert.equal(listInvitesOf(db, alice.id).length, 1);
 });
