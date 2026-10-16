@@ -2284,6 +2284,23 @@
     if (!game.crc32) return;
 
     launching = true;
+    /*
+     * UN SALON PRIS SE REND, QUELLE QUE SOIT LA SORTIE.
+     *
+     * `createRoom` ouvre le salon en `autoStart` : il est en `playing` avant
+     * même que le cœur soit chargé. Toute sortie de cette fonction qui n'a pas
+     * mis un moteur en marche laisse donc un salon qui joue un jeu mort, et
+     * l'écran de lancement refuse ensuite tout par « ce salon joue déjà » (#62).
+     *
+     * Le `catch` du moteur rendait le salon, mais il n'était pas la seule
+     * sortie : le `return` quand la session s'est fermée pendant `loadCore()`,
+     * un `engine.stop()` qui rejette à la relance, un `audio.resume()` qui
+     * jette après le `catch`... Énumérer les sorties, c'est en oublier une ; le
+     * `finally` les couvre toutes, et `giveUpRoom` est muet quand rien n'est
+     * dû, donc l'appeler après un `catch` qui l'a déjà fait ne coûte rien.
+     */
+    let roomTaken = false;
+    let started = false;
     try {
       /*
        * `resolveQuietly`, never the picker.
@@ -2330,6 +2347,7 @@
       }
       setLogLabels({ roomId, player: 'vr' });
       ownedRoomId = roomId;
+      roomTaken = true;
 
       /*
        * A second launch while one is already live - reachable straight from
@@ -2499,6 +2517,7 @@
          */
         fastForward = false;
         engine.governor.start();
+        started = true;
         // So `resume` is there next time the panels come back, even though
         // they are hidden right now and the paint itself is invisible.
         repaintProfile();
@@ -2520,6 +2539,7 @@
       }
     } finally {
       launching = false;
+      if (roomTaken && !started) giveUpRoom();
     }
   }
 

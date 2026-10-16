@@ -283,6 +283,11 @@ export function registerRoomHandlers(
   socket.on('room:leave', (data: { roomId: string }) => {
     // The only path that gives up a seat. A dropped socket no longer comes
     // here: that is an absence, and it is handled by flipping `online`.
+    //
+    // Traced because its absence from the log proved nothing: after a failed
+    // VR launch (#62) nobody could tell whether the headset had left its room
+    // or never tried to.
+    logger.info({ roomId: data.roomId, by: user.pseudo }, 'Room left');
     handleLeaveRoom(io, socket, data.roomId, rooms, user, getUserSocket);
   });
 
