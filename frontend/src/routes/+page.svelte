@@ -575,6 +575,8 @@
   // A mode nobody told us is not a mode worth guessing.
   let authMode: 'google' | 'dev' | 'unknown' = 'unknown';
   let isLoadingAuthMode = true;
+  /** La porte e-mail + mot de passe (`PASSWORD_AUTH`), à côté de Google. */
+  let passwordAuth = false;
 
   let inviteCode: string | null = null;
   let inviteVerdict: 'checking' | 'valid' | 'refused' | 'none' = 'none';
@@ -651,6 +653,7 @@
       // An answer we cannot read leaves us as stuck as no answer at all.
       if (data.mode === 'dev' || data.mode === 'google') {
         authMode = data.mode;
+        passwordAuth = data.passwordAuth === true;
       } else {
         logger.error('Unrecognised auth mode:', data.mode);
         authMode = 'unknown';
@@ -773,6 +776,18 @@
               {t($language, 'retry')}
             </button>
           </div>
+        {/if}
+
+        <!-- La seconde porte, en liens et pas en boutons : Google reste
+             l'action principale de l'écran. L'inscription n'est offerte que
+             derrière une invitation valide, comme pour Google. -->
+        {#if !isLoadingAuthMode && authMode !== 'unknown' && passwordAuth}
+          {#if inviteVerdict === 'valid' && inviteCode}
+            <a class="play-local" href={`/signup?invite=${encodeURIComponent(inviteCode)}`}>
+              {t($language, 'signupWithPassword')}
+            </a>
+          {/if}
+          <a class="play-local" href="/login">{t($language, 'loginWithPassword')}</a>
         {/if}
 
         <!-- Un lien, pas un second gros bouton à côté de Google : l'accueil

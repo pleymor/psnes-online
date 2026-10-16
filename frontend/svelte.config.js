@@ -60,8 +60,11 @@ const config = {
        * une autre raison encore : c'est l'écran de jeu sans compte, et le
        * service worker ne précache que ce qui est prérendu. Absente d'ici,
        * elle ne s'ouvrirait hors-ligne que par le repli de navigation.
+       *
+       * '/signup', '/login' et '/reset' (#68) n'ont de lien que depuis l'accueil
+       * déconnecté, ou depuis un mail : le robot n'en verrait aucun.
        */
-      entries: ['/', '/profile', '/docs', '/local']
+      entries: ['/', '/profile', '/docs', '/local', '/signup', '/login', '/reset']
     }
   }
 };

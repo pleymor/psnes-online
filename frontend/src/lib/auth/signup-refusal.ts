@@ -14,6 +14,14 @@ export const SIGNUP_REFUSAL_KEYS: Record<string, string> = {
   INVITE_USED: 'signupInviteUsed',
   QUOTA_EXHAUSTED: 'signupQuotaExhausted',
   TOO_MANY_ATTEMPTS: 'signupTooManyAttempts',
+  // La porte e-mail + mot de passe (#68).
+  INVITE_HELD: 'signupInviteHeld',
+  PASSWORD_AUTH_DISABLED: 'signupPasswordDisabled',
+  EMAIL_MALFORMED: 'signupEmailMalformed',
+  PASSWORD_TOO_SHORT: 'signupPasswordTooShort',
+  EMAIL_TAKEN: 'signupEmailTaken',
+  BAD_CREDENTIALS: 'loginBadCredentials',
+  TOKEN_INVALID: 'signupTokenInvalid',
   UNKNOWN: 'signupRefused'
 };
 

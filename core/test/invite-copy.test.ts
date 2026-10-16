@@ -11,12 +11,16 @@ import assert from 'node:assert/strict';
 import { SIGNUP_REFUSAL_KEYS } from '../../frontend/src/lib/auth/signup-refusal.js';
 import { translations } from '../../frontend/src/lib/i18n/translations.js';
 
-// La liste vient de backend/src/auth/signup-door.ts:SignupRefusal. Elle est
-// recopiée ici plutôt qu'importée : le front ne dépend pas du backend, et une
-// divergence doit faire échouer ce test plutôt que de disparaître dans un type.
+// La liste vient de backend/src/auth/signup-door.ts:SignupRefusal, de
+// backend/src/auth/credentials-door.ts:CredentialRefusal et des refus de
+// backend/src/api/credentials.ts. Elle est recopiée ici plutôt qu'importée :
+// le front ne dépend pas du backend, et une divergence doit faire échouer ce
+// test plutôt que de disparaître dans un type.
 const REFUSALS = [
   'ALREADY_SIGNED_IN', 'PLATFORM_FULL', 'INVITE_UNKNOWN',
-  'INVITE_REVOKED', 'INVITE_USED', 'QUOTA_EXHAUSTED', 'TOO_MANY_ATTEMPTS'
+  'INVITE_REVOKED', 'INVITE_USED', 'QUOTA_EXHAUSTED', 'TOO_MANY_ATTEMPTS',
+  'INVITE_HELD', 'PASSWORD_AUTH_DISABLED', 'EMAIL_MALFORMED',
+  'PASSWORD_TOO_SHORT', 'EMAIL_TAKEN', 'BAD_CREDENTIALS', 'TOKEN_INVALID'
 ];
 
 test('chaque refus de la porte a une clé de traduction', () => {
