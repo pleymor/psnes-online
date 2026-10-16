@@ -126,3 +126,26 @@ export const anonymousDoorLimit = new AttemptLimit({ max: 10, windowMs: 3_600_00
  * combien de codes une adresse peut essayer.
  */
 export const inviteLookupLimit = new AttemptLimit({ max: 30, windowMs: 60 * 60 * 1000 });
+
+/**
+ * Les échecs de connexion par mot de passe, par adresse IP et par adresse
+ * e-mail.
+ *
+ * Deux clés distinctes et non une : l'IP seule laisserait un attaquant
+ * distribué balayer un compte depuis mille machines, l'adresse seule le
+ * laisserait balayer mille comptes depuis une. Seuls les échecs comptent --
+ * quelqu'un qui se connecte correctement dix fois dans l'heure n'a rien fait
+ * de mal.
+ */
+export const credentialLoginLimit = new AttemptLimit({ max: 10, windowMs: 15 * 60 * 1000 });
+
+/**
+ * Les demandes de « mot de passe oublié », par IP et par adresse.
+ *
+ * Séparée de `credentialLoginLimit` : demander un lien n'est pas un échec de
+ * connexion, et ne doit pas fermer la porte à quelqu'un qui se souvient
+ * finalement de son mot de passe. Chaque demande compte, qu'elle trouve un
+ * compte ou non -- sinon le compteur dirait lequel. La clé par adresse est ce
+ * qui empêche de remplir la boîte mail de quelqu'un depuis mille IP.
+ */
+export const passwordMailLimit = new AttemptLimit({ max: 5, windowMs: 60 * 60 * 1000 });

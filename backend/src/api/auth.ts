@@ -6,6 +6,7 @@ import { createAnonymousUser, deleteAnonymousUser, PseudoFullError, upsertDevUse
 import { getRooms } from '../websocket/index.js';
 import { anonymousDoorDecision, anonymousJoinEnabled } from '../auth/anonymous.js';
 import { admitSignup } from '../auth/signup-door.js';
+import { passwordAuthEnabled } from '../auth/credentials-door.js';
 import { anonymousDoorLimit, inviteLookupLimit } from '../utils/attempt-limit.js';
 import type { User } from '../db/types.js';
 import { createLogger } from '../utils/logger.js';
@@ -267,7 +268,11 @@ authRouter.get('/invite/:code', (req, res) => {
 
 // Get auth mode
 authRouter.get('/mode', (req, res) => {
-  res.json({ mode: AUTH_MODE, anonymousJoin: anonymousJoinEnabled() });
+  res.json({
+    mode: AUTH_MODE,
+    anonymousJoin: anonymousJoinEnabled(),
+    passwordAuth: passwordAuthEnabled()
+  });
 });
 
 /**
