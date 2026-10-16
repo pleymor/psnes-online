@@ -373,6 +373,31 @@ room en spectateur anonyme, lui, ne change pas — voir plus bas.
   qu'une route web : elle a exactement la portée de l'accès ssh, qui existe
   déjà, sans ajouter de surface d'attaque permanente pour un besoin
   occasionnel.
+- **Deux portes pour un compte : Google, ou e-mail + mot de passe.** La
+  seconde (`backend/src/api/credentials.ts` : `/auth/signup`,
+  `/auth/signup/confirm`, `/auth/login`, `/auth/forgot`, `/auth/reset`) passe
+  par la même porte d'invitation que Google. Le mail **est** la vérification :
+  `/auth/signup` ne pose qu'une `PendingSignup` (24 h) et envoie un lien, et le
+  compte naît au clic, dans `confirmSignup`, en une transaction qui reconsulte
+  la porte. Aucune ligne `User` non confirmée n'existe donc jamais. Une
+  inscription en attente *retient* son invitation (`INVITE_HELD`), pour qu'un
+  lien partagé à deux ne fasse pas deux comptes.
+  - L'adresse vit dans `Credential`, jamais dans `User`
+    (`0009_password_accounts.sql`) ; le mot de passe y est haché en argon2id
+    par `Bun.password`, 10 caractères minimum et aucune règle de composition.
+    Les jetons envoyés par mail sont hachés (SHA-256) en base.
+  - `PASSWORD_AUTH=off` ferme cette porte sans toucher à `AUTH_MODE`, dont
+    l'égalité stricte avec `dev` est ce qui tient `/auth/dev/login` hors de
+    production. En production, la porte reste aussi fermée tant que
+    `SMTP_URL` n'est pas posé : sans SMTP, le mailer journaliserait les liens
+    au lieu de les envoyer. Hors production, c'est précisément ce qu'il fait,
+    et c'est ce qui rend les deux parcours testables sans identifiants.
+  - Une méthode par compte pour l'instant : un compte Google n'a pas de
+    `Credential`, donc pas de connexion par mot de passe ni de reprise par
+    mail ; un compte à mot de passe n'a pas de `googleId`.
+  - Réinitialiser le mot de passe ferme toutes les sessions du compte
+    (`auth/sessions.ts`, un balayage du magasin de sessions, dimensionné pour
+    `MAX_USERS` = 100).
 
 ## La VR : une présentation, pas un cinquième mode
 

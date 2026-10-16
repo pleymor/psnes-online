@@ -54,6 +54,11 @@ services:
       # toucher à AUTH_MODE, dont env-guard.ts teste l'égalité stricte pour
       # refuser `dev` en production.
       - ANONYMOUS_JOIN=${ANONYMOUS_JOIN:-on}
+      # La porte e-mail + mot de passe, à côté de Google. Même modèle
+      # qu'ANONYMOUS_JOIN : `off` la referme sans toucher à AUTH_MODE.
+      # SMTP_URL et MAIL_FROM passent par backend/.env : ce sont des
+      # identifiants, ils n'ont rien à faire dans un fichier versionné.
+      - PASSWORD_AUTH=${PASSWORD_AUTH:-on}
       # Le plafond de comptes. Passé depuis l'hôte pour qu'il puisse monter
       # sans redéploiement d'image.
       - MAX_USERS=${MAX_USERS:-100}

@@ -429,7 +429,16 @@ services:
 - `GET /auth/me` - User actuel
 - `GET /auth/mode` - Mode d'authentification du serveur
 - `POST /auth/dev/login` - Connexion de développement (`AUTH_MODE=dev`)
+- `POST /auth/signup` - Inscription e-mail + mot de passe, derrière une invitation (envoie le lien de confirmation)
+- `GET /auth/signup/confirm` - Lien du mail : crée le compte et connecte
+- `POST /auth/login` - Connexion e-mail + mot de passe
+- `POST /auth/forgot` - Demander un lien de réinitialisation (répond toujours 200)
+- `POST /auth/reset` - Choisir un nouveau mot de passe (ferme toutes les sessions)
 - `POST /auth/logout` - Déconnexion
+
+La porte e-mail + mot de passe se règle par `PASSWORD_AUTH` (`off` la ferme) et
+`SMTP_URL` / `MAIL_FROM` dans `backend/.env`. Sans `SMTP_URL`, les liens sont
+journalisés en développement, et la porte reste fermée en production.
 
 #### Friends
 - `GET /api/friends` - Liste amis

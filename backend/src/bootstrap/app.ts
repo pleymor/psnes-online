@@ -9,6 +9,7 @@ import type { RedisClientType } from 'redis';
 
 import { initializeAuth } from '../auth/passport.js';
 import { authRouter } from '../api/auth.js';
+import { credentialsRouter } from '../api/credentials.js';
 import { gamesRouter } from '../api/games.js';
 import { savesRouter } from '../api/saves.js';
 import { syncRouter } from '../api/sync.js';
@@ -194,6 +195,9 @@ export function buildApp(redisClient: RedisClientType): { app: Express; sessionM
   //
   // /api/avatars reste ouverte : un anonyme est assis dans un salon dont
   // l'autre joueur a un visage à afficher.
+  // /auth/signup, /auth/login, /auth/forgot, /auth/reset : la porte e-mail +
+  // mot de passe, ouverte à tous comme les routes Google juste en dessous.
+  app.use('/auth', credentialsRouter);
   app.use('/auth', authRouter);
   app.use('/api/pseudo', requireAccount, pseudoRouter);
   app.use('/api/avatars', avatarsRouter);

@@ -25,7 +25,8 @@ export type SignupRefusal =
   | 'INVITE_REVOKED'
   | 'INVITE_USED'
   | 'QUOTA_EXHAUSTED'
-  | 'TOO_MANY_ATTEMPTS';
+  | 'TOO_MANY_ATTEMPTS'
+  | 'INVITE_HELD';
 
 export type SignupDecision =
   | { ok: true; invite: SignupInvite }
@@ -53,6 +54,8 @@ export function signupDoorDecision(input: {
   invite: SignupInvite | null;
   /** Places déjà dépensées par l'inviteur, hors invitations frappées au CLI. */
   inviterCharged: number;
+  /** Une inscription par mot de passe attend son mail sur ce lien. */
+  held: boolean;
 }): SignupDecision {
   if (input.signedIn) {
     return { ok: false, status: 400, error: 'ALREADY_SIGNED_IN' };
@@ -72,6 +75,13 @@ export function signupDoorDecision(input: {
   if (input.invite.usedAt) {
     return { ok: false, status: 410, error: 'INVITE_USED' };
   }
+  // Après INVITE_USED, avant le quota. Une invitation révoquée dont une
+  // inscription attendait encore est révoquée, pas retenue : c'est ce que le
+  // propriétaire a demandé. Distinct d'INVITE_USED parce que celui-ci finira
+  // peut-être par se rouvrir, quand l'attente expirera.
+  if (input.held) {
+    return { ok: false, status: 409, error: 'INVITE_HELD' };
+  }
   // Une invitation frappée au CLI est l'échappatoire du propriétaire : elle ne
   // débite personne, donc le quota de l'inviteur ne la concerne pas.
   if (!input.invite.grantedByCli && input.inviterCharged > INVITE_QUOTA) {
@@ -82,6 +92,7 @@ export function signupDoorDecision(input: {
 
 import type { Database } from '../db/sqlite.js';
 import { countAccounts, countChargedInvites, findInviteByCode, maxUsers } from '../db/signup-invites.js';
+import { inviteIsHeld } from '../db/pending-signups.js';
 
 /**
  * Ce que la porte a besoin de savoir, lu en base.
@@ -92,7 +103,16 @@ import { countAccounts, countChargedInvites, findInviteByCode, maxUsers } from '
  */
 export function admitSignup(
   db: Database,
-  input: { code: string | undefined; signedIn: boolean; blocked: boolean }
+  input: {
+    code: string | undefined;
+    signedIn: boolean;
+    blocked: boolean;
+    /**
+     * L'inscription en attente qui demande, et dont la propre retenue ne doit
+     * donc pas la bloquer -- voir `inviteIsHeld`.
+     */
+    ignoreHeldId?: string;
+  }
 ): SignupDecision {
   const invite = input.code ? findInviteByCode(db, input.code) : null;
   return signupDoorDecision({
@@ -101,7 +121,8 @@ export function admitSignup(
     accounts: countAccounts(db),
     maxUsers: maxUsers(),
     invite,
-    inviterCharged: invite ? countChargedInvites(db, invite.inviterId) : 0
+    inviterCharged: invite ? countChargedInvites(db, invite.inviterId) : 0,
+    held: invite ? inviteIsHeld(db, invite.id, Date.now(), input.ignoreHeldId) : false
   });
 }
 
