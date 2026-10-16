@@ -22,7 +22,7 @@ function invite(over: Partial<SignupInvite> = {}): SignupInvite {
 
 const OPEN = {
   signedIn: false, blocked: false, accounts: 10, maxUsers: 100,
-  invite: invite(), inviterCharged: 1
+  invite: invite(), inviterCharged: 1, held: false
 };
 
 test('un lien valide sur une plateforme qui a de la place ouvre', () => {
@@ -108,4 +108,26 @@ test('un lien frappé par le CLI ouvre même si son inviteur est au-delà', () =
     ...OPEN, invite: invite({ grantedByCli: true }), inviterCharged: 3
   });
   assert.equal(decision.ok, true);
+});
+
+test('un lien retenu par une inscription en cours est refusé, distinctement', () => {
+  // Un lien partagé à deux personnes ne doit pas produire deux comptes. Le
+  // refus est distinct de INVITE_USED : celui-ci finira peut-être par
+  // s'ouvrir, quand l'attente expirera.
+  const decision = signupDoorDecision({ ...OPEN, held: true });
+  assert.equal(!decision.ok && decision.error, 'INVITE_HELD');
+  assert.equal(!decision.ok && decision.status, 409);
+});
+
+test('la retenue est examinée après la révocation et la consommation', () => {
+  // Une invitation révoquée dont une inscription attendait encore est
+  // révoquée, pas retenue : c'est ce que le propriétaire a demandé.
+  const revoked = signupDoorDecision({
+    ...OPEN, held: true, invite: invite({ revokedAt: new Date() })
+  });
+  assert.equal(!revoked.ok && revoked.error, 'INVITE_REVOKED');
+  const used = signupDoorDecision({
+    ...OPEN, held: true, invite: invite({ usedAt: new Date() })
+  });
+  assert.equal(!used.ok && used.error, 'INVITE_USED');
 });
