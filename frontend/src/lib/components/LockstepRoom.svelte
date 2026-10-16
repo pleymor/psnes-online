@@ -36,6 +36,7 @@
   import { t } from '$lib/i18n/translations';
   import {
     HostHealth,
+    StageTimes,
     readApiRtt,
     readDownlink,
     readHeapMb,
@@ -370,6 +371,8 @@
   /** Periodic health line; see startDiagnostics. */
   let diagnosticsTimer: ReturnType<typeof setInterval> | null = null;
   const hostHealth = new HostHealth();
+  /** Which part of the frame grew when `frameMs` shows a tail (#87). */
+  const stageTimes = new StageTimes();
   let longTaskObserver: PerformanceObserver | null = null;
 
   let eventObserver: PerformanceObserver | null = null;
@@ -661,8 +664,11 @@
         readLocalInput: () => collector!.read(),
         onEvent: handleEvent,
         onFrame: (frame, pad1, pad2) => {
+          const drawStart = performance.now();
           renderer!.draw(core!);
+          const audioStart = performance.now();
           audio!.push(core!.audio());
+          stageTimes.note(core!.lastRunMs, audioStart - drawStart, performance.now() - audioStart);
           // Read-only, off the emulation path, and on a schedule of its own -
           // the same rule the renderer obeys, for the same reason.
           matchWatch?.onFrame(frame, pad1, pad2);
@@ -953,6 +959,10 @@
         // The shape of the frame times, because `fps` above is an average and
         // reads flat through exactly the bursts a player notices.
         frameMs: [s.frameMs50, s.frameMs95, s.frameMsMax],
+        // The same shape for each stage of our own frame - core, draw, audio
+        // push. A tail in `frameMs` that none of these share was spent outside
+        // anything this page runs per frame.
+        stageMs: stageTimes.take(),
         // How the pads actually turn up, which `jitter` above averages away: the
         // longest silence between two deliveries, and the most frames one
         // delivery carried. One frame and 1 is even delivery. A long gap with a

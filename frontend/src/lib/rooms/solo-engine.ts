@@ -19,6 +19,7 @@ import { FrameGovernor } from '$lib/znet/governor';
 import { SoloSession } from '$lib/znet/solo';
 import { normaliseRom } from '$lib/znet';
 import type { PsnesCore } from '$lib/znet/core';
+import type { StageTimes } from '$lib/znet/host-health';
 
 /** Where a cartridge save comes from and goes. Room- and socket-shaped at the
  * call site; the engine only needs the two verbs. */
@@ -57,6 +58,12 @@ export interface SoloEngineOptions {
    * governor is constructed in here and nowhere else.
    */
   schedule?: (run: () => void) => void;
+  /**
+   * Where each frame's emulation, draw and audio push are timed, when the
+   * caller ships telemetry (#87). Here rather than at the call site because
+   * the audio push happens in here and nowhere else.
+   */
+  stages?: StageTimes;
 }
 
 export interface SoloEngine {
@@ -87,8 +94,11 @@ export async function createSoloEngine(options: SoloEngineOptions): Promise<Solo
     readLocalInput: readPads,
     onFrame: (frame) => {
       try {
+        const drawStart = performance.now();
         onFrame(core, frame);
+        const audioStart = performance.now();
         audio.push(core.audio());
+        options.stages?.note(core.lastRunMs, audioStart - drawStart, performance.now() - audioStart);
       } catch (err) {
         onError(err);
       }

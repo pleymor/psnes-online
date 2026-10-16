@@ -296,3 +296,65 @@ export class FrameTimes {
  * often the machine can actually put a frame on screen.
  */
 const MIN_PRESENT_MS = 4;
+
+/** One stage's durations over an interval: median, p95 and maximum, in ms. */
+export type StageShape = [number, number, number];
+
+/**
+ * Where the time of each frame went inside our own code, stage by stage.
+ *
+ * `FrameTimes` says a frame was late; this says which part of the slice grew.
+ * The three candidates #87 names - the wasm core, the draw, the audio push -
+ * are timed separately on every frame, and each is shipped as its own shape
+ * rather than summed, because a scene change that loads the core and one that
+ * changes what is drawn call for different fixes.
+ *
+ * The reading that matters most is the one where nothing here moves: if
+ * `frameMs` shows a heavy tail while all three stages stay flat, the time was
+ * not spent in anything this page runs per frame - it was spent waiting for
+ * the browser, the compositor or the system, and no profile of our code will
+ * find it.
+ *
+ * Per interval, like every other figure on the telemetry line: a burst has to
+ * be visible as a burst, not diluted into the session.
+ */
+export class StageTimes {
+	private emu: number[] = [];
+	private draw: number[] = [];
+	private audio: number[] = [];
+
+	/** One frame's three stages, in ms. */
+	note(emuMs: number, drawMs: number, audioMs: number): void {
+		// Bounded so a reader that stops reading (a hidden tab, a stopped
+		// interval) cannot grow these without limit. Ten seconds of frames is
+		// far more than one interval ever holds.
+		if (this.emu.length >= MAX_STAGE_SAMPLES) return;
+		this.emu.push(emuMs);
+		this.draw.push(drawMs);
+		this.audio.push(audioMs);
+	}
+
+	/**
+	 * Each stage's shape since the last read, and resets.
+	 *
+	 * Null for an interval in which no frame ran - paused, stalled, hidden -
+	 * which is not the same reading as a frame that cost nothing.
+	 */
+	take(): { emu: StageShape; draw: StageShape; audio: StageShape } | null {
+		if (this.emu.length === 0) return null;
+		const out = { emu: shape(this.emu), draw: shape(this.draw), audio: shape(this.audio) };
+		this.emu = [];
+		this.draw = [];
+		this.audio = [];
+		return out;
+	}
+}
+
+const MAX_STAGE_SAMPLES = 600;
+
+function shape(values: number[]): StageShape {
+	const all = [...values].sort((a, b) => a - b);
+	const at = (q: number) => all[Math.min(all.length - 1, Math.floor(all.length * q))];
+	const r = (v: number) => Math.round(v * 10) / 10;
+	return [r(at(0.5)), r(at(0.95)), r(all[all.length - 1])];
+}

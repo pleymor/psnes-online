@@ -119,6 +119,7 @@ export class PsnesCore {
 	private stateCapacity = 0;
 	private videoScratch: Uint8ClampedArray | null = null;
 	private romLoaded = false;
+	private runMs = 0;
 
 	private constructor(module: PsnesCoreModule) {
 		this.module = module;
@@ -198,7 +199,21 @@ export class PsnesCore {
 
 	/** Advances emulation by exactly one frame. Pads are libretro joypad masks. */
 	runFrame(pad1: number, pad2: number): void {
+		const start = performance.now();
 		this.module._pn_run_frame(pad1 & 0xffff, pad2 & 0xffff);
+		this.runMs = performance.now() - start;
+	}
+
+	/**
+	 * How long the last `runFrame` took, in ms.
+	 *
+	 * Read by the telemetry to tell a scene that loads the core from one that
+	 * loads the draw or the audio (#87). Measured here rather than around the
+	 * session's tick, because the tick also reads pads and calls back into the
+	 * room, and only this call is the emulation itself.
+	 */
+	get lastRunMs(): number {
+		return this.runMs;
 	}
 
 	get frame(): number {

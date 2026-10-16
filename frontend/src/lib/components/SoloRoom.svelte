@@ -16,7 +16,7 @@
   import type { ControlsConfig } from '$lib/controls/binding';
   import { createLogger } from '$lib/utils/logger';
   import { version } from '$app/environment';
-  import { FrameTimes, HostHealth, readHeapMb, readLinkClass } from '$lib/znet/host-health';
+  import { FrameTimes, HostHealth, StageTimes, readHeapMb, readLinkClass } from '$lib/znet/host-health';
   import { fromBase64 } from '$lib/saves/base64';
   import { setLogLabels } from '$lib/utils/log-shipper';
   import { applyInputSources } from '$lib/rooms/input-sources';
@@ -136,6 +136,8 @@
    * and no link in the way, a slowdown here is the machine and nothing else.
    */
   const frameTimes = new FrameTimes();
+  /** Which part of the frame grew when `frameTimes` shows a tail (#87). */
+  const stageTimes = new StageTimes();
   let lastFrameAt: number | null = null;
   let longTaskObserver: PerformanceObserver | null = null;
   let eventObserver: PerformanceObserver | null = null;
@@ -674,7 +676,8 @@
           // a GL context that died is at least as quickly noticed this way.
           checkRendererHealth();
         },
-        onError: (err) => logger.error('solo engine', err)
+        onError: (err) => logger.error('solo engine', err),
+        stages: stageTimes
       });
       // The awaits inside createSoloEngine (the SRAM round trip, the audio
       // context) are exactly the kind that outlive a closed room; without this
@@ -1036,6 +1039,10 @@
         audioOutputMs: latency.output,
         audioDroppedMs: latency.dropped,
         frameMs: [frameTimes.ms50, frameTimes.ms95, frameTimes.msMax],
+        // The same shape for each stage of our own frame - core, draw, audio
+        // push. A tail in `frameMs` that none of these share was spent outside
+        // anything this page runs per frame.
+        stageMs: stageTimes.take(),
         longTasks: hostHealth.takeLongTasks(),
         // Where a long frame's time actually went - the only instrument here
         // that names it rather than counting it.
