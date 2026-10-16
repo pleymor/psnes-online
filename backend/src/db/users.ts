@@ -166,6 +166,25 @@ export function createUser(
 }
 
 /**
+ * Un compte né d'une adresse et d'un mot de passe.
+ *
+ * Aucun `googleId` -- la colonne est nullable depuis 0005 -- et
+ * `isAnonymous` à faux : c'est un vrai compte, il compte dans les cent places
+ * et il tombe dans le portique d'embarquement comme n'importe lequel.
+ *
+ * L'adresse n'est PAS un paramètre : elle ne passe pas par cette table. Voir
+ * db/credentials.ts, et 0004_pseudonymous_users.sql pour le pourquoi.
+ */
+export function createPasswordUser(db: Database, random: () => number = Math.random): User {
+  return insertWithFreeHandle(
+    db,
+    { googleId: null, avatar: null, isAnonymous: false },
+    random,
+    'password account'
+  );
+}
+
+/**
  * Un joueur qui a suivi un lien de salon et n'a pas de compte.
  *
  * Aucun `googleId` : la colonne est nullable depuis
