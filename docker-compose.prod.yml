@@ -36,6 +36,9 @@ services:
       # Le plafond de comptes. Passé depuis l'hôte pour qu'il puisse monter
       # sans redéploiement d'image.
       - MAX_USERS=${MAX_USERS:-100}
+      # La porte e-mail + mot de passe. Elle reste fermée tant que SMTP_URL
+      # (dans backend/.env) n'est pas posé, quelle que soit cette valeur.
+      - PASSWORD_AUTH=${PASSWORD_AUTH:-on}
     env_file:
       - ./backend/.env
     volumes:

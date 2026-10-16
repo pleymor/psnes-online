@@ -29,4 +29,12 @@ export function assertUsableEnvironment(isProduction: boolean): void {
     logger.fatal('AUTH_MODE=dev is not permitted in production');
     process.exit(1);
   }
+
+  // Un avertissement et non un refus de démarrer : sans SMTP_URL,
+  // `passwordAuthEnabled` garde la porte à mot de passe fermée (sinon chaque
+  // lien de réinitialisation finirait dans le journal), et Google reste
+  // ouvert. Le dire ici est ce qui empêche ce repli d'être silencieux.
+  if ((process.env.PASSWORD_AUTH ?? 'on').toLowerCase() !== 'off' && !process.env.SMTP_URL) {
+    logger.warn('SMTP_URL is not set: e-mail + password sign-in stays closed until it is');
+  }
 }
