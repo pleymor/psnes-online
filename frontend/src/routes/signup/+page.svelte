@@ -111,6 +111,12 @@
     </p>
   {:else if state === 'refused'}
     <p class="error" role="alert">{text(refusalKey)}</p>
+    {#if refusalKey === 'signupTokenInvalid'}
+      <!-- Un lien de confirmation « déjà servi » peut l'avoir été par
+           l'analyseur de liens d'une messagerie, qui l'ouvre avant le
+           destinataire : le compte existe alors, il n'y a qu'à se connecter. -->
+      <p class="lead"><a href="/login">{t($language, 'loginWithPassword')}</a></p>
+    {/if}
   {:else if state === 'sent'}
     <p class="ok" role="status">{t($language, 'signupCheckMail')}</p>
   {:else}
