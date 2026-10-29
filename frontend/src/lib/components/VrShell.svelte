@@ -1269,7 +1269,16 @@
           mutedPeers: new Set(peers.filter((p) => p.muted).map((p) => p.id))
         }
       : null;
-    const state = { rows, pending, incoming: asking ? [asking] : [], members, voice: voiceShown };
+    const state = {
+      rows,
+      pending,
+      incoming: asking ? [asking] : [],
+      members,
+      // La règle de `groupBusy` dans `FriendsList.svelte` : on n'invite pas
+      // dans une partie qui tourne. `panels/friends.ts` dit pourquoi.
+      playing: $myRoom?.status === 'playing',
+      voice: voiceShown
+    };
     friendsPanel.regions = layoutFriendsPanel(state);
     const regions = friendsPanel.regions;
     const hoverId = hovered?.panel === 'friends' ? hovered.region.id : null;
