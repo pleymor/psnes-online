@@ -430,9 +430,10 @@
          apparaît en tête de rangée ne déplace pas ses voisins. -->
     <NoticeCentre />
     {#if headsetHere}
-      <!-- Capability, never a user agent: this button appears on a Quest and
-           on a PC with a headset plugged in, and the "two controllers and
-           nothing else" assumption only has to hold inside the session. -->
+      <!-- Capability first: this button appears on a Quest and on a PC with
+           a headset plugged in, and the "two controllers and nothing else"
+           assumption only has to hold inside the session. A phone or tablet
+           never gets it, Cardboard-capable or not - see `vr/support.ts`. -->
       <button
         class="bar-button vr"
         title={vrOff ? t($language, vrOff) : t($language, 'vrSeatedTitle')}
