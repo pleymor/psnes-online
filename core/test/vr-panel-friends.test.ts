@@ -417,3 +417,30 @@ test('etre dans le groupe bat aussi l invitation en attente', () => {
   assert.ok(drawn.includes(LABELS.inGroup));
   assert.ok(!drawn.includes(LABELS.invited), 'il est arrive, il n est plus attendu');
 });
+
+/*
+ * Rapporté : « depuis une room VR, inviter un joueur qui n'est pas en VR ne
+ * marche pas ».
+ *
+ * Rappeler les panneaux en pleine partie redonnait « Inviter », et
+ * l'invitation partait dans la room solo du casque, déjà en `playing`. L'ami
+ * plat acceptait, arrivait en joueur 2 dans une partie lockstep que le casque
+ * ne jouait pas - il y tournait son moteur solo - et attendait un pair qui ne
+ * répondrait jamais. La liste d'amis plate retire déjà « Inviter » tant que la
+ * room joue (`groupBusy`) ; le lutrin suit la même règle.
+ */
+test('pas d invitation tant que ma room joue', () => {
+  const playing = state({ playing: true });
+  assert.ok(!ids(playing).includes('invite:u1'), 'inviter dans une partie solo en cours');
+  // Le même ami, la partie finie, redevient invitable : c'est la partie qui
+  // retire le bouton, pas autre chose.
+  assert.ok(ids(state({ playing: false })).includes('invite:u1'));
+  assert.ok(ids(state()).includes('invite:u1'), 'absent vaut « ne joue pas »');
+});
+
+test('une invitation deja partie reste annulable pendant la partie', () => {
+  // Elle a pu partir avant le lancement ; la partie ne doit pas la rendre
+  // impossible à reprendre, sinon elle reste en l'air dix minutes.
+  const s = state({ playing: true, pending: { id: 'inv1', toUserId: 'u1' } });
+  assert.ok(ids(s).includes('cancel-invite:inv1'));
+});

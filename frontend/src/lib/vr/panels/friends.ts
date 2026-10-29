@@ -231,6 +231,22 @@ export interface FriendsState {
    * friends store.
    */
   members: ReadonlySet<string>;
+  /**
+   * Ma room joue déjà une partie.
+   *
+   * Ajouté pour un défaut rapporté : « depuis une room VR, inviter un joueur
+   * qui n'est pas en VR ne marche pas ». Rappeler les panneaux en pleine
+   * partie redonnait « Inviter », et l'invitation partait dans la room SOLO
+   * du casque, déjà en `playing`. L'invité acceptait, le serveur l'y asseyait
+   * en joueur 2 et lui envoyait `game:started` : sa page montait un lockstep
+   * face à un casque qui faisait toujours tourner son moteur solo, et
+   * attendait un pair qui ne viendrait jamais.
+   *
+   * La liste d'amis plate n'a jamais eu ce trou - son `groupBusy` retire
+   * « Inviter » tant que la room joue - et ce panneau suit la même règle.
+   * Optionnel, absent valant « ne joue pas », comme `voice`.
+   */
+  playing?: boolean;
   voice?: FriendsVoice | null;
 }
 
@@ -317,6 +333,9 @@ export function layoutFriendsPanel(state: FriendsState): Region[] {
       }
       return;
     }
+    // Pas d'invitation dans une partie en cours : voir `FriendsState.playing`.
+    // Après le `pending`, pour qu'une invitation déjà partie reste annulable.
+    if (state.playing) return;
     if (!row.online) return;
     regions.push({ id: `invite:${row.id}`, ...buttonAt(index, bands) });
   });
