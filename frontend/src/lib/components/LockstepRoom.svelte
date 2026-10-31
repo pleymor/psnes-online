@@ -1651,6 +1651,7 @@
       canReset={isHost}
       emulator={saveAdapter}
       gameCrc32={gameCrc32 ?? null}
+      quickKeyConfigs={[keyConfig]}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}
       on:reset={resetGame}

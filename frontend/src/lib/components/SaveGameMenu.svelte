@@ -35,6 +35,8 @@
   /** Offline: this device's saves, in place of the server's. */
   export let shelf: SaveShelf | null = null;
   export let deviceWrite: DeviceSaveActions['write'] | null = null;
+  /** "Quick save: F2", where the room has that key and this device a keyboard. */
+  export let shortcut: string | null = null;
 
   const dispatch = createEventDispatcher();
 
@@ -95,6 +97,9 @@
   </div>
 
   <p class="hint">{t($language, 'overwriteHint')}</p>
+  {#if shortcut}
+    <p class="hint">{shortcut}</p>
+  {/if}
 
   <SaveGrid
     bind:this={grid}

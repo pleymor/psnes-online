@@ -32,6 +32,8 @@
   /** Offline: this device's saves, in place of the server's. */
   export let shelf: SaveShelf | null = null;
   export let deviceLoad: DeviceSaveActions['load'] | null = null;
+  /** "Quick load: F4", where the room has that key and this device a keyboard. */
+  export let shortcut: string | null = null;
 
   const logger = createLogger('LoadSavesMenu');
   const dispatch = createEventDispatcher();
@@ -100,6 +102,9 @@
 
 <div class="menu">
   <h3>{t($language, 'loadGame')}</h3>
+  {#if shortcut}
+    <p class="shortcut">{shortcut}</p>
+  {/if}
   <SaveGrid
     {gameId}
     {busy}
@@ -122,5 +127,12 @@
     margin: 0 0 1.25rem;
     font-size: 1.25rem;
     color: white;
+  }
+
+  /* The same quiet line as the save menu's hint, pulled up under the title. */
+  .shortcut {
+    margin: -0.75rem 0 1rem;
+    color: #888;
+    font-size: 0.8125rem;
   }
 </style>

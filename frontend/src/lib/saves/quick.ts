@@ -2,6 +2,7 @@ import type { SaveSummary } from './api';
 // Relative, not `$lib`: unit-tested from `core/test`, which runs under plain
 // node and cannot resolve SvelteKit's alias.
 import type { KeyConfig } from '../types';
+import { handheld, type XrCapableNavigator } from '../vr/support';
 
 /**
  * The one save the F2/F4 shortcuts read and write.
@@ -38,3 +39,33 @@ export function padUsesKey(keyConfig: KeyConfig | undefined | null, code: string
 /** The default bindings, named so both rooms and any future settings agree. */
 export const QUICK_SAVE_KEY = 'F2';
 export const QUICK_LOAD_KEY = 'F4';
+
+/** What the pause menu shows beside its two save entries; null hides one. */
+export interface QuickKeyHints {
+	save: string | null;
+	load: string | null;
+}
+
+/**
+ * The quick keys worth telling this player about, read from the same rule the
+ * rooms fire them by.
+ *
+ * `keyConfigs` is every binding the room checks before acting on F2 or F4 -
+ * both players in solo, P1 in lockstep - or null for a room that has no quick
+ * keys at all. A key bound to a pad button stands down there, so it is not
+ * advertised here either: a hint for a shortcut that does nothing is worse
+ * than none.
+ *
+ * Nothing on a phone or a tablet, which has no keyboard to press them on. The
+ * same `handheld` test that keeps the VR button off phones (#106) decides it.
+ * There is no pad shortcut for either action, so there is nothing to show for
+ * one.
+ */
+export function quickKeyHints(
+	keyConfigs: ReadonlyArray<KeyConfig | undefined | null> | null,
+	nav: XrCapableNavigator | undefined
+): QuickKeyHints {
+	if (!keyConfigs || handheld(nav)) return { save: null, load: null };
+	const free = (code: string) => (keyConfigs.some((k) => padUsesKey(k, code)) ? null : code);
+	return { save: free(QUICK_SAVE_KEY), load: free(QUICK_LOAD_KEY) };
+}

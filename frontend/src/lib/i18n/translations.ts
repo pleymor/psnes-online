@@ -460,6 +460,8 @@ export const translations = {
     retry: 'Try again',
     failedToDelete: 'Failed to delete save',
     quickSave: 'Quick Save',
+    quickSaveShortcut: 'Quick save: {key}',
+    quickLoadShortcut: 'Quick load: {key}',
     autoSave: 'Auto Save',
 
     // The two ratings shown in the room, before the match starts.
@@ -1210,6 +1212,8 @@ export const translations = {
     retry: 'Réessayer',
     failedToDelete: 'Échec de la suppression',
     quickSave: 'Sauvegarde rapide',
+    quickSaveShortcut: 'Sauvegarde rapide : {key}',
+    quickLoadShortcut: 'Chargement rapide : {key}',
     autoSave: 'Sauvegarde auto',
 
     // Les deux cotes affichées dans le salon, avant le début de la partie.
