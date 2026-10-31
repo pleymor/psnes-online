@@ -18,6 +18,8 @@
   import type { DisplayOptions } from '$lib/znet';
   import type { ControlsConfig } from '$lib/controls/binding';
   import { SHADERS, VALID_SHADER_IDS } from '$lib/shaders';
+  import { quickKeyHints } from '$lib/saves/quick';
+  import type { XrCapableNavigator } from '$lib/vr/support';
 
   export let roomId: string;
   export let gameId: string;
@@ -95,6 +97,15 @@
   export let deviceSaves: DeviceSaveActions | null = null;
   /** The cartridge, so that a save made online is also kept on this device. */
   export let gameCrc32: string | null = null;
+  /**
+   * The bindings the room checks before firing F2 or F4, or null for a room
+   * without the quick keys.
+   *
+   * Handed down rather than assumed, so the hints beside Load and Save follow
+   * the room's own rule: a key the player bound to their pad does nothing
+   * there, and is not advertised here.
+   */
+  export let quickKeyConfigs: ReadonlyArray<KeyConfig | null | undefined> | null = null;
 
   const dispatch = createEventDispatcher();
 
@@ -102,7 +113,25 @@
     label: string;
     action: () => void;
     danger?: boolean;
+    /** A second, quieter line: the keyboard shortcut for the same thing. */
+    hint?: string;
   }
+
+  /**
+   * "Quick save: F2" and "Quick load: F4", or nothing.
+   *
+   * Nothing on a phone or a tablet, which has no keyboard to press them on.
+   */
+  $: quickKeys = quickKeyHints(
+    quickKeyConfigs,
+    globalThis.navigator as XrCapableNavigator | undefined
+  );
+  $: quickLoadHint = quickKeys.load
+    ? t($language, 'quickLoadShortcut', { key: quickKeys.load })
+    : null;
+  $: quickSaveHint = quickKeys.save
+    ? t($language, 'quickSaveShortcut', { key: quickKeys.save })
+    : null;
 
   /** The translated name of a shader id, using the same list the picker shows. */
   function shaderName(id: string): string {
@@ -310,8 +339,16 @@
      */
     ...(saveFeatures.saves || deviceSaves
       ? [
-          { label: t($language, 'loadGame'), action: () => (showLoadSaves = true) },
-          { label: t($language, 'saveGame'), action: () => (showSaveGame = true) }
+          {
+            label: t($language, 'loadGame'),
+            action: () => (showLoadSaves = true),
+            hint: quickLoadHint ?? undefined
+          },
+          {
+            label: t($language, 'saveGame'),
+            action: () => (showSaveGame = true),
+            hint: quickSaveHint ?? undefined
+          }
         ]
       : []),
     ...(display ? [{ label: t($language, 'video'), action: () => (showVideo = true) }] : []),
@@ -463,6 +500,9 @@
             class:btn-danger={item.danger}
           >
             {item.label}
+            {#if item.hint}
+              <span class="shortcut">{item.hint}</span>
+            {/if}
           </button>
         {/each}
       </div>
@@ -606,6 +646,7 @@
           {gameId}
           shelf={deviceSaves?.shelf ?? null}
           deviceLoad={deviceSaves?.load ?? null}
+          shortcut={quickLoadHint}
           on:notification={handleNotification}
           on:close={handleSaveClose}
         />
@@ -624,6 +665,7 @@
           {gameCrc32}
           shelf={deviceSaves?.shelf ?? null}
           deviceWrite={deviceSaves?.write ?? null}
+          shortcut={quickSaveHint}
           on:notification={handleNotification}
         />
         <button on:click={handleBackFromSubmenu} class="back-button">
@@ -728,6 +770,14 @@
     background: var(--edge);
     color: var(--panel);
     transform: translateX(8px);
+  }
+
+  /* Under the entry's own label, quieter than it: a tip, not a second action. */
+  .shortcut {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.75rem;
+    opacity: 0.7;
   }
 
   .btn-danger {

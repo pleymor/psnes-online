@@ -1171,6 +1171,7 @@
       canReset={true}
       deviceSaves={localSaves}
       {gameCrc32}
+      quickKeyConfigs={[controls.p1.keys, controls.p2.keys]}
       emulator={saveAdapter}
       on:resume={closePauseMenu}
       on:quit={quitToLobby}

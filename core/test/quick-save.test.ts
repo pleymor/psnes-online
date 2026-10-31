@@ -13,7 +13,8 @@ import { toBase64, fromBase64 } from '../../frontend/src/lib/saves/base64.js';
 import {
 	QUICK_SAVE_NAME,
 	findQuickSave,
-	padUsesKey
+	padUsesKey,
+	quickKeyHints
 } from '../../frontend/src/lib/saves/quick.js';
 import type { SaveSummary } from '../../frontend/src/lib/saves/api.js';
 
@@ -99,4 +100,50 @@ test('a key the player bound to their pad is left to the pad', () => {
 test('no config at all means nothing is bound, rather than throwing', () => {
 	assert.equal(padUsesKey(undefined, 'F2'), false);
 	assert.equal(padUsesKey({} as never, 'F2'), false);
+});
+
+/*
+ * The hints beside Load and Save in the pause menu. They follow the rule the
+ * rooms fire the keys by, and stay off devices with no keyboard.
+ */
+const DESKTOP = {
+	userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+};
+const PHONE = {
+	userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36'
+};
+const IPAD_AS_MAC = {
+	userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+	maxTouchPoints: 5
+};
+const arrows = {
+	up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
+	a: 'KeyX', b: 'KeyZ', x: 'KeyS', y: 'KeyA', l: 'KeyQ', r: 'KeyW',
+	start: 'Enter', select: 'ShiftRight'
+};
+
+test('a desktop is shown both quick keys', () => {
+	assert.deepEqual(quickKeyHints([arrows], DESKTOP), { save: 'F2', load: 'F4' });
+});
+
+test('a phone or a tablet is shown neither', () => {
+	assert.deepEqual(quickKeyHints([arrows], PHONE), { save: null, load: null });
+	assert.deepEqual(quickKeyHints([arrows], IPAD_AS_MAC), { save: null, load: null });
+});
+
+test('a room without the quick keys shows neither', () => {
+	assert.deepEqual(quickKeyHints(null, DESKTOP), { save: null, load: null });
+});
+
+test("a key bound to either player's pad is not advertised, the other still is", () => {
+	const p2 = { ...arrows, start: 'F4' };
+	assert.deepEqual(quickKeyHints([arrows, p2], DESKTOP), { save: 'F2', load: null });
+	assert.deepEqual(quickKeyHints([{ ...arrows, select: 'F2' }], DESKTOP), {
+		save: null,
+		load: 'F4'
+	});
+});
+
+test('bindings not loaded yet hide nothing, as the rooms fire the keys then too', () => {
+	assert.deepEqual(quickKeyHints([undefined], DESKTOP), { save: 'F2', load: 'F4' });
 });
